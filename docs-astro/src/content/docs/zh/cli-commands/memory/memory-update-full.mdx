@@ -56,7 +56,7 @@ locale: zh
 
 ## 执行模式
 
-### 小型项目（<15 个模块）
+### 小型项目（&lt;15 个模块）
 - **直接并行执行**
 - 每深度最多 4 个并发
 - 无 Agent 开销
@@ -93,7 +93,7 @@ Bash({command: "cd <target-path> && ccw tool exec get_modules_by_depth '{\"forma
 - **展示过滤后的计划** 包含跳过原因
 - **等待 y/n 确认**
 
-### 阶段 3A：直接执行（<15 个模块）
+### 阶段 3A：直接执行（&lt;15 个模块）
 
 ```javascript
 for (let depth of sorted_depths.reverse()) {  // N → 0
@@ -221,7 +221,7 @@ for (let depth of sorted_depths.reverse()) {  // N → 0
 
 ## 注意事项
 
-- **直接执行** 用于 <15 个模块（更快，无 Agent 开销）
+- **直接执行** 用于 &lt;15 个模块（更快，无 Agent 开销）
 - **Agent 执行** 用于 >=15 个模块（更好的资源利用）
 - **智能过滤** 自动跳过 test/build/config 目录
 - **安全检查** 确保仅 CLAUDE.md 文件被修改
