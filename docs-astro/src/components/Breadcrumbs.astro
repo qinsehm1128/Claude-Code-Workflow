@@ -11,13 +11,9 @@ interface Props {
 const { locale, currentPath } = Astro.props;
 const normalizedPath = normalizePath(currentPath);
 
-const [docs, guides, apiReference] = await Promise.all([
-  getCollection('docs'),
-  getCollection('guides'),
-  getCollection('api-reference'),
-]);
+const docs = await getCollection('docs');
 
-const entries = [...docs, ...guides, ...apiReference].filter((e) => e.data.locale === locale);
+const entries = docs.filter((e) => e.data.locale === locale);
 const tree = buildNavigationTree({
   entries,
   locale,

@@ -28,29 +28,22 @@ const toc = buildTocTree({ headings, minDepth: 2, maxDepth: 4 });
 
 const tocTitle = title ?? (locale === 'zh' ? '本页目录' : 'On this page');
 
-function renderItems(items: TocItem[], level = 0) {
-  return (
-    <ul
-      class:list={[
-        'space-y-1 text-sm',
-        level === 0 ? '' : 'mt-1 ml-2 border-l border-border pl-3',
-      ]}
-    >
-      {items.map((item) => (
-        <li>
-          <a
-            href={`#${item.slug}`}
-            class="toc-link block rounded-md px-2 py-1 -mx-2 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors leading-snug"
-            data-toc-link
-          >
-            {item.text}
-          </a>
-          {item.children.length > 0 && renderItems(item.children, level + 1)}
-        </li>
-      ))}
-    </ul>
-  );
+function escapeHtml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
+
+function renderItems(items: TocItem[], level = 0): string {
+  const ulClass = level === 0
+    ? 'space-y-1 text-sm'
+    : 'space-y-1 text-sm mt-1 ml-2 border-l border-border pl-3';
+  const lis = items.map((item) => {
+    const children = item.children.length > 0 ? renderItems(item.children, level + 1) : '';
+    return `<li><a href="#${escapeHtml(item.slug)}" class="toc-link block rounded-md px-2 py-1 -mx-2 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors leading-snug" data-toc-link>${escapeHtml(item.text)}</a>${children}</li>`;
+  }).join('');
+  return `<ul class="${ulClass}">${lis}</ul>`;
+}
+
+const tocHtml = toc.length > 0 ? renderItems(toc) : '';
 ---
 
 {toc.length > 0 && (
@@ -68,9 +61,9 @@ function renderItems(items: TocItem[], level = 0) {
       data-toc-root
       data-toc-offset={offsetPx}
       data-toc-content={contentSelector}
-    >
-      {renderItems(toc)}
-    </nav>
+      set:html={tocHtml}
+    />
+
   </div>
 )}
 

@@ -30,19 +30,7 @@ const docs = defineCollection({
   schema: docsSchema,
 });
 
-const guides = defineCollection({
-  type: 'content',
-  schema: docsSchema,
-});
-
-const apiReference = defineCollection({
-  type: 'content',
-  schema: docsSchema,
-});
-
 // Export collections
 export const collections = {
   docs,
-  guides,
-  'api-reference': apiReference,
 };

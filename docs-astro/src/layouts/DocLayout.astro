@@ -5,7 +5,7 @@ import Breadcrumbs from '../components/Breadcrumbs.astro';
 import TableOfContents from '../components/TableOfContents.astro';
 
 interface Props {
-  entry: CollectionEntry<'docs'> | CollectionEntry<'guides'> | CollectionEntry<'api-reference'>;
+  entry: CollectionEntry<'docs'>;
   headings?: { depth: number; slug: string; text: string }[];
 }
 

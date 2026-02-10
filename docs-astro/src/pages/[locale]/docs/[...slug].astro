@@ -4,13 +4,9 @@ import DocLayout from '../../../layouts/DocLayout.astro';
 
 export async function getStaticPaths() {
   const docs = await getCollection('docs');
-  const guides = await getCollection('guides');
-  const apiReference = await getCollection('api-reference');
 
   const allEntries = [
     ...docs.map((entry) => ({ ...entry, collection: 'docs' as const })),
-    ...guides.map((entry) => ({ ...entry, collection: 'guides' as const })),
-    ...apiReference.map((entry) => ({ ...entry, collection: 'api-reference' as const })),
   ];
 
   return allEntries.map((entry) => {
@@ -48,7 +44,7 @@ export async function getStaticPaths() {
 }
 
 interface Props {
-  entry: CollectionEntry<'docs'> | CollectionEntry<'guides'> | CollectionEntry<'api-reference'>;
+  entry: CollectionEntry<'docs'>;
 }
 
 const { entry } = Astro.props;
