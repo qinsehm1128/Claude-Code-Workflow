@@ -1,0 +1,147 @@
+---
+title: "/cli:cli-init"
+description: 为工作区初始化 CLI 配置并自动检测技术栈
+category: cli-commands
+order: 1
+locale: zh
+---
+
+# /cli:cli-init
+
+通过分析项目结构并生成优化的配置文件，为工作区初始化 CLI 工具配置。
+
+## 概述
+
+`/cli:cli-init` 命令分析工作区以检测技术栈，并自动为 Gemini 和 Qwen 生成带有优化忽略模式的 CLI 工具配置。
+
+**支持的工具**：gemini, qwen, all（默认）
+
+## 特性
+
+- **自动技术检测** - 分析项目结构以识别技术栈
+- **智能忽略规则** - 生成针对检测到的技术优化的过滤模式
+- **配置生成** - 创建工具专用的设置文件
+- **多工具支持** - 同时配置 Gemini、Qwen 或两者
+
+## 用法
+
+```bash
+# 初始化所有 CLI 工具（Gemini + Qwen）
+/cli:cli-init
+
+# 仅初始化 Gemini
+/cli:cli-init --tool gemini
+
+# 仅初始化 Qwen
+/cli:cli-init --tool qwen
+
+# 预览将要生成的内容
+/cli:cli-init --preview
+
+# 在子目录中生成
+/cli:cli-init --output=.config/
+```
+
+## 生成的文件
+
+### 配置目录
+
+**Gemini** (`.gemini/`)：
+- `.gemini/settings.json` - 上下文文件配置
+
+**Qwen** (`.qwen/`)：
+- `.qwen/settings.json` - 上下文文件配置
+
+### 忽略文件
+
+- `.geminiignore` - Gemini CLI 的文件过滤模式
+- `.qwenignore` - Qwen CLI 的文件过滤模式
+
+两个忽略文件都使用 gitignore 语法，并包含技术栈专用规则。
+
+## 支持的技术栈
+
+### 前端技术
+- **React/Next.js** - 忽略构建产物、.next/、node_modules
+- **Vue/Nuxt** - 忽略 .nuxt/、dist/、.cache/
+- **Angular** - 忽略 dist/、.angular/、node_modules
+- **Webpack/Vite** - 忽略构建输出、缓存目录
+
+### 后端技术
+- **Node.js** - 忽略 node_modules/、npm-debug.log*、package-lock.json
+- **Python** - 忽略 __pycache__/、*.py[cod]、.venv/、venv/
+- **Java** - 忽略 target/、.gradle/、*.class、*.jar
+- **Go** - 忽略 vendor/、*.exe、*.test
+- **Rust** - 忽略 target/、Cargo.lock
+
+### 配置文件
+
+`.gemini/settings.json` 和 `.qwen/settings.json` 均配置为：
+```json
+{
+  "contextfilename": ["CLAUDE.md"]
+}
+```
+
+## 命令选项
+
+| 选项 | 描述 | 默认值 |
+|--------|-------------|---------|
+| `--tool <name>` | 要配置的工具 (gemini, qwen, all) | all |
+| `--output <path>` | 自定义输出目录 | 当前目录 |
+| `--preview` | 显示将要生成的内容而不创建文件 | false |
+
+## 执行流程
+
+1. **工作区分析** - 运行 `get_modules_by_depth` 分析项目结构
+2. **技术检测** - 基于文件和目录识别技术栈
+3. **配置生成** - 创建工具专用的配置目录
+4. **忽略规则生成** - 创建包含检测到的模式的有序忽略文件
+5. **文件创建** - 将所有配置文件写入磁盘
+
+## 示例
+
+### 基本项目设置
+
+```bash
+# 初始化所有 CLI 工具
+/cli:cli-init
+
+# Output:
+# Creating .gemini/ directory
+# Creating .qwen/ directory
+# Generating .geminiignore with 45 rules
+# Generating .qwenignore with 45 rules
+# Technology detected: Node.js, TypeScript, React
+```
+
+### 技术迁移
+
+```bash
+# 在项目中添加 Docker 后
+/cli:cli-init
+
+# 重新生成所有配置和忽略文件，包含新的 Docker 规则
+```
+
+### 特定工具设置
+
+```bash
+# 仅 Gemini 工作流
+/cli:cli-init --tool gemini
+
+# 仅创建 .gemini/ 和 .geminiignore
+```
+
+## 相关命令
+
+- **/cli:codex-review** - 使用 Codex CLI 的代码审查
+- **/memory:update-full** - 全量项目内存更新
+- **/workflow:lite-execute** - 快速执行工作流
+
+## 注意事项
+
+- 覆盖前会备份现有配置文件
+- 从常见指标自动检测技术栈
+- 生成的忽略模式优化 CLI 工具性能
+- 可安全多次运行 - 保留现有配置

@@ -1,0 +1,699 @@
+---
+title: "Workflow Tdd Plan"
+description: "TDD 工作流规划，支持 Red-Green-Refactor 任务链生成、测试先行开发结构、周期追踪和执行后合规验证"
+category: "api"
+locale: "zh"
+order: 15
+---
+
+# Workflow Tdd Plan
+
+TDD 工作流规划，支持 Red-Green-Refactor 任务链生成、测试先行开发结构、周期追踪和执行后合规验证。触发关键词："workflow:tdd-plan"、"workflow:tdd-verify"。
+
+## 概览
+
+| 属性 | 值 |
+|------|-----|
+| **名称** | `workflow-tdd-plan` |
+| **工具** | `Task`, `AskUserQuestion`, `TodoWrite`, `Read`, `Write`, `Edit`, `Bash`, `Glob`, `Grep`, `Skill` |
+
+## 参考
+
+6 阶段 TDD 规划工作流，编排会话发现、上下文收集、测试覆盖分析、冲突解决和 TDD 任务生成，生成包含 Red-Green-Refactor 周期的实现计划。包括执行后 TDD 合规验证。
+
+## 架构概览
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  Workflow TDD Plan Orchestrator (SKILL.md)                       │
+│  → Pure coordinator: Execute phases, parse outputs, pass context │
+└───────────────┬──────────────────────────────────────────────────┘
+                │
+   ┌────────────┼────────────┬────────────┬────────────┐
+   ↓            ↓            ↓            ↓            ↓
+┌────────┐ ┌────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐
+│ Phase 1│ │ Phase 2│ │ Phase 3  │ │ Phase 4  │ │ Phase 5  │
+│Session │ │Context │ │Test Covg │ │Conflict  │ │TDD Task  │
+│Discover│ │Gather  │ │Analysis  │ │Resolve   │ │Generate  │
+│ (ext)  │ │ (ext)  │ │ (local)  │ │(ext,cond)│ │ (local)  │
+└────────┘ └────────┘ └──────────┘ └──────────┘ └──────────┘
+    ↓           ↓           ↓            ↓            ↓
+ sessionId  contextPath  testContext  resolved    IMPL_PLAN.md
+            conflict_risk             artifacts   task JSONs
+
+Phase 6: TDD Structure Validation (inline in SKILL.md)
+
+执行后验证：
+┌──────────────┐     ┌───────────────────┐
+│  TDD Verify  │────→│ Coverage Analysis │
+│  (local)     │     │ (local)           │
+└──────────────┘     └───────────────────┘
+phases/03-tdd-        phases/04-tdd-
+verify.md             coverage-analysis.md
+```
+
+## 核心设计原则
+
+1. **纯编排器**：按序执行阶段，解析输出，在阶段间传递上下文
+2. **自动继续**：所有阶段自主运行，阶段之间无需用户干预
+3. **任务附加模型**：子任务在 TodoWrite 中动态附加/折叠
+4. **渐进式阶段加载**：阶段文档按需读取，不一次性全部加载
+5. **条件执行**：Phase 4 仅在 conflict_risk >= medium 时执行
+6. **TDD 优先**：每个功能都以失败的测试开始（Red 阶段）
+
+**CLI 工具选择**：CLI 工具使用由用户任务描述语义决定。在请求中包含 "use Codex/Gemini/Qwen" 以指定 CLI 执行工具。
+
+**任务附加模型**：
+- Skill 执行时**展开工作流**，将子任务附加到当前 TodoWrite
+- 执行子命令时，其内部任务附加到编排器的 TodoWrite
+- 编排器**按序执行这些附加任务**
+- 完成后，附加任务**折叠**回高级阶段摘要
+- 这是**任务展开**，不是外部委托
+
+**自动继续机制**：
+- TodoList 追踪当前阶段状态，动态管理任务附加/折叠
+- 每个阶段完成后，自动执行下一个待处理阶段
+- 所有阶段自主运行，无需用户交互
+- **持续执行** - 所有阶段完成前不要停止
+
+## 自动模式
+
+当使用 `--yes` 或 `-y` 时：自动继续所有阶段（跳过确认），使用推荐的冲突解决方案，跳过 TDD 澄清问题。
+
+## 使用方法
+
+```
+Skill(skill="workflow-tdd-plan", args="<task description>")
+Skill(skill="workflow-tdd-plan", args="[-y|--yes] \"<task description>\"")
+
+# 标志
+-y, --yes    跳过所有确认（自动模式）
+
+# 参数
+<task description>    任务描述文本、TDD 结构化格式，或 .md 文件路径
+
+# 示例
+Skill(skill="workflow-tdd-plan", args="\"Build user authentication with tests\"")              # 简单 TDD 任务
+Skill(skill="workflow-tdd-plan", args="\"Add JWT auth with email/password and token refresh\"") # 详细任务
+Skill(skill="workflow-tdd-plan", args="-y \"Implement payment processing\"")                    # 自动模式
+Skill(skill="workflow-tdd-plan", args="\"tdd-requirements.md\"")                                # 从文件
+```
+
+## TDD 合规要求
+
+### 铁律
+
+```
+NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST
+```
+
+**执行方法**：
+- Phase 5：`implementation_approach` 包含测试先行步骤（Red → Green → Refactor）
+- Green 阶段：包含 test-fix-cycle 配置（最多 3 次迭代）
+- 自动回退：当达到最大迭代次数但测试未通过时触发
+
+**验证**：Phase 6 验证所有生成任务中的 Red-Green-Refactor 结构
+
+### TDD 合规检查点
+
+| 检查点 | 验证阶段 | 需要的证据 |
+|--------|---------|-----------|
+| 测试先行结构 | Phase 5 | `implementation_approach` 有 3 个步骤 |
+| Red 阶段存在 | Phase 6 | Step 1: `tdd_phase: "red"` |
+| Green 阶段带 test-fix | Phase 6 | Step 2: `tdd_phase: "green"` + test-fix-cycle |
+| Refactor 阶段存在 | Phase 6 | Step 3: `tdd_phase: "refactor"` |
+
+### 核心 TDD 原则
+
+**红旗 - 停下来重新评估**：
+- 在测试之前编写代码
+- 测试立即通过（没有目睹 Red 阶段）
+- 无法解释为什么测试应该失败
+- "就这一次" 的合理化
+- "测试后补能达到同样效果" 的想法
+
+**为什么顺序很重要**：
+- 代码写完后再写的测试会立即通过 → 证明不了什么
+- 测试先行强制在实现前发现边界情况
+- 后补测试验证的是构建了什么，而不是需要什么
+
+## 核心规则
+
+1. **立即开始**：第一个动作是 TodoWrite 初始化，第二个动作是执行 Phase 1
+2. **无预分析**：Phase 1 之前不要读取文件
+3. **解析每个输出**：提取下一阶段所需数据
+4. **通过 TodoList 自动继续**：检查 TodoList 状态，自动执行下一个待处理阶段
+5. **追踪进度**：使用任务附加/折叠模式动态更新 TodoWrite
+6. **TDD 上下文**：所有描述包含 "TDD:" 前缀
+7. **任务附加模型**：Skill 执行**附加**子任务到当前工作流。编排器自己**执行**这些附加任务，然后在完成后**折叠**它们
+8. **关键：不要停止**：持续多阶段工作流。执行完所有附加任务后，立即折叠并执行下一阶段
+
+## 执行流程
+
+```
+输入解析：
+   └─ 将用户输入转换为 TDD 结构化格式（TDD:/GOAL/SCOPE/CONTEXT/TEST_FOCUS）
+
+Phase 1: 会话发现
+   └─ Ref: workflow-plan/phases/01-session-discovery.md (external)
+      └─ Output: sessionId (WFS-xxx)
+
+Phase 2: 上下文收集
+   └─ Ref: workflow-plan/phases/02-context-gathering.md (external)
+      ├─ Tasks attached: Analyze structure → Identify integration → Generate package
+      └─ Output: contextPath + conflict_risk
+
+Phase 3: 测试覆盖分析                    ← ATTACHED (3 tasks)
+   └─ Ref: phases/01-test-context-gather.md
+      ├─ Phase 3.1: 检测测试框架
+      ├─ Phase 3.2: 分析现有测试覆盖
+      └─ Phase 3.3: 识别覆盖缺口
+      └─ Output: test-context-package.json           ← COLLAPSED
+
+Phase 4: 冲突解决（条件）
+   └─ Decision (conflict_risk check):
+      ├─ conflict_risk >= medium → Ref: workflow-plan/phases/03-conflict-resolution.md (external)
+      │   ├─ Tasks attached: Detect conflicts → Present to user → Apply strategies
+      │   └─ Output: Modified brainstorm artifacts     ← COLLAPSED
+      └─ conflict_risk < medium → Skip to Phase 5
+
+Phase 5: TDD 任务生成                       ← ATTACHED (3 tasks)
+   └─ Ref: phases/02-task-generate-tdd.md
+      ├─ Phase 5.1: Discovery - 分析 TDD 需求
+      ├─ Phase 5.2: Planning - 设计 Red-Green-Refactor 周期
+      └─ Phase 5.3: Output - 生成包含内部 TDD 阶段的 IMPL 任务
+      └─ Output: IMPL-*.json, IMPL_PLAN.md           ← COLLAPSED
+
+Phase 6: TDD 结构验证（内联）
+   └─ 内部验证 + 返回摘要
+   └─ 建议：plan-verify（外部）
+
+返回：
+   └─ 摘要及推荐的下一步
+```
+
+### 阶段参考文档
+
+**本地阶段**（阶段执行时按需读取）：
+
+| 阶段 | 文档 | 用途 |
+|------|------|------|
+| Phase 3 | [phases/01-test-context-gather.md](phases/01-test-context-gather.md) | 通过 test-context-search-agent 收集测试覆盖上下文 |
+| Phase 5 | [phases/02-task-generate-tdd.md](phases/02-task-generate-tdd.md) | 通过 action-planning-agent 生成 TDD 任务 JSON |
+
+**外部阶段**（来自 workflow-plan Skill）：
+
+| 阶段 | 文档 | 用途 |
+|------|------|------|
+| Phase 1 | workflow-plan/phases/01-session-discovery.md | 会话创建/发现 |
+| Phase 2 | workflow-plan/phases/02-context-gathering.md | 项目上下文收集 |
+| Phase 4 | workflow-plan/phases/03-conflict-resolution.md | 冲突检测与解决（条件） |
+
+**执行后验证**：
+
+| 阶段 | 文档 | 用途 |
+|------|------|------|
+| TDD Verify | [phases/03-tdd-verify.md](phases/03-tdd-verify.md) | 带质量门的 TDD 合规验证 |
+| Coverage Analysis | [phases/04-tdd-coverage-analysis.md](phases/04-tdd-coverage-analysis.md) | 测试覆盖和周期分析（由 TDD Verify 调用） |
+
+## 6 阶段执行
+
+### Phase 1：会话发现
+
+**步骤 1.1：执行** - 会话发现和初始化
+
+读取并执行：`workflow-plan/phases/01-session-discovery.md`，参数 `--type tdd --auto "TDD: [structured-description]"`
+
+**TDD 结构化格式**：
+```
+TDD: [Feature Name]
+GOAL: [Objective]
+SCOPE: [Included/excluded]
+CONTEXT: [Background]
+TEST_FOCUS: [Test scenarios]
+```
+
+**解析**：提取 sessionId
+
+**TodoWrite**：标记 phase 1 completed，phase 2 in_progress
+
+**Phase 1 之后**：向用户展示 Phase 1 结果，然后自动继续到 Phase 2
+
+---
+
+### Phase 2：上下文收集
+
+**步骤 2.1：执行** - 上下文收集和分析
+
+读取并执行：`workflow-plan/phases/02-context-gathering.md`，参数 `--session [sessionId] "TDD: [structured-description]"`
+
+**使用相同结构化描述**：传递与 Phase 1 相同的结构化格式
+
+**输入**：Phase 1 的 `sessionId`
+
+**解析输出**：
+- 提取：context-package.json 路径（存储为 `contextPath`）
+- 典型模式：`.workflow/active/[sessionId]/.process/context-package.json`
+
+**验证**：
+- 上下文包路径已提取
+- 文件存在且是有效 JSON
+
+**TodoWrite**：标记 phase 2 completed，phase 3 in_progress
+
+**Phase 2 之后**：向用户展示 Phase 2 结果，然后自动继续到 Phase 3
+
+---
+
+### Phase 3：测试覆盖分析
+
+**步骤 3.1：执行** - 测试覆盖分析和框架检测
+
+读取并执行：`phases/01-test-context-gather.md`，参数 `--session [sessionId]`
+
+**目的**：分析现有代码库的：
+- 现有测试模式和约定
+- 当前测试覆盖
+- 相关组件和集成点
+- 测试框架检测
+
+**解析**：提取 testContextPath（`.workflow/active/[sessionId]/.process/test-context-package.json`）
+
+**TodoWrite 更新（Phase 3 - 任务已附加）**：
+```json
+[
+  {"content": "Phase 1: Session Discovery", "status": "completed", "activeForm": "Executing session discovery"},
+  {"content": "Phase 2: Context Gathering", "status": "completed", "activeForm": "Executing context gathering"},
+  {"content": "Phase 3: Test Coverage Analysis", "status": "in_progress", "activeForm": "Executing test coverage analysis"},
+  {"content": "  → Detect test framework and conventions", "status": "in_progress", "activeForm": "Detecting test framework"},
+  {"content": "  → Analyze existing test coverage", "status": "pending", "activeForm": "Analyzing test coverage"},
+  {"content": "  → Identify coverage gaps", "status": "pending", "activeForm": "Identifying coverage gaps"},
+  {"content": "Phase 5: TDD Task Generation", "status": "pending", "activeForm": "Executing TDD task generation"},
+  {"content": "Phase 6: TDD Structure Validation", "status": "pending", "activeForm": "Validating TDD structure"}
+]
+```
+
+**注意**：Skill 执行**附加** test-context-gather 的 3 个任务。编排器**执行**这些任务。
+
+**下一步**：任务已附加 → **按序执行 Phase 3.1-3.3**
+
+**TodoWrite 更新（Phase 3 完成 - 任务已折叠）**：
+```json
+[
+  {"content": "Phase 1: Session Discovery", "status": "completed", "activeForm": "Executing session discovery"},
+  {"content": "Phase 2: Context Gathering", "status": "completed", "activeForm": "Executing context gathering"},
+  {"content": "Phase 3: Test Coverage Analysis", "status": "completed", "activeForm": "Executing test coverage analysis"},
+  {"content": "Phase 5: TDD Task Generation", "status": "pending", "activeForm": "Executing TDD task generation"},
+  {"content": "Phase 6: TDD Structure Validation", "status": "pending", "activeForm": "Validating TDD structure"}
+]
+```
+
+**Phase 3 之后**：向用户展示测试覆盖结果，然后自动继续到 Phase 4/5
+
+---
+
+### Phase 4：冲突解决（可选）
+
+**触发条件**：仅在 context-package.json 指示 conflict_risk 为 "medium" 或 "high" 时执行
+
+**步骤 4.1：执行** - 冲突检测和解决
+
+读取并执行：`workflow-plan/phases/03-conflict-resolution.md`，参数 `--session [sessionId] --context [contextPath]`
+
+**输入**：
+- Phase 1 的 sessionId
+- Phase 2 的 contextPath
+- context-package.json 的 conflict_risk
+
+**解析输出**：
+- 提取：执行状态（success/skipped/failed）
+- 验证：conflict-resolution.json 文件路径（如果执行了）
+
+**跳过行为**：
+- 如果 conflict_risk 为 "none" 或 "low"，直接跳到 Phase 5
+- 显示："No significant conflicts detected, proceeding to TDD task generation"
+
+**内存状态检查**：
+- 评估当前上下文窗口使用量和内存状态
+- 如果内存使用量高（>110K tokens 或接近上下文限制）：
+
+  **步骤 4.5：执行** - 内存压缩（外部 skill：compact）
+
+  - 在继续 Phase 5 之前优化内存
+- 分析阶段后的内存压缩尤为重要，因为可能生成大量文档
+
+---
+
+### Phase 5：TDD 任务生成
+
+**步骤 5.1：执行** - 通过 action-planning-agent 生成 TDD 任务（使用 Phase 0 用户配置）
+
+读取并执行：`phases/02-task-generate-tdd.md`，参数 `--session [sessionId]`
+
+**注意**：Phase 0 现在包含：
+- 补充材料收集（文件路径或内联内容）
+- 执行方法偏好（Agent/Hybrid/CLI）
+- CLI 工具偏好（Codex/Gemini/Qwen/Auto）
+- 这些偏好传递给 Agent 用于任务生成
+
+**解析**：提取功能数量、任务数量、分配的 CLI 执行 ID
+
+**验证**：
+- IMPL_PLAN.md 存在（包含 TDD 实现任务章节的统一计划）
+- IMPL-*.json 文件存在（每个功能一个，复杂功能使用容器+子任务）
+- TODO_LIST.md 存在，包含内部 TDD 阶段指示器
+- 每个 IMPL 任务包含：
+  - `meta.tdd_workflow: true`
+  - `meta.cli_execution_id: {session_id}-{task_id}`
+  - `meta.cli_execution: { "strategy": "new|resume|fork|merge_fork", ... }`
+  - `flow_control.implementation_approach` 恰好 3 个步骤（red/green/refactor）
+  - Green 阶段包含 test-fix-cycle 配置
+  - `context.focus_paths`：绝对路径或清晰的相对路径
+  - `flow_control.pre_analysis`：包含探索 integration_points 分析
+- IMPL_PLAN.md 在 frontmatter 中包含 workflow_type: "tdd"
+- 任务数 <=18（硬限制合规）
+
+**红旗检测**（非阻塞警告）：
+- 任务数 >18：`Warning: Task count exceeds hard limit - request re-scope`
+- 缺少 cli_execution_id：`Warning: Task lacks CLI execution ID for resume support`
+- 缺少 test-fix-cycle：`Warning: Green phase lacks auto-revert configuration`
+- 泛化任务名：`Warning: Vague task names suggest unclear TDD cycles`
+- 缺少 focus_paths：`Warning: Task lacks clear file scope for implementation`
+
+**操作**：将警告记录到 `.workflow/active/[sessionId]/.process/tdd-warnings.log`（非阻塞）
+
+### Phase 6：TDD 结构验证与行动计划验证（推荐）
+
+**先内部验证，然后推荐外部验证**
+
+**内部验证**：
+1. 每个任务包含完整的 TDD 工作流（内部 Red-Green-Refactor）
+2. 任务结构验证：
+   - 所有 IMPL 任务中 `meta.tdd_workflow: true`
+   - `meta.cli_execution_id` 存在（格式：{session_id}-{task_id}）
+   - `meta.cli_execution` 策略已分配（new/resume/fork/merge_fork）
+   - `flow_control.implementation_approach` 恰好 3 个步骤
+   - 每个步骤有正确的 `tdd_phase`："red"、"green"、"refactor"
+   - `context.focus_paths` 是绝对路径或清晰的相对路径
+   - `flow_control.pre_analysis` 包含探索集成分析
+3. 依赖验证：
+   - 顺序功能：IMPL-N depends_on ["IMPL-(N-1)"]（如需要）
+   - 复杂功能：子任务 IMPL-N.M depends_on ["IMPL-N.(M-1)"]
+   - CLI 执行策略根据依赖图正确分配
+4. Agent 分配：所有 IMPL 任务使用 @code-developer
+5. Test-fix 周期：Green 阶段步骤包含带 max_iterations 的 test-fix-cycle 逻辑
+6. 任务数：总任务 <=18（简单+子任务硬限制）
+7. 用户配置：
+   - 执行方法选择反映在任务结构中
+   - CLI 工具偏好记录在实现指导中（如果选择了 CLI）
+
+**红旗检查清单**（来自 TDD 最佳实践）：
+- [ ] 没有任务跳过 Red 阶段（step 1 中存在 `tdd_phase: "red"`）
+- [ ] Red 阶段引用了测试文件（显式路径，不是占位符）
+- [ ] Green 阶段有配置 `max_iterations` 的 test-fix-cycle
+- [ ] Refactor 阶段有明确的完成标准
+
+**证据收集**（声明完成前）：
+
+```bash
+# Verify session artifacts exist
+ls -la .workflow/active/[sessionId]/{IMPL_PLAN.md,TODO_LIST.md}
+ls -la .workflow/active/[sessionId]/.task/IMPL-*.json
+
+# Count generated artifacts
+echo "IMPL tasks: $(ls .workflow/active/[sessionId]/.task/IMPL-*.json 2>/dev/null | wc -l)"
+
+# Sample task structure verification (first task)
+jq '{id, tdd: .meta.tdd_workflow, cli_id: .meta.cli_execution_id, phases: [.flow_control.implementation_approach[].tdd_phase]}' \
+  "$(ls .workflow/active/[sessionId]/.task/IMPL-*.json | head -1)"
+```
+
+**声明完成前需要的证据**：
+| 证据类型 | 验证方法 | 通过标准 |
+|---------|---------|---------|
+| 文件存在 | `ls -la` artifacts | 所有文件存在 |
+| 任务数 | 计数 IMPL-*.json | 数量与声明匹配（<=18） |
+| TDD 结构 | jq 样本提取 | 显示 red/green/refactor + cli_execution_id |
+| CLI 执行 ID | jq 提取 | 所有任务有 cli_execution_id |
+| 警告日志 | 检查 tdd-warnings.log | 已记录（可能为空） |
+
+**返回摘要**：
+```
+TDD Planning complete for session: [sessionId]
+
+Features analyzed: [N]
+Total tasks: [M] (1 task per simple feature + subtasks for complex features)
+
+Task breakdown:
+- Simple features: [K] tasks (IMPL-1 to IMPL-K)
+- Complex features: [L] features with [P] subtasks
+- Total task count: [M] (within 18-task hard limit)
+
+Structure:
+- IMPL-1: {Feature 1 Name} (Internal: Red → Green → Refactor)
+- IMPL-2: {Feature 2 Name} (Internal: Red → Green → Refactor)
+- IMPL-3: {Complex Feature} (Container)
+  - IMPL-3.1: {Sub-feature A} (Internal: Red → Green → Refactor)
+  - IMPL-3.2: {Sub-feature B} (Internal: Red → Green → Refactor)
+[...]
+
+Plans generated:
+- Unified Implementation Plan: .workflow/active/[sessionId]/IMPL_PLAN.md
+  (includes TDD Implementation Tasks section with workflow_type: "tdd")
+- Task List: .workflow/active/[sessionId]/TODO_LIST.md
+  (with internal TDD phase indicators and CLI execution strategies)
+- Task JSONs: .workflow/active/[sessionId]/.task/IMPL-*.json
+  (with cli_execution_id and execution strategies for resume support)
+
+TDD Configuration:
+- Each task contains complete Red-Green-Refactor cycle
+- Green phase includes test-fix cycle (max 3 iterations)
+- Auto-revert on max iterations reached
+- CLI execution strategies: new/resume/fork/merge_fork based on dependency graph
+
+User Configuration Applied:
+- Execution Method: [agent|hybrid|cli]
+- CLI Tool Preference: [codex|gemini|qwen|auto]
+- Supplementary Materials: [included|none]
+- Task generation follows cli-tools-usage.md guidelines
+
+ACTION REQUIRED: Before execution, ensure you understand WHY each Red phase test is expected to fail.
+   This is crucial for valid TDD - if you don't know why the test fails, you can't verify it tests the right thing.
+
+Recommended Next Steps:
+1. plan-verify (external) --session [sessionId]  # Verify TDD plan quality and dependencies
+2. workflow:execute (external) --session [sessionId]  # Start TDD execution with CLI strategies
+3. phases/03-tdd-verify.md [sessionId]  # Post-execution TDD compliance check
+
+Quality Gate: Consider running plan-verify to validate TDD task structure, dependencies, and CLI execution strategies
+```
+
+## 输入处理
+
+将用户输入转换为 TDD 结构化格式：
+
+**简单文本** → 添加 TDD 上下文
+**详细文本** → 提取组件，添加 TEST_FOCUS
+**文件/Issue** → 读取并结构化为 TDD 格式
+
+## 数据流
+
+```
+用户输入（任务描述）
+    ↓
+[转换为 TDD 结构化格式]
+    ↓ TDD Structured Description:
+    ↓   TDD: [Feature Name]
+    ↓   GOAL: [objective]
+    ↓   SCOPE: [boundaries]
+    ↓   CONTEXT: [background]
+    ↓   TEST_FOCUS: [test scenarios]
+    ↓
+Phase 1: session:start --type tdd --auto "TDD: structured-description"
+    ↓ Output: sessionId
+    ↓
+Phase 2: context-gather --session sessionId "TDD: structured-description"
+    ↓ Output: contextPath + conflict_risk
+    ↓
+Phase 3: test-context-gather --session sessionId
+    ↓ Output: testContextPath (test-context-package.json)
+    ↓
+Phase 4: conflict-resolution [AUTO-TRIGGERED if conflict_risk >= medium]
+    ↓ Output: Modified brainstorm artifacts
+    ↓ Skip if conflict_risk is none/low → proceed directly to Phase 5
+    ↓
+Phase 5: task-generate-tdd --session sessionId
+    ↓ Output: IMPL_PLAN.md, task JSONs, TODO_LIST.md
+    ↓
+Phase 6: Internal validation + summary
+    ↓
+Return summary to user
+```
+
+## TodoWrite 模式
+
+**核心概念**：动态任务附加和折叠，用于 TDD 工作流的测试覆盖分析和 Red-Green-Refactor 周期生成。
+
+### 关键原则
+
+1. **任务附加**（Skill 执行时）：
+   - 子命令的内部任务**附加**到编排器的 TodoWrite
+   - 第一个附加任务标记为 `in_progress`，其余为 `pending`
+   - 编排器自己**按序执行**这些附加任务
+
+2. **任务折叠**（子任务完成后）：
+   - 从 TodoWrite 中移除详细子任务
+   - **折叠**为高级阶段摘要
+   - 保持清晰的编排器级视图
+
+3. **持续执行**：
+   - 折叠后，自动进入下一个待处理阶段
+   - 阶段间无需用户干预
+   - TodoWrite 动态反映当前执行状态
+
+**生命周期摘要**：初始待处理任务 → 阶段执行（任务附加）→ 子任务按序执行 → 阶段完成（任务折叠为摘要）→ 下一阶段开始（如果 conflict_risk >= medium 则条件 Phase 4）→ 重复直到所有阶段完成。
+
+### TDD 特定功能
+
+- **Phase 3**：测试覆盖分析检测现有模式和缺口
+- **Phase 5**：生成的 IMPL 任务包含内部 Red-Green-Refactor 周期
+- **条件 Phase 4**：仅在 conflict_risk >= medium 时进行冲突解决
+
+**注意**：详细 TodoWrite 更新示例（含完整 JSON 结构）见各 Phase 描述（Phase 3、4、5）。
+
+## 执行流程图
+
+```
+TDD Workflow Orchestrator
+│
+├─ Phase 1: Session Discovery
+│  └─ workflow-plan/phases/01-session-discovery.md --auto
+│     └─ Returns: sessionId
+│
+├─ Phase 2: Context Gathering
+│  └─ workflow-plan/phases/02-context-gathering.md
+│     └─ Returns: context-package.json path
+│
+├─ Phase 3: Test Coverage Analysis                    ← ATTACHED (3 tasks)
+│  └─ phases/01-test-context-gather.md
+│     ├─ Phase 3.1: Detect test framework
+│     ├─ Phase 3.2: Analyze existing test coverage
+│     └─ Phase 3.3: Identify coverage gaps
+│     └─ Returns: test-context-package.json           ← COLLAPSED
+│
+├─ Phase 4: Conflict Resolution (conditional)
+│  IF conflict_risk >= medium:
+│  └─ workflow-plan/phases/03-conflict-resolution.md   ← ATTACHED (3 tasks)
+│     ├─ Phase 4.1: Detect conflicts with CLI
+│     ├─ Phase 4.2: Log and analyze detected conflicts
+│     └─ Phase 4.3: Apply resolution strategies
+│     └─ Returns: conflict-resolution.json            ← COLLAPSED
+│  ELSE:
+│  └─ Skip to Phase 5
+│
+├─ Phase 5: TDD Task Generation                       ← ATTACHED (3 tasks)
+│  └─ phases/02-task-generate-tdd.md
+│     ├─ Phase 5.1: Discovery - analyze TDD requirements
+│     ├─ Phase 5.2: Planning - design Red-Green-Refactor cycles
+│     └─ Phase 5.3: Output - generate IMPL tasks with internal TDD phases
+│     └─ Returns: IMPL-*.json, IMPL_PLAN.md           ← COLLAPSED
+│        (Each IMPL task contains internal Red-Green-Refactor cycle)
+│
+└─ Phase 6: TDD Structure Validation
+   └─ Internal validation + summary returned
+   └─ Recommend: plan-verify (external)
+
+Key Points:
+• ← ATTACHED: Sub-tasks attached to orchestrator TodoWrite
+• ← COLLAPSED: Sub-tasks executed and collapsed to phase summary
+• TDD-specific: Each generated IMPL task contains complete Red-Green-Refactor cycle
+```
+
+## 错误处理
+
+- **解析失败**：重试一次，然后报告
+- **验证失败**：报告缺失/无效数据
+- **命令失败**：保持阶段 in_progress，报告错误
+- **TDD 验证失败**：报告不完整的链条或错误的依赖
+
+### TDD 警告模式
+
+| 模式 | 警告消息 | 推荐操作 |
+|------|---------|---------|
+| 任务数 >10 | 检测到高任务数 | 考虑拆分为多个会话 |
+| 缺少 test-fix-cycle | Green 阶段缺少自动回退 | 在任务配置中添加 `max_iterations: 3` |
+| Red 阶段缺少测试路径 | 未指定测试文件路径 | 添加显式测试文件路径 |
+| 泛化任务名 | 模糊名称如 "Add feature" | 使用具体行为描述 |
+| 无 refactor 标准 | Refactor 阶段缺少完成标准 | 定义明确的重构范围 |
+
+### 非阻塞警告策略
+
+**所有警告都是建议性的** - 不会停止执行：
+1. 警告记录到 `.process/tdd-warnings.log`
+2. 摘要在 Phase 6 输出中显示
+3. 由用户决定是否在执行前处理
+
+### 错误处理快速参考
+
+| 错误类型 | 检测 | 恢复操作 |
+|---------|------|---------|
+| 解析失败 | 空/格式错误的输出 | 重试一次，然后报告 |
+| 缺少 context-package | 文件读取错误 | 重新运行 context-gather (workflow-plan/phases/02-context-gathering.md) |
+| 无效任务 JSON | jq 解析错误 | 报告格式错误的文件路径 |
+| 任务数超过 18 | 计数验证 >=19 | 请求重新确定范围，拆分为多个会话 |
+| 缺少 cli_execution_id | 所有任务缺少 ID | 使用 phase 0 用户配置重新生成任务 |
+| 缺少 Test-context | 文件未找到 | 重新运行 phases/01-test-context-gather.md |
+| 阶段超时 | 无响应 | 重试阶段，检查 CLI 连接 |
+| CLI 工具不可用 | 工具不在 cli-tools.json 中 | 降级到备选工具 |
+
+## 执行后：TDD 验证
+
+TDD 任务执行完成后（通过 workflow:execute），运行 TDD 合规验证：
+
+读取并执行：`phases/03-tdd-verify.md`，参数 `--session [sessionId]`
+
+这会生成包含质量门推荐的全面 TDD_COMPLIANCE_REPORT.md。
+
+## 相关 Skills
+
+**前置条件**：
+- 无 - TDD 规划是自包含的（可选在之前运行 brainstorm）
+
+**本 Skill 调用的（6 个阶段）**：
+- workflow-plan/phases/01-session-discovery.md - Phase 1：创建或发现 TDD 工作流会话
+- workflow-plan/phases/02-context-gathering.md - Phase 2：收集项目上下文和分析代码库
+- phases/01-test-context-gather.md - Phase 3：分析现有测试模式和覆盖
+- workflow-plan/phases/03-conflict-resolution.md - Phase 4：检测和解决冲突（条件）
+- compact（外部 skill）- Phase 4.5：内存优化（如果上下文接近限制）
+- phases/02-task-generate-tdd.md - Phase 5：生成 TDD 任务
+
+**后续步骤**：
+- plan-verify（外部）- 推荐：执行前验证 TDD 计划质量和结构
+- workflow:status（外部）- 查看 TDD 任务分解
+- workflow:execute（外部）- 开始 TDD 实现
+- phases/03-tdd-verify.md - 执行后：验证 TDD 合规并生成质量报告
+
+## 下一步决策表
+
+| 场景 | 推荐操作 | 目的 |
+|------|---------|------|
+| 首次规划 | 运行 plan-verify（外部） | 执行前验证任务结构 |
+| tdd-warnings.log 中有警告 | 查看日志，优化任务 | 继续前处理红旗 |
+| 高任务数警告 | 考虑新会话 | 拆分为聚焦的子会话 |
+| 准备好实现 | 运行 workflow:execute（外部） | 开始 TDD Red-Green-Refactor 周期 |
+| 实现之后 | 运行 phases/03-tdd-verify.md | 生成 TDD 合规报告 |
+| 需要查看任务 | 运行 workflow:status（外部） | 检查当前任务分解 |
+
+### TDD 工作流状态转换
+
+```
+workflow-tdd-plan (this skill)
+        ↓
+[Planning Complete] ──→ plan-verify (external, recommended)
+        ↓
+[Verified/Ready] ─────→ workflow:execute (external)
+        ↓
+[Implementation] ─────→ phases/03-tdd-verify.md (post-execution)
+        ↓
+[Quality Report] ─────→ Done or iterate
+```

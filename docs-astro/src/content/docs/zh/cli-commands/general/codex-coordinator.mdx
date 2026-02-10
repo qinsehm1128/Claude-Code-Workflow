@@ -1,0 +1,296 @@
+---
+title: /codex-coordinator
+description: Codex 工作流的命令编排工具
+category: cli-commands
+order: 7
+locale: zh
+---
+
+# /codex-coordinator
+
+Codex 的命令编排工具 - 分析需求、推荐命令链，并按顺序执行，同时支持状态持久化。
+
+## 概述
+
+`/codex-coordinator` 命令是 CCW 协调器的 Codex 等价物，为 Codex 特定的工作流提供智能编排。
+
+**参数**：
+- `TASK="<task description>"`：要编排的任务（必填）
+- `--depth=<standard|deep>`：分析深度（默认：standard）
+- `--auto-confirm`：跳过用户确认
+- `--verbose`：启用详细输出
+
+**执行模型**：智能 Agent 驱动工作流 - Claude 分析每个阶段并编排命令执行。
+
+## 核心概念：最小执行单元
+
+**定义**：必须作为原子组一起执行的命令，以实现有意义的工作流里程碑。
+
+### 可用的 Codex 命令
+
+| 类别 | 命令 | 用途 |
+|----------|----------|---------|
+| **规划** | lite-plan-a, lite-plan-b, plan-a, plan-b | 多种规划方式 |
+| **执行** | execute, execute-a, execute-b | 实现工作流 |
+| **分析** | analyze-a, analyze-b | 代码分析 |
+| **测试** | test-a, test-b | 测试生成 |
+| **头脑风暴** | brainstorm-a, brainstorm-with-file, brainstorm-to-cycle | 创意探索 |
+| **清理** | clean, compact | 代码清理和内存压缩 |
+
+## 用法
+
+```bash
+# 基本用法
+/codex-coordinator TASK="Implement user authentication"
+
+# 深度分析
+/codex-coordinator TASK="Design notification system" --depth=deep
+
+# 自动确认
+/codex-coordinator TASK="Fix typo in config" --auto-confirm
+
+# 详细输出
+/codex-coordinator TASK="Add API endpoint" --verbose
+```
+
+## 执行流程
+
+### 阶段 1：分析需求
+
+```javascript
+async function analyzeRequirements(taskDescription) {
+  const analysis = {
+    goal: extractGoal(taskDescription),
+    scope: determineScope(taskDescription),
+    complexity: calculateComplexity(taskDescription),
+    task_type: classifyTask(taskDescription),
+    constraints: identifyConstraints(taskDescription)
+  };
+  return analysis;
+}
+```
+
+**输出**：
+- 目标：主要目标
+- 范围：受影响的模块
+- 复杂度：simple/medium/complex
+- 任务类型：feature/bugfix/refactor
+- 约束条件：依赖、需求
+
+### 阶段 2：推荐命令链
+
+```javascript
+async function recommendCommandChain(analysis) {
+  const { inputPort, outputPort } = determinePortFlow(analysis.task_type, analysis.complexity);
+  const chain = selectChainByTaskType(analysis);
+  return chain;
+}
+```
+
+**输出**：
+- 推荐的命令序列
+- 执行参数
+- 预期产物
+- 估计复杂度
+
+### 阶段 3：用户确认
+
+```javascript
+async function getUserConfirmation(chain) {
+  const response = await AskUserQuestion({
+    questions: [{
+      question: 'Proceed with this command chain?',
+      header: 'Confirm Chain',
+      options: [
+        { label: 'Confirm and execute', description: 'Proceed with commands' },
+        { label: 'Show details', description: 'View each command' },
+        { label: 'Adjust chain', description: 'Remove or reorder' },
+        { label: 'Cancel', description: 'Abort' }
+      ]
+    }]
+  });
+  return response;
+}
+```
+
+### 阶段 4：顺序执行命令链
+
+```javascript
+async function executeCommandChain(chain, analysis) {
+  const sessionId = `codex-coord-${Date.now()}`;
+  const state = {
+    session_id: sessionId,
+    status: 'running',
+    analysis: analysis,
+    command_chain: chain.map((cmd, idx) => ({ ...cmd, index: idx, status: 'pending' })),
+    execution_results: []
+  };
+
+  // Save initial state
+  Write(`.workflow/.codex-coordinator/${sessionId}/state.json`, JSON.stringify(state, null, 2));
+
+  for (let i = 0; i < chain.length; i++) {
+    const cmd = chain[i];
+
+    // Build command string
+    let commandStr = `@~/.codex/prompts/${cmd.name}.md`;
+
+    // Add parameters
+    if (i > 0 && state.execution_results.length > 0) {
+      const lastResult = state.execution_results[state.execution_results.length - 1];
+      commandStr += ` --resume="${lastResult.session_id || lastResult.artifact}"`;
+    }
+
+    // Add depth for complex tasks
+    if (analysis.complexity === 'complex' && (cmd.name.includes('analyze') || cmd.name.includes('plan'))) {
+      commandStr += ` --depth=deep`;
+    }
+
+    // Add task description for planning commands
+    if (cmd.type === 'planning' && i === 0) {
+      commandStr += ` TASK="${analysis.goal}"`;
+    }
+
+    // Execute command
+    console.log(`Executing: ${commandStr}`);
+    state.execution_results.push({
+      index: i,
+      command: cmd.name,
+      status: 'in-progress',
+      started_at: new Date().toISOString()
+    });
+
+    state.command_chain[i].status = 'completed';
+    state.updated_at = new Date().toISOString();
+    Write(`.workflow/.codex-coordinator/${sessionId}/state.json`, JSON.stringify(state, null, 2));
+  }
+
+  return state;
+}
+```
+
+## 命令调用格式
+
+**格式**：`@~/.codex/prompts/<command-name>.md <parameters>`
+
+### 示例
+
+```bash
+# Planning command
+@~/.codex/prompts/plan-a.md TASK="Implement OAuth2"
+
+# Execution with resume
+@~/.codex/prompts/execute-a.md --resume="session-id"
+
+# Analysis with depth
+@~/.codex/prompts/analyze-a.md --depth=deep
+```
+
+## 可用的 Codex 工作流
+
+### 规划工作流
+
+| 命令 | 用途 | 输出 |
+|---------|---------|--------|
+| **lite-plan-a** | 轻量规划 A | 快速计划 |
+| **lite-plan-b** | 轻量规划 B | 替代快速计划 |
+| **plan-a** | 标准规划 A | 详细计划 |
+| **plan-b** | 标准规划 B | 替代详细计划 |
+
+### 执行工作流
+
+| 命令 | 用途 | 输出 |
+|---------|---------|--------|
+| **execute** | 标准执行 | 实现的代码 |
+| **execute-a** | 执行变体 A | 实现 A |
+| **execute-b** | 执行变体 B | 实现 B |
+
+### 分析工作流
+
+| 命令 | 用途 | 输出 |
+|---------|---------|--------|
+| **analyze-a** | 代码分析 A | 分析报告 |
+| **analyze-b** | 代码分析 B | 替代分析 |
+
+### 测试工作流
+
+| 命令 | 用途 | 输出 |
+|---------|---------|--------|
+| **test-a** | 测试生成 A | 测试套件 A |
+| **test-b** | 测试生成 B | 测试套件 B |
+
+### 头脑风暴工作流
+
+| 命令 | 用途 | 输出 |
+|---------|---------|--------|
+| **brainstorm-a** | 头脑风暴 A | 创意 A |
+| **brainstorm-with-file** | 文档化头脑风暴 | brainstorm.md |
+| **brainstorm-to-cycle** | 头脑风暴转循环 | 可执行循环 |
+
+### 清理工作流
+
+| 命令 | 用途 | 输出 |
+|---------|---------|--------|
+| **clean** | 代码清理 | 清理后的代码 |
+| **compact** | 内存压缩 | 压缩后的状态 |
+
+## 示例
+
+### 简单功能
+
+```bash
+/codex-coordinator TASK="Add user profile page" --auto-confirm
+
+# Output:
+# Analyzing: "Add user profile page"
+# Complexity: Low
+# Recommended: lite-plan-a → execute
+# Executing: @~/.codex/prompts/lite-plan-a.md TASK="Add user profile page"
+# Executing: @~/.codex/prompts/execute.md
+# ✅ Complete! Session: codex-coord-1738425600000
+```
+
+### 复杂功能
+
+```bash
+/codex-coordinator TASK="Refactor authentication system" --depth=deep
+
+# Output:
+# Analyzing: "Refactor authentication system"
+# Complexity: High
+# Recommended: plan-a → execute → test-a
+# Executing: @~/.codex/prompts/plan-a.md --depth=deep
+# Executing: @~/.codex/prompts/execute.md
+# Executing: @~/.codex/prompts/test-a.md
+# ✅ Complete! Session: codex-coord-1738425600000
+```
+
+## 会话管理
+
+### 恢复之前的会话
+
+```bash
+# Find session
+ls .workflow/.codex-coordinator/
+
+# Load state
+cat .workflow/.codex-coordinator/{session-id}/state.json
+
+# Resume from last completed command
+# (Manual continuation based on state)
+```
+
+## 相关命令
+
+- **/ccw-coordinator** - CCW 工作流协调器
+- **@~/.codex/prompts/** - 单独的 Codex 命令
+- **/ccw** - 主 CCW 工作流协调器
+
+## 注意事项
+
+- **Agent 驱动** 工作流 - Claude 智能编排
+- **状态持久化** 存储在 `.workflow/.codex-coordinator/`
+- **命令链接** 带参数传递
+- **恢复支持** 从状态文件恢复
+- **深度控制** 控制分析复杂度
+- **自动确认** 用于非交互式使用

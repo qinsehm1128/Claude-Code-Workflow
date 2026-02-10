@@ -1,0 +1,229 @@
+---
+title: "/memory:update-full"
+description: 使用批量 Agent 执行更新所有项目模块的 CLAUDE.md
+category: cli-commands
+order: 1
+locale: zh
+---
+
+# /memory:update-full
+
+使用批量 Agent 执行和自动工具降级为所有项目模块编排全面的 CLAUDE.md 更新。
+
+## 概述
+
+`/memory:update-full` 命令使用智能批处理和自动工具降级 (gemini→qwen→codex) 更新所有项目模块的 CLAUDE.md 文档。
+
+**参数**：
+- `--tool <gemini|qwen|codex>`：主要工具（默认：gemini）
+- `--path <directory>`：目标目录（默认：项目根目录）
+
+**执行流程**：
+1. 模块检测 → 2. 计划展示 → 3. 批量执行 → 4. 安全验证
+
+## 特性
+
+- **全量项目覆盖** - 更新项目中所有模块
+- **智能批处理** - 按深度分组模块（4 个模块/批）
+- **自动降级** - gemini→qwen→codex 失败时自动降级
+- **深度顺序** - 处理深度 N→0，深度内批次并行
+- **智能过滤** - 自动检测并跳过 tests/build/config/docs
+
+## 用法
+
+```bash
+# 全量项目更新（自动策略选择）
+/memory:update-full
+
+# 指定目标目录
+/memory:update-full --path .claude
+/memory:update-full --path src/features/auth
+
+# 使用特定工具
+/memory:update-full --tool qwen
+/memory:update-full --path .claude --tool qwen
+```
+
+## 工具降级层次
+
+```javascript
+--tool gemini  →  [gemini, qwen, codex]  // default
+--tool qwen    →  [qwen, gemini, codex]
+--tool codex   →  [codex, gemini, qwen]
+```
+
+**触发条件**：更新脚本返回非零退出码
+
+## 执行模式
+
+### 小型项目（<15 个模块）
+- **直接并行执行**
+- 每深度最多 4 个并发
+- 无 Agent 开销
+- 更快执行
+
+### 大型项目（>=15 个模块）
+- **Agent 批处理**
+- 4 个模块/Agent
+- 减少 73% 开销
+- 更好的资源利用
+
+## 执行流程
+
+### 阶段 1：模块检测与分析
+
+```javascript
+// Get module structure
+Bash({command: "ccw tool exec get_modules_by_depth '{\"format\":\"list\"}'", run_in_background: false});
+
+// OR with --path
+Bash({command: "cd <target-path> && ccw tool exec get_modules_by_depth '{\"format\":\"list\"}'", run_in_background: false});
+```
+
+**解析输出** `depth:N|path:<PATH>|...` 以提取模块路径和数量。
+
+**智能过滤**：基于项目技术栈自动检测并跳过 tests/build/config/docs。
+
+### 阶段 2：计划展示
+
+- 解析 `--tool`（默认：gemini）
+- 从工作区获取模块结构
+- **智能过滤模块**（自动检测技术栈，跳过 tests/build/config/docs）
+- 构建工具降级顺序
+- **展示过滤后的计划** 包含跳过原因
+- **等待 y/n 确认**
+
+### 阶段 3A：直接执行（<15 个模块）
+
+```javascript
+for (let depth of sorted_depths.reverse()) {  // N → 0
+  let modules = modules_by_depth[depth];
+  let batches = batch_modules(modules, 4);
+
+  for (let batch of batches) {
+    let parallel_tasks = batch.map(module => {
+      return async () => {
+        let strategy = module.depth >= 3 ? "multi-layer" : "single-layer";
+        for (let tool of tool_order) {
+          Bash({
+            command: `cd ${module.path} && ccw tool exec update_module_claude '{"strategy":"${strategy}","path":".","tool":"${tool}"}'`,
+            run_in_background: false
+          });
+          if (bash_result.exit_code === 0) {
+            report(`✅ ${module.path} updated with ${tool}`);
+            return true;
+          }
+        }
+        report(`❌ FAILED: ${module.path} failed all tools`);
+        return false;
+      };
+    });
+    await Promise.all(parallel_tasks.map(task => task()));
+  }
+}
+```
+
+### 阶段 3B：Agent 执行（>=15 个模块）
+
+```javascript
+let modules_by_depth = group_by_depth(all_modules);
+let tool_order = construct_tool_order(primary_tool);
+
+for (let depth of sorted_depths.reverse()) {  // N → 0
+  let batches = batch_modules(modules_by_depth[depth], 4);
+  let worker_tasks = [];
+
+  for (let batch of batches) {
+    worker_tasks.push(
+      Task(
+        subagent_type="memory-bridge",
+        description=`Update ${batch.length} modules at depth ${depth}`,
+        prompt=generate_batch_worker_prompt(batch, tool_order, "full")
+      )
+    );
+  }
+
+  await parallel_execute(worker_tasks);  // Batches run in parallel
+}
+```
+
+### 阶段 4：安全验证
+
+- 验证仅 CLAUDE.md 文件被修改
+- 显示 git diff 统计
+- 展示更新摘要
+
+## 策略选择
+
+| 模块深度 | 策略 | 描述 |
+|--------------|----------|-------------|
+| 深度 < 3 | single-layer | 仅更新当前模块的 CLAUDE.md |
+| 深度 >= 3 | multi-layer | 更新当前模块及所有父级 CLAUDE.md 文件 |
+
+## 与关联更新的对比
+
+| 方面 | 全量更新 | 关联更新 |
+|--------|-------------|----------------|
+| **范围** | 所有项目模块 | 仅变更模块 |
+| **速度** | 较慢（10-30 分钟） | 快（分钟级） |
+| **使用场景** | 大规模重构 | 日常开发 |
+| **模式** | `"full"` | `"related"` |
+| **触发时机** | 重大变更后 | 提交后 |
+| **批处理** | 4 模块/Agent | 4 模块/Agent |
+| **降级** | gemini→qwen→codex | gemini→qwen→codex |
+| **复杂度阈值** | <=20 个模块 | <=15 个模块 |
+
+## 示例
+
+### 基本用法
+
+```bash
+# 全量项目更新
+/memory:update-full
+
+# Output:
+# Analyzing workspace...
+# Found 45 modules across 8 depth levels
+# Filtered: 12 test/build/config modules skipped
+# Plan: Update 33 modules with gemini→qwen→codex fallback
+# Confirm? (y/n): y
+#
+# Depth 7: [4/4] ✅
+# Depth 6: [8/8] ✅
+# ...
+# Summary: 33/33 modules updated
+# Safety check: Only CLAUDE.md modified ✅
+```
+
+### 特定目录更新
+
+```bash
+# 更新特定功能目录
+/memory:update-full --path src/features/auth
+
+# 仅更新 src/features/auth 内的模块
+```
+
+### 工具选择
+
+```bash
+# 使用 Qwen 进行更快的更新
+/memory:update-full --tool qwen
+
+# 尝试 qwen → gemini → codex
+```
+
+## 相关命令
+
+- **/memory:update-related** - 仅更新变更模块
+- **/memory:load** - 将项目上下文加载到内存
+- **/memory:compact** - 压缩会话内存
+
+## 注意事项
+
+- **直接执行** 用于 <15 个模块（更快，无 Agent 开销）
+- **Agent 执行** 用于 >=15 个模块（更好的资源利用）
+- **智能过滤** 自动跳过 test/build/config 目录
+- **安全检查** 确保仅 CLAUDE.md 文件被修改
+- **Git diff 统计** 提供变更摘要
+- **自动备份** 更新前备份现有文件

@@ -1,0 +1,238 @@
+---
+title: /ccw
+description: CCW 主工作流协调器，用于智能命令编排
+category: cli-commands
+order: 1
+locale: zh
+---
+
+# /ccw
+
+CCW 主工作流协调器 - 基于任务复杂度分析的智能命令编排统一入口。
+
+## 概述
+
+`/ccw` 命令是 CCW 主工作流协调器，能够自动分析任务需求、评估复杂度，并选择适当的工作流级别和执行路径。
+
+**核心概念**：最小执行单元 - 将命令分组为逻辑单元，以完成完整的工作流里程碑。
+
+## 特性
+
+- **自动复杂度分析** - 基于关键词和上下文评估任务
+- **工作流选择** - 自动选择最优工作流级别 (1-5)
+- **基于单元的编排** - 将命令分组为最小执行单元
+- **状态持久化** - 在 `.workflow/.ccw-coordinator/` 中跟踪执行状态
+- **智能路由** - 直接执行 vs CLI 执行
+
+## 用法
+
+```bash
+# 让 CCW 分析并选择工作流
+/ccw "Implement user authentication"
+
+# 显式指定工作流
+/ccw --workflow rapid "Add logout endpoint"
+
+# 跳过测试
+/ccw --skip-tests "Quick config fix"
+
+# 自动确认（跳过确认提示）
+/ccw --yes "Simple bug fix"
+```
+
+## 命令选项
+
+| 选项 | 描述 | 默认值 |
+|--------|-------------|---------|
+| `[task description]` | 要执行的任务（必填） | - |
+| `--workflow <name>` | 显式指定工作流 | 自动检测 |
+| `--skip-tests` | 跳过测试验证单元 | false |
+| `--yes` | 自动确认执行 | false |
+
+## 工作流级别
+
+协调器自动从 5 个工作流级别中选择：
+
+### 级别 1：快速执行
+**复杂度**：低 | **产物**：无 | **状态**：无状态
+
+| 工作流 | 描述 |
+|----------|-------------|
+| `lite-lite-lite` | 超轻量级直接执行 |
+
+**适用于**：快速修复、简单功能、配置调整
+
+### 级别 2：轻量规划
+**复杂度**：低-中 | **产物**：内存/轻量文件
+
+| 工作流 | 描述 |
+|----------|-------------|
+| `rapid` | lite-plan → lite-execute（+ 可选测试单元） |
+
+**适用于**：单模块功能、Bug 修复
+
+### 级别 3：标准规划
+**复杂度**：中-高 | **产物**：持久化会话文件
+
+| 工作流 | 描述 |
+|----------|-------------|
+| `coupled` | plan → plan-verify → execute（+ 可选测试单元） |
+| `tdd` | tdd-plan → execute → tdd-verify |
+
+**适用于**：多模块变更、重构、TDD
+
+### 级别 4：头脑风暴
+**复杂度**：高 | **产物**：多角色分析文档
+
+| 工作流 | 描述 |
+|----------|-------------|
+| `brainstorm` | brainstorm:auto-parallel → plan → execute |
+
+**适用于**：新功能设计、架构重构
+
+### 级别 5：智能编排
+**复杂度**：所有级别 | **产物**：完整状态持久化
+
+| 工作流 | 描述 |
+|----------|-------------|
+| `full` | ccw-coordinator（自动分析并推荐） |
+
+**适用于**：复杂的多步骤工作流、不确定的命令
+
+## 执行流程
+
+```
+用户输入: "task description"
+    ↓
+阶段 1: 复杂度分析
+    ├─ 提取关键词
+    ├─ 计算复杂度评分
+    └─ 检测约束条件
+    ↓
+阶段 2: 工作流选择
+    ├─ 将复杂度映射到级别
+    ├─ 选择工作流
+    └─ 构建命令链
+    ↓
+阶段 3: 用户确认
+    ├─ 显示选中的工作流
+    └─ 展示命令链
+    ↓
+阶段 4: 执行命令链
+    ├─ 设置 TODO 跟踪
+    ├─ 按顺序执行命令
+    └─ 跟踪状态
+    ↓
+输出完成摘要
+```
+
+## 复杂度评估
+
+基于关键词自动评估复杂度：
+
+| 权重 | 关键词 |
+|--------|----------|
+| +2 | refactor, migrate, architect, system |
+| +2 | multiple, across, all, entire |
+| +1 | integrate, api, database |
+| +1 | security, performance, scale |
+
+**阈值**：
+- **高复杂度** (>=4)：级别 3-4
+- **中复杂度** (2-3)：级别 2
+- **低复杂度** (<2)：级别 1
+
+## 最小执行单元
+
+| 单元名称 | 命令 | 用途 |
+|-----------|----------|---------|
+| **快速实现** | lite-plan → lite-execute | 轻量规划和执行 |
+| **多 CLI 规划** | multi-cli-plan → lite-execute | 多视角分析 |
+| **Bug 修复** | lite-fix → lite-execute | Bug 诊断和修复 |
+| **验证规划** | plan → plan-verify → execute | 带验证的规划 |
+| **TDD 规划** | tdd-plan → execute | 测试驱动开发 |
+| **测试验证** | test-fix-gen → test-cycle-execute | 测试修复循环 |
+| **代码审查** | review-session-cycle → review-cycle-fix | 审查和修复 |
+
+## 命令链示例
+
+### 快速工作流（级别 2）
+
+```bash
+# 快速实现
+Unit: quick-impl
+Commands:
+  1. /workflow:lite-plan "Add logout endpoint"
+  2. /workflow:lite-execute --in-memory
+
+(Optional) Unit: test-validation
+Commands:
+  3. /workflow:test-fix-gen
+  4. /workflow:test-cycle-execute
+```
+
+### 耦合工作流（级别 3）
+
+```bash
+# 验证规划
+Unit: verified-planning-execution
+Commands:
+  1. /workflow:plan "Implement OAuth2"
+  2. /workflow:plan-verify
+  3. /workflow:execute
+
+(Optional) Unit: test-validation
+Commands:
+  4. /workflow:test-fix-gen
+  5. /workflow:test-cycle-execute
+```
+
+## 示例
+
+### 自动工作流选择
+
+```bash
+# CCW 分析并选择适当的工作流
+/ccw "Add user profile page"
+
+# Output:
+# Analyzing task...
+# Complexity: Low (score: 1)
+# Selected: Level 2 - Rapid Workflow
+# Commands: lite-plan → lite-execute
+# Confirm? (y/n): y
+```
+
+### 显式工作流
+
+```bash
+# 强制使用特定工作流
+/ccw --workflow tdd "Implement authentication with TDD"
+
+# 无论复杂度如何都使用 TDD 工作流
+```
+
+### 跳过测试
+
+```bash
+# 不执行测试的快速修复
+/ccw --skip-tests "Fix typo in config"
+
+# 省略测试验证单元
+```
+
+## 相关命令
+
+- **/ccw-plan** - 规划协调器
+- **/ccw-test** - 测试工作流协调器
+- **/ccw-coordinator** - 通用命令编排
+- **/ccw-debug** - 调试工作流协调器
+
+## 注意事项
+
+- **自动分析** 基于关键词评估任务复杂度
+- **工作流级别** 将复杂度映射到适当的执行路径
+- **最小执行单元** 确保完成完整的工作流里程碑
+- **状态持久化** 存储在 `.workflow/.ccw-coordinator/{session}/`
+- **TODO 跟踪** 使用 CCW 前缀以提高可见性
+- **CLI 执行** 在后台运行，通过 hook 回调通知

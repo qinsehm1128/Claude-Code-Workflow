@@ -1,0 +1,175 @@
+---
+title: "Project Analyze"
+description: "多阶段迭代项目分析，支持 Mermaid 图表"
+category: "api"
+locale: "zh"
+order: 8
+---
+
+# Project Analyze
+
+多阶段迭代项目分析，支持 Mermaid 图表。生成架构报告、设计报告、方法分析报告。适用于分析代码库、理解项目结构、审查架构、探索设计模式或文档化系统组件。触发关键词："analyze project"、"architecture report"、"design analysis"、"code structure"、"system overview"。
+
+## 概览
+
+| 属性 | 值 |
+|------|-----|
+| **名称** | `project-analyze` |
+| **工具** | `Task`, `AskUserQuestion`, `Read`, `Bash`, `Glob`, `Grep`, `Write` |
+
+## 参考
+
+通过多阶段迭代工作流生成全面的项目分析报告。
+
+## 架构概览
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Context-Optimized Architecture                                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Phase 1: Requirements      → analysis-config.json              │
+│           ↓                                                      │
+│  Phase 2: Exploration       → 初步探索，确定范围                  │
+│           ↓                                                      │
+│  Phase 3: Parallel Agents   → sections/section-*.md (直接写MD)   │
+│               ↓ 返回简要JSON                                     │
+│  Phase 3.5: Consolidation   → consolidation-summary.md          │
+│           Agent                 ↓ 返回质量评分+问题列表          │
+│           ↓                                                      │
+│  Phase 4: Assembly          → 合并MD + 质量附录                  │
+│           ↓                                                      │
+│  Phase 5: Refinement        → 最终报告                           │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## 核心设计原则
+
+1. **Agent 直接输出 MD**：避免 JSON → MD 转换的上下文开销
+2. **简要返回**：Agent 只返回路径+摘要，不返回完整内容
+3. **汇总 Agent**：独立 Agent 负责跨章节问题检测和质量评分
+4. **引用合并**：Phase 4 读取文件合并，不在上下文中传递
+5. **段落式描述**：禁止清单罗列，层层递进，客观学术表达
+
+## 执行流程
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Phase 1: 需求发现                                                │
+│  → Read: phases/01-requirements-discovery.md                    │
+│  → 收集: 报告类型、深度级别、范围、关注领域                        │
+│  → Output: analysis-config.json                                 │
+├─────────────────────────────────────────────────────────────────┤
+│  Phase 2: 项目探索                                                │
+│  → Read: phases/02-project-exploration.md                       │
+│  → 启动: 并行探索 Agent                                          │
+│  → Output: Phase 3 的探索上下文                                   │
+├─────────────────────────────────────────────────────────────────┤
+│  Phase 3: 深度分析（并行 Agent）                                   │
+│  → Read: phases/03-deep-analysis.md                             │
+│  → Reference: specs/quality-standards.md                        │
+│  → 每个 Agent: 分析代码 → 直接写 sections/section-*.md          │
+│  → Return: {"status", "output_file", "summary", "cross_notes"}  │
+├─────────────────────────────────────────────────────────────────┤
+│  Phase 3.5: 整合（新增！）                                        │
+│  → Read: phases/03.5-consolidation.md                           │
+│  → Input: Agent 返回的简要信息 + cross_module_notes             │
+│  → Analyze: 一致性/完整性/关联性/质量检查                        │
+│  → Output: consolidation-summary.md                             │
+│  → Return: {"quality_score", "issues", "stats"}                 │
+├─────────────────────────────────────────────────────────────────┤
+│  Phase 4: 报告生成                                                │
+│  → Read: phases/04-report-generation.md                         │
+│  → Check: 如有 errors，提示用户处理                              │
+│  → Merge: Executive Summary + sections/*.md + 质量附录          │
+│  → Output: {TYPE}-REPORT.md                                     │
+├─────────────────────────────────────────────────────────────────┤
+│  Phase 5: 迭代优化                                                │
+│  → Read: phases/05-iterative-refinement.md                      │
+│  → Reference: specs/quality-standards.md                        │
+│  → Loop: 发现问题 → 提问 → 修复 → 重新检查                       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## 报告类型
+
+| 类型 | 输出 | Agent 数 | 关注点 |
+|------|------|---------|--------|
+| `architecture` | ARCHITECTURE-REPORT.md | 5 | 系统结构、模块、依赖 |
+| `design` | DESIGN-REPORT.md | 4 | 模式、类、接口 |
+| `methods` | METHODS-REPORT.md | 4 | 算法、关键路径、API |
+| `comprehensive` | COMPREHENSIVE-REPORT.md | 全部 | 以上所有组合 |
+
+## 按报告类型的 Agent 配置
+
+### 架构报告
+| Agent | 输出文件 | 章节 |
+|-------|---------|------|
+| overview | section-overview.md | 系统概览 |
+| layers | section-layers.md | 层次分析 |
+| dependencies | section-dependencies.md | 模块依赖 |
+| dataflow | section-dataflow.md | 数据流 |
+| entrypoints | section-entrypoints.md | 入口点 |
+
+### 设计报告
+| Agent | 输出文件 | 章节 |
+|-------|---------|------|
+| patterns | section-patterns.md | 设计模式 |
+| classes | section-classes.md | 类关系 |
+| interfaces | section-interfaces.md | 接口契约 |
+| state | section-state.md | 状态管理 |
+
+### 方法报告
+| Agent | 输出文件 | 章节 |
+|-------|---------|------|
+| algorithms | section-algorithms.md | 核心算法 |
+| paths | section-paths.md | 关键代码路径 |
+| apis | section-apis.md | 公共 API 参考 |
+| logic | section-logic.md | 复杂逻辑 |
+
+## 目录设置
+
+```javascript
+// 生成时间戳目录名
+const timestamp = new Date().toISOString().slice(0,19).replace(/[-:T]/g, '');
+const dir = `.workflow/.scratchpad/analyze-${timestamp}`;
+
+// Windows (cmd)
+Bash(`mkdir "${dir}\\sections"`);
+Bash(`mkdir "${dir}\\iterations"`);
+
+// Unix/macOS
+// Bash(`mkdir -p "${dir}/sections" "${dir}/iterations"`);
+```
+
+## 输出结构
+
+```
+.workflow/.scratchpad/analyze-{timestamp}/
+├── analysis-config.json          # Phase 1
+├── sections/                     # Phase 3 (Agent 直接写入)
+│   ├── section-overview.md
+│   ├── section-layers.md
+│   ├── section-dependencies.md
+│   └── ...
+├── consolidation-summary.md      # Phase 3.5
+├── {TYPE}-REPORT.md              # 最终输出
+└── iterations/                   # Phase 5
+    ├── v1.md
+    └── v2.md
+```
+
+## 参考文档
+
+| 文档 | 用途 |
+|------|------|
+| [phases/01-requirements-discovery.md](phases/01-requirements-discovery.md) | 用户交互、配置收集 |
+| [phases/02-project-exploration.md](phases/02-project-exploration.md) | 初步探索 |
+| [phases/03-deep-analysis.md](phases/03-deep-analysis.md) | 并行 Agent 分析 |
+| [phases/03.5-consolidation.md](phases/03.5-consolidation.md) | 跨章节整合 |
+| [phases/04-report-generation.md](phases/04-report-generation.md) | 报告组装 |
+| [phases/05-iterative-refinement.md](phases/05-iterative-refinement.md) | 质量优化 |
+| [specs/quality-standards.md](specs/quality-standards.md) | 质量门槛、标准 |
+| [specs/writing-style.md](specs/writing-style.md) | 段落式学术写作规范 |
+| [../_shared/mermaid-utils.md](../_shared/mermaid-utils.md) | 共享 Mermaid 工具 |

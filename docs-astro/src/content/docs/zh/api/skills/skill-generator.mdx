@@ -1,0 +1,395 @@
+---
+title: "Skill Generator"
+description: "用于创建新 Claude Code Skills 的元技能，支持可配置执行模式"
+category: "api"
+locale: "zh"
+order: 11
+---
+
+# Skill Generator
+
+用于创建新 Claude Code Skills 的元技能，支持可配置执行模式。支持顺序执行（固定顺序）和自主执行（无状态）两种阶段模式。适用于 Skill 脚手架、Skill 创建或构建新工作流。触发关键词："create skill"、"new skill"、"skill generator"。
+
+## 概览
+
+| 属性 | 值 |
+|------|-----|
+| **名称** | `skill-generator` |
+| **工具** | `Task`, `AskUserQuestion`, `Read`, `Bash`, `Glob`, `Grep`, `Write` |
+
+## 参考
+
+用于创建新 Claude Code Skills 的元技能，支持可配置执行模式。
+
+## 架构概览
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Skill Generator                               │
+│                                                                  │
+│  Input: User Request (skill name, purpose, mode)                │
+│                         ↓                                        │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  Phase 0-5: Sequential Pipeline                          │    │
+│  │  ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐             │    │
+│  │  │ P0 │→│ P1 │→│ P2 │→│ P3 │→│ P4 │→│ P5 │             │    │
+│  │  │Spec│ │Req │ │Dir │ │Gen │ │Spec│ │Val │             │    │
+│  │  └────┘ └────┘ └────┘ └─┬──┘ └────┘ └────┘             │    │
+│  │                         │                                │    │
+│  │                    ┌────┴────┐                           │    │
+│  │                    ↓         ↓                           │    │
+│  │              Sequential  Autonomous                      │    │
+│  │              (phases/)   (actions/)                      │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                         ↓                                        │
+│  Output: .claude/skills/{skill-name}/ (complete package)        │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## 执行模式
+
+### 模式 1：顺序执行（固定顺序）
+
+传统线性执行模型，阶段按数字前缀顺序执行。
+
+```
+Phase 01 -> Phase 02 -> Phase 03 -> ... -> Phase N
+```
+
+**使用场景**：
+- 流水线任务（收集 -> 分析 -> 生成）
+- 阶段之间有强依赖
+- 固定输出结构
+
+**示例**：`software-manual`、`copyright-docs`
+
+### 模式 2：自主执行（无状态自动选择）
+
+智能路由模型，根据上下文动态选择执行路径。
+
+```
+---------------------------------------------------
+                Orchestrator Agent
+   (Read state -> Select Phase -> Execute -> Update)
+---------------------------------------------------
+                |
+    ---------+----------+----------
+    |        |          |
+  Phase A   Phase B    Phase C
+  (standalone)  (standalone)  (standalone)
+```
+
+**使用场景**：
+- 交互式任务（对话、问答）
+- 阶段之间无强依赖
+- 需要动态响应用户意图
+
+**示例**：`issue-manage`、`workflow-debug`
+
+## 核心设计原则
+
+1. **模式感知**：根据任务特征自动推荐执行模式
+2. **骨架生成**：生成完整的目录结构和文件骨架
+3. **标准合规**：严格遵循 `_shared/SKILL-DESIGN-SPEC.md`
+4. **可扩展性**：生成的 Skills 易于扩展和修改
+
+---
+
+## 必要前置条件
+
+重要：在任何生成操作之前，必须阅读以下规范文档。未理解这些标准就进行生成将导致不合规的输出。
+
+### 核心规范（必读）
+
+| 文档 | 用途 | 优先级 |
+|------|------|--------|
+| [../_shared/SKILL-DESIGN-SPEC.md](../_shared/SKILL-DESIGN-SPEC.md) | 通用设计规范 - 定义所有 Skills 的结构、命名、质量标准 | **P0 - 关键** |
+| [specs/reference-docs-spec.md](specs/reference-docs-spec.md) | 参考文档生成规范 - 确保生成的 Skills 具有适当的基于阶段的参考文档和使用时机指导 | **P0 - 关键** |
+
+### 模板文件（生成前必读）
+
+| 文档 | 用途 |
+|------|------|
+| [templates/skill-md.md](templates/skill-md.md) | SKILL.md 入口文件模板 |
+| [templates/sequential-phase.md](templates/sequential-phase.md) | 顺序阶段模板 |
+| [templates/autonomous-orchestrator.md](templates/autonomous-orchestrator.md) | 自主编排器模板 |
+| [templates/autonomous-action.md](templates/autonomous-action.md) | 自主动作模板 |
+| [templates/code-analysis-action.md](templates/code-analysis-action.md) | 代码分析动作模板 |
+| [templates/llm-action.md](templates/llm-action.md) | LLM 动作模板 |
+| [templates/script-template.md](templates/script-template.md) | 统一脚本模板（Bash + Python） |
+
+### 规范文档（按需阅读）
+
+| 文档 | 用途 |
+|------|------|
+| [specs/execution-modes.md](specs/execution-modes.md) | 执行模式规范 |
+| [specs/skill-requirements.md](specs/skill-requirements.md) | Skill 需求规范 |
+| [specs/cli-integration.md](specs/cli-integration.md) | CLI 集成规范 |
+| [specs/scripting-integration.md](specs/scripting-integration.md) | 脚本集成规范 |
+
+### 阶段执行指南（执行期间参考）
+
+| 文档 | 用途 |
+|------|------|
+| [phases/01-requirements-discovery.md](phases/01-requirements-discovery.md) | 收集 Skill 需求 |
+| [phases/02-structure-generation.md](phases/02-structure-generation.md) | 生成目录结构 |
+| [phases/03-phase-generation.md](phases/03-phase-generation.md) | 生成阶段文件 |
+| [phases/04-specs-templates.md](phases/04-specs-templates.md) | 生成规范和模板 |
+| [phases/05-validation.md](phases/05-validation.md) | 验证与文档 |
+
+---
+
+## 执行流程
+
+```
+输入解析：
+   └─ 将用户请求转换为结构化格式（skill-name/purpose/mode）
+
+Phase 0: 规范学习（必须 - 必须在继续之前完成）
+   - 阅读规范文档
+   - 加载: ../_shared/SKILL-DESIGN-SPEC.md
+   - 加载: 所有 templates/*.md 文件
+   - 理解: 结构规则、命名约定、质量标准
+   - 输出: 内化的需求（仅内存，无文件输出）
+   - 验证: 必须在 Phase 1 之前完成
+
+Phase 1: 需求发现
+   - 通过用户交互收集 Skill 需求
+   - 工具: AskUserQuestion
+   - 收集: Skill 名称、用途、执行模式
+   - 收集: 阶段/动作定义
+   - 收集: 工具依赖、输出格式
+   - 处理: 生成配置对象
+   - 输出: skill-config.json
+   - 包含: skill_name, execution_mode, phases/actions, allowed_tools
+
+Phase 2: 结构生成
+   - 创建目录结构和入口文件
+   - 输入: skill-config.json（来自 Phase 1）
+   - 工具: Bash
+   - 执行: mkdir -p .claude/skills/{skill-name}/{phases,specs,templates,scripts}
+   - 工具: Write
+   - 生成: SKILL.md（包含架构图的入口点）
+   - 输出: 完整目录结构
+
+Phase 3: 阶段/动作生成
+   - 决策（execution_mode 检查）：
+   - 若 execution_mode === "sequential"：生成顺序阶段
+   - 读取模板: templates/sequential-phase.md
+   - 循环: 对配置中的每个阶段
+   - 生成: phases/{phase-id}.md
+   - 链接: 上一阶段输出 -> 当前阶段输入
+   - 写入: phases/_orchestrator.md
+   - 写入: workflow.json
+   - 输出: phases/01-{name}.md, phases/02-{name}.md, ...
+
+   - 若 execution_mode === "autonomous"：生成编排器 + 动作
+   - 读取模板: templates/autonomous-orchestrator.md
+   - 写入: phases/state-schema.md
+   - 写入: phases/orchestrator.md
+   - 写入: specs/action-catalog.md
+   - 循环: 对配置中的每个动作
+   - 读取模板: templates/autonomous-action.md
+   - 生成: phases/actions/{action-id}.md
+   - 输出: phases/orchestrator.md, phases/actions/*.md
+
+Phase 4: 规范与模板
+   - 生成领域规范和模板
+   - 输入: skill-config.json（领域上下文）
+   - 参考: [specs/reference-docs-spec.md](specs/reference-docs-spec.md) 文档组织
+   - 工具: Write
+   - 生成: specs/{domain}-requirements.md
+   - 生成: specs/quality-standards.md
+   - 生成: templates/agent-base.md（如需要）
+   - 输出: 领域特定文档
+
+Phase 5: 验证与文档
+   - 验证完整性并生成使用指南
+   - 输入: 前序阶段生成的所有文件
+   - 工具: Glob + Read
+   - 检查: 必需文件存在且结构正确
+   - 工具: Write
+   - 生成: README.md（使用说明）
+   - 生成: validation-report.json（完整性检查）
+   - 输出: 最终文档
+```
+
+**执行协议**：
+
+```javascript
+// Phase 0: Read specifications (in-memory)
+Read('.claude/skills/_shared/SKILL-DESIGN-SPEC.md');
+Read('.claude/skills/skill-generator/templates/*.md'); // All templates
+
+// Phase 1: Gather requirements
+const answers = AskUserQuestion({
+  questions: [
+    { question: "Skill name?", header: "Name", options: [...] },
+    { question: "Execution mode?", header: "Mode", options: ["Sequential", "Autonomous"] }
+  ]
+});
+
+const config = generateConfig(answers);
+const workDir = `.workflow/.scratchpad/skill-gen-${timestamp}`;
+Write(`${workDir}/skill-config.json`, JSON.stringify(config));
+
+// Phase 2: Create structure
+const skillDir = `.claude/skills/${config.skill_name}`;
+Bash(`mkdir -p "${skillDir}/phases" "${skillDir}/specs" "${skillDir}/templates"`);
+Write(`${skillDir}/SKILL.md`, generateSkillEntry(config));
+
+// Phase 3: Generate phases (mode-dependent)
+if (config.execution_mode === 'sequential') {
+  Write(`${skillDir}/phases/_orchestrator.md`, generateOrchestrator(config));
+  Write(`${skillDir}/workflow.json`, generateWorkflowDef(config));
+  config.sequential_config.phases.forEach(phase => {
+    Write(`${skillDir}/phases/${phase.id}.md`, generatePhase(phase, config));
+  });
+} else {
+  Write(`${skillDir}/phases/orchestrator.md`, generateAutonomousOrchestrator(config));
+  Write(`${skillDir}/phases/state-schema.md`, generateStateSchema(config));
+  config.autonomous_config.actions.forEach(action => {
+    Write(`${skillDir}/phases/actions/${action.id}.md`, generateAction(action, config));
+  });
+}
+
+// Phase 4: Generate specs
+Write(`${skillDir}/specs/${config.skill_name}-requirements.md`, generateRequirements(config));
+Write(`${skillDir}/specs/quality-standards.md`, generateQualityStandards(config));
+
+
+// Phase 5: Validate & Document
+const validation = validateStructure(skillDir);
+Write(`${skillDir}/validation-report.json`, JSON.stringify(validation));
+Write(`${skillDir}/README.md`, generateReadme(config, validation));
+```
+
+---
+
+## 按阶段的参考文档
+
+重要：本节展示了 skill-generator 如何组织自身的参考文档。这是所有生成的 Skills 应该遵循的模式。详见 [specs/reference-docs-spec.md](specs/reference-docs-spec.md)。
+
+### Phase 0：规范学习（必要前置条件）
+
+任何生成操作前必须阅读的规范文档
+
+| 文档 | 用途 | 使用时机 |
+|------|------|---------|
+| [../_shared/SKILL-DESIGN-SPEC.md](../_shared/SKILL-DESIGN-SPEC.md) | 通用 Skill 设计规范 | 理解 Skill 结构和命名约定 - **必需** |
+| [specs/reference-docs-spec.md](specs/reference-docs-spec.md) | 参考文档生成规范 | 确保参考文档具有适当的基于阶段的组织 - **必需** |
+
+### Phase 1：需求发现
+
+收集 Skill 需求和配置
+
+| 文档 | 用途 | 使用时机 |
+|------|------|---------|
+| [phases/01-requirements-discovery.md](phases/01-requirements-discovery.md) | Phase 1 执行指南 | 了解如何收集用户需求和生成配置 |
+| [specs/skill-requirements.md](specs/skill-requirements.md) | Skill 需求规范 | 了解 Skill 应包含哪些信息 |
+
+### Phase 2：结构生成
+
+生成目录结构和入口文件
+
+| 文档 | 用途 | 使用时机 |
+|------|------|---------|
+| [phases/02-structure-generation.md](phases/02-structure-generation.md) | Phase 2 执行指南 | 了解如何生成目录结构 |
+| [templates/skill-md.md](templates/skill-md.md) | SKILL.md 模板 | 学习如何生成入口文件 |
+
+### Phase 3：阶段/动作生成
+
+根据执行模式生成特定的阶段或动作文件
+
+| 文档 | 用途 | 使用时机 |
+|------|------|---------|
+| [phases/03-phase-generation.md](phases/03-phase-generation.md) | Phase 3 执行指南 | 了解顺序与自主生成逻辑 |
+| [templates/sequential-phase.md](templates/sequential-phase.md) | 顺序阶段模板 | 为顺序模式生成阶段文件 |
+| [templates/autonomous-orchestrator.md](templates/autonomous-orchestrator.md) | 编排器模板 | 为自主模式生成编排器 |
+| [templates/autonomous-action.md](templates/autonomous-action.md) | 动作模板 | 为自主模式生成动作文件 |
+
+### Phase 4：规范与模板
+
+生成领域特定的规范和模板
+
+| 文档 | 用途 | 使用时机 |
+|------|------|---------|
+| [phases/04-specs-templates.md](phases/04-specs-templates.md) | Phase 4 执行指南 | 了解如何生成领域特定文档 |
+| [specs/reference-docs-spec.md](specs/reference-docs-spec.md) | 参考文档规范 | 重要：生成规范时遵循此规范 |
+
+### Phase 5：验证与文档
+
+验证结果并生成最终文档
+
+| 文档 | 用途 | 使用时机 |
+|------|------|---------|
+| [phases/05-validation.md](phases/05-validation.md) | Phase 5 执行指南 | 了解如何验证生成的 Skill 完整性 |
+
+### 调试与故障排查
+
+遇到问题时的参考文档
+
+| 问题 | 解决文档 |
+|------|---------|
+| 生成的 Skill 缺少参考文档 | [specs/reference-docs-spec.md](specs/reference-docs-spec.md) - 验证是否遵循了基于阶段的组织 |
+| 参考文档组织不清晰 | [specs/reference-docs-spec.md](specs/reference-docs-spec.md) - 核心原则章节 |
+| 生成的文档不符合质量标准 | [../_shared/SKILL-DESIGN-SPEC.md](../_shared/SKILL-DESIGN-SPEC.md) |
+
+### 参考与背景
+
+用于深入学习和设计决策的文档
+
+| 文档 | 用途 | 备注 |
+|------|------|------|
+| [specs/execution-modes.md](specs/execution-modes.md) | 详细执行模式规范 | 顺序与自主模式的比较和使用场景 |
+| [specs/cli-integration.md](specs/cli-integration.md) | CLI 集成规范 | 生成的 Skills 如何与 CLI 集成 |
+| [specs/scripting-integration.md](specs/scripting-integration.md) | 脚本集成规范 | 如何在阶段中使用脚本 |
+| [templates/script-template.md](templates/script-template.md) | 脚本模板 | 统一 Bash + Python 模板 |
+
+---
+
+## 输出结构
+
+### 顺序模式
+
+```
+.claude/skills/{skill-name}/
+├── SKILL.md                        # 入口文件
+├── phases/
+│   ├── _orchestrator.md            # 声明式编排器
+│   ├── workflow.json               # 工作流定义
+│   ├── 01-{step-one}.md           # Phase 1
+│   ├── 02-{step-two}.md           # Phase 2
+│   └── 03-{step-three}.md         # Phase 3
+├── specs/
+│   ├── {skill-name}-requirements.md
+│   └── quality-standards.md
+├── templates/
+│   └── agent-base.md
+├── scripts/
+└── README.md
+```
+
+### 自主模式
+
+```
+.claude/skills/{skill-name}/
+├── SKILL.md                        # 入口文件
+├── phases/
+│   ├── orchestrator.md             # 编排器（状态驱动）
+│   ├── state-schema.md             # 状态 Schema 定义
+│   └── actions/
+│       ├── action-init.md
+│       ├── action-create.md
+│       └── action-list.md
+├── specs/
+│   ├── {skill-name}-requirements.md
+│   ├── action-catalog.md
+│   └── quality-standards.md
+├── templates/
+│   ├── orchestrator-base.md
+│   └── action-base.md
+├── scripts/
+└── README.md
+```

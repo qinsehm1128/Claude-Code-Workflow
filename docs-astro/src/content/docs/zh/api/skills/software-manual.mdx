@@ -1,0 +1,197 @@
+---
+title: "Software Manual"
+description: "生成 TiddlyWiki 风格的交互式 HTML 软件手册，支持截图、API 文档和多层级代码示例"
+category: "api"
+locale: "zh"
+order: 13
+---
+
+# Software Manual
+
+生成 TiddlyWiki 风格的交互式 HTML 软件手册，支持截图、API 文档和多层级代码示例。适用于创建用户指南、软件文档或 API 参考。触发关键词："software manual"、"user guide"、"generate manual"、"create docs"。
+
+## 概览
+
+| 属性 | 值 |
+|------|-----|
+| **名称** | `software-manual` |
+| **工具** | `Task`, `AskUserQuestion`, `Read`, `Bash`, `Glob`, `Grep`, `Write`, `mcp__chrome__*` |
+
+## 参考
+
+生成全面的交互式软件手册，采用 TiddlyWiki 风格的单文件 HTML 格式。
+
+## 架构概览
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Context-Optimized Architecture                                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Phase 1: Requirements      → manual-config.json                │
+│           ↓                                                      │
+│  Phase 2: Exploration       → exploration-*.json                │
+│           ↓                                                      │
+│  Phase 3: Parallel Agents   → sections/section-*.md             │
+│           ↓ (6 Agents)                                          │
+│  Phase 3.5: Consolidation   → consolidation-summary.md          │
+│           ↓                                                      │
+│  Phase 4: Screenshot        → screenshots/*.png                 │
+│           Capture              (via Chrome MCP)                 │
+│           ↓                                                      │
+│  Phase 5: HTML Assembly     → {name}-使用手册.html              │
+│           ↓                                                      │
+│  Phase 6: Refinement        → iterations/                       │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## 核心设计原则
+
+1. **主 Agent 编排，子 Agent 执行**：所有繁重计算委托给 `universal-executor` 子 Agent
+2. **简要返回**：Agent 返回路径+摘要，不返回完整内容（避免上下文溢出）
+3. **系统 Agent**：使用 `cli-explore-agent`（探索）和 `universal-executor`（执行）
+4. **成熟库内嵌**：marked.js（MD 解析）+ highlight.js（语法高亮），无 CDN 依赖
+5. **单文件 HTML**：TiddlyWiki 风格的交互式文档，嵌入所有资源
+6. **动态标签**：根据实际章节自动生成导航标签
+
+## 执行流程
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Phase 1: 需求发现 (主 Agent)                                    │
+│  → AskUserQuestion: 收集软件类型、目标用户、文档范围             │
+│  → Output: manual-config.json                                   │
+├─────────────────────────────────────────────────────────────────┤
+│  Phase 2: 项目探索 (cli-explore-agent × N)                      │
+│  → 并行探索: architecture, ui-routes, api-endpoints, config     │
+│  → Output: exploration-*.json                                   │
+├─────────────────────────────────────────────────────────────────┤
+│  Phase 2.5: API 提取 (extract_apis.py)                          │
+│  → 自动提取: FastAPI/TypeDoc/pdoc                                │
+│  → Output: api-docs/{backend,frontend,modules}/*.md             │
+├─────────────────────────────────────────────────────────────────┤
+│  Phase 3: 并行分析 (universal-executor × 6)                     │
+│  → 6 个子 Agent 并行: overview, ui-guide, api-docs, config,     │
+│    troubleshooting, code-examples                               │
+│  → Output: sections/section-*.md                                │
+├─────────────────────────────────────────────────────────────────┤
+│  Phase 3.5: 整合 (universal-executor)                           │
+│  → 质量检查: 一致性、交叉引用、截图标记                          │
+│  → Output: consolidation-summary.md, screenshots-list.json      │
+├─────────────────────────────────────────────────────────────────┤
+│  Phase 4: 截图采集 (universal-executor + Chrome MCP)            │
+│  → 批量截图: 调用 mcp__chrome__screenshot                        │
+│  → Output: screenshots/*.png + manifest.json                    │
+├─────────────────────────────────────────────────────────────────┤
+│  Phase 5: HTML 组装 (universal-executor)                        │
+│  → 组装 HTML: MD→tiddlers, 嵌入 CSS/JS/图片                     │
+│  → Output: {name}-使用手册.html                                  │
+├─────────────────────────────────────────────────────────────────┤
+│  Phase 6: 迭代优化 (主 Agent)                                    │
+│  → 预览 + 用户反馈 + 迭代修复                                    │
+│  → Output: iterations/v*.html                                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Agent 配置
+
+| Agent | 角色 | 输出文件 | 关注领域 |
+|-------|------|---------|---------|
+| overview | 产品经理 | section-overview.md | 产品介绍、功能、快速开始 |
+| ui-guide | UX 专家 | section-ui-guide.md | UI 操作、分步指南 |
+| api-docs | API 架构师 | section-api-reference.md | REST API、Frontend API |
+| config | DevOps 工程师 | section-configuration.md | 环境变量、部署、设置 |
+| troubleshooting | 支持工程师 | section-troubleshooting.md | FAQ、错误代码、解决方案 |
+| code-examples | 开发者布道师 | section-examples.md | 初级/中级/高级示例 |
+
+## Agent 返回格式
+
+```typescript
+interface ManualAgentReturn {
+  status: "completed" | "partial" | "failed";
+  output_file: string;
+  summary: string;                    // Max 50 chars
+  screenshots_needed: Array<{
+    id: string;                       // e.g., "ss-login-form"
+    url: string;                      // Relative or absolute URL
+    description: string;              // "Login form interface"
+    selector?: string;                // CSS selector for partial screenshot
+    wait_for?: string;                // Element to wait for
+  }>;
+  cross_references: string[];         // Other sections referenced
+  difficulty_level: "beginner" | "intermediate" | "advanced";
+}
+```
+
+## HTML 特性（TiddlyWiki 风格）
+
+1. **搜索**：全文搜索，结果高亮
+2. **折叠/展开**：每章节可折叠内容
+3. **标签导航**：按分类标签过滤
+4. **主题切换**：明暗模式，localStorage 持久化
+5. **单文件**：所有 CSS/JS/图片嵌入为 Base64
+6. **离线可用**：无需网络连接
+7. **打印友好**：优化的打印样式表
+
+## 目录设置
+
+```javascript
+// Generate timestamp directory name
+const timestamp = new Date().toISOString().slice(0,19).replace(/[-:T]/g, '');
+const dir = `.workflow/.scratchpad/manual-${timestamp}`;
+
+// Windows
+Bash(`mkdir "${dir}\\sections" && mkdir "${dir}\\screenshots" && mkdir "${dir}\\api-docs" && mkdir "${dir}\\iterations"`);
+```
+
+## 输出结构
+
+```
+.workflow/.scratchpad/manual-{timestamp}/
+├── manual-config.json              # Phase 1
+├── exploration/                    # Phase 2
+│   ├── exploration-architecture.json
+│   ├── exploration-ui-routes.json
+│   └── exploration-api-endpoints.json
+├── sections/                       # Phase 3
+│   ├── section-overview.md
+│   ├── section-ui-guide.md
+│   ├── section-api-reference.md
+│   ├── section-configuration.md
+│   ├── section-troubleshooting.md
+│   └── section-examples.md
+├── consolidation-summary.md        # Phase 3.5
+├── api-docs/                       # API 文档
+│   ├── frontend/                   # TypeDoc 输出
+│   └── backend/                    # Swagger/OpenAPI 输出
+├── screenshots/                    # Phase 4
+│   ├── ss-*.png
+│   └── screenshots-manifest.json
+├── iterations/                     # Phase 6
+│   ├── v1.html
+│   └── v2.html
+└── {软件名}-使用手册.html           # 最终输出
+```
+
+## 参考文档
+
+| 文档 | 用途 |
+|------|------|
+| [phases/01-requirements-discovery.md](phases/01-requirements-discovery.md) | 用户配置收集 |
+| [phases/02-project-exploration.md](phases/02-project-exploration.md) | 项目类型检测 |
+| [phases/02.5-api-extraction.md](phases/02.5-api-extraction.md) | API 自动提取 |
+| [phases/03-parallel-analysis.md](phases/03-parallel-analysis.md) | 6 Agent 并行分析 |
+| [phases/03.5-consolidation.md](phases/03.5-consolidation.md) | 整合与质量检查 |
+| [phases/04-screenshot-capture.md](phases/04-screenshot-capture.md) | Chrome MCP 截图 |
+| [phases/05-html-assembly.md](phases/05-html-assembly.md) | HTML 组装 |
+| [phases/06-iterative-refinement.md](phases/06-iterative-refinement.md) | 迭代优化 |
+| [specs/quality-standards.md](specs/quality-standards.md) | 质量标准 |
+| [specs/writing-style.md](specs/writing-style.md) | 写作风格 |
+| [templates/tiddlywiki-shell.html](templates/tiddlywiki-shell.html) | HTML 模板 |
+| [templates/css/wiki-base.css](templates/css/wiki-base.css) | 基础样式 |
+| [templates/css/wiki-dark.css](templates/css/wiki-dark.css) | 暗色主题 |
+| [scripts/bundle-libraries.md](scripts/bundle-libraries.md) | 库文件打包 |
+| [scripts/api-extractor.md](scripts/api-extractor.md) | API 提取说明 |
+| [scripts/extract_apis.py](scripts/extract_apis.py) | API 提取脚本 |
+| [scripts/screenshot-helper.md](scripts/screenshot-helper.md) | 截图辅助 |

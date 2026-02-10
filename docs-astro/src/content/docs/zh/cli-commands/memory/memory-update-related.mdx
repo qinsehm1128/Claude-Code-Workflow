@@ -1,0 +1,231 @@
+---
+title: "/memory:update-related"
+description: 使用批量执行更新 git 变更模块的 CLAUDE.md
+category: cli-commands
+order: 2
+locale: zh
+---
+
+# /memory:update-related
+
+使用批量 Agent 执行和自动工具降级，为变更模块编排上下文感知的 CLAUDE.md 更新。
+
+## 概述
+
+`/memory:update-related` 命令仅为受 git 变更影响的模块更新 CLAUDE.md 文档，为日常开发提供更快的更新。
+
+**参数**：
+- `--tool <gemini|qwen|codex>`：主要工具（默认：gemini）
+
+**执行流程**：
+1. 变更检测 → 2. 计划展示 → 3. 批量执行 → 4. 安全验证
+
+## 特性
+
+- **变更模块检测** - 使用 git diff 识别受影响的模块
+- **智能批处理** - 按深度分组模块（4 个模块/Agent）
+- **自动降级** - gemini→qwen→codex 失败时自动降级
+- **深度顺序** - 处理深度 N→0，深度内批次并行
+- **关联模式** - 仅更新变更模块及其父级上下文
+- **智能过滤** - 自动检测并跳过 tests/build/config/docs
+
+## 用法
+
+```bash
+# 更新 git 变更的模块
+/memory:update-related
+
+# 使用特定工具
+/memory:update-related --tool qwen
+
+# 无变更检测到时降级到最近模块
+/memory:update-related
+```
+
+## 工具降级层次
+
+```javascript
+--tool gemini  →  [gemini, qwen, codex]  // default
+--tool qwen    →  [qwen, gemini, codex]
+--tool codex   →  [codex, gemini, qwen]
+```
+
+**触发条件**：更新脚本返回非零退出码
+
+## 执行模式
+
+### 小量变更（<15 个模块）
+- **直接并行执行**
+- 每深度最多 4 个并发
+- 无 Agent 开销
+
+### 大量变更（>=15 个模块）
+- **Agent 批处理**
+- 4 个模块/Agent
+- 更好的资源利用
+
+## 执行流程
+
+### 阶段 1：变更检测与分析
+
+```javascript
+// Detect changed modules
+Bash({command: "ccw tool exec detect_changed_modules '{\"format\":\"list\"}'", run_in_background: false});
+
+// Cache git changes
+Bash({command: "git add -A 2>/dev/null || true", run_in_background: false});
+```
+
+**解析输出** `depth:N|path:<PATH>|change:<TYPE>` 以提取受影响的模块。
+
+**智能过滤**：基于项目技术栈自动检测并跳过 tests/build/config/docs。
+
+**降级**：如未检测到变更，使用最近的模块（按深度前 10 个）。
+
+### 阶段 2：计划展示
+
+- 解析 `--tool`（默认：gemini）
+- 刷新代码索引以确保准确的变更检测
+- 通过 detect_changed_modules 检测变更模块
+- **智能过滤模块**（自动检测技术栈，跳过 tests/build/config/docs）
+- 缓存 git 变更
+- 无变更时应用降级（最近 10 个模块）
+- 构建工具降级顺序
+- **展示过滤后的计划** 包含跳过原因和变更类型
+- **等待 y/n 确认**
+
+### 阶段 3A：直接执行（<15 个模块）
+
+```javascript
+for (let depth of sorted_depths.reverse()) {  // N → 0
+  let batches = batch_modules(modules_by_depth[depth], 4);
+
+  for (let batch of batches) {
+    let parallel_tasks = batch.map(module => {
+      return async () => {
+        for (let tool of tool_order) {
+          Bash({
+            command: `cd ${module.path} && ccw tool exec update_module_claude '{"strategy":"single-layer","path":".","tool":"${tool}"}'`,
+            run_in_background: false
+          });
+          if (bash_result.exit_code === 0) {
+            report(`✅ ${module.path} updated with ${tool}`);
+            return true;
+          }
+        }
+        report(`❌ FAILED: ${module.path} failed all tools`);
+        return false;
+      };
+    });
+    await Promise.all(parallel_tasks.map(task => task()));
+  }
+}
+```
+
+### 阶段 3B：Agent 执行（>=15 个模块）
+
+```javascript
+let modules_by_depth = group_by_depth(changed_modules);
+let tool_order = construct_tool_order(primary_tool);
+
+for (let depth of sorted_depths.reverse()) {  // N → 0
+  let batches = batch_modules(modules_by_depth[depth], 4);
+  let worker_tasks = [];
+
+  for (let batch of batches) {
+    worker_tasks.push(
+      Task(
+        subagent_type="memory-bridge",
+        description=`Update ${batch.length} modules at depth ${depth}`,
+        prompt=generate_batch_worker_prompt(batch, tool_order, "related")
+      )
+    );
+  }
+
+  await parallel_execute(worker_tasks);  // Batches run in parallel
+}
+```
+
+### 阶段 4：安全验证
+
+- 验证仅 CLAUDE.md 文件被修改
+- 显示 git diff 统计
+- 展示更新摘要
+
+## 策略选择
+
+**关联模式** 使用 `single-layer` 策略：
+- 仅更新变更模块的 CLAUDE.md
+- 比全量更新的多层方法更快
+- 适合迭代开发
+
+## 与全量更新的对比
+
+| 方面 | 关联更新 | 全量更新 |
+|--------|----------------|-------------|
+| **范围** | 仅变更模块 | 所有项目模块 |
+| **速度** | 快（分钟级） | 较慢（10-30 分钟） |
+| **使用场景** | 日常开发 | 大规模重构 |
+| **模式** | `"related"` | `"full"` |
+| **触发时机** | 提交后 | 重大变更后 |
+| **批处理** | 4 模块/Agent | 4 模块/Agent |
+| **降级** | gemini→qwen→codex | gemini→qwen→codex |
+| **复杂度阈值** | <=15 个模块 | <=20 个模块 |
+| **策略** | 仅 single-layer | 深度>=3 使用 multi-layer |
+
+## 示例
+
+### 基本用法
+
+```bash
+# 提交后更新变更模块
+/memory:update-related
+
+# Output:
+# Detecting git changes...
+# Found 8 changed modules
+# Filtered: 3 test modules skipped
+# Plan: Update 5 modules with gemini→qwen→codex fallback
+# Confirm? (y/n): y
+#
+# Depth 3: [4/4] ✅
+# Depth 2: [1/1] ✅
+# Summary: 5/5 modules updated
+# Safety check: Only CLAUDE.md modified ✅
+```
+
+### 工具选择
+
+```bash
+# 使用 Qwen 进行更快的更新
+/memory:update-related --tool qwen
+
+# 尝试 qwen → gemini → codex
+```
+
+### 无变更检测到
+
+```bash
+# 当未发现 git 变更时
+/memory:update-related
+
+# Output:
+# No git changes detected, using recent 10 modules
+# Plan: Update recent modules
+```
+
+## 相关命令
+
+- **/memory:update-full** - 更新所有项目模块
+- **/memory:load** - 将项目上下文加载到内存
+- **/memory:compact** - 压缩会话内存
+
+## 注意事项
+
+- **直接执行** 用于 <15 个模块（更快，无 Agent 开销）
+- **Agent 执行** 用于 >=15 个模块（更好的资源利用）
+- **智能过滤** 自动跳过 test/build/config 目录
+- **变更检测** 使用 git diff 查找受影响的模块
+- **降级** 到无变更时使用最近模块
+- **安全检查** 确保仅 CLAUDE.md 文件被修改
+- **Git diff 统计** 提供变更摘要

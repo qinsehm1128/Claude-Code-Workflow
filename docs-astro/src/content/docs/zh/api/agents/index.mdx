@@ -1,0 +1,37 @@
+---
+title: "Agent 参考"
+description: "CCW 所有 Agent 的完整参考 - 针对不同开发任务的专业 AI 助手"
+category: "api"
+locale: "zh"
+order: 1
+---
+
+# Agent 参考
+
+CCW 提供针对不同开发任务的专业 Agent。每个 Agent 都针对开发工作流中的特定角色进行了优化。
+
+## 可用 Agent
+
+| Agent | 描述 |
+|-------|------|
+| [Action Planning Agent](/zh/docs/api/agents/action-planning-agent) | 纯执行 Agent，根据提供的需求和控制标志创建实施计划。该 Agent 无需复杂决策逻辑即可执行规划任务... |
+| [Cli Discuss Agent](/zh/docs/api/agents/cli-discuss-agent) | 多 CLI 协作讨论 Agent，支持交叉验证和方案综合。 |
+| [Cli Execution Agent](/zh/docs/api/agents/cli-execution-agent) | 智能 CLI 执行 Agent，具备自动化上下文发现和智能工具选择能力。 |
+| [Cli Explore Agent](/zh/docs/api/agents/cli-explore-agent) | 只读代码探索 Agent，采用双源分析策略（Bash + Gemini CLI）。 |
+| [Cli Lite Planning Agent](/zh/docs/api/agents/cli-lite-planning-agent) | 通用规划 Agent，适用于 lite-plan、collaborative-plan 和 lite-fix 工作流。根据提供的 Schema 参考生成结构化计划 JSON。 |
+| [Cli Planning Agent](/zh/docs/api/agents/cli-planning-agent) | 专门用于执行 CLI 分析工具（Gemini/Qwen）并根据分析结果动态生成任务 JSON 文件的 Agent。主要用例：测试... |
+| [Cli Roadmap Plan Agent](/zh/docs/api/agents/cli-roadmap-plan-agent) | 专门用于需求级路线图规划的 Agent，输出 JSONL 格式。 |
+| [Code Developer Agent](/zh/docs/api/agents/code-developer) | 纯代码执行 Agent，用于实现编程任务和编写相应测试。专注于使用提供的上下文进行代码编写、实现和开发... |
+| [Conceptual Planning Agent](/zh/docs/api/agents/conceptual-planning-agent) | 专门用于单角色概念规划和头脑风暴分析的 Agent。该 Agent 执行分配的规划角色视角（system-ar... |
+| [Context Search Agent](/zh/docs/api/agents/context-search-agent) | 开发任务的智能上下文收集器。执行多层文件发现、依赖分析，并生成标准化上下文包... |
+| [Debug Explore Agent](/zh/docs/api/agents/debug-explore-agent) | 假设驱动的调试 Agent，支持 NDJSON 日志记录、CLI 辅助分析和迭代验证。 |
+| [Doc Generator Agent](/zh/docs/api/agents/doc-generator) | 智能 Agent，根据提供的带有 flow_control 的任务 JSON 生成文档。该 Agent 自主执行预分析步骤、综合... |
+| [Issue Plan Agent](/zh/docs/api/agents/issue-plan-agent) | 闭环 Issue 规划 Agent，结合 ACE 探索和方案生成。 |
+| [Issue Queue Agent](/zh/docs/api/agents/issue-queue-agent) | 方案排序 Agent，用于队列构建和 Gemini CLI 冲突分析。 |
+| [Memory Bridge Agent](/zh/docs/api/agents/memory-bridge) | 使用脚本协调执行复杂项目文档更新 |
+| [Tdd Developer Agent](/zh/docs/api/agents/tdd-developer) | TDD 感知的代码执行 Agent，专门用于 Red-Green-Refactor 工作流。扩展了 code-developer，增加了 TDD 周期感知、自动测试修复迭代和... |
+| [Test Action Planning Agent](/zh/docs/api/agents/test-action-planning-agent) | 扩展 action-planning-agent 的专业 Agent，用于测试规划文档。生成测试任务 JSON（IMPL-001、IMPL-001.3、IMPL-001.5、IMPL-002），支持渐进式... |
+| [Test Context Search Agent](/zh/docs/api/agents/test-context-search-agent) | 测试生成工作流的专业上下文收集器。分析测试覆盖率、识别缺失测试、从源会话加载实现上下文... |
+| [Test Fix Agent](/zh/docs/api/agents/test-fix-agent) | 执行测试、诊断失败并修复代码直到所有测试通过。该 Agent 专注于运行测试套件、分析失败并修改源代码... |
+| [Ui Design Agent](/zh/docs/api/agents/ui-design-agent) | 专门用于 UI 设计令牌管理和原型生成的 Agent，符合 W3C Design Tokens Format 规范。 |
+| [Universal Executor Agent](/zh/docs/api/agents/universal-executor) | 通用执行 Agent，高效实现任何任务。适应任何领域，同时保持质量标准和系统化执行。可处理... |

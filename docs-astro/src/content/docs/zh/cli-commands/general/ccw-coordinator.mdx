@@ -1,0 +1,293 @@
+---
+title: /ccw-coordinator
+description: CCW 工作流的通用命令编排工具
+category: cli-commands
+order: 4
+locale: zh
+---
+
+# /ccw-coordinator
+
+通用命令编排工具 - 分析需求、推荐命令链，并按顺序执行，同时支持状态持久化。
+
+## 概述
+
+`/ccw-coordinator` 命令是一个通用编排器，能够处理任何 CCW 工作流，通过分析任务需求并推荐最优命令链。
+
+**参数**：
+- `[task description]`：要编排的任务（必填）
+
+**执行模型**：伪代码指导 - Claude 根据上下文智能执行每个阶段。
+
+## 核心概念：最小执行单元
+
+**定义**：必须作为原子组一起执行的命令，以实现有意义的工作流里程碑。
+
+### 执行单元示例
+
+| 单元名称 | 命令 | 用途 |
+|-----------|----------|---------|
+| **快速实现** | `/workflow:lite-plan` → `/workflow:lite-execute` | 轻量规划和执行 |
+| **多 CLI 规划** | `/workflow:multi-cli-plan` → `/workflow:lite-execute` | 多视角分析 |
+| **Bug 修复** | `/workflow:lite-fix` → `/workflow:lite-execute` | Bug 诊断和修复 |
+| **验证规划** | `/workflow:plan` → `/workflow:plan-verify` → `/workflow:execute` | 带验证的规划 |
+| **TDD 规划** | `/workflow:tdd-plan` → `/workflow:execute` | 测试驱动开发 |
+
+## 命令端口映射
+
+每个工作流命令都有定义的输入/输出端口，用于智能路由：
+
+```javascript
+const commandPorts = {
+  // Planning Commands
+  'lite-plan': {
+    name: 'lite-plan',
+    input: ['task-description'],
+    output: ['memory-plan'],
+    tags: ['planning', 'lite']
+  },
+  'plan': {
+    name: 'plan',
+    input: ['task-description', 'brainstorm-artifacts'],
+    output: ['impl-plan', 'tasks-json'],
+    tags: ['planning', 'full']
+  },
+  'multi-cli-plan': {
+    name: 'multi-cli-plan',
+    input: ['decision-topic'],
+    output: ['comparison-report', 'recommendation'],
+    tags: ['planning', 'multi-cli', 'analysis']
+  },
+  // ... more commands
+};
+```
+
+## 用法
+
+```bash
+# 让协调器分析并推荐
+/ccw-coordinator "Implement user authentication"
+
+# 协调器将：
+# 1. 分析任务需求
+# 2. 推荐最优命令链
+# 3. 按顺序执行命令
+# 4. 全程跟踪状态
+```
+
+## 执行流程
+
+### 阶段 1：分析需求
+
+```javascript
+async function analyzeRequirements(taskDescription) {
+  const analysis = {
+    goal: extractGoal(taskDescription),
+    scope: determineScope(taskDescription),
+    complexity: calculateComplexity(taskDescription),
+    task_type: classifyTask(taskDescription),
+    constraints: identifyConstraints(taskDescription)
+  };
+  return analysis;
+}
+```
+
+**输出**：
+- 目标：需要完成的内容
+- 范围：受影响的模块/组件
+- 复杂度：simple/medium/complex
+- 任务类型：feature、bugfix、refactor 等
+- 约束条件：时间、资源、依赖
+
+### 阶段 2：推荐命令链
+
+```javascript
+async function recommendCommandChain(analysis) {
+  const { inputPort, outputPort } = determinePortFlow(analysis.task_type, analysis.constraints);
+  const chain = selectChainByPorts(inputPort, outputPort, analysis);
+  return chain;
+}
+```
+
+**输出**：
+- 选择的工作流级别
+- 包含单元的命令链
+- 执行模式 (mainprocess/async)
+- 预期产物
+
+### 阶段 3：用户确认
+
+```javascript
+async function getUserConfirmation(chain) {
+  const response = await AskUserQuestion({
+    questions: [{
+      question: 'Proceed with this command chain?',
+      header: 'Confirm',
+      options: [
+        { label: 'Confirm and execute', description: 'Proceed with commands' },
+        { label: 'Show details', description: 'View each command' },
+        { label: 'Adjust chain', description: 'Remove or reorder' },
+        { label: 'Cancel', description: 'Abort' }
+      ]
+    }]
+  });
+  return response;
+}
+```
+
+### 阶段 4：顺序执行命令链
+
+```javascript
+async function executeCommandChain(chain, analysis) {
+  const sessionId = `ccw-coord-${Date.now()}`;
+  const state = {
+    session_id: sessionId,
+    status: 'running',
+    analysis: analysis,
+    command_chain: chain.map((cmd, idx) => ({ ...cmd, index: idx, status: 'pending' })),
+    execution_results: []
+  };
+
+  // Save initial state
+  Write(`.workflow/.ccw-coordinator/${sessionId}/state.json`, JSON.stringify(state, null, 2));
+
+  for (let i = 0; i < chain.length; i++) {
+    const cmd = chain[i];
+    console.log(`[${i+1}/${chain.length}] Executing: ${cmd.command}`);
+
+    // Update status to running
+    state.command_chain[i].status = 'running';
+    Write(`.workflow/.ccw-coordinator/${sessionId}/state.json`, JSON.stringify(state, null, 2));
+
+    // Execute command via CLI
+    const taskId = Bash(
+      `ccw cli -p "${escapePrompt(prompt)}" --tool claude --mode write`,
+      { run_in_background: true }
+    ).task_id;
+
+    // Save execution record
+    state.execution_results.push({
+      index: i,
+      command: cmd.command,
+      status: 'in-progress',
+      task_id: taskId,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  return state;
+}
+```
+
+## 命令链示例
+
+### 快速实现单元
+
+```javascript
+// Commands: 2 | Units: 1 (quick-impl)
+const quickImplChain = [
+  {
+    command: '/workflow:lite-plan',
+    args: '"{{goal}}"',
+    unit: 'quick-impl',
+    execution: { type: 'slash-command', mode: 'mainprocess' }
+  },
+  {
+    command: '/workflow:lite-execute',
+    args: '--in-memory',
+    unit: 'quick-impl',
+    execution: { type: 'slash-command', mode: 'async' }
+  }
+];
+```
+
+### 验证规划单元
+
+```javascript
+// Commands: 3 | Units: 1 (verified-planning-execution)
+const verifiedChain = [
+  {
+    command: '/workflow:plan',
+    args: '"{{goal}}"',
+    unit: 'verified-planning-execution',
+    execution: { type: 'slash-command', mode: 'mainprocess' }
+  },
+  {
+    command: '/workflow:plan-verify',
+    args: '',
+    unit: 'verified-planning-execution',
+    execution: { type: 'slash-command', mode: 'mainprocess' }
+  },
+  {
+    command: '/workflow:execute',
+    args: '--resume-session="{{session}}"',
+    unit: 'verified-planning-execution',
+    execution: { type: 'slash-command', mode: 'mainprocess' }
+  }
+];
+```
+
+## 参数模式
+
+| 命令类型 | 参数模式 | 示例 |
+|--------------|------------------|---------|
+| **规划** | `"task description"` | `/workflow:plan -y "Implement OAuth2"` |
+| **执行（带计划）** | `--resume-session="WFS-xxx"` | `/workflow:execute -y --resume-session="WFS-plan-001"` |
+| **执行（独立）** | `--in-memory` 或 `"task"` | `/workflow:lite-execute -y --in-memory` |
+| **基于会话** | `--session="WFS-xxx"` | `/workflow:test-fix-gen -y --session="WFS-impl-001"` |
+| **修复/调试** | `"problem description"` | `/workflow:lite-fix -y "Fix timeout bug"` |
+
+## 示例
+
+### 简单功能
+
+```bash
+/ccw-coordinator "Add user profile page"
+
+# Output:
+# Analyzing: "Add user profile page"
+# Complexity: Low (score: 1)
+# Recommended: Level 2 - Rapid Workflow
+# Command chain:
+#   Unit: quick-impl
+#   1. /workflow:lite-plan "Add user profile page"
+#   2. /workflow:lite-execute --in-memory
+# Confirm? (y/n): y
+#
+# [1/2] Executing: /workflow:lite-plan
+# [2/2] Executing: /workflow:lite-execute
+# ✅ Complete! Session: ccw-coord-1738425600000
+```
+
+### 复杂功能
+
+```bash
+/ccw-coordinator "Refactor authentication system with OAuth2"
+
+# Output:
+# Analyzing: "Refactor authentication system..."
+# Complexity: High (score: 6)
+# Recommended: Level 3 - Standard Workflow
+# Command chain:
+#   Unit: verified-planning-execution
+#   1. /workflow:plan "Refactor authentication..."
+#   2. /workflow:plan-verify
+#   3. /workflow:execute --resume-session="{session}"
+# Confirm? (y/n): y
+```
+
+## 相关命令
+
+- **/ccw** - 主工作流协调器
+- **/ccw-plan** - 规划协调器
+- **/ccw-test** - 测试协调器
+- **/ccw-debug** - 调试协调器
+
+## 注意事项
+
+- **原子执行** - 不拆分最小执行单元
+- **状态持久化** - 所有状态保存到 `.workflow/.ccw-coordinator/`
+- **用户控制** - 执行前需确认
+- **上下文传递** - 参数在命令间链式传递
+- **恢复支持** - 可从 state.json 恢复
+- **智能路由** - 基于端口的命令匹配

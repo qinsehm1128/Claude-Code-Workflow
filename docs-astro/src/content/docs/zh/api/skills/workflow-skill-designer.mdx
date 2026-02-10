@@ -1,0 +1,332 @@
+---
+title: "Workflow Skill Designer"
+description: "用于设计编排器+阶段结构化工作流 Skills 的元技能"
+category: "api"
+locale: "zh"
+order: 14
+---
+
+# Workflow Skill Designer
+
+用于设计编排器+阶段结构化工作流 Skills 的元技能。创建带有渐进式阶段加载、TodoWrite 模式和数据流的 SKILL.md 协调器。触发关键词："design workflow skill"、"create workflow skill"、"workflow skill designer"。
+
+## 概览
+
+| 属性 | 值 |
+|------|-----|
+| **名称** | `workflow-skill-designer` |
+| **工具** | `Task`, `AskUserQuestion`, `TodoWrite`, `Read`, `Write`, `Edit`, `Bash`, `Glob`, `Grep` |
+
+## 参考
+
+用于创建遵循编排器+阶段模式的结构化工作流 Skills 的元技能。生成以 SKILL.md 为协调器、phases/ 文件夹存放执行细节的完整 Skill 包。
+
+## 架构概览
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Workflow Skill Designer                                         │
+│  → Analyze requirements → Design orchestrator → Generate phases  │
+└───────────────┬─────────────────────────────────────────────────┘
+                │
+    ┌───────────┼───────────┬───────────┐
+    ↓           ↓           ↓           ↓
+┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐
+│ Phase 1 │ │ Phase 2 │ │ Phase 3 │ │ Phase 4 │
+│ Require │ │  Orch   │ │ Phases  │ │ Valid   │
+│ Analysis│ │ Design  │ │ Design  │ │ & Integ │
+└─────────┘ └─────────┘ └─────────┘ └─────────┘
+     ↓           ↓           ↓           ↓
+  workflow    SKILL.md    phases/     Complete
+  config     generated   0N-*.md     skill pkg
+```
+
+## 目标输出结构
+
+此元技能生成的 Skill 遵循以下结构：
+
+```
+.claude/skills/{skill-name}/
+├── SKILL.md                    # 编排器：协调、数据流、TodoWrite
+├── phases/
+│   ├── 01-{phase-name}.md      # 阶段执行细节（完整内容）
+│   ├── 02-{phase-name}.md
+│   ├── ...
+│   └── 0N-{phase-name}.md
+├── specs/                      # [可选] 领域规范
+└── templates/                  # [可选] 可复用模板
+```
+
+## 核心设计模式
+
+从成功的工作流 Skill 实现中提取的模式（workflow-plan、project-analyze 等）：
+
+### 模式 1：编排器 + 渐进式加载
+
+**SKILL.md** = 纯协调器。包含：
+- 架构图（ASCII）
+- 带 `Ref: phases/0N-xxx.md` 标记的执行流程
+- 阶段参考文档表（按需读取）
+- 阶段间数据流
+- 核心规则和错误处理
+
+**阶段文件** = 完整执行细节。包含：
+- 完整的 Agent 提示、bash 命令、代码实现
+- 验证清单、错误处理
+- 输入/输出规范
+- 下一阶段链接
+
+**关键规则**：SKILL.md 通过 `Ref:` 标记引用阶段文档。阶段文档**仅在该阶段执行时**读取，不一次性全部读取。
+
+### 模式 2：TodoWrite 附加/折叠
+
+```
+阶段开始：
+  → 子任务附加到 TodoWrite（in_progress + pending）
+  → 编排器按序执行子任务
+
+阶段结束：
+  → 子任务折叠回高级摘要（completed）
+  → 下一阶段开始
+```
+
+### 模式 3：阶段间数据流
+
+```
+Phase N output → stored in memory/variable → Phase N+1 input
+                  └─ or written to session file for persistence
+```
+
+每个阶段通过以下方式接收前序阶段的输出：
+- 内存变量（sessionId、contextPath 等）
+- 会话目录文件（.workflow/active/\{sessionId\}/...）
+- 规划笔记（累积的约束文档）
+
+### 模式 4：条件阶段执行
+
+```
+Phase N output contains condition flag
+  ├─ condition met → Execute Phase N+1
+  └─ condition not met → Skip to Phase N+2
+```
+
+### 模式 5：输入结构化
+
+用户输入（自由文本）→ Phase 1 之前转为结构化格式：
+```
+GOAL: [objective]
+SCOPE: [boundaries]
+CONTEXT: [background/constraints]
+```
+
+## 执行流程
+
+```
+Phase 1: 需求分析
+   └─ Ref: phases/01-requirements-analysis.md
+      ├─ 输入来源：命令、描述、用户交互
+      └─ 输出：workflowConfig（阶段、数据流、Agent、条件）
+
+Phase 2: 编排器设计（SKILL.md）
+   └─ Ref: phases/02-orchestrator-design.md
+      ├─ 输入：workflowConfig
+      └─ 输出：.claude/skills/{name}/SKILL.md
+
+Phase 3: 阶段文件设计
+   └─ Ref: phases/03-phase-design.md
+      ├─ 输入：workflowConfig + 源内容
+      └─ 输出：.claude/skills/{name}/phases/0N-*.md
+
+Phase 4: 验证与集成
+   └─ Ref: phases/04-validation.md
+      └─ 输出：已验证的 Skill 包
+```
+
+**阶段参考文档**（按需读取）：
+
+| 阶段 | 文档 | 用途 |
+|------|------|------|
+| 1 | [phases/01-requirements-analysis.md](phases/01-requirements-analysis.md) | 从各种来源分析工作流需求 |
+| 2 | [phases/02-orchestrator-design.md](phases/02-orchestrator-design.md) | 使用编排模式生成 SKILL.md |
+| 3 | [phases/03-phase-design.md](phases/03-phase-design.md) | 生成保留完整执行细节的阶段文件 |
+| 4 | [phases/04-validation.md](phases/04-validation.md) | 验证结构、引用和集成 |
+
+## 输入来源
+
+此元技能接受来自多种来源的工作流定义：
+
+| 来源 | 描述 | 示例 |
+|------|------|------|
+| **现有命令** | 转换 `.claude/commands/` 编排器 + 子命令 | `plan.md` + `session/start.md` + `tools/*.md` |
+| **文本描述** | 用户用自然语言描述工作流 | "创建一个 3 阶段的代码审查工作流" |
+| **需求文档** | 结构化需求文件 | 包含阶段/Agent/输出的 `requirements.md` |
+| **现有 Skill** | 重构/重新设计现有 Skill | 将扁平 Skill 重构为阶段结构 |
+
+## Frontmatter 转换规则
+
+从命令格式转换为 Skill 格式时：
+
+| 命令字段 | Skill 字段 | 转换 |
+|---------|-----------|------|
+| `name` | `name` | 添加组前缀：`plan` → `workflow-plan` |
+| `description` | `description` | 追加触发短语：`Triggers on "xxx"` |
+| `argument-hint` | _（移除）_ | 参数在输入处理章节处理 |
+| `examples` | _（移除）_ | 示例移至行内文档 |
+| `allowed-tools` | `allowed-tools` | 展开通配符：`Skill(*)` → `Skill`，添加常用工具 |
+| `group` | _（移除）_ | 嵌入到 `name` 前缀中 |
+
+## 编排器内容映射
+
+SKILL.md 中放什么 vs 阶段文件中放什么：
+
+### SKILL.md（协调器）
+
+| 章节 | 内容 | 来源 |
+|------|------|------|
+| Frontmatter | name, description, allowed-tools | 命令 frontmatter（已转换） |
+| 架构概览 | 阶段流程的 ASCII 图 | 从执行结构派生 |
+| 核心设计原则 | 协调规则 | 从命令协调器角色提取 |
+| 执行流程 | 带 `Ref:` 标记的阶段序列 + 阶段参考表 | 命令执行过程 |
+| 核心规则 | 编排约束 | 命令核心规则 |
+| 输入处理 | 结构化格式转换 | 命令输入处理 |
+| 数据流 | 阶段间数据传递 | 命令数据流 |
+| TodoWrite 模式 | 附加/折叠生命周期 | 命令 TodoWrite 章节 |
+| 阶段后更新 | 阶段间的规划笔记/状态更新 | 命令阶段间更新代码 |
+| 错误处理 | 故障恢复 | 命令错误处理 |
+| 协调器清单 | 阶段前/后操作 | 命令协调器清单 |
+| 相关命令 | 前置条件和后续步骤 | 命令相关命令 |
+
+### 阶段文件（执行细节）
+
+| 内容 | 规则 |
+|------|------|
+| 完整 Agent 提示 | 从源命令原样保留 |
+| Bash 命令块 | 原样保留 |
+| 代码实现 | 原样保留 |
+| 验证清单 | 原样保留 |
+| 错误处理细节 | 原样保留 |
+| 输入/输出规范 | 如源中没有则添加 |
+| 阶段标题 | 添加 `# Phase N: {Name}` |
+| 目标章节 | 添加 `## Objective` 及要点 |
+| 下一阶段链接 | 添加 `## Next Phase` 及链接 |
+
+**关键规则**：阶段文件必须**忠实于源内容**。不要总结、缩略或简化。阶段文件就是执行指令 - 每个 bash 命令、每个 Agent 提示、每个验证步骤都必须保留。
+
+## SKILL.md 模板
+
+```markdown
+---
+name: {skill-name}
+description: {description}. Triggers on "{trigger1}", "{trigger2}".
+allowed-tools: {tools}
+---
+
+# {Title}
+
+{One-paragraph description of what this skill does and what it produces.}
+
+## Architecture Overview
+
+{ASCII diagram showing phases and data flow}
+
+## Key Design Principles
+
+1. **{Principle}**: {Description}
+...
+
+## Auto Mode
+
+When `--yes` or `-y`: {auto-mode behavior}.
+
+## Execution Flow
+
+{Phase sequence with Ref: markers}
+
+**Phase Reference Documents** (read on-demand when phase executes):
+
+| Phase | Document | Purpose |
+|-------|----------|---------|
+| 1 | [phases/01-xxx.md](phases/01-xxx.md) | ... |
+...
+
+## Core Rules
+
+1. {Rule}
+...
+
+## Input Processing
+
+{How user input is converted to structured format}
+
+## Data Flow
+
+{Inter-phase data passing diagram}
+
+## TodoWrite Pattern
+
+{Attachment/collapse lifecycle description with examples}
+
+## Post-Phase Updates
+
+{State updates between phases}
+
+## Error Handling
+
+{Failure recovery rules}
+
+## Coordinator Checklist
+
+{Pre/post phase action list}
+
+## Related Commands
+
+{Prerequisites and follow-ups}
+```
+
+## 阶段文件模板
+
+```markdown
+# Phase N: {Phase Name}
+
+{One-sentence description of this phase's goal.}
+
+## Objective
+
+- {Goal 1}
+- {Goal 2}
+
+## Execution
+
+### Step N.1: {Step Name}
+
+{Full execution detail: commands, agent prompts, code}
+
+### Step N.2: {Step Name}
+
+{Full execution detail}
+
+## Output
+
+- **Variable**: `{variableName}` (e.g., `sessionId`)
+- **File**: `{output file path}`
+- **TodoWrite**: Mark Phase N completed, Phase N+1 in_progress
+
+## Next Phase
+
+Return to orchestrator, then auto-continue to [Phase N+1: xxx](0N+1-xxx.md).
+```
+
+## 设计决策框架
+
+设计新工作流 Skill 时，回答以下问题：
+
+| 问题 | 影响 | 示例 |
+|------|------|------|
+| 有多少阶段？ | 目录结构 | 通常 3-7 个阶段 |
+| 哪些阶段是条件性的？ | 编排器逻辑 | "Phase 3 仅在 conflict_risk >= medium 时执行" |
+| 阶段间传递什么数据？ | 数据流章节 | sessionId、contextPath、configFlags |
+| 哪些阶段使用 Agent？ | 阶段文件复杂度 | Agent 提示需要原样保留 |
+| TodoWrite 的粒度是什么？ | TodoWrite 模式 | 有些阶段有子任务，有些是原子的 |
+| 是否有规划笔记模式？ | 阶段后更新 | 跨阶段累积的状态文档 |
+| 错误恢复机制是什么？ | 错误处理 | 重试一次后报告 vs 回滚 |
+| 是否需要自动模式？ | 自动模式章节 | 使用 --yes 标志跳过确认 |

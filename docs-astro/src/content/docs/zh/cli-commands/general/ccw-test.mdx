@@ -1,0 +1,222 @@
+---
+title: /ccw-test
+description: 测试策略的测试工作流协调器
+category: cli-commands
+order: 3
+locale: zh
+---
+
+# /ccw-test
+
+测试工作流协调器 - 分析测试需求、选择测试策略并执行测试工作流。
+
+## 概述
+
+`/ccw-test` 命令作为测试编排器，自动分析测试需求并根据测试上下文选择适当的测试工作流。
+
+**参数**：
+- `--mode <mode>`：测试模式 (test-gen, test-fix-gen, test-cycle-execute, tdd-verify)
+- `--session <id>`：从现有会话恢复
+- `"test description or session ID"`：测试目标
+
+## 特性
+
+- **自动测试模式检测** - 分析上下文以选择适当的测试工作流
+- **测试单元** - 命令分组以完成完整的测试里程碑
+- **渐进式分层** - L0-L3 测试要求
+- **AI 代码验证** - 检测常见的 AI 生成代码问题
+- **质量门禁** - 多个验证检查点
+
+## 用法
+
+```bash
+# 会话模式 - 对已完成实现的测试验证
+/ccw-test WFS-user-auth-v2
+
+# 提示模式 - 文本描述
+/ccw-test "Test the user authentication API endpoints"
+
+# 提示模式 - 文件引用
+/ccw-test ./docs/api-requirements.md
+
+# 显式模式选择
+/ccw-test --mode test-gen "Generate comprehensive tests for auth module"
+/ccw-test --mode test-fix-gen "Test failures in login flow"
+/ccw-test --mode test-cycle-execute WFS-test-auth
+```
+
+## 测试模式
+
+### 测试生成
+
+| 模式 | 描述 | 输出 | 后续 |
+|------|-------------|--------|-----------|
+| `test-gen` | 全面测试生成 | test-tasks | `/workflow:execute` |
+
+**用途**：生成全面的测试用例并执行测试
+
+### 测试修复生成
+
+| 模式 | 描述 | 输出 | 后续 |
+|------|-------------|--------|-----------|
+| `test-fix-gen` | 针对特定问题的测试和修复 | test-tasks | `/workflow:test-cycle-execute` |
+
+**用途**：为特定问题生成测试并在测试中修复
+
+### 测试循环执行
+
+| 模式 | 描述 | 输出 | 后续 |
+|------|-------------|--------|-----------|
+| `test-cycle-execute` | 迭代测试和修复 | test-passed | 无 |
+
+**用途**：执行测试-修复循环直到 95% 通过率
+
+### TDD 验证
+
+| 模式 | 描述 | 输出 |
+|------|-------------|--------|
+| `tdd-verify` | 验证 TDD 合规性 | 质量报告 |
+
+**用途**：验证 Red-Green-Refactor 循环合规性
+
+## 测试单元
+
+| 单元名称 | 命令 | 用途 |
+|-----------|----------|---------|
+| **测试生成** | test-gen → execute | 生成并运行全面测试 |
+| **测试修复** | test-fix-gen → test-cycle-execute | 生成测试并迭代修复 |
+
+## 渐进式测试分层
+
+| 分层 | 描述 | 组件 |
+|-------|-------------|------------|
+| **L0** | AI 代码问题 | 幻觉导入、占位代码、Mock 泄漏 |
+| **L0.5** | 常见问题 | 边界情况、错误处理 |
+| **L1** | 单元测试 | 组件级测试 |
+| **L2** | 集成测试 | API/数据库集成 |
+| **L3** | 端到端测试 | 完整工作流测试 |
+
+## 执行流程
+
+### 会话模式
+
+```
+会话 ID 输入
+    ↓
+阶段 1: 创建测试会话
+    └─ /workflow:session:start --type test
+    └─ 输出: testSessionId
+    ↓
+阶段 2: 测试上下文收集
+    └─ /workflow:tools:test-context-gather
+    └─ 输出: test-context-package.json
+    ↓
+阶段 3: 测试概念增强
+    └─ /workflow:tools:test-concept-enhanced
+    └─ 输出: TEST_ANALYSIS_RESULTS.md (L0-L3 要求)
+    ↓
+阶段 4: 测试任务生成
+    └─ /workflow:tools:test-task-generate
+    └─ 输出: IMPL_PLAN.md, IMPL-*.json (4+ 个任务)
+    ↓
+返回摘要 → 下一步: /workflow:test-cycle-execute
+```
+
+### 提示模式
+
+```
+描述/文件输入
+    ↓
+阶段 1: 创建测试会话
+    └─ /workflow:session:start --type test "description"
+    ↓
+阶段 2: 上下文收集
+    └─ /workflow:tools:context-gather
+    ↓
+阶段 3-4: 与会话模式相同
+```
+
+## 最小任务结构 (test-fix-gen)
+
+| 任务 | 类型 | Agent | 用途 |
+|------|------|-------|---------|
+| **IMPL-001** | test-gen | @code-developer | 测试理解和生成 (L1-L3) |
+| **IMPL-001.3** | code-validation | @test-fix-agent | 代码验证门禁 (L0 + AI 问题) |
+| **IMPL-001.5** | test-quality-review | @test-fix-agent | 测试质量门禁 |
+| **IMPL-002** | test-fix | @test-fix-agent | 测试执行和修复循环 |
+
+## 示例
+
+### 会话模式
+
+```bash
+# 对已完成实现的测试验证
+/ccw-test WFS-user-auth-v2
+
+# Output:
+# Creating test session...
+# Gathering test context...
+# Analyzing test coverage...
+# Generating test tasks...
+# Created 4 test tasks
+# Next: /workflow:test-cycle-execute
+```
+
+### 提示模式
+
+```bash
+# 测试特定功能
+/ccw-test "Test the user authentication API endpoints in src/auth/api.ts"
+
+# 为特定模块生成测试
+```
+
+### 失败测试的修复
+
+```bash
+# 修复失败的测试
+/ccw-test --mode test-fix-gen "Login tests failing with timeout error"
+
+# 生成诊断和修复测试失败的任务
+```
+
+## AI 代码问题检测（L0）
+
+测试工作流自动检测常见的 AI 生成代码问题：
+
+| 问题类型 | 描述 | 检测方式 |
+|------------|-------------|-----------|
+| **幻觉导入** | 不存在的导入 | 静态分析 |
+| **占位代码** | 生产代码中的 TODO/FIXME | 模式匹配 |
+| **Mock 泄漏** | 生产代码中的测试 Mock | 代码分析 |
+| **不完整实现** | 空函数/桩代码 | AST 分析 |
+
+## 质量门禁
+
+### IMPL-001.3 - 代码验证
+- 验证 L0 要求（AI 代码问题）
+- 检查幻觉导入
+- 检测占位代码
+- 确保无 Mock 泄漏
+
+### IMPL-001.5 - 测试质量
+- 审查测试覆盖率
+- 验证测试模式
+- 检查断言质量
+- 确保正确的错误处理
+
+## 相关命令
+
+- **/workflow:test-fix-gen** - 测试修复生成工作流
+- **/workflow:test-cycle-execute** - 测试循环执行
+- **/workflow:tdd-plan** - TDD 规划工作流
+- **/workflow:tdd-verify** - TDD 验证
+
+## 注意事项
+
+- **渐进式分层** 确保全面测试 (L0-L3)
+- **AI 代码验证** 检测常见的 AI 生成问题
+- **质量门禁** 确保高测试标准
+- **迭代修复** 直到 95% 通过率
+- **项目类型检测** 应用适当的测试模板
+- **CLI 工具偏好** 支持语义检测

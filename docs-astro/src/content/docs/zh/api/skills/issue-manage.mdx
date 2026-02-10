@@ -1,0 +1,298 @@
+---
+title: "Issue Manage"
+description: "菜单驱动的交互式问题管理 CRUD 操作"
+category: "api"
+locale: "zh"
+order: 6
+---
+
+# Issue Manage
+
+菜单驱动的交互式问题管理 CRUD 操作。适用于管理问题、查看问题状态、编辑问题字段、批量操作或查看问题历史。触发关键词："manage issue"、"list issues"、"edit issue"、"delete issue"、"bulk update"、"issue dashboard"、"issue history"、"completed issues"。
+
+## 概览
+
+| 属性 | 值 |
+|------|-----|
+| **名称** | `issue-manage` |
+| **工具** | `Bash`, `Read`, `Write`, `AskUserQuestion`, `Task`, `Glob` |
+
+## 参考
+
+通过 `ccw issue` CLI 进行交互式菜单驱动的问题 CRUD 操作界面。
+
+## 快速开始
+
+向我提问：
+- "Show all issues" → 带过滤器的列表
+- "View issue GH-123" → 详细查看
+- "Edit issue priority" → 修改字段
+- "Delete old issues" → 确认后删除
+- "Bulk update status" → 批量操作
+- "Show completed issues" → 查看问题历史
+- "Archive old issues" → 移至历史
+
+## CLI 端点
+
+```bash
+# 核心操作
+ccw issue list                      # 列出活跃问题
+ccw issue list <id> --json          # 获取问题详情
+ccw issue history                   # 列出已完成问题（从历史）
+ccw issue history --json            # 已完成问题的 JSON 格式
+ccw issue status <id>               # 详细状态
+ccw issue init <id> --title "..."   # 创建问题
+ccw issue task <id> --title "..."   # 添加任务
+ccw issue bind <id> <solution-id>   # 绑定方案
+ccw issue update <id> --status completed  # 完成并自动归档
+
+# 队列管理
+ccw issue queue                     # 列出当前队列
+ccw issue queue add <id>            # 加入队列
+ccw issue queue list                # 队列历史
+ccw issue queue switch <queue-id>   # 切换队列
+ccw issue queue archive             # 归档队列
+ccw issue queue delete <queue-id>   # 删除队列
+ccw issue next                      # 获取下一个任务
+ccw issue done <queue-id>           # 标记完成
+ccw issue update --from-queue       # 从队列同步状态
+```
+
+## 操作
+
+### 1. LIST - 列表
+
+过滤和浏览问题：
+
+```
+┌─ Filter by Status ─────────────────┐
+│ □ All        □ Registered          │
+│ □ Planned    □ Queued              │
+│ □ Executing  □ Completed           │
+└────────────────────────────────────┘
+```
+
+**流程**：
+1. 询问过滤偏好 → `ccw issue list --json`
+2. 显示表格：ID | Status | Priority | Title
+3. 选择问题查看详情
+
+### 2. VIEW - 查看
+
+详细问题检查：
+
+```
+┌─ Issue: GH-123 ─────────────────────┐
+│ Title: Fix authentication bug       │
+│ Status: planned | Priority: P2      │
+│ Solutions: 2 (1 bound)              │
+│ Tasks: 5 pending                    │
+└─────────────────────────────────────┘
+```
+
+**流程**：
+1. 获取 `ccw issue status <id> --json`
+2. 显示问题 + 方案 + 任务
+3. 提供操作：Edit | Plan | Queue | Delete
+
+### 3. EDIT - 编辑
+
+修改问题字段：
+
+| 字段 | 选项 |
+|------|------|
+| Title | 自由文本 |
+| Priority | P1-P5 |
+| Status | registered → completed |
+| Context | 问题描述 |
+| Labels | 逗号分隔 |
+
+**流程**：
+1. 选择要编辑的字段
+2. 显示当前值
+3. 通过 AskUserQuestion 收集新值
+4. 更新 `.workflow/issues/issues.jsonl`
+
+### 4. DELETE - 删除
+
+确认后删除：
+
+```
+Delete issue GH-123?
+This will also remove:
+- Associated solutions
+- Queued tasks
+
+[Delete] [Cancel]
+```
+
+**流程**：
+1. 通过 AskUserQuestion 确认删除
+2. 从 `issues.jsonl` 中移除
+3. 清理 `solutions/<id>.jsonl`
+4. 从 `queue.json` 中移除
+
+### 5. HISTORY - 历史
+
+查看和管理已完成的问题：
+
+```
+┌─ Issue History ─────────────────────┐
+│ ID                 Completed   Title │
+│ ISS-001  2025-12-28 12:00   Fix bug │
+│ ISS-002  2025-12-27 15:30   Feature │
+└──────────────────────────────────────┘
+```
+
+**流程**：
+1. 获取 `ccw issue history --json`
+2. 显示表格：ID | Completed At | Title
+3. 可选：按日期范围过滤
+
+**自动归档**：当问题状态变为 `completed` 时：
+- 问题从 `issues.jsonl` 移至 `issue-history.jsonl`
+- 方案保留在 `solutions/<id>.jsonl`
+- 队列项标记为已完成
+
+### 6. BULK - 批量操作
+
+批量操作：
+
+| 操作 | 描述 |
+|------|------|
+| Update Status | 批量更改多个问题的状态 |
+| Update Priority | 批量更改优先级 |
+| Add Labels | 为多个问题添加标签 |
+| Delete Multiple | 批量删除 |
+| Queue All Planned | 将所有已规划问题加入队列 |
+| Retry All Failed | 重置失败的任务 |
+| Sync from Queue | 从活跃队列同步状态 |
+
+## 工作流
+
+```
+┌────────────────────────────────────────────────┐
+│              Main Menu                          │
+│  ┌────┐ ┌────┐ ┌────┐ ┌─────┐ ┌────┐          │
+│  │List│ │View│ │Edit│ │Hist.│ │Bulk│          │
+│  └──┬─┘ └──┬─┘ └──┬─┘ └──┬──┘ └──┬─┘          │
+└─────┼──────┼──────┼──────┼───────┼─────────────┘
+      │      │      │      │       │
+      ▼      ▼      ▼      ▼       ▼
+   Filter  Detail  Fields  History Multi
+   Select  Actions Update  Browse  Select
+      │      │      │      │       │
+      └──────┴──────┴──────┴───────┘
+                    │
+                    ▼
+             Back to Menu
+```
+
+**问题生命周期**：
+```
+registered → planned → queued → executing → completed
+                                               │
+                                               ▼
+                                    issue-history.jsonl
+```
+
+## 实现指南
+
+### 入口
+
+```javascript
+// Parse input for issue ID
+const issueId = input.match(/^([A-Z]+-\d+|ISS-\d+)/i)?.[1];
+
+// Show main menu
+await showMainMenu(issueId);
+```
+
+### 主菜单模式
+
+```javascript
+// 1. Fetch dashboard data
+const issues = JSON.parse(Bash('ccw issue list --json') || '[]');
+const history = JSON.parse(Bash('ccw issue history --json 2>/dev/null') || '[]');
+const queue = JSON.parse(Bash('ccw issue queue --json 2>/dev/null') || '{}');
+
+// 2. Display summary
+console.log(`Active: ${issues.length} | Completed: ${history.length} | Queue: ${queue.pending_count || 0} pending`);
+
+// 3. Ask action via AskUserQuestion
+const action = AskUserQuestion({
+  questions: [{
+    question: 'What would you like to do?',
+    header: 'Action',
+    options: [
+      { label: 'List Issues', description: 'Browse active issues' },
+      { label: 'View Issue', description: 'Detail view' },
+      { label: 'Edit Issue', description: 'Modify fields' },
+      { label: 'View History', description: 'Completed issues' },
+      { label: 'Bulk Operations', description: 'Batch actions' }
+    ]
+  }]
+});
+
+// 4. Route to handler
+```
+
+### 过滤模式
+
+```javascript
+const filter = AskUserQuestion({
+  questions: [{
+    question: 'Filter by status?',
+    header: 'Filter',
+    multiSelect: true,
+    options: [
+      { label: 'All', description: 'Show all' },
+      { label: 'Registered', description: 'Unplanned' },
+      { label: 'Planned', description: 'Has solution' },
+      { label: 'Executing', description: 'In progress' }
+    ]
+  }]
+});
+```
+
+### 编辑模式
+
+```javascript
+// Select field
+const field = AskUserQuestion({...});
+
+// Get new value based on field type
+// For Priority: show P1-P5 options
+// For Status: show status options
+// For Title: accept free text via "Other"
+
+// Update file
+const issuesPath = '.workflow/issues/issues.jsonl';
+// Read → Parse → Update → Write
+```
+
+## 数据文件
+
+| 文件 | 用途 |
+|------|------|
+| `.workflow/issues/issues.jsonl` | 活跃问题记录 |
+| `.workflow/issues/issue-history.jsonl` | 已完成问题（归档） |
+| `.workflow/issues/solutions/<id>.jsonl` | 每个问题的方案 |
+| `.workflow/issues/queues/index.json` | 队列索引（多队列） |
+| `.workflow/issues/queues/<queue-id>.json` | 各个队列文件 |
+
+## 错误处理
+
+| 错误 | 解决方案 |
+|------|---------|
+| 未找到问题 | 建议 `/issue:new` 创建 |
+| 问题不存在 | 显示可用问题，重新提示 |
+| 写入失败 | 检查文件权限 |
+| 队列错误 | 显示 ccw 错误信息 |
+
+## 相关命令
+
+- `/issue:new` - 创建结构化问题
+- `/issue:plan` - 生成方案
+- `/issue:queue` - 组建执行队列
+- `/issue:execute` - 执行任务

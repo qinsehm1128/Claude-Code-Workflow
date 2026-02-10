@@ -1,0 +1,190 @@
+---
+title: "/memory:load"
+description: 将项目上下文和核心内容加载到内存
+category: cli-commands
+order: 3
+locale: zh
+---
+
+# /memory:load
+
+委托给 universal-executor agent 分析项目并返回结构化的"核心内容包"，用于内存优化。
+
+## 概述
+
+`/memory:load` 命令分析项目并返回直接加载到主线程内存的结构化内容包，为后续 Agent 操作提供必要的上下文，同时最小化 token 消耗。
+
+**核心理念**：
+- **Agent 驱动**：完全委托给 universal-executor agent 执行
+- **只读分析**：不修改代码，仅提取上下文
+- **结构化输出**：返回标准化的 JSON 内容包
+- **内存优化**：内容包直接加载到主线程内存
+- **Token 效率**：CLI 分析在 Agent 内执行以节省 Token
+
+## 特性
+
+- **项目分析** - 全面的代码库理解
+- **核心内容提取** - 识别关键组件和模式
+- **结构化输出** - JSON 格式便于集成
+- **内存优化** - 减少后续操作的 Token 使用
+- **技术栈检测** - 自动识别使用的技术
+
+## 用法
+
+```bash
+# 将项目上下文加载到内存
+/memory:load
+
+# 指定范围加载
+/memory:load --path src/features
+
+# 指定分析深度
+/memory:load --depth 3
+```
+
+## 执行流程
+
+```
+用户输入
+    ↓
+委托给 universal-executor agent
+    ↓
+阶段 1: 项目分析
+    ├─ 分析项目结构
+    ├─ 识别技术栈
+    ├─ 检测关键组件
+    └─ 提取架构模式
+    ↓
+阶段 2: 核心内容提取
+    ├─ 提取主要组件
+    ├─ 识别数据结构
+    ├─ 查找关键接口
+    └─ 记录重要模式
+    ↓
+阶段 3: 结构化输出生成
+    ├─ 格式化为 JSON
+    ├─ 按类别组织
+    └─ 添加元数据
+    ↓
+阶段 4: 内存加载
+    ├─ 加载到主线程内存
+    ├─ 供后续操作使用
+    └─ 显示摘要
+```
+
+## 输出格式
+
+该命令返回结构化的"核心内容包"：
+
+```json
+{
+  "project_name": "string",
+  "tech_stack": ["list", "of", "technologies"],
+  "architecture": {
+    "overview": "string",
+    "key_components": ["list"],
+    "patterns": ["list"]
+  },
+  "core_content": {
+    "components": [
+      {
+        "name": "string",
+        "purpose": "string",
+        "location": "path",
+        "dependencies": ["list"]
+      }
+    ],
+    "data_structures": [
+      {
+        "name": "string",
+        "purpose": "string",
+        "location": "path"
+      }
+    ],
+    "interfaces": [
+      {
+        "name": "string",
+        "methods": ["list"],
+        "location": "path"
+      }
+    ]
+  },
+  "metadata": {
+    "total_modules": number,
+    "depth_analyzed": number,
+    "timestamp": "ISO8601"
+  }
+}
+```
+
+## 示例
+
+### 基本用法
+
+```bash
+# 加载完整项目上下文
+/memory:load
+
+# Output:
+# Delegating to universal-executor agent...
+# Analyzing project structure...
+# Detected: TypeScript, React, Node.js
+# Extracting core content...
+# Core Content Pack loaded:
+# - 45 components identified
+# - 12 data structures
+# - 28 interfaces
+# Memory load complete
+```
+
+### 范围分析
+
+```bash
+# 加载特定目录
+/memory:load --path src/features/auth
+
+# 仅分析 auth 功能
+```
+
+## 核心内容包分类
+
+### 组件
+- 主应用组件
+- UI 元素
+- 服务类
+- 工具函数
+
+### 数据结构
+- 类型定义
+- 接口
+- 枚举
+- 配置 Schema
+
+### 模式
+- 架构模式
+- 设计模式
+- 编码约定
+- 最佳实践
+
+## 优势
+
+1. **Token 效率** - 减少后续操作的 Token 使用
+2. **更快的上下文加载** - 预加载内容立即可用
+3. **更高准确性** - 为 Agent 决策提供更好的上下文
+4. **结构化知识** - 有组织的项目信息
+5. **快速导航** - 轻松访问关键组件
+
+## 相关命令
+
+- **/memory:update-full** - 全量项目文档更新
+- **/memory:update-related** - 变更模块文档更新
+- **/memory:compact** - 压缩会话内存
+
+## 注意事项
+
+- **只读操作** - 不修改任何文件
+- **Agent 驱动** - 完全委托给 universal-executor agent
+- **内存优化** - 减少后续操作的 Token 消耗
+- **项目无关** - 适用于任何项目类型和结构
+- **自动技术栈检测** - 识别使用中的技术
+- **结构化输出** - JSON 格式便于集成

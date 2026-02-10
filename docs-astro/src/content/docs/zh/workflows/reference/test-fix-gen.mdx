@@ -1,0 +1,30 @@
+---
+title: "Test-Fix-Gen"
+description: "生成测试 + 执行自动化 test-fix 循环。"
+category: "workflows"
+locale: "zh"
+order: 17
+---
+
+# Test-Fix-Gen
+
+生成测试 + 执行自动化 test-fix 循环。
+
+## 概览
+
+| 属性 | 值 |
+|----------|-------|
+| **ID** | `test-fix-gen` |
+| **类型** | 测试 |
+| **复杂度** | 中 |
+
+## 用法
+
+```bash
+/workflow:test-fix-gen "Test the auth API"
+/workflow:test-cycle-execute
+```
+
+## 描述
+
+生成测试 + 执行自动化 test-fix 循环。

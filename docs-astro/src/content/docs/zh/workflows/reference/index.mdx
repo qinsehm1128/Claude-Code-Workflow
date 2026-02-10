@@ -1,0 +1,60 @@
+---
+title: "工作流参考"
+description: "所有 CCW 工作流的完整参考，包含使用示例和配置说明"
+category: "workflows"
+locale: "zh"
+order: 10
+---
+
+# 工作流参考
+
+各 CCW 工作流的详细参考文档。如需概览和选择指南，请参阅[工作流简介](/zh/docs/workflows/introduction)。
+
+## 按类型分类的工作流
+
+### 执行
+
+| 工作流 | 复杂度 | 描述 |
+|----------|-----------|-------------|
+| [Lite-Lite-Lite](/zh/docs/workflows/reference/lite-lite-lite) | 低 | 即时执行小改动（无产物）。 |
+
+### 规划
+
+| 工作流 | 复杂度 | 描述 |
+|----------|-----------|-------------|
+| [Lite-Plan](/zh/docs/workflows/reference/lite-plan) | 低 | 轻量规划，适合需求明确的单模块开发。 |
+| [Plan](/zh/docs/workflows/reference/plan) | 中 | 标准会话规划，适合多模块开发。 |
+
+### 调试
+
+| 工作流 | 复杂度 | 描述 |
+|----------|-----------|-------------|
+| [Lite-Fix](/zh/docs/workflows/reference/lite-fix) | 低 | Bug 诊断与修复，生成轻量产物。 |
+| [Debug-with-File](/zh/docs/workflows/reference/debug-with-file) | 中 | 假设驱动的调试，理解过程文档化。 |
+
+### 分析
+
+| 工作流 | 复杂度 | 描述 |
+|----------|-----------|-------------|
+| [Multi-CLI-Plan](/zh/docs/workflows/reference/multi-cli-plan) | 中 | 多 CLI / 多视角协作规划。 |
+| [Analyze-with-File](/zh/docs/workflows/reference/analyze-with-file) | 中 | 协作分析：探索 + 结论沉淀。 |
+
+### 测试
+
+| 工作流 | 复杂度 | 描述 |
+|----------|-----------|-------------|
+| [TDD-Plan](/zh/docs/workflows/reference/tdd-plan) | 中 | 测试驱动开发规划（Red-Green-Refactor）。 |
+| [Test-Fix-Gen](/zh/docs/workflows/reference/test-fix-gen) | 中 | 生成测试 + 执行自动化 test-fix 循环。 |
+
+### 头脑风暴
+
+| 工作流 | 复杂度 | 描述 |
+|----------|-----------|-------------|
+| [Brainstorm](/zh/docs/workflows/reference/brainstorm-auto-parallel) | 高 | 多角色头脑风暴，探索架构和新功能设计。 |
+
+### Issue 管理
+
+| 工作流 | 复杂度 | 描述 |
+|----------|-----------|-------------|
+| [Issue:Discover](/zh/docs/workflows/reference/issue-discover) | 高 | 从代码库中批量发现 Issue（多视角）。 |
+| [Issue:Execute](/zh/docs/workflows/reference/issue-execute) | 高 | 并行执行队列中的 Issue（可选 worktree 隔离）。 |

@@ -1,0 +1,350 @@
+---
+title: "Review Cycle"
+description: "统一多维度代码审查，支持自动修复编排"
+category: "api"
+locale: "zh"
+order: 10
+---
+
+# Review Cycle
+
+统一多维度代码审查，支持自动修复编排。支持基于会话（git 变更）和基于模块（路径模式）的审查模式，7 维度并行分析、迭代深入分析和自动修复流水线。触发关键词："workflow:review-cycle"、"workflow:review-session-cycle"、"workflow:review-module-cycle"、"workflow:review-cycle-fix"。
+
+## 概览
+
+| 属性 | 值 |
+|------|-----|
+| **名称** | `review-cycle` |
+| **工具** | `Task`, `AskUserQuestion`, `TaskCreate`, `TaskUpdate`, `TaskList`, `Read`, `Write`, `Edit`, `Bash`, `Glob`, `Grep`, `Skill` |
+
+## 参考
+
+统一多维度代码审查编排器，具有双模式（会话/模块）文件发现、7 维度并行分析、关键发现的迭代深入分析，以及可选的自动修复流水线（含智能批处理和并行规划）。
+
+## 架构概览
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  Review Cycle Orchestrator (SKILL.md)                                │
+│  → Pure coordinator: mode detection, phase dispatch, state tracking  │
+└───────────────────────────────┬──────────────────────────────────────┘
+                                │
+  ┌─────────────────────────────┼─────────────────────────────────┐
+  │           审查流水线（Phase 1-5）                               │
+  │                                                                │
+  │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐
+  │  │ Phase 1 │→ │ Phase 2 │→ │ Phase 3 │→ │ Phase 4 │→ │ Phase 5 │
+  │  │Discovery│  │Parallel │  │Aggregate│  │Deep-Dive│  │Complete │
+  │  │  Init   │  │ Review  │  │         │  │(cond.)  │  │         │
+  │  └─────────┘  └─────────┘  └─────────┘  └─────────┘  └─────────┘
+  │   session|      7 agents     severity     N agents     finalize
+  │   module        ×cli-explore  calc        ×cli-explore  state
+  │                                  ↕ loop
+  └────────────────────────────────────────────────────────────────┘
+                                │
+                          (optional --fix)
+                                │
+  ┌─────────────────────────────┼─────────────────────────────────┐
+  │           修复流水线（Phase 6-9）                               │
+  │                                                                │
+  │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐
+  │  │ Phase 6 │→ │ Phase 7 │→ │ Phase 8 │→ │ Phase 9 │
+  │  │Discovery│  │Parallel │  │Execution│  │Complete │
+  │  │Batching │  │Planning │  │Orchestr.│  │         │
+  │  └─────────┘  └─────────┘  └─────────┘  └─────────┘
+  │   grouping     N agents     M agents     aggregate
+  │   + batch      ×cli-plan    ×cli-exec    + summary
+  └────────────────────────────────────────────────────────────────┘
+```
+
+## 核心设计原则
+
+1. **双模式审查**：基于会话（git 变更）和基于模块（路径模式）共享相同的审查流水线（Phase 2-5），仅在文件发现（Phase 1）上有差异
+2. **纯编排器**：按序执行阶段，解析输出，在阶段间传递上下文
+3. **渐进式阶段加载**：阶段文档按需读取，不一次性全部加载
+4. **自动继续**：所有阶段自主运行，阶段之间无需用户干预
+5. **任务附加模型**：子任务在 TaskCreate/TaskUpdate 中动态附加/折叠
+6. **可选修复流水线**：Phase 6-9 仅在显式 `--fix` 标志或 Phase 5 后用户确认时触发
+7. **内容保留**：所有 Agent 提示、代码、Schema 从源命令中原样保留
+
+## 使用方法
+
+```
+# 审查流水线（Phase 1-5）
+Skill(skill="review-cycle", args="<path-pattern>")                                    # 模块模式
+Skill(skill="review-cycle", args="[session-id]")                                      # 会话模式
+Skill(skill="review-cycle", args="[session-id|path-pattern] [FLAGS]")                 # 带标志
+
+# 修复流水线（Phase 6-9）
+Skill(skill="review-cycle", args="--fix <review-dir|export-file>")                    # 修复模式
+Skill(skill="review-cycle", args="--fix <review-dir> [FLAGS]")                        # 修复带标志
+
+# 标志
+--dimensions=dim1,dim2,...    自定义维度（默认：全部 7 个）
+--max-iterations=N           最大深入分析迭代次数（默认：3）
+--fix                        审查后进入修复流水线或独立运行
+--resume                     恢复中断的修复会话
+--batch-size=N               每批次的发现数（默认：5，仅修复模式）
+
+# 示例
+Skill(skill="review-cycle", args="src/auth/**")                                       # 模块：审查 auth
+Skill(skill="review-cycle", args="src/auth/**,src/payment/**")                        # 模块：多路径
+Skill(skill="review-cycle", args="src/auth/** --dimensions=security,architecture")    # 模块：自定义维度
+Skill(skill="review-cycle", args="WFS-payment-integration")                           # 会话：指定
+Skill(skill="review-cycle", args="")                                                  # 会话：自动检测
+Skill(skill="review-cycle", args="--fix .workflow/active/WFS-123/.review/")           # 修复：从审查目录
+Skill(skill="review-cycle", args="--fix --resume")                                    # 修复：恢复会话
+```
+
+## 模式检测
+
+```javascript
+// Input parsing logic (orchestrator responsibility)
+function detectMode(args) {
+  if (args.includes('--fix')) return 'fix';
+  if (args.match(/\*|\.ts|\.js|\.py|src\/|lib\//)) return 'module';  // glob/path patterns
+  if (args.match(/^WFS-/) || args.trim() === '') return 'session';   // session ID or empty
+  return 'session';  // default
+}
+```
+
+| 输入模式 | 检测模式 | 阶段入口 |
+|---------|---------|---------|
+| `src/auth/**` | `module` | Phase 1（模块分支） |
+| `WFS-payment-integration` | `session` | Phase 1（会话分支） |
+| _（空）_ | `session` | Phase 1（会话分支，自动检测） |
+| `--fix .review/` | `fix` | Phase 6 |
+| `--fix --resume` | `fix` | Phase 6（恢复） |
+
+## 执行流程
+
+```
+输入解析：
+   └─ 检测模式（session|module|fix）→ 路由到对应阶段入口
+
+审查流水线（session 或 module 模式）：
+
+Phase 1: 发现与初始化
+   └─ Ref: phases/01-discovery-initialization.md
+      ├─ Session 模式：会话发现 → git 变更文件 → 解析
+      ├─ Module 模式：路径模式 → glob 展开 → 解析
+      └─ 通用：创建会话、输出目录、review-state.json、review-progress.json
+
+Phase 2: 并行审查协调
+   └─ Ref: phases/02-parallel-review.md
+      ├─ 启动 7 个 cli-explore-agent 实例（深度扫描模式）
+      ├─ 每个生成 dimensions/{dimension}.json + reports/{dimension}-analysis.md
+      └─ CLI 降级：Gemini → Qwen → Codex
+
+Phase 3: 汇总
+   └─ Ref: phases/03-aggregation.md
+      ├─ 加载维度 JSON，计算严重程度分布
+      ├─ 识别跨维度关注点（出现在 3+ 维度的文件）
+      └─ 决策：critical > 0 OR high > 5 OR 关键文件 → Phase 4
+                 否则 → Phase 5
+
+Phase 4: 迭代深入分析（条件）
+   └─ Ref: phases/04-iterative-deep-dive.md
+      ├─ 选择关键发现（每次迭代最多 5 个）
+      ├─ 启动深入分析 Agent 进行根因分析
+      ├─ 重新评估严重程度 → 回到 Phase 3 汇总
+      └─ 退出条件：无关键发现 OR 达到最大迭代次数
+
+Phase 5: 审查完成
+   └─ Ref: phases/05-review-completion.md
+      ├─ 最终化 review-state.json + review-progress.json
+      ├─ 提示用户："Run automated fixes? [Y/n]"
+      └─ 如果是 → 继续到 Phase 6
+
+修复流水线（--fix 模式或 Phase 5 之后）：
+
+Phase 6: 修复发现与批处理
+   └─ Ref: phases/06-fix-discovery-batching.md
+      ├─ 验证导出文件，创建修复会话
+      └─ 按文件+维度相似性智能分组 → 批次
+
+Phase 7: 修复并行规划
+   └─ Ref: phases/07-fix-parallel-planning.md
+      ├─ 启动 N 个 cli-planning-agent 实例（最多 10 个并行）
+      ├─ 每个输出 partial-plan-{batch-id}.json
+      └─ 编排器汇总 → fix-plan.json
+
+Phase 8: 修复执行
+   └─ Ref: phases/08-fix-execution.md
+      ├─ 按汇总时间线分阶段执行
+      ├─ 每组：分析 → 修复 → 测试 → 提交/回滚
+      └─ 要求 100% 测试通过率
+
+Phase 9: 修复完成
+   └─ Ref: phases/09-fix-completion.md
+      ├─ 汇总结果 → fix-summary.md
+      └─ 可选：如果所有修复成功则完成工作流会话
+
+完成：审查报告 + 可选修复结果
+```
+
+**阶段参考文档**（阶段执行时按需读取）：
+
+| 阶段 | 文档 | 加载时机 | 来源 |
+|------|------|---------|------|
+| 1 | [phases/01-discovery-initialization.md](phases/01-discovery-initialization.md) | 审查/修复开始 | review-session-cycle + review-module-cycle Phase 1（融合） |
+| 2 | [phases/02-parallel-review.md](phases/02-parallel-review.md) | Phase 1 完成 | 两个审查命令共享 Phase 2 |
+| 3 | [phases/03-aggregation.md](phases/03-aggregation.md) | Phase 2 完成 | 两个审查命令共享 Phase 3 |
+| 4 | [phases/04-iterative-deep-dive.md](phases/04-iterative-deep-dive.md) | 汇总触发迭代 | 两个审查命令共享 Phase 4 |
+| 5 | [phases/05-review-completion.md](phases/05-review-completion.md) | 无需更多迭代 | 两个审查命令共享 Phase 5 |
+| 6 | [phases/06-fix-discovery-batching.md](phases/06-fix-discovery-batching.md) | 进入修复模式 | review-cycle-fix Phase 1 + 1.5 |
+| 7 | [phases/07-fix-parallel-planning.md](phases/07-fix-parallel-planning.md) | Phase 6 完成 | review-cycle-fix Phase 2 |
+| 8 | [phases/08-fix-execution.md](phases/08-fix-execution.md) | Phase 7 完成 | review-cycle-fix Phase 3 |
+| 9 | [phases/09-fix-completion.md](phases/09-fix-completion.md) | Phase 8 完成 | review-cycle-fix Phase 4 + 5 |
+
+## 核心规则
+
+1. **立即开始**：第一个动作是 TaskCreate 初始化，第二个动作是 Phase 1 执行
+2. **模式检测优先**：在 Phase 1 之前解析输入以确定 session/module/fix 模式
+3. **解析每个输出**：从每个阶段提取下一阶段所需数据
+4. **自动继续**：检查 TaskList 状态，自动执行下一个待处理阶段
+5. **渐进式阶段加载**：仅在该阶段即将执行时读取阶段文档
+6. **不要停止**：持续多阶段工作流，直到所有适用阶段完成
+7. **条件 Phase 4**：仅在汇总触发迭代时执行（critical > 0 OR high > 5 OR 关键文件）
+8. **修复流水线可选**：Phase 6-9 仅在显式 --fix 标志或用户确认时执行
+
+## 数据流
+
+```
+用户输入（path-pattern | session-id | --fix export-file）
+    ↓
+[模式检测：session | module | fix]
+    ↓
+Phase 1: 发现与初始化
+    ↓ Output: sessionId, reviewId, resolvedFiles, reviewMode, outputDir
+    ↓         review-state.json, review-progress.json
+Phase 2: 并行审查协调
+    ↓ Output: dimensions/*.json, reports/*-analysis.md
+Phase 3: 汇总
+    ↓ Output: severityDistribution, criticalFiles, deepDiveFindings
+    ↓ Decision: iterate? → Phase 4 : Phase 5
+Phase 4: 迭代深入分析（条件，与 Phase 3 循环）
+    ↓ Output: iterations/*.json, reports/deep-dive-*.md
+    ↓ Loop: 重新汇总 → 检查条件 → 迭代或退出
+Phase 5: 审查完成
+    ↓ Output: 最终 review-state.json, review-progress.json
+    ↓ Decision: fix? → Phase 6 : END
+Phase 6: 修复发现与批处理
+    ↓ Output: finding batches (in-memory)
+Phase 7: 修复并行规划
+    ↓ Output: partial-plan-*.json → fix-plan.json (aggregated)
+Phase 8: 修复执行
+    ↓ Output: fix-progress-*.json, git commits
+Phase 9: 修复完成
+    ↓ Output: fix-summary.md, fix-history.json
+```
+
+## TaskCreate/TaskUpdate 模式
+
+**审查流水线初始化**：
+```javascript
+TaskCreate({ subject: "Phase 1: Discovery & Initialization", activeForm: "Initializing review" });
+TaskCreate({ subject: "Phase 2: Parallel Reviews (7 dimensions)", activeForm: "Reviewing" });
+TaskCreate({ subject: "Phase 3: Aggregation", activeForm: "Aggregating findings" });
+TaskCreate({ subject: "Phase 4: Deep-dive (conditional)", activeForm: "Deep-diving" });
+TaskCreate({ subject: "Phase 5: Review Completion", activeForm: "Completing review" });
+```
+
+**Phase 2 期间（每个维度的子任务）**：
+```javascript
+// Attach dimension sub-tasks
+TaskCreate({ subject: "  → Security review", activeForm: "Analyzing security" });
+TaskCreate({ subject: "  → Architecture review", activeForm: "Analyzing architecture" });
+TaskCreate({ subject: "  → Quality review", activeForm: "Analyzing quality" });
+// ... other dimensions
+// Collapse: Mark all dimension tasks completed when Phase 2 finishes
+```
+
+**修复流水线（Phase 5 后触发时添加）**：
+```javascript
+TaskCreate({ subject: "Phase 6: Fix Discovery & Batching", activeForm: "Batching findings" });
+TaskCreate({ subject: "Phase 7: Parallel Planning", activeForm: "Planning fixes" });
+TaskCreate({ subject: "Phase 8: Execution", activeForm: "Executing fixes" });
+TaskCreate({ subject: "Phase 9: Fix Completion", activeForm: "Completing fixes" });
+```
+
+## 错误处理
+
+### 审查流水线错误
+
+| 阶段 | 错误 | 阻塞？ | 操作 |
+|------|------|--------|------|
+| Phase 1 | 未找到会话（session 模式） | 是 | 报错退出 |
+| Phase 1 | 无变更文件（session 模式） | 是 | 报错退出 |
+| Phase 1 | 无效路径模式（module 模式） | 是 | 报错退出 |
+| Phase 1 | 无匹配文件（module 模式） | 是 | 报错退出 |
+| Phase 2 | 单个维度失败 | 否 | 记录警告，继续其他维度 |
+| Phase 2 | 所有维度失败 | 是 | 报错退出 |
+| Phase 3 | 缺失维度 JSON | 否 | 在汇总中跳过，记录警告 |
+| Phase 4 | 深入分析 Agent 失败 | 否 | 跳过该发现，继续其他 |
+| Phase 4 | 达到最大迭代次数 | 否 | 生成部分报告 |
+
+### 修复流水线错误
+
+| 阶段 | 错误 | 阻塞？ | 操作 |
+|------|------|--------|------|
+| Phase 6 | 无效导出文件 | 是 | 中止并报错 |
+| Phase 6 | 空批次 | 否 | 警告并跳过空批次 |
+| Phase 7 | 规划 Agent 超时 | 否 | 标记批次失败，继续其他 |
+| Phase 7 | 所有 Agent 失败 | 是 | 中止修复会话 |
+| Phase 8 | 修复后测试失败 | 否 | 回滚，最多重试 max_iterations 次 |
+| Phase 8 | Git 操作失败 | 是 | 中止，保留状态 |
+| Phase 9 | 汇总错误 | 否 | 生成部分摘要 |
+
+### CLI 降级链
+
+Gemini → Qwen → Codex → 降级模式
+
+**降级触发条件**：HTTP 429/5xx、连接超时、无效 JSON 输出、低置信度 < 0.4、分析过于简短（< 100 词）
+
+## 输出文件结构
+
+```
+.workflow/active/WFS-{session-id}/.review/
+├── review-state.json                    # 编排器状态机
+├── review-progress.json                 # 实时进度
+├── dimensions/                          # 每维度结果（Phase 2）
+│   ├── security.json
+│   ├── architecture.json
+│   ├── quality.json
+│   ├── action-items.json
+│   ├── performance.json
+│   ├── maintainability.json
+│   └── best-practices.json
+├── iterations/                          # 深入分析结果（Phase 4）
+│   ├── iteration-1-finding-{uuid}.json
+│   └── iteration-2-finding-{uuid}.json
+├── reports/                             # 人类可读报告
+│   ├── security-analysis.md
+│   ├── security-cli-output.txt
+│   ├── deep-dive-1-{uuid}.md
+│   └── ...
+└── fixes/{fix-session-id}/             # 修复结果（Phase 6-9）
+    ├── partial-plan-*.json
+    ├── fix-plan.json
+    ├── fix-progress-*.json
+    ├── fix-summary.md
+    ├── active-fix-session.json
+    └── fix-history.json
+```
+
+## 相关命令
+
+### 查看进度
+```bash
+ccw view
+```
+
+### 工作流流水线
+```bash
+# Step 1: Review (this skill)
+Skill(skill="review-cycle", args="src/auth/**")
+
+# Step 2: Fix (continue or standalone)
+Skill(skill="review-cycle", args="--fix .workflow/active/WFS-{session-id}/.review/")
+```

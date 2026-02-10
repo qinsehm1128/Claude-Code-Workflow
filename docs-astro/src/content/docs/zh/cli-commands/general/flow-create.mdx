@@ -1,0 +1,312 @@
+---
+title: /flow-create
+description: 为 flow-coordinator 生成工作流模板
+category: cli-commands
+order: 6
+locale: zh
+---
+
+# /flow-create
+
+Flow 模板生成器 - 为 meta-skill/flow-coordinator 创建工作流模板，支持交互式步骤定义。
+
+## 概述
+
+`/flow-create` 命令生成可由 flow-coordinator skill 使用的工作流模板，用于执行预定义的命令链。
+
+**用法**：`/flow-create [template-name] [--output <path>]`
+
+## 特性
+
+- **交互式设计** - 引导式模板创建流程
+- **复杂度级别** - 从快速到完整工作流的 4 个级别
+- **步骤定义** - 定义带命令和参数的工作流步骤
+- **命令选择** - 从可用的 CCW 命令中选择
+- **模板验证** - 确保模板结构正确性
+
+## 用法
+
+```bash
+# 使用默认名称创建模板
+/flow-create
+
+# 创建特定模板
+/flow-create bugfix-v2
+
+# 创建到自定义输出路径
+/flow-create my-workflow --output ~/.claude/skills/my-skill/templates/
+```
+
+## 执行流程
+
+```
+用户输入 → 阶段 1: 模板设计 → 阶段 2: 步骤定义 → 阶段 3: 生成 JSON
+                ↓                            ↓                           ↓
+         名称 + 描述                  定义工作流步骤              写入模板文件
+```
+
+## 阶段 1：模板设计
+
+收集模板基本信息：
+
+- **模板名称** - 模板标识符
+- **用途** - 模板要完成的任务
+- **复杂度级别** - 1-4（快速到完整）
+
+### 复杂度级别
+
+| 级别 | 名称 | 步骤数 | 描述 |
+|-------|------|-------|-------------|
+| **1** | 快速 | 1-2 | 超轻量级 (lite-lite-lite) |
+| **2** | 轻量 | 2-4 | 快速实现 |
+| **3** | 标准 | 4-6 | 带验证和测试 |
+| **4** | 完整 | 6+ | 头脑风暴 + 完整工作流 |
+
+### 用途分类
+
+- **Bug 修复** - 修复 Bug 和问题
+- **功能** - 实现新功能
+- **生成** - 生成代码或内容
+- **分析** - 分析代码或架构
+- **转换** - 转换或重构代码
+- **编排** - 复杂的多步骤工作流
+
+## 阶段 2：步骤定义
+
+定义工作流步骤包括：
+
+1. **命令选择** - 从可用的 CCW 命令中选择
+2. **执行单元** - 对相关步骤进行分组
+3. **执行模式** - mainprocess 或 async
+4. **上下文提示** - 步骤用途描述
+
+### 命令分类
+
+- **规划** - plan, lite-plan, multi-cli-plan, tdd-plan
+- **执行** - execute, lite-execute, lite-lite-lite
+- **测试** - test-fix-gen, test-cycle-execute, tdd-verify
+- **审查** - review-session-cycle, review-module-cycle
+- **调试** - debug-with-file, lite-fix
+- **头脑风暴** - brainstorm:auto-parallel, brainstorm-with-file
+- **Issue** - issue:discover, issue:plan, issue:queue, issue:execute
+
+## 阶段 3：生成 JSON
+
+创建如下结构的模板文件：
+
+```json
+{
+  "name": "template-name",
+  "description": "Template description",
+  "level": 2,
+  "steps": [
+    {
+      "cmd": "/workflow:command",
+      "args": "\"{{goal}}\"",
+      "unit": "unit-name",
+      "execution": {
+        "type": "slash-command",
+        "mode": "mainprocess"
+      },
+      "contextHint": "Description of what this step does"
+    }
+  ]
+}
+```
+
+## 模板示例
+
+### Bug 修复模板（级别 2）
+
+```json
+{
+  "name": "hotfix-simple",
+  "description": "Quick bug fix workflow",
+  "level": 2,
+  "steps": [
+    {
+      "cmd": "/workflow:lite-fix",
+      "args": "\"{{goal}}\"",
+      "unit": "bug-fix",
+      "execution": {
+        "type": "slash-command",
+        "mode": "mainprocess"
+      },
+      "contextHint": "Diagnose and fix the bug"
+    },
+    {
+      "cmd": "/workflow:lite-execute",
+      "args": "--in-memory",
+      "unit": "bug-fix",
+      "execution": {
+        "type": "slash-command",
+        "mode": "async"
+      },
+      "contextHint": "Apply the fix"
+    }
+  ]
+}
+```
+
+### 功能模板（级别 3）
+
+```json
+{
+  "name": "feature-standard",
+  "description": "Standard feature implementation with verification",
+  "level": 3,
+  "steps": [
+    {
+      "cmd": "/workflow:plan",
+      "args": "\"{{goal}}\"",
+      "unit": "verified-planning",
+      "execution": {
+        "type": "slash-command",
+        "mode": "mainprocess"
+      },
+      "contextHint": "Create detailed implementation plan"
+    },
+    {
+      "cmd": "/workflow:plan-verify",
+      "args": "",
+      "unit": "verified-planning",
+      "execution": {
+        "type": "slash-command",
+        "mode": "mainprocess"
+      },
+      "contextHint": "Verify plan completeness and quality"
+    },
+    {
+      "cmd": "/workflow:execute",
+      "args": "--resume-session=\"{{session}}\"",
+      "unit": "verified-planning",
+      "execution": {
+        "type": "slash-command",
+        "mode": "mainprocess"
+      },
+      "contextHint": "Execute the implementation plan"
+    }
+  ]
+}
+```
+
+### 完整工作流模板（级别 4）
+
+```json
+{
+  "name": "full",
+  "description": "Comprehensive workflow with brainstorm and verification",
+  "level": 4,
+  "steps": [
+    {
+      "cmd": "/workflow:brainstorm:auto-parallel",
+      "args": "\"{{goal}}\"",
+      "execution": {
+        "type": "slash-command",
+        "mode": "mainprocess"
+      },
+      "contextHint": "Multi-perspective exploration of requirements"
+    },
+    {
+      "cmd": "/workflow:plan",
+      "unit": "verified-planning-execution",
+      "execution": {
+        "type": "slash-command",
+        "mode": "mainprocess"
+      },
+      "contextHint": "Create detailed implementation plan"
+    },
+    {
+      "cmd": "/workflow:plan-verify",
+      "unit": "verified-planning-execution",
+      "execution": {
+        "type": "slash-command",
+        "mode": "mainprocess"
+      },
+      "contextHint": "Verify plan completeness"
+    },
+    {
+      "cmd": "/workflow:execute",
+      "unit": "verified-planning-execution",
+      "execution": {
+        "type": "slash-command",
+        "mode": "mainprocess"
+      },
+      "contextHint": "Execute implementation"
+    },
+    {
+      "cmd": "/workflow:test-fix-gen",
+      "unit": "test-validation",
+      "execution": {
+        "type": "slash-command",
+        "mode": "mainprocess"
+      },
+      "contextHint": "Generate tests"
+    },
+    {
+      "cmd": "/workflow:test-cycle-execute",
+      "unit": "test-validation",
+      "execution": {
+        "type": "slash-command",
+        "mode": "mainprocess"
+      },
+      "contextHint": "Execute test-fix cycle"
+    }
+  ]
+}
+```
+
+## 执行模式类型
+
+| 模式 | 描述 | 使用场景 |
+|------|-------------|----------|
+| **mainprocess** | 在主进程中执行 | 顺序执行、状态共享 |
+| **async** | 异步执行 | 并行执行、独立步骤 |
+
+## 模板输出位置
+
+默认：`~/.claude/skills/flow-coordinator/templates/{name}.json`
+
+自定义：使用 `--output` 指定替代位置
+
+## 示例
+
+### 快速 Bug 修复模板
+
+```bash
+/flow-create hotfix-simple
+
+# Interactive prompts:
+# Purpose: Bug Fix
+# Level: 2 (Lightweight)
+# Steps: Use Suggested
+# Output: ~/.claude/skills/flow-coordinator/templates/hotfix-simple.json
+```
+
+### 自定义多阶段工作流
+
+```bash
+/flow-create complex-feature --output ~/.claude/skills/my-project/templates/
+
+# Interactive prompts:
+# Name: complex-feature
+# Purpose: Feature
+# Level: 4 (Full)
+# Steps: Custom definition
+# Output: ~/.claude/skills/my-project/templates/complex-feature.json
+```
+
+## 相关命令
+
+- **/flow-coordinator** - 执行工作流模板
+- **/ccw-coordinator** - 通用命令编排
+- **Skill:flow-coordinator** - Flow coordinator skill
+
+## 注意事项
+
+- **交互式设计** 流程带引导式提示
+- **复杂度级别** 决定工作流深度
+- **执行单元** 对相关步骤进行分组
+- **模板验证** 确保正确性
+- **自定义输出** 通过 `--output` 参数支持
+- **现有模板** 可作为示例使用

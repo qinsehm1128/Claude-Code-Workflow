@@ -1,0 +1,250 @@
+---
+title: "/memory:compact"
+description: 将会话内存压缩为结构化文本以便恢复
+category: cli-commands
+order: 6
+locale: zh
+---
+
+# /memory:compact
+
+将当前会话工作内存压缩为结构化文本，优化用于会话恢复和持久化存储。
+
+## 概述
+
+`/memory:compact` 命令将当前会话的工作内存压缩为结构化文本，提取关键信息并通过 MCP `core_memory` 工具保存到持久化存储。
+
+**参数**：
+- `--description="..."`：自定义会话描述
+- `--tags=<tag1,tag2>`：添加自定义标签
+- `--force`：无需确认覆盖现有内存
+
+**执行流程**：
+1. 会话分析 → 2. 结构提取 → 3. 文本生成 → 4. MCP 导入
+
+## 特性
+
+- **会话压缩** - 从工作内存中提取关键信息
+- **结构化格式** - 组织内容以便于恢复
+- **关键状态捕获** - 保留目标、计划和决策
+- **标签支持** - 添加自定义标签用于组织
+- **持久化存储** - 通过 MCP core_memory 工具保存
+- **会话恢复** - 支持从压缩状态恢复
+
+## 用法
+
+```bash
+# 压缩当前会话
+/memory:compact
+
+# 带自定义描述
+/memory:compact --description="User authentication implementation"
+
+# 带标签
+/memory:compact --tags=auth,security,api
+
+# 强制覆盖
+/memory:compact --force
+```
+
+## 执行流程
+
+### 阶段 1：会话分析
+
+分析当前会话状态以提取：
+- 会话目标和目的
+- 实现计划
+- 修改的文件
+- 关键决策
+- 约束和需求
+- 当前状态
+
+### 阶段 2：结构提取
+
+```javascript
+const sessionAnalysis = {
+  objective: extract_objective(session),
+  plan: extract_plan(session),
+  files: extract_files(session),
+  decisions: extract_decisions(session),
+  constraints: extract_constraints(session),
+  state: extract_state(session),
+  notes: extract_notes(session)
+};
+```
+
+### 阶段 3：结构化文本生成
+
+```text
+# Session: {session_id}
+
+## Objective
+{objective}
+
+## Implementation Plan
+{plan}
+
+## Files Modified
+{files}
+
+## Key Decisions
+{decisions}
+
+## Constraints
+{constraints}
+
+## Current State
+{state}
+
+## Notes
+{notes}
+```
+
+### 阶段 4：MCP 导入
+
+```javascript
+mcp__ccw-tools__core_memory({
+  operation: "import",
+  text: structuredText
+})
+```
+
+## 输出格式
+
+```json
+{
+  "operation": "import",
+  "id": "CMEM-YYYYMMDD-HHMMSS",
+  "message": "Created memory: CMEM-YYYYMMDD-HHMMSS"
+}
+```
+
+## 结构化文本模板
+
+```markdown
+# Session: {session_id}
+
+**Date**: {timestamp}
+**Description**: {custom_description or auto-generated}
+**Tags**: {tags}
+
+---
+
+## Objective
+
+{session_objective}
+
+---
+
+## Implementation Plan
+
+{implementation_plan}
+
+---
+
+## Files Modified
+
+| File | Changes |
+|------|---------|
+| {file1} | {changes1} |
+| {file2} | {changes2} |
+
+---
+
+## Key Decisions
+
+1. {decision1}
+2. {decision2}
+3. {decision3}
+
+---
+
+## Constraints
+
+- {constraint1}
+- {constraint2}
+
+---
+
+## Current State
+
+{current_state}
+
+---
+
+## Notes
+
+{additional_notes}
+```
+
+## 示例
+
+### 基本用法
+
+```bash
+# 压缩当前会话
+/memory:compact
+
+# Output:
+# Analyzing session...
+# Extracting key information...
+# Generating structured text...
+# Importing to core memory...
+# ✅ Memory compacted: CMEM-20250203-143022
+```
+
+### 带自定义描述
+
+```bash
+# 带描述的压缩
+/memory:compact --description="OAuth2 implementation"
+
+# 描述随内存一起保存
+```
+
+### 带标签
+
+```bash
+# 带标签的压缩
+/memory:compact --tags=oauth,authentication,security
+
+# 标签有助于组织和检索
+```
+
+## 恢复
+
+恢复压缩的会话：
+
+```bash
+# 列出可用内存
+mcp__ccw-tools__core_memory({ operation: "list" })
+
+# 导出特定内存
+mcp__ccw-tools__core_memory({ operation: "export", id: "CMEM-YYYYMMDD-HHMMSS" })
+
+# 搜索内存
+mcp__ccw-tools__core_memory({ operation: "search", query: "oauth" })
+```
+
+## 使用场景
+
+1. **会话交接** - 保留上下文以便后续继续
+2. **知识库** - 存储洞察和决策以供参考
+3. **团队共享** - 与团队成员共享会话状态
+4. **文档记录** - 生成工作会话的结构化记录
+5. **恢复** - 在中断后恢复会话状态
+
+## 相关命令
+
+- **/memory:load** - 将项目上下文加载到内存
+- **/memory:update-full** - 更新所有 CLAUDE.md 文件
+- **/memory:update-related** - 更新变更的 CLAUDE.md 文件
+
+## 注意事项
+
+- **持久化存储** - 通过 MCP core_memory 工具保存
+- **结构化格式** - 优化可读性和解析
+- **自动 ID 生成** - 格式：CMEM-YYYYMMDD-HHMMSS
+- **强制选项** - 无需确认覆盖现有内存
+- **标签支持** - 添加自定义标签用于组织和搜索
+- **自定义描述** - 添加有意义的描述以便识别

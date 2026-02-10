@@ -1,0 +1,209 @@
+---
+title: "/cli:codex-review"
+description: 使用 Codex CLI 的交互式代码审查，支持可配置的审查目标
+category: cli-commands
+order: 2
+locale: zh
+---
+
+# /cli:codex-review
+
+交互式代码审查命令，通过 CCW CLI 端点调用 `codex review`，支持引导式参数选择。
+
+## 概述
+
+`/cli:codex-review` 命令提供了访问 Codex 强大代码审查功能的接口，支持多种审查目标和可自定义的审查参数。
+
+## 审查参数
+
+| 参数 | 描述 |
+|-----------|-------------|
+| `[PROMPT]` | 自定义审查指令（位置参数） |
+| `-c model=<model>` | 通过配置覆盖模型 |
+| `--uncommitted` | 审查已暂存、未暂存和未跟踪的更改 |
+| `--base <BRANCH>` | 审查相对于基础分支的更改 |
+| `--commit <SHA>` | 审查指定提交引入的更改 |
+| `--title <TITLE>` | 可选的提交标题用于审查摘要 |
+
+## 用法
+
+### 直接执行（无交互）
+
+```bash
+# 审查未提交的更改
+/cli:codex-review --uncommitted
+
+# 审查相对于 main 分支的更改
+/cli:codex-review --base main
+
+# 审查特定提交
+/cli:codex-review --commit abc123
+
+# 使用自定义模型审查
+/cli:codex-review --uncommitted --model o3
+
+# 聚焦安全审查
+/cli:codex-review --uncommitted security
+
+# 完整选项
+/cli:codex-review --base main --model o3 --title "Auth Feature" security
+```
+
+### 交互模式
+
+```bash
+# 启动交互式选择（引导流程）
+/cli:codex-review
+```
+
+## 审查目标
+
+| 目标 | 描述 | 使用场景 |
+|--------|-------------|----------|
+| **未提交** | 审查已暂存、未暂存和未跟踪的更改 | 提交前的快速审查 |
+| **基础分支** | 审查相对于指定分支的更改 | PR 审查、分支对比 |
+| **提交** | 审查特定提交引入的更改 | 历史提交审查 |
+
+## 关注领域
+
+| 关注点 | 描述 | 关键检查项 |
+|-------|-------------|------------|
+| **通用** | 全面审查 | 正确性、风格、Bug、文档 |
+| **安全** | 安全优先审查 | 注入漏洞、认证问题、验证、数据泄露 |
+| **性能** | 优化审查 | 复杂度分析、内存使用、查询优化、缓存 |
+| **代码质量** | 可维护性审查 | SOLID 原则、代码重复、命名规范、测试覆盖率 |
+
+## 执行流程
+
+### 交互模式
+
+1. **选择审查目标** - 选择 uncommitted、base branch 或 commit
+2. **选择关注领域** - 选择 general、security、performance 或 code quality
+3. **配置选项** - 设置模型、标题和自定义指令
+4. **执行审查** - 使用选定参数运行 Codex 审查
+5. **显示结果** - 展示结构化的审查发现
+
+### 命令构建
+
+```bash
+# Base structure
+ccw cli -p "<PROMPT>" --tool codex --mode review [OPTIONS]
+
+# Example with custom prompt
+ccw cli -p "
+PURPOSE: Comprehensive code review to identify issues and improve quality
+TASK: • Review correctness and logic • Check standards compliance • Identify bugs
+MODE: review
+CONTEXT: Reviewing uncommitted changes
+CONSTRAINTS: Actionable feedback
+" --tool codex --mode review --rule analysis-review-code-quality
+
+# Example with target flag only
+ccw cli --tool codex --mode review --uncommitted
+```
+
+## 提示模板
+
+遵循标准 CCW CLI 提示模板：
+
+```bash
+PURPOSE: [what] + [why] + [success criteria]
+TASK: • [step 1] • [step 2] • [step 3]
+MODE: review
+CONTEXT: [target description] | Memory: [project context]
+EXPECTED: [deliverable format] + [quality criteria]
+CONSTRAINTS: [domain constraints]
+```
+
+## 验证约束
+
+**重要**：目标标志（`--uncommitted`、`--base`、`--commit`）和自定义提示是**互斥**的。
+
+### 有效组合
+
+| 命令 | 结果 |
+|---------|--------|
+| `codex review "Focus on security"` | 有效 - 自定义提示，审查未提交更改（默认） |
+| `codex review --uncommitted` | 有效 - 无提示，使用默认审查 |
+| `codex review --base main` | 有效 - 无提示，使用默认审查 |
+| `codex review --commit abc123` | 有效 - 无提示，使用默认审查 |
+
+### 无效组合
+
+| 命令 | 结果 |
+|---------|--------|
+| `codex review --uncommitted "prompt"` | 无效 - 互斥 |
+| `codex review --base main "prompt"` | 无效 - 互斥 |
+| `codex review --commit abc123 "prompt"` | 无效 - 互斥 |
+
+## 错误处理
+
+### 没有可审查的更改
+
+```
+No changes found for review target. Suggestions:
+- For --uncommitted: Make some code changes first
+- For --base: Ensure branch exists and has diverged
+- For --commit: Verify commit SHA exists
+```
+
+### 无效分支
+
+```bash
+# Show available branches
+git branch -a --list | head -20
+```
+
+### 无效提交
+
+```bash
+# Show recent commits
+git log --oneline -10
+```
+
+## 示例
+
+### 提交前审查
+
+```bash
+# 提交前的快速审查
+/cli:codex-review --uncommitted
+
+# Output:
+# Reviewing 3 files with 45 changes
+# - src/auth/login.ts: 2 issues found
+# - src/user/profile.ts: 1 issue found
+# - tests/auth.test.ts: No issues
+```
+
+### 分支对比
+
+```bash
+# 审查功能分支相对于 main 的更改
+/cli:codex-review --base feature-auth
+
+# 显示分支之间的所有差异
+```
+
+### 安全聚焦审查
+
+```bash
+# 针对未提交更改的安全审查
+/cli:codex-review --uncommitted "Focus on security vulnerabilities, injection risks, authentication issues"
+
+# 优先展示安全相关的发现
+```
+
+## 相关命令
+
+- **/cli:cli-init** - 初始化 CLI 配置
+- **/workflow:review-session-cycle** - 基于会话的代码审查
+- **/workflow:review-module-cycle** - 模块级代码审查
+
+## 集成说明
+
+- 使用 `ccw cli --tool codex --mode review` 端点
+- 模型通过提示传递（codex 内部使用 `-c model=`）
+- 目标标志直接传递给 codex
+- 提示遵循标准 CCW CLI 模板格式
+- 结果包含严重级别、file:line 引用和修复建议

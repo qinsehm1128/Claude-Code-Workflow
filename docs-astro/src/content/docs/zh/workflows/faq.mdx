@@ -1,0 +1,373 @@
+---
+title: 工作流常见问题
+description: CCW 工作流常见问题解答
+category: workflows
+order: 7
+locale: zh
+---
+
+# 工作流常见问题
+
+CCW 工作流相关的常见问题解答。
+
+## 一般问题
+
+### 主工作流和问题工作流有什么区别？
+
+**主工作流** 用于主要开发（级别 1-5），而 **问题工作流** 用于开发后维护。
+
+| 方面 | 主工作流 | 问题工作流 |
+|------|----------|-----------|
+| **用途** | 功能开发 | 开发后修复 |
+| **时机** | 开发阶段 | 主工作流完成后 |
+| **并行方式** | 依赖分析 | Worktree 隔离（可选） |
+
+### 如何选择合适的工作流级别？
+
+```mermaid
+flowchart TD
+    Start([开始]) --> Q1{开发后维护？}
+    Q1 -->|是| Issue["问题工作流"]
+    Q1 -->|否| Q2{不确定命令？}
+    Q2 -->|是| L5["级别 5：ccw-coordinator"]
+    Q2 -->|否| Q3{需求明确？}
+    Q3 -->|否| L4["级别 4：brainstorm"]
+    Q3 -->|是| Q4{需要持久化会话？}
+    Q4 -->|是| Q5{开发类型？}
+    Q4 -->|否| Q6{多视角？}
+    Q5 -->|标准| L3Std["级别 3：plan"]
+    Q5 -->|TDD| L3TDD["级别 3：tdd-plan"]
+    Q5 -->|测试修复| L3Test["级别 3：test-fix-gen"]
+    Q6 -->|是| L2Multi["级别 2：multi-cli-plan"]
+    Q6 -->|否| Q7{缺陷修复？}
+    Q7 -->|是| L2Fix["级别 2：lite-fix"]
+    Q7 -->|否| Q8{需要规划？}
+    Q8 -->|是| L2Plan["级别 2：lite-plan"]
+    Q8 -->|否| L1["级别 1：lite-lite-lite"]
+
+    classDef startend fill:#c8e6c9,stroke:#388e3c
+    classDef decision fill:#fff9c4,stroke:#f57c00
+    classDef level fill:#e3f2fd,stroke:#1976d2
+
+    class Start startend,Q1,Q2,Q3,Q4,Q6,Q7,Q8 decision,Issue,L1,L2Plan,L2Fix,L2Multi,L3Std,L3TDD,L3Test,L4,L5 level
+```
+
+### 什么是最小执行单元？
+
+**最小执行单元** 是必须作为原子组一起执行的命令集。拆分这些命令会破坏逻辑流程并导致不完整状态。
+
+**示例**：单元 `lite-plan -> lite-execute` 必须一起完成。在 `lite-plan` 之后停止会留下一个计划但没有实现。
+
+## 级别 1 问题
+
+### 什么时候应该使用级别 1？
+
+使用级别 1（`lite-lite-lite`）当：
+- 快速修复（拼写错误、小调整）
+- 简单功能（单个函数、小型工具）
+- 配置变更（环境变量、超时值）
+- 文档更新（readme、注释）
+
+**不要使用** 当：
+- 多模块变更
+- 需要持久化记录
+- 复杂重构
+- 测试驱动开发
+
+## 级别 2 问题
+
+### lite-plan、lite-fix 和 multi-cli-plan 有什么区别？
+
+| 工作流 | 用途 | 适用场景 |
+|--------|------|----------|
+| `lite-plan` | 明确需求 | 单模块功能 |
+| `lite-fix` | 缺陷诊断 | 缺陷修复、生产问题 |
+| `multi-cli-plan` | 多视角分析 | 技术选型、方案对比 |
+
+### 什么是 hotfix 模式？
+
+```bash
+/workflow:lite-fix --hotfix "Production database connection failing"
+```
+
+**Hotfix 模式**：
+- 跳过大部分诊断阶段
+- 最小化规划（直接执行）
+- 自动生成后续任务，用于完整修复和事后复盘
+- 仅用于**生产环境紧急情况**
+
+### 什么时候应该使用 multi-cli-plan 而不是 lite-plan？
+
+使用 `multi-cli-plan` 当：
+- 需要多种视角（Gemini、Codex、Claude）
+- 技术选型决策
+- 方案对比
+- 架构权衡
+
+使用 `lite-plan` 当：
+- 需求明确
+- 单一视角即可满足
+- 需要更快的迭代
+
+## 级别 3 问题
+
+### plan、tdd-plan 和 test-fix-gen 有什么区别？
+
+| 工作流 | 用途 | 核心特性 |
+|--------|------|----------|
+| `plan` | 标准开发 | 5 阶段规划带验证 |
+| `tdd-plan` | 测试驱动开发 | 红-绿-重构周期 |
+| `test-fix-gen` | 测试修复 | 渐进式测试层级（L0-L3） |
+
+### 什么是 TDD（测试驱动开发）？
+
+**TDD** 遵循红-绿-重构周期：
+
+1. **红色**：编写一个失败的测试
+2. **绿色**：编写最少的代码使测试通过
+3. **重构**：在保持测试通过的同时改进代码
+
+**铁律**：
+```
+没有失败的测试，就不写生产代码
+```
+
+### 为什么 TDD 要求先写测试？
+
+| 方面 | 先写测试 | 后写测试 |
+|------|---------|---------|
+| **证明** | 测试在实现前失败 | 测试立即通过（什么都没证明） |
+| **发现** | 在编码前发现边界情况 | 在编码后发现边界情况 |
+| **验证** | 验证需求 | 验证实现 |
+
+### test-fix-gen 中的测试层级是什么？
+
+| 层级 | 类型 | 描述 |
+|------|------|------|
+| **L0** | 静态 | 类型检查、代码检查 |
+| **L1** | 单元 | 函数级测试 |
+| **L2** | 集成 | 组件交互 |
+| **L3** | E2E | 全系统测试 |
+
+## 级别 4 问题
+
+### 什么时候应该使用 brainstorm:auto-parallel？
+
+使用级别 4（`brainstorm:auto-parallel`）当：
+- 新功能设计
+- 系统架构重构
+- 探索性需求
+- 不确定实现方案
+- 需要多维度权衡
+
+### 头脑风暴中有哪些角色？
+
+| 角色 | 描述 |
+|------|------|
+| `system-architect` | 系统设计 |
+| `ui-designer` | 界面设计 |
+| `ux-expert` | 用户体验 |
+| `product-manager` | 产品需求 |
+| `product-owner` | 业务价值 |
+| `data-architect` | 数据结构 |
+| `scrum-master` | 流程和团队 |
+| `subject-matter-expert` | 领域专业知识 |
+| `test-strategist` | 测试策略 |
+
+### 什么是 With-File 工作流？
+
+**With-File 工作流** 提供带多 CLI 协作的文档化探索：
+
+| 工作流 | 用途 | 级别 |
+|--------|------|------|
+| `brainstorm-with-file` | 多视角构思 | 4 |
+| `debug-with-file` | 假设驱动调试 | 3 |
+| `analyze-with-file` | 协作分析 | 3 |
+
+## 级别 5 问题
+
+### 什么时候应该使用 ccw-coordinator？
+
+使用级别 5（`ccw-coordinator`）当：
+- 复杂多步骤工作流
+- 不确定使用哪些命令
+- 期望端到端自动化
+- 需要完整的状态跟踪和可恢复性
+- 团队协作的统一执行流程
+
+### ccw-coordinator 与其他级别有什么不同？
+
+| 方面 | 级别 1-4 | 级别 5 |
+|------|---------|--------|
+| **命令选择** | 手动 | 自动 |
+| **编排** | 手动 | 智能 |
+| **状态跟踪** | 各有不同 | 完整持久化 |
+
+## 执行问题
+
+### 什么是 lite-execute？
+
+`lite-execute` 是级别 2 工作流的统一执行命令：
+
+```bash
+/workflow:lite-execute --in-memory
+```
+
+**特性**：
+- 独立任务并行执行
+- 依赖任务顺序阶段
+- 通过 TodoWrite 跟踪进度
+- 可选代码审查
+
+### 什么是 execute？
+
+`execute` 是级别 3 工作流的统一执行命令：
+
+```bash
+/workflow:execute --session WFS-{session-id}
+```
+
+**特性**：
+- 依赖分析
+- 并行/顺序任务执行
+- 基于会话的进度跟踪
+- 任务完成摘要
+
+## 会话问题
+
+### 如何恢复暂停的会话？
+
+```bash
+/workflow:session:resume  # 恢复最近的会话
+/workflow:session:resume WFS-{session-id}  # 恢复特定会话
+```
+
+### 如何完成一个会话？
+
+```bash
+/workflow:session:complete --session WFS-{session-id}
+```
+
+这将归档会话，记录经验教训并更新清单。
+
+### 如何列出所有会话？
+
+```bash
+/workflow:session:list
+```
+
+## 产物问题
+
+### 工作流产物存储在哪里？
+
+| 级别 | 产物位置 |
+|------|----------|
+| 级别 1 | 无（无状态） |
+| 级别 2 | `memory://plan` 或 `.workflow/.lite-fix/`、`.workflow/.multi-cli-plan/` |
+| 级别 3 | `.workflow/active/WFS-{session}/` |
+| 级别 4 | `.workflow/active/WFS-{session}/.brainstorming/` |
+| 级别 5 | `.workflow/.ccw-coordinator/{session}/` |
+
+### 会话中有哪些文件？
+
+```
+.workflow/active/WFS-{session}/
+├── workflow-session.json          # 会话元数据
+├── IMPL_PLAN.md                   # 实现计划
+├── TODO_LIST.md                   # 进度跟踪
+├── .task/
+│   ├── IMPL-001.json              # 任务定义
+│   ├── IMPL-002.json
+│   └── ...
+└── .process/
+    ├── context-package.json       # 项目上下文
+    └── planning-notes.md
+```
+
+## 测试问题
+
+### 如何为现有代码添加测试？
+
+```bash
+# 会话模式（从已有会话）
+/workflow:test-fix-gen WFS-user-auth-v2
+
+# 提示模式（直接描述）
+/workflow:test-fix-gen "Add unit tests for the auth API"
+```
+
+### 如何修复失败的测试？
+
+```bash
+/workflow:test-fix-gen "Tests failing for user registration"
+/workflow:test-cycle-execute
+```
+
+该工作流将：
+1. 分析测试失败
+2. 识别根本原因
+3. 迭代修复问题
+4. 验证通过率 >= 95%
+
+## 故障排除
+
+### 我的工作流失败了，该怎么办？
+
+1. **检查错误消息** - 识别根本原因
+2. **查看 state.json** - 检查 `.workflow/.ccw-coordinator/{session}/state.json`
+3. **恢复会话** - 使用 `/workflow:session:resume` 继续
+4. **调整并重试** - 根据错误修改方案
+
+### 如何跳过失败的任务？
+
+编辑任务 JSON 将状态设置为 "completed"：
+
+```bash
+jq '.status = "completed"' .workflow/active/WFS-{session}/.task/IMPL-001.json
+```
+
+### 如何清理旧会话？
+
+```bash
+# 列出会话
+/workflow:session:list
+
+# 删除特定会话
+rm -rf .workflow/active/WFS-{session-id}
+
+# 清理所有已完成的会话
+/workflow:clean
+```
+
+## 最佳实践
+
+### 工作流最佳实践有哪些？
+
+1. **从简单开始** - 使用满足需求的最低级别
+2. **执行前先规划** - 在可用时使用验证步骤
+3. **持续测试** - 将测试集成到工作流中
+4. **审查代码** - 使用内置的审查工作流
+5. **记录决策** - 使用头脑风暴工作流处理复杂决策
+
+### 什么时候应该使用 worktree 隔离？
+
+**Worktree 隔离** 主要用于 **问题工作流**：
+- 主要开发完成后
+- 已合并到 `main` 分支
+- 发现需要修复的问题
+- 需要在不影响当前开发的情况下修复
+
+**主工作流** 不需要 worktree 因为：
+- 依赖分析解决了并行问题
+- 代理并行执行独立任务
+- 不需要文件系统隔离
+
+## 相关文档
+
+- [介绍](./introduction.mdx) - 工作流概览
+- [级别 1](./level-1-ultra-lightweight.mdx) - 超轻量工作流
+- [级别 2](./level-2-rapid.mdx) - 快速工作流
+- [级别 3](./level-3-standard.mdx) - 标准工作流
+- [级别 4](./level-4-brainstorm.mdx) - 头脑风暴工作流
+- [级别 5](./level-5-intelligent.mdx) - 智能工作流
+- [命令](../commands/general/ccw.mdx) - 命令参考

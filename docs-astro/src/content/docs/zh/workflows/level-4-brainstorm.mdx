@@ -1,0 +1,332 @@
+---
+title: 级别 4 - 头脑风暴工作流
+description: 适用于复杂功能设计和架构探索的多角色头脑风暴工作流
+category: workflows
+order: 5
+locale: zh
+---
+
+# 级别 4：头脑风暴工作流
+
+**复杂度**：高 | **产物**：多角色分析文档 | **角色数**：3-9 | **执行**：阶段 1/3 顺序，阶段 2 并行
+
+级别 4 工作流提供带完整规划和执行的多角色头脑风暴。它们专为探索性需求、不确定的实现方案和多维度权衡而设计。
+
+## 概览
+
+```mermaid
+flowchart TD
+    Start([用户输入]) --> BS[brainstorm:auto-parallel]
+    BS --> P1[阶段 1：交互式<br/>框架生成]
+    P1 --> P2[阶段 2：并行<br/>角色分析]
+    P2 --> P3[阶段 3：综合<br/>集成]
+
+    P3 --> Plan{需要详细<br/>规划？}
+    Plan -->|是| Verify[plan-verify]
+    Plan -->|否| Execute[execute]
+    Verify --> Execute
+
+    Execute --> Review{审查？}
+    Review -->|是| Rev[review-session-cycle]
+    Review -->|否| Test{测试？}
+    Rev --> RevFix[review-cycle-fix]
+    RevFix --> Test
+
+    Test -->|是| TFG[test-fix-gen]
+    Test -->|否| Complete([session:complete])
+
+    TFG --> TCE[test-cycle-execute]
+    TCE --> Complete
+
+    classDef startend fill:#c8e6c9,stroke:#388e3c
+    classDef workflow fill:#e3f2fd,stroke:#1976d2
+    classDef decision fill:#fff9c4,stroke:#f57c00
+    classDef execute fill:#c5e1a5,stroke:#388e3c
+
+    class Start,Complete startend,Plan,Review,Test decision,BS,Verify,Rev,RevFix,TFG,TCE workflow,P1,P2,P3,Execute execute
+```
+
+## 包含的工作流：brainstorm:auto-parallel
+
+**多角色头脑风暴 + 完整规划 + 执行**
+
+### 命令
+
+```bash
+/workflow:brainstorm:auto-parallel "Real-time notification system architecture" [--count N] [--style-skill package]
+/workflow:plan --session {sessionId}
+/workflow:plan-verify
+/workflow:execute
+```
+
+### 流程图
+
+```mermaid
+flowchart TD
+    A([开始]) --> B[阶段 1：交互式<br/>框架生成]
+    B --> C[/workflow:brainstorm:artifacts/]
+
+    C --> D[主题分析<br/>生成问题]
+    D --> E[角色选择<br/>用户确认]
+    E --> F[角色问题收集]
+    F --> G[冲突检测<br/>和解决]
+    G --> H[生成 guidance-<br/>specification.md]
+
+    H --> I[阶段 2：并行角色分析]
+
+    I --> J1[N 个 Task<br/>conceptual-planning-<br/>agent]
+    J1 --> K1{角色 1}
+    J1 --> K2{角色 2}
+    J1 --> K3{角色 3}
+    J1 --> K4{角色 N}
+
+    K1 --> L1[独立分析]
+    K2 --> L2[独立分析]
+    K3 --> L3[独立分析]
+    K4 --> L4[独立分析]
+
+    L1 --> M[并行生成<br/>{role}/analysis.md]
+    L2 --> M
+    L3 --> M
+    L4 --> M
+
+    M --> N[阶段 3：综合集成]
+    N --> O[/workflow:brainstorm:<br/>synthesis/]
+    O --> P[集成所有角色<br/>分析]
+    P --> Q[综合为<br/>synthesis-specification.md]
+
+    Q --> R([头脑风暴完成])
+
+    classDef startend fill:#c8e6c9,stroke:#388e3c
+    classDef action fill:#e3f2fd,stroke:#1976d2
+    classDef phase fill:#fff9c4,stroke:#f57c00
+    classDef parallel fill:#ffecb3,stroke:#ffa000
+
+    class A,R startend,B,C,H,N,O,P,Q action,D,E,F,G,J1,K1,K2,K3,K4,L1,L2,L3,L4,M phase
+```
+
+### 特性
+
+| 属性 | 值 |
+|------|-----|
+| **复杂度** | 高 |
+| **产物** | 多角色分析文档 + `IMPL_PLAN.md` |
+| **角色数** | 3-9（默认 3） |
+| **执行模式** | 阶段 1/3 顺序，阶段 2 并行 |
+
+### 处理阶段
+
+#### 阶段 1：交互式框架生成
+
+```bash
+/workflow:brainstorm:artifacts "Real-time notification system architecture"
+```
+
+**步骤**：
+1. **主题分析** - 分析主题，生成关键问题
+2. **角色选择** - 用户确认角色选择
+3. **角色问题收集** - 为角色分配问题
+4. **冲突检测** - 检测和解决角色冲突
+5. **生成框架** - 创建 `guidance-specification.md`
+
+#### 阶段 2：并行角色分析
+
+```bash
+# 并行执行 N 个 conceptual-planning-agent 任务
+Task(subagent_type: "conceptual-planning-agent", prompt: "Role: {role}, Topic: {topic}, Questions: {questions}")
+```
+
+**每个角色**：
+- 接收角色特定的指导
+- 独立分析主题
+- 生成 `{role}/analysis.md`
+- 可选：子文档（最多 5 个）
+
+#### 阶段 3：综合集成
+
+```bash
+/workflow:brainstorm:synthesis --session {sessionId}
+```
+
+**步骤**：
+1. **收集** 所有角色分析
+2. **集成** 各视角到综合方案
+3. **生成** `synthesis-specification.md`
+4. **识别** 关键决策和权衡
+
+### 可用角色
+
+| 角色 | 描述 |
+|------|------|
+| `system-architect` | 系统架构师 - 整体系统设计 |
+| `ui-designer` | UI 设计师 - 用户界面设计 |
+| `ux-expert` | UX 专家 - 用户体验优化 |
+| `product-manager` | 产品经理 - 产品需求 |
+| `product-owner` | 产品负责人 - 业务价值 |
+| `data-architect` | 数据架构师 - 数据结构设计 |
+| `scrum-master` | Scrum Master - 流程和团队 |
+| `subject-matter-expert` | 领域专家 - 专业领域知识 |
+| `test-strategist` | 测试策略师 - 测试策略 |
+
+### 产物结构
+
+```
+.workflow/active/WFS-realtime-notifications/
+├── workflow-session.json
+└── .brainstorming/
+    ├── guidance-specification.md      # 框架（阶段 1）
+    ├── system-architect/
+    │   ├── analysis.md                # 主文档
+    │   └── analysis-scale-{}.md       # 子文档（可选，最多 5 个）
+    ├── ux-expert/
+    │   ├── analysis.md
+    │   └── analysis-accessibility.md
+    ├── data-architect/
+    │   ├── analysis.md
+    │   └── analysis-storage.md
+    └── synthesis-specification.md     # 集成（阶段 3）
+```
+
+### 使用场景
+
+### 适用场景
+
+- 新功能设计
+- 系统架构重构
+- 探索性需求
+- 不确定实现方案
+- 需要多维度权衡
+
+### 不适用场景
+
+- 明确需求（使用级别 2-3）
+- 时间敏感任务（使用级别 2）
+- 单一视角即可满足（使用级别 2-3）
+
+### 示例
+
+#### 示例 1：架构设计
+
+```bash
+/workflow:brainstorm:auto-parallel "Microservices architecture for e-commerce platform" --count 5
+```
+
+**角色**：system-architect、data-architect、ux-expert、product-manager、test-strategist
+
+**输出**：
+- 多种架构视角
+- 数据流考量
+- 用户体验影响
+- 业务需求对齐
+- 测试策略建议
+
+#### 示例 2：功能探索
+
+```bash
+/workflow:brainstorm:auto-parallel "AI-powered recommendations" --count 3
+```
+
+**角色**：system-architect、product-manager、subject-matter-expert
+
+**输出**：
+- 技术可行性分析
+- 业务价值评估
+- 领域特定考量
+
+## With-File 工作流
+
+**With-File 工作流** 提供带多 CLI 协作的文档化探索。它们是自包含的，并生成全面的会话产物。
+
+| 工作流 | 用途 | 级别 | 核心特性 |
+|--------|------|------|----------|
+| **brainstorm-with-file** | 多视角构思 | 4 | Gemini/Codex/Claude 视角，发散-收敛循环 |
+| **debug-with-file** | 假设驱动调试 | 3 | Gemini 验证，理解演化，NDJSON 日志 |
+| **analyze-with-file** | 协作分析 | 3 | 多轮问答，CLI 探索，文档化讨论 |
+
+### brainstorm-with-file
+
+**带文档化探索的多视角构思**
+
+```bash
+/workflow:brainstorm-with-file "Notification system redesign"
+```
+
+**输出文件夹**：`.workflow/.brainstorm/`
+
+**特点**：
+- 发散-收敛循环
+- 多 CLI 视角（Gemini、Codex、Claude）
+- 内置后续选项（创建计划、问题、深度分析）
+
+### debug-with-file
+
+**带文档化调查的假设驱动调试**
+
+```bash
+/workflow:debug-with-file "System randomly crashes under load"
+```
+
+**输出文件夹**：`.workflow/.debug/`
+
+**特点**：
+- 假设驱动迭代
+- Gemini 验证假设
+- 理解演化跟踪
+- NDJSON 日志确保可复现性
+
+### analyze-with-file
+
+**带文档化讨论的协作分析**
+
+```bash
+/workflow:analyze-with-file "Understand authentication architecture design decisions"
+```
+
+**输出文件夹**：`.workflow/.analysis/`
+
+**特点**：
+- 多轮问答
+- CLI 探索集成
+- 文档化讨论线程
+
+## 检测关键词
+
+| 工作流 | 关键词 |
+|--------|--------|
+| **brainstorm** | 头脑风暴, 创意, 发散思维, multi-perspective, compare perspectives, 探索可能 |
+| **debug-file** | 深度调试, 假设验证, systematic debug, hypothesis debug, 调试记录 |
+| **analyze-file** | 协作分析, 深度理解, collaborative analysis, explore concept, 理解架构 |
+
+## 对比：With-File vs 标准工作流
+
+| 方面 | With-File 工作流 | 标准工作流 |
+|------|-----------------|-----------|
+| **文档** | 演进式文档 | 会话产物 |
+| **多 CLI** | 内置（Gemini/Codex/Claude） | 可选 |
+| **迭代** | 自包含循环 | 手动继续 |
+| **后续处理** | 内置选项 | 手动下一步 |
+| **最佳适用** | 文档化探索 | 结构化执行 |
+
+## 级别 4 总结
+
+| 方面 | 值 |
+|------|-----|
+| **复杂度** | 高 |
+| **产物** | 多角色分析 + 会话 |
+| **规划** | 多视角收敛 |
+| **执行** | 标准级别 3 执行 |
+| **最佳适用** | 复杂探索性任务 |
+
+## 相关工作流
+
+- [级别 3：标准](./level-3-standard.mdx) - 标准规划工作流
+- [级别 5：智能](./level-5-intelligent.mdx) - 自动化编排
+- [常见问题](./faq.mdx) - 常见问题
+
+## 命令参考
+
+参见 [命令文档](../commands/general/ccw.mdx)：
+- `/workflow:brainstorm:auto-parallel` - 多角色头脑风暴
+- `/workflow:brainstorm-with-file` - 文档化构思
+- `/workflow:debug-with-file` - 假设驱动调试
+- `/workflow:analyze-with-file` - 协作分析

@@ -1,0 +1,180 @@
+---
+title: "Skill Tuning"
+description: "通用 Skill 诊断与优化工具"
+category: "api"
+locale: "zh"
+order: 12
+---
+
+# Skill Tuning
+
+通用 Skill 诊断与优化工具。检测和修复 Skill 执行问题，包括上下文爆炸、长尾遗忘、数据流中断和 Agent 协调失败。支持 Gemini CLI 进行深度分析。触发关键词："skill tuning"、"tune skill"、"skill diagnosis"、"optimize skill"、"skill debug"。
+
+## 概览
+
+| 属性 | 值 |
+|------|-----|
+| **名称** | `skill-tuning` |
+| **工具** | `Task`, `AskUserQuestion`, `Read`, `Write`, `Bash`, `Glob`, `Grep`, `mcp__ace-tool__search_context` |
+
+## 参考
+
+Skill 执行问题的自主诊断与优化。
+
+## 架构
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Phase 0: Read Specs (mandatory)                    │
+│  → problem-taxonomy.md, tuning-strategies.md         │
+└─────────────────────────────────────────────────────┘
+                        ↓
+┌─────────────────────────────────────────────────────┐
+│  Orchestrator (state-driven)                         │
+│  Read state → Select action → Execute → Update → ✓ │
+└─────────────────────────────────────────────────────┘
+        ↓                           ↓
+┌──────────────────────┐   ┌──────────────────┐
+│  Diagnosis Phase     │   │ Gemini CLI       │
+│  • Context          │   │ Deep analysis    │
+│  • Memory           │   │ (on-demand)      │
+│  • DataFlow         │   │                  │
+│  • Agent            │   │ Complex issues   │
+│  • Docs             │   │ Architecture     │
+│  • Token Usage      │   │ Performance      │
+└──────────────────────┘   └──────────────────┘
+                ↓
+        ┌───────────────────┐
+        │  Fix & Verify     │
+        │  Apply → Re-test  │
+        └───────────────────┘
+```
+
+## 检测的核心问题
+
+| 优先级 | 问题 | 根因 | 修复策略 |
+|--------|------|------|---------|
+| **P0** | 编写违规 | 中间文件、状态膨胀、文件中转 | eliminate_intermediate, minimize_state |
+| **P1** | 数据流中断 | 分散状态、格式不一致 | state_centralization, schema_enforcement |
+| **P2** | Agent 协调 | 脆弱链条、无错误处理 | error_wrapping, result_validation |
+| **P3** | 上下文爆炸 | 无限历史、完整内容传递 | sliding_window, path_reference |
+| **P4** | 长尾遗忘 | 早期约束丢失 | constraint_injection, checkpoint_restore |
+| **P5** | Token 消耗 | 冗余提示、状态膨胀 | prompt_compression, lazy_loading |
+
+## 问题分类（详细规范）
+
+参见 [specs/problem-taxonomy.md](specs/problem-taxonomy.md)：
+- 检测模式（正则/检查）
+- 严重程度计算
+- 影响评估
+
+## 调优策略（详细规范）
+
+参见 [specs/tuning-strategies.md](specs/tuning-strategies.md)：
+- 每个类别 10+ 策略
+- 实现模式
+- 验证方法
+
+## 工作流
+
+| 步骤 | 动作 | 编排器决策 | 输出 |
+|------|------|-----------|------|
+| 1 | `action-init` | status='pending' | 备份、会话创建 |
+| 2 | `action-analyze-requirements` | 初始化后 | 所需维度 + 覆盖范围 |
+| 3 | 诊断（6 种类型） | 关注区域 | state.diagnosis.\{type\} |
+| 4 | `action-gemini-analysis` | 关键问题或用户请求 | 深度发现 |
+| 5 | `action-generate-report` | 所有诊断完成 | state.final_report |
+| 6 | `action-propose-fixes` | 发现问题 | state.proposed_fixes[] |
+| 7 | `action-apply-fix` | 待处理修复 | 已应用 + 已验证 |
+| 8 | `action-complete` | 质量门通过 | session.status='completed' |
+
+## 动作参考
+
+| 类别 | 动作 | 用途 |
+|------|------|------|
+| **设置** | action-init | 初始化备份、会话状态 |
+| **分析** | action-analyze-requirements | 通过 Gemini CLI 分解用户请求 |
+| **诊断** | action-diagnose-\{context,memory,dataflow,agent,docs,token_consumption\} | 检测特定类别问题 |
+| **深度分析** | action-gemini-analysis | Gemini CLI：复杂/关键问题 |
+| **报告** | action-generate-report | 整合发现 → final_report |
+| **修复** | action-propose-fixes, action-apply-fix | 生成 + 应用修复 |
+| **验证** | action-verify | 重新运行诊断，检查质量门 |
+| **退出** | action-complete, action-abort | 最终化或回滚 |
+
+完整动作详情：[phases/actions/](phases/actions/)
+
+## 状态管理
+
+**唯一数据源**：`.workflow/.scratchpad/skill-tuning-{ts}/state.json`
+
+```json
+{
+  "status": "pending|running|completed|failed",
+  "target_skill": { "name": "...", "path": "..." },
+  "diagnosis": {
+    "context": {...},
+    "memory": {...},
+    "dataflow": {...},
+    "agent": {...},
+    "docs": {...},
+    "token_consumption": {...}
+  },
+  "issues": [{"id":"...", "severity":"...", "category":"...", "strategy":"..."}],
+  "proposed_fixes": [...],
+  "applied_fixes": [...],
+  "quality_gate": "pass|fail",
+  "final_report": "..."
+}
+```
+
+完整 Schema 参见 [phases/state-schema.md](phases/state-schema.md)。
+
+## 编排器逻辑
+
+参见 [phases/orchestrator.md](phases/orchestrator.md)：
+- 决策逻辑（终止检查 → 动作选择）
+- 状态转换
+- 错误恢复
+
+## 核心原则
+
+1. **问题优先**：先诊断再修复
+2. **数据驱动**：记录追踪、Token 计数、快照
+3. **迭代**：多轮执行直到质量门通过
+4. **可逆**：所有变更带备份检查点
+5. **非侵入**：最小变更，最大清晰度
+
+## 使用示例
+
+```bash
+# 基本 Skill 诊断
+/skill-tuning "Fix memory leaks in my skill"
+
+# 使用 Gemini 深度分析
+/skill-tuning "Architecture issues in async workflow"
+
+# 聚焦特定区域
+/skill-tuning "Optimize token consumption and fix agent coordination"
+
+# 自定义问题
+/skill-tuning "My skill produces inconsistent outputs"
+```
+
+## 输出
+
+完成后查看：
+- `.workflow/.scratchpad/skill-tuning-{ts}/state.json` - 包含 final_report 的完整状态
+- `state.final_report` - Markdown 摘要（在 state.json 中）
+- `state.applied_fixes` - 已应用修复列表及验证结果
+
+## 参考文档
+
+| 文档 | 用途 |
+|------|------|
+| [specs/problem-taxonomy.md](specs/problem-taxonomy.md) | 分类 + 检测模式 |
+| [specs/tuning-strategies.md](specs/tuning-strategies.md) | 修复实现指南 |
+| [specs/dimension-mapping.md](specs/dimension-mapping.md) | 维度 <-> 规范映射 |
+| [specs/quality-gates.md](specs/quality-gates.md) | 质量验证标准 |
+| [phases/orchestrator.md](phases/orchestrator.md) | 工作流编排 |
+| [phases/state-schema.md](phases/state-schema.md) | 状态结构定义 |
+| [phases/actions/](phases/actions/) | 各动作实现 |

@@ -1,0 +1,704 @@
+---
+title: "Test Action Planning Agent"
+description: "专门扩展 action-planning-agent 用于测试规划文档的代理。生成测试任务 JSON（IMPL-001、IMPL-001.3、IMPL-001.5、IMPL-002），包含渐进式 L0-L3 测试层级、AI 代码验证和项目特定模板。"
+category: "api"
+locale: "zh"
+order: 18
+---
+
+# Test Action Planning Agent
+
+专门扩展 action-planning-agent 用于测试规划文档的代理。生成测试任务 JSON（IMPL-001、IMPL-001.3、IMPL-001.5、IMPL-002），包含渐进式 L0-L3 测试层级、AI 代码验证和项目特定模板。
+
+  继承自：@action-planning-agent
+  参见：d:\Claude_dms3\.claude\agents\action-planning-agent.md 了解基础 JSON 模式和执行流程
+
+  测试专用能力：
+  - 渐进式 L0-L3 测试层级（静态、单元、集成、端到端）
+  - AI 代码问题检测（L0.5），含 CRITICAL/ERROR/WARNING 严重级别
+  - 项目类型模板（React、Node API、CLI、Library、Monorepo）
+  - 测试反模式检测和质量门控
+  - 层级完整性阈值和覆盖率目标
+color: cyan
+
+## 概览
+
+| 属性 | 值 |
+|----------|-------|
+| **名称** | `test-action-planning-agent` |
+| **颜色** | blue |
+
+## 核心能力
+
+- 会话路径
+- 元数据
+
+## 详细参考
+
+## 代理继承
+
+**基础代理**：`@action-planning-agent`
+- **继承**：6 字段 JSON 模式、上下文加载、文档生成流程
+- **扩展**：添加测试专用 meta 字段、flow_control 字段和质量门控规范
+
+**参考文档**：
+- 基础规范：`d:\Claude_dms3\.claude\agents\action-planning-agent.md`
+- 测试命令：`d:\Claude_dms3\.claude\commands\workflow\tools\test-task-generate.md`
+
+---
+
+## 概览
+
+**代理角色**：专门的执行代理，将 TEST_ANALYSIS_RESULTS.md 中的测试需求转化为结构化的测试规划文档，包含渐进式测试层级（L0-L3）、AI 代码验证和项目特定模板。
+
+**核心能力**：
+- 从 TEST_ANALYSIS_RESULTS.md 加载和综合测试需求
+- 生成包含 L0-L3 层级规范的测试专用任务 JSON 文件
+- 应用项目类型模板（React、Node API、CLI、Library、Monorepo）
+- 配置 AI 代码问题检测（L0.5），含严重级别
+- 设置质量门控（IMPL-001.3 代码验证、IMPL-001.5 测试质量）
+- 创建测试专用的 IMPL_PLAN.md 和 TODO_LIST.md
+
+**关键原则**：所有测试规范必须遵循渐进式 L0-L3 层级，包含量化的需求、明确的覆盖率目标和可衡量的质量门控。
+
+---
+
+## 测试规范参考
+
+本节定义了此代理在生成测试任务 JSON 时必须遵循的详细规范。
+
+### 渐进式测试层级（L0-L3）
+
+| 层级 | 名称 | 范围 | 示例 |
+|-------|------|-------|----------|
+| **L0** | 静态分析 | 编译时检查 | 类型检查、Lint、Import 验证、AI 代码问题 |
+| **L1** | 单元测试 | 单个函数/类 | 正常路径、异常路径、边界情况（null/undefined/empty/boundary） |
+| **L2** | 集成测试 | 组件交互 | 模块集成、API 契约、故障场景（超时/不可用） |
+| **L3** | 端到端测试 | 用户旅程 | 关键路径、跨模块流程（如适用） |
+
+#### L0：静态分析详情
+```
+L0.1 Compilation     - tsc --noEmit, babel parse, no syntax errors
+L0.2 Import Validity - Package exists, path resolves, no circular deps
+L0.3 Type Safety     - No 'any' abuse, proper generics, null checks
+L0.4 Lint Rules      - ESLint/Prettier, project naming conventions
+L0.5 AI Issues       - Hallucinated imports, placeholders, mock leakage, etc.
+```
+
+#### L1：单元测试详情（每个函数/类）
+```
+L1.1 Happy Path      - Normal input → expected output
+L1.2 Negative Path   - Invalid input → proper error/rejection
+L1.3 Edge Cases      - null, undefined, empty, boundary values
+L1.4 State Changes   - Before/after assertions for stateful code
+L1.5 Async Behavior  - Promise resolution, timeout, cancellation
+```
+
+#### L2：集成测试详情（组件交互）
+```
+L2.1 Module Wiring   - Dependencies inject correctly
+L2.2 API Contracts   - Request/response schema validation
+L2.3 Database Ops    - CRUD operations, transactions, rollback
+L2.4 External APIs   - Mock external services, retry logic
+L2.5 Failure Modes   - Timeout, unavailable, rate limit, circuit breaker
+```
+
+#### L3：端到端测试详情（用户旅程，可选）
+```
+L3.1 Critical Paths  - Login, checkout, core workflows
+L3.2 Cross-Module    - Feature spanning multiple modules
+L3.3 Performance     - Response time, memory usage thresholds
+L3.4 Accessibility   - WCAG compliance, screen reader
+```
+
+### AI 代码问题检测（L0.5）
+
+AI 生成的代码通常会出现以下必须检测的问题：
+
+| 类别 | 问题 | 检测方法 | 严重级别 |
+|----------|--------|------------------|----------|
+| **幻觉导入** | | | |
+| - 不存在的包 | `import x from 'fake-pkg'` 不在 package.json 中 | 验证 package.json | CRITICAL |
+| - 错误的子路径 | `import x from 'lodash/nonExistent'` | 路径解析检查 | CRITICAL |
+| - 包名拼写错误 | `import x from 'reat'`（实际是 'react'） | 相似度匹配 | CRITICAL |
+| **占位符代码** | | | |
+| - 实现中的 TODO | `// TODO: implement` 在非测试文件中 | 模式匹配 | ERROR |
+| - 未实现 | `throw new Error("Not implemented")` | 字符串字面量搜索 | ERROR |
+| - 省略号作为语句 | `...`（非展开运算符） | AST 分析 | ERROR |
+| **Mock 泄漏** | | | |
+| - 生产代码中的 Jest | `jest.fn()`、`jest.mock()` 在 `src/` 中 | 文件路径 + 模式 | CRITICAL |
+| - 生产代码中的 Spy | `vi.spyOn()`、`sinon.stub()` 在 `src/` 中 | 文件路径 + 模式 | CRITICAL |
+| - 测试工具导入 | `import { render } from '@testing-library'` 在 `src/` 中 | 导入分析 | ERROR |
+| **类型滥用** | | | |
+| - 显式 any | `const x: any` | TypeScript 检查器 | WARNING |
+| - 双重转换 | `as unknown as T` | 模式匹配 | ERROR |
+| - 类型断言链 | `(x as A) as B` | AST 分析 | ERROR |
+| **命名问题** | | | |
+| - 混合约定 | 同一文件中 `camelCase` + `snake_case` | 约定检查器 | WARNING |
+| - 标识符拼写错误 | 常见拼写错误 | 拼写检查器 | WARNING |
+| - 误导性名称 | `isValid` 返回非布尔值 | 类型推断 | ERROR |
+| **控制流** | | | |
+| - 空 catch | `catch (e) {}` | 模式匹配 | ERROR |
+| - 不可达代码 | `return`/`throw` 之后的代码 | 控制流分析 | WARNING |
+| - 无限循环风险 | `while(true)` 无 break | 循环分析 | WARNING |
+| **资源泄漏** | | | |
+| - 缺少清理 | 事件监听器未移除 | 生命周期分析 | WARNING |
+| - 未关闭资源 | 文件/数据库连接未关闭 | 资源跟踪 | ERROR |
+| - 缺少取消订阅 | Observable 未取消订阅 | 模式匹配 | WARNING |
+| **安全问题** | | | |
+| - 硬编码密钥 | `password = "..."`、`apiKey = "..."` | 模式匹配 | CRITICAL |
+| - 生产中的 Console | `console.log` 含敏感数据 | 文件路径分析 | WARNING |
+| - Eval 使用 | `eval()`、`new Function()` | 模式匹配 | CRITICAL |
+
+### 项目类型检测与模板
+
+| 项目类型 | 检测信号 | 测试重点 | 示例框架 |
+|--------------|-------------------|------------|-------------------|
+| **React/Vue/Angular** | deps 中有 `@react` 或 `vue`，`.jsx/.vue/.ts(x)` 文件 | 组件渲染、hooks、用户事件、无障碍 | Jest, Vitest, @testing-library/react |
+| **Node.js API** | deps 中有 Express/Fastify/Koa/hapi，路由处理器 | 请求/响应、中间件、认证、错误处理 | Jest, Mocha, Supertest |
+| **CLI 工具** | `bin` 字段，deps 中有 commander/yargs | 参数解析、stdout/stderr、退出码 | Jest, Commander tests |
+| **Library/SDK** | `main`/`exports` 字段，无应用入口点 | 公共 API 表面、向后兼容、类型 | Jest, TSup |
+| **全栈** | 同时有前端 + 后端，monorepo 或分目录 | API 集成、SSR、数据流、端到端 | Jest, Cypress/Playwright, Vitest |
+| **Monorepo** | workspaces、lerna、nx、pnpm-workspaces | 跨包集成、共享依赖 | Jest workspaces, Lerna |
+
+### 测试反模式检测
+
+| 类别 | 反模式 | 检测 | 严重级别 |
+|----------|--------------|-----------|----------|
+| **空测试** | | | |
+| - 无断言 | `it('test', () => {})` | 主体分析 | CRITICAL |
+| - 仅有设置 | `it('test', () => { const x = 1; })` | 无 expect/assert | ERROR |
+| - 被注释掉 | `it.skip('test', ...)` | Skip 检测 | WARNING |
+| **弱断言** | | | |
+| - 仅 toBeDefined | `expect(x).toBeDefined()` | 模式匹配 | WARNING |
+| - 仅 toBeTruthy | `expect(x).toBeTruthy()` | 模式匹配 | WARNING |
+| - 快照滥用 | 大量 `.toMatchSnapshot()` | 计数阈值 | WARNING |
+| **测试隔离** | | | |
+| - 共享状态 | describe 外的 `let x;` | 作用域分析 | ERROR |
+| - 缺少清理 | 有 setup 但无 afterEach | 生命周期检查 | WARNING |
+| - 顺序依赖 | 随机顺序运行时测试失败 | 洗牌测试 | ERROR |
+| **覆盖不完整** | | | |
+| - 缺少 L1.2 | 无异常路径测试 | 模式扫描 | ERROR |
+| - 缺少 L1.3 | 无边界情况测试 | 模式扫描 | ERROR |
+| - 缺少异步 | 异步函数无异步测试 | 签名匹配 | WARNING |
+| **AI 生成问题** | | | |
+| - 同义反复 | `expect(1).toBe(1)` | 字面量检测 | CRITICAL |
+| - 测试 mock | 仅 `expect(mockFn).toHaveBeenCalled()` | Mock-only 测试 | ERROR |
+| - 复制粘贴 | 相同的测试主体 | 相似度检查 | WARNING |
+| - 错误目标 | 测试未导入被测对象 | 导入分析 | CRITICAL |
+
+### 层级完整性与质量指标
+
+#### 完整性要求
+
+| 层级 | 要求 | 阈值 |
+|-------|-------------|-----------|
+| L1.1 | 每个导出函数的正常路径 | 100% |
+| L1.2 | 有验证的函数的异常路径 | 80% |
+| L1.3 | 边界情况（null、empty、boundary） | 60% |
+| L1.4 | 有状态代码的状态变更测试 | 80% |
+| L1.5 | 异步函数的异步测试 | 100% |
+| L2 | 模块边界的集成测试 | 70% |
+| L3 | 关键用户路径的端到端测试 | 可选 |
+
+#### 质量指标
+
+| 指标 | 目标 | 测量方式 | 是否关键？ |
+|--------|--------|-------------|-----------|
+| 行覆盖率 | >= 80% | `jest --coverage` | 是 |
+| 分支覆盖率 | >= 70% | `jest --coverage` | 是 |
+| 函数覆盖率 | >= 90% | `jest --coverage` | 是 |
+| 断言密度 | >= 每个测试 2 个 | 断言计数 / 测试计数 | 是 |
+| 测试/代码比率 | >= 1:1 | 测试行数 / 源代码行数 | 是 |
+
+#### 门控决策
+
+**IMPL-001.3（代码验证门控）**：
+| 决策 | 条件 | 操作 |
+|----------|-----------|--------|
+| **PASS** | critical=0, error<=3, warning<=10 | 继续到 IMPL-001.5 |
+| **SOFT_FAIL** | 可修复问题（无 CRITICAL） | 自动修复并重试（最多 2 次） |
+| **HARD_FAIL** | critical>0 或达到最大重试次数 | 阻止并提供详细报告 |
+
+**IMPL-001.5（测试质量门控）**：
+| 决策 | 条件 | 操作 |
+|----------|-----------|--------|
+| **PASS** | 所有阈值满足，无 CRITICAL | 继续到 IMPL-002 |
+| **SOFT_FAIL** | 轻微缺口，无 CRITICAL | 生成改进清单，重试 |
+| **HARD_FAIL** | CRITICAL 问题或达到最大重试次数 | 阻止并提供报告 |
+
+---
+
+## 1. 输入与执行
+
+### 1.1 继承的基础模式
+
+**来自 @action-planning-agent** - 使用标准 6 字段 JSON 模式：
+- `id`、`title`、`status` - 标准任务元数据
+- `context_package_path` - 上下文包路径
+- `cli_execution_id` - CLI 会话 ID
+- `cli_execution` - 执行策略（new/resume/fork/merge_fork）
+- `meta` - 代理分配、类型、执行配置
+- `context` - 需求、焦点路径、验收标准、依赖
+- `flow_control` - 预分析、实现方案、目标文件
+
+**参见**：`action-planning-agent.md` 第 2.1-2.3 节了解完整的基础模式规范。
+
+### 1.2 测试专用扩展
+
+**用测试专用字段扩展基础模式**：
+
+#### Meta 扩展
+```json
+{
+  "meta": {
+    "type": "test-gen|test-fix|code-validation|test-quality-review",  // 测试任务类型
+    "agent": "@code-developer|@test-fix-agent",
+    "test_framework": "jest|vitest|pytest|junit|mocha",                // 测试任务必需
+    "project_type": "React|Node API|CLI|Library|Full-Stack|Monorepo",  // 新增：项目类型检测
+    "coverage_target": "line:80%,branch:70%,function:90%"               // 新增：覆盖率目标
+  }
+}
+```
+
+#### Flow Control 扩展
+```json
+{
+  "flow_control": {
+    "pre_analysis": [...],              // 来自基础模式
+    "implementation_approach": [...],   // 来自基础模式
+    "target_files": [...],              // 来自基础模式
+    "reusable_test_tools": [            // 新增：测试专用 - 现有测试工具
+      "tests/helpers/testUtils.ts",
+      "tests/fixtures/mockData.ts"
+    ],
+    "test_commands": {                  // 新增：测试专用 - 项目测试命令
+      "run_tests": "npm test",
+      "run_coverage": "npm test -- --coverage",
+      "run_specific": "npm test -- {test_file}"
+    },
+    "ai_issue_scan": {                  // 新增：仅 IMPL-001.3 - AI 问题检测配置
+      "categories": ["hallucinated_imports", "placeholder_code", ...],
+      "severity_levels": ["CRITICAL", "ERROR", "WARNING"],
+      "auto_fix_enabled": true,
+      "max_retries": 2
+    },
+    "quality_gates": {                  // 新增：仅 IMPL-001.5 - 测试质量阈值
+      "layer_completeness": { "L1.1": "100%", "L1.2": "80%", ... },
+      "anti_patterns": ["empty_tests", "weak_assertions", ...],
+      "coverage_thresholds": { "line": "80%", "branch": "70%", ... }
+    }
+  }
+}
+```
+
+### 1.3 输入处理
+
+**从 test-task-generate 命令接收的内容**：
+- **会话路径**：用于自主加载内容的文件路径
+  - `session_metadata_path`：会话配置
+  - `test_analysis_results_path`：TEST_ANALYSIS_RESULTS.md（必需 - 主要需求来源）
+  - `test_context_package_path`：test-context-package.json
+  - `context_package_path`：context-package.json
+
+- **元数据**：简单值
+  - `session_id`：工作流会话标识符（WFS-test-[topic]）
+  - `source_session_id`：源实现会话（如果存在）
+  - `mcp_capabilities`：可用的 MCP 工具
+
+### 1.2 执行流程
+
+#### 阶段 1：上下文加载与组装
+
+```
+1. Load TEST_ANALYSIS_RESULTS.md (PRIMARY SOURCE)
+   - Extract project type detection
+   - Extract L0-L3 test requirements
+   - Extract AI issue scan results
+   - Extract coverage targets
+   - Extract test framework and conventions
+
+2. Load session metadata
+   - Extract session configuration
+   - Identify source session (if test mode)
+
+3. Load test context package
+   - Extract test coverage analysis
+   - Extract project dependencies
+   - Extract existing test utilities and frameworks
+
+4. Assess test generation complexity
+   - Simple: <5 files, L1-L2 only
+   - Medium: 5-15 files, L1-L3
+   - Complex: >15 files, all layers, cross-module dependencies
+```
+
+#### 阶段 2：任务 JSON 生成
+
+使用**基础 6 字段模式 + 测试扩展**生成至少 4 个任务：
+
+**基础模式（继承自 @action-planning-agent）**：
+```json
+{
+  "id": "IMPL-N",
+  "title": "Task description",
+  "status": "pending",
+  "context_package_path": ".workflow/active/WFS-test-{session}/.process/context-package.json",
+  "cli_execution_id": "WFS-test-{session}-IMPL-N",
+  "cli_execution": { "strategy": "new|resume|fork|merge_fork", ... },
+  "meta": { ... },       // See section 1.2 for test extensions
+  "context": { ... },    // See action-planning-agent.md section 2.2
+  "flow_control": { ... } // See section 1.2 for test extensions
+}
+```
+
+**任务 1：IMPL-001.json（测试生成）**
+```json
+{
+  "id": "IMPL-001",
+  "title": "Generate L1-L3 tests for {module}",
+  "status": "pending",
+  "context_package_path": ".workflow/active/WFS-test-{session}/.process/test-context-package.json",
+  "cli_execution_id": "WFS-test-{session}-IMPL-001",
+  "cli_execution": {
+    "strategy": "new"
+  },
+  "meta": {
+    "type": "test-gen",
+    "agent": "@code-developer",
+    "test_framework": "jest",                    // From TEST_ANALYSIS_RESULTS.md
+    "project_type": "React",                     // From project type detection
+    "coverage_target": "line:80%,branch:70%,function:90%"
+  },
+  "context": {
+    "requirements": [
+      "Generate 15 unit tests (L1) for 5 components: [Component A, B, C, D, E]",
+      "Generate 8 integration tests (L2) for 2 API integrations: [Auth API, Data API]",
+      "Create 5 test files: [ComponentA.test.tsx, ComponentB.test.tsx, ...]"
+    ],
+    "focus_paths": ["src/components", "src/api"],
+    "acceptance": [
+      "15 L1 tests implemented: verify by npm test -- --testNamePattern='L1' | grep 'Tests: 15'",
+      "Test coverage ≥80%: verify by npm test -- --coverage | grep 'All files.*80'"
+    ],
+    "depends_on": []
+  },
+  "flow_control": {
+    "pre_analysis": [
+      {
+        "step": "load_test_analysis",
+        "action": "Load TEST_ANALYSIS_RESULTS.md",
+        "commands": ["Read('.workflow/active/WFS-test-{session}/.process/TEST_ANALYSIS_RESULTS.md')"],
+        "output_to": "test_requirements"
+      },
+      {
+        "step": "load_test_context",
+        "action": "Load test context package",
+        "commands": ["Read('.workflow/active/WFS-test-{session}/.process/test-context-package.json')"],
+        "output_to": "test_context"
+      }
+    ],
+    "implementation_approach": [
+      {
+        "phase": "Generate L1 Unit Tests",
+        "steps": [
+          "For each function: Generate L1.1 (happy path), L1.2 (negative), L1.3 (edge cases), L1.4 (state), L1.5 (async)"
+        ],
+        "test_patterns": "render(), screen.getByRole(), userEvent.click(), waitFor()"
+      },
+      {
+        "phase": "Generate L2 Integration Tests",
+        "steps": [
+          "Generate L2.1 (module wiring), L2.2 (API contracts), L2.5 (failure modes)"
+        ],
+        "test_patterns": "supertest(app), expect(res.status), expect(res.body)"
+      }
+    ],
+    "target_files": [
+      "tests/components/ComponentA.test.tsx",
+      "tests/components/ComponentB.test.tsx",
+      "tests/api/auth.integration.test.ts"
+    ],
+    "reusable_test_tools": [
+      "tests/helpers/renderWithProviders.tsx",
+      "tests/fixtures/mockData.ts"
+    ],
+    "test_commands": {
+      "run_tests": "npm test",
+      "run_coverage": "npm test -- --coverage"
+    }
+  }
+}
+```
+
+**任务 2：IMPL-001.3-validation.json（代码验证门控）**
+```json
+{
+  "id": "IMPL-001.3",
+  "title": "Code validation gate - AI issue detection",
+  "status": "pending",
+  "context_package_path": ".workflow/active/WFS-test-{session}/.process/test-context-package.json",
+  "cli_execution_id": "WFS-test-{session}-IMPL-001.3",
+  "cli_execution": {
+    "strategy": "resume",
+    "resume_from": "WFS-test-{session}-IMPL-001"
+  },
+  "meta": {
+    "type": "code-validation",
+    "agent": "@test-fix-agent"
+  },
+  "context": {
+    "requirements": [
+      "Validate L0.1-L0.5 for all generated test files",
+      "Detect all AI issues across 7 categories: [hallucinated_imports, placeholder_code, ...]",
+      "Zero CRITICAL issues required"
+    ],
+    "focus_paths": ["tests/"],
+    "acceptance": [
+      "L0 validation passed: verify by zero CRITICAL issues",
+      "Compilation successful: verify by tsc --noEmit tests/ (exit code 0)"
+    ],
+    "depends_on": ["IMPL-001"]
+  },
+  "flow_control": {
+    "pre_analysis": [],
+    "implementation_approach": [
+      {
+        "phase": "L0.1 Compilation Check",
+        "validation": "tsc --noEmit tests/"
+      },
+      {
+        "phase": "L0.2 Import Validity",
+        "validation": "Check all imports against package.json and node_modules"
+      },
+      {
+        "phase": "L0.5 AI Issue Detection",
+        "validation": "Scan for all 7 AI issue categories with severity levels"
+      }
+    ],
+    "target_files": [],
+    "ai_issue_scan": {
+      "categories": [
+        "hallucinated_imports",
+        "placeholder_code",
+        "mock_leakage",
+        "type_abuse",
+        "naming_issues",
+        "control_flow",
+        "resource_leaks",
+        "security_issues"
+      ],
+      "severity_levels": ["CRITICAL", "ERROR", "WARNING"],
+      "auto_fix_enabled": true,
+      "max_retries": 2,
+      "thresholds": {
+        "critical": 0,
+        "error": 3,
+        "warning": 10
+      }
+    }
+  }
+}
+```
+
+**任务 3：IMPL-001.5-review.json（测试质量门控）**
+```json
+{
+  "id": "IMPL-001.5",
+  "title": "Test quality gate - anti-patterns and coverage",
+  "status": "pending",
+  "context_package_path": ".workflow/active/WFS-test-{session}/.process/test-context-package.json",
+  "cli_execution_id": "WFS-test-{session}-IMPL-001.5",
+  "cli_execution": {
+    "strategy": "resume",
+    "resume_from": "WFS-test-{session}-IMPL-001.3"
+  },
+  "meta": {
+    "type": "test-quality-review",
+    "agent": "@test-fix-agent"
+  },
+  "context": {
+    "requirements": [
+      "Validate layer completeness: L1.1 100%, L1.2 80%, L1.3 60%",
+      "Detect all anti-patterns across 5 categories: [empty_tests, weak_assertions, ...]",
+      "Verify coverage: line ≥80%, branch ≥70%, function ≥90%"
+    ],
+    "focus_paths": ["tests/"],
+    "acceptance": [
+      "Coverage ≥80%: verify by npm test -- --coverage | grep 'All files.*80'",
+      "Zero CRITICAL anti-patterns: verify by quality report"
+    ],
+    "depends_on": ["IMPL-001", "IMPL-001.3"]
+  },
+  "flow_control": {
+    "pre_analysis": [],
+    "implementation_approach": [
+      {
+        "phase": "Static Analysis",
+        "validation": "Lint test files, check anti-patterns"
+      },
+      {
+        "phase": "Coverage Analysis",
+        "validation": "Calculate coverage percentage, identify gaps"
+      },
+      {
+        "phase": "Quality Metrics",
+        "validation": "Verify thresholds, layer completeness"
+      }
+    ],
+    "target_files": [],
+    "quality_gates": {
+      "layer_completeness": {
+        "L1.1": "100%",
+        "L1.2": "80%",
+        "L1.3": "60%",
+        "L1.4": "80%",
+        "L1.5": "100%",
+        "L2": "70%"
+      },
+      "anti_patterns": [
+        "empty_tests",
+        "weak_assertions",
+        "test_isolation",
+        "incomplete_coverage",
+        "ai_generated_issues"
+      ],
+      "coverage_thresholds": {
+        "line": "80%",
+        "branch": "70%",
+        "function": "90%"
+      }
+    }
+  }
+}
+```
+
+**任务 4：IMPL-002.json（测试执行与修复）**
+```json
+{
+  "id": "IMPL-002",
+  "title": "Test execution and fix cycle",
+  "status": "pending",
+  "context_package_path": ".workflow/active/WFS-test-{session}/.process/test-context-package.json",
+  "cli_execution_id": "WFS-test-{session}-IMPL-002",
+  "cli_execution": {
+    "strategy": "resume",
+    "resume_from": "WFS-test-{session}-IMPL-001.5"
+  },
+  "meta": {
+    "type": "test-fix",
+    "agent": "@test-fix-agent"
+  },
+  "context": {
+    "requirements": [
+      "Execute all tests and fix failures until pass rate ≥95%",
+      "Maximum 5 fix iterations",
+      "Use Gemini for diagnosis, agent for fixes"
+    ],
+    "focus_paths": ["tests/", "src/"],
+    "acceptance": [
+      "All tests pass: verify by npm test (exit code 0)",
+      "Pass rate ≥95%: verify by test output"
+    ],
+    "depends_on": ["IMPL-001", "IMPL-001.3", "IMPL-001.5"]
+  },
+  "flow_control": {
+    "pre_analysis": [],
+    "implementation_approach": [
+      {
+        "phase": "Initial Test Execution",
+        "command": "npm test"
+      },
+      {
+        "phase": "Iterative Fix Cycle",
+        "steps": [
+          "Diagnose failures with Gemini",
+          "Apply fixes via agent or CLI",
+          "Re-run tests",
+          "Repeat until pass rate ≥95% or max iterations"
+        ],
+        "max_iterations": 5
+      }
+    ],
+    "target_files": [],
+    "test_fix_cycle": {
+      "max_iterations": 5,
+      "diagnosis_tool": "gemini",
+      "fix_mode": "agent",
+      "exit_conditions": ["all_tests_pass", "max_iterations_reached"]
+    }
+  }
+}
+```
+
+#### 阶段 3：文档生成
+
+```
+1. Create IMPL_PLAN.md (test-specific variant)
+   - frontmatter: workflow_type="test_session", test_framework, coverage_targets
+   - Test Generation Phase: L1-L3 layer breakdown
+   - Quality Gates: IMPL-001.3 and IMPL-001.5 specifications
+   - Test-Fix Cycle: Iteration strategy with diagnosis and fix modes
+   - Source Session Context: If exists (from source_session_id)
+
+2. Create TODO_LIST.md
+   - Hierarchical structure with test phase containers
+   - Links to task JSONs with status markers
+   - Test layer indicators (L0, L1, L2, L3)
+   - Quality gate indicators (validation, review)
+```
+
+---
+
+## 2. 输出验证
+
+### 任务 JSON 验证
+
+**IMPL-001 要求**：
+- 每个目标函数的所有 L1.1-L1.5 测试均已明确定义
+- 项目类型模板正确应用
+- 包含可复用测试工具和测试命令
+- 实现方案包含所有 3 个阶段（L1、L2、L3）
+
+**IMPL-001.3 要求**：
+- 包含所有 7 个 AI 问题类别
+- 严重级别正确分配
+- ERROR 及以下级别的自动修复逻辑
+- 验收标准引用零 CRITICAL 规则
+
+**IMPL-001.5 要求**：
+- 层级完整性阈值：L1.1 100%、L1.2 80%、L1.3 60%
+- 包含所有 5 个反模式类别
+- 覆盖率指标：行 80%、分支 70%、函数 90%
+- 验收标准引用所有阈值
+
+**IMPL-002 要求**：
+- 依赖：IMPL-001、IMPL-001.3、IMPL-001.5（顺序执行）
+- 最大迭代次数：5
+- 诊断工具：Gemini
+- 退出条件：all_tests_pass 或 max_iterations_reached
+
+### 质量标准
+
+硬性约束：
+- 任务数量：最少 4 个，最多 18 个
+- 所有需求均来自 TEST_ANALYSIS_RESULTS.md 的量化数据
+- L0-L3 渐进式层级按规范完整实现
+- AI 问题检测包含 L0.5 检查清单中的所有项目
+- 项目类型模板正确应用
+- 测试反模式验证规则已实现
+- 层级完整性阈值已满足
+- 质量指标目标：行 80%、分支 70%、函数 90%
+
+---
+
+## 3. 成功标准
+
+- 所有测试规划文档成功生成
+- 报告任务数量：最少 4 个
+- 测试框架正确检测并报告
+- 覆盖率目标明确指定：L0 零错误、L1 80%+、L2 70%+
+- L0-L3 层级在 IMPL-001 任务中明确定义
+- AI 问题检测在 IMPL-001.3 中已配置
+- 具有可衡量阈值的质量门控在 IMPL-001.5 中
+- 源会话状态已报告（如适用）

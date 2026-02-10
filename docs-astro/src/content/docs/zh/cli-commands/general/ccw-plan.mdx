@@ -1,0 +1,206 @@
+---
+title: /ccw-plan
+description: 智能工作流选择的规划协调器
+category: cli-commands
+order: 2
+locale: zh
+---
+
+# /ccw-plan
+
+规划协调器 - 分析需求、选择规划策略，并在主进程中执行规划工作流。
+
+## 概述
+
+`/ccw-plan` 命令作为规划编排器，自动分析任务需求并根据复杂度和约束条件选择适当的规划工作流。
+
+**参数**：
+- `--mode <mode>`：规划模式 (lite, multi-cli, full, plan-verify, replan, cli, issue, rapid-to-issue, brainstorm-with-file, analyze-with-file)
+- `--yes|-y`：跳过确认提示
+- `"task description"`：要规划的任务（必填）
+
+## 特性
+
+- **自动模式检测** - 基于关键词的模式选择
+- **规划单元** - 命令分组以完成完整的规划里程碑
+- **多模式支持** - 10+ 种规划工作流可用
+- **Issue 集成** - 与 Issue 工作流的桥接
+- **With-File 工作流** - 多 CLI 协作支持
+
+## 用法
+
+```bash
+# 自动选择模式（基于关键词检测）
+/ccw-plan "Add user authentication"
+
+# 标准规划模式
+/ccw-plan --mode lite "Add logout endpoint"
+/ccw-plan --mode multi-cli "Implement OAuth2"
+/ccw-plan --mode full "Design notification system"
+/ccw-plan --mode plan-verify "Payment processing"
+/ccw-plan --mode replan --session WFS-auth-2025-01-28
+
+# CLI 辅助规划（快速建议）
+/ccw-plan --mode cli "Should we use OAuth2 or JWT?"
+
+# With-File 工作流
+/ccw-plan --mode brainstorm-with-file "用户通知系统重新设计"
+/ccw-plan --mode analyze-with-file "认证架构设计决策"
+
+# Issue 工作流集成
+/ccw-plan --mode issue "Handle all pending security issues"
+/ccw-plan --mode rapid-to-issue "Plan and create user profile issue"
+
+# 自动模式（跳过确认）
+/ccw-plan --yes "Quick feature: user profile endpoint"
+```
+
+## 规划模式
+
+### 轻量模式（级别 2）
+
+| 模式 | 描述 | 使用场景 |
+|------|-------------|----------|
+| `lite` | 内存规划 | 需求明确、单模块 |
+| `multi-cli` | 多 CLI 协作 | 技术选型、方案对比 |
+
+### 完整模式（级别 3）
+
+| 模式 | 描述 | 使用场景 |
+|------|-------------|----------|
+| `full` | 5 阶段标准规划 | 复杂功能、多模块 |
+| `plan-verify` | 带质量门禁的规划 | 生产功能、高质量要求 |
+
+### 特殊模式
+
+| 模式 | 描述 | 使用场景 |
+|------|-------------|----------|
+| `cli` | 快速 CLI 建议 | 快速问题、架构决策 |
+| `replan` | 修改现有计划 | 计划调整、范围变更 |
+| `tdd` | 测试驱动开发规划 | TDD 工作流 |
+
+### With-File 模式（级别 3-4）
+
+| 模式 | 描述 | 多 CLI |
+|------|-------------|-----------|
+| `brainstorm-with-file` | 多视角构思 | 是 |
+| `analyze-with-file` | 协作分析 | 是 |
+
+### Issue 模式
+
+| 模式 | 描述 | 使用场景 |
+|------|-------------|----------|
+| `issue` | 批量 Issue 规划 | 处理多个 Issue |
+| `rapid-to-issue` | 规划 + 创建 Issue | 从规划桥接到 Issue 追踪 |
+
+## 规划单元
+
+| 单元名称 | 命令 | 用途 |
+|-----------|----------|---------|
+| **快速规划** | lite-plan → lite-execute | 轻量规划和执行 |
+| **多 CLI 规划** | multi-cli-plan → lite-execute | 多视角分析 |
+| **验证规划** | plan → plan-verify → execute | 带验证的规划 |
+| **TDD 规划** | tdd-plan → execute | 测试驱动开发 |
+| **Issue 规划** | issue:discover → issue:plan → issue:queue → issue:execute | Issue 工作流 |
+| **头脑风暴转 Issue** | brainstorm:auto-parallel → issue:from-brainstorm → issue:queue | 探索转 Issue |
+
+## 模式选择决策树
+
+```
+用户调用: /ccw-plan "task description"
+    ↓
+显式指定了 --mode？
+    ├─ 是 → 使用指定模式
+    └─ 否 → 检测关键词
+        ├─ "brainstorm" → brainstorm-with-file
+        ├─ "analyze" → analyze-with-file
+        ├─ "test", "tdd" → tdd
+        ├─ "issue" → issue 或 rapid-to-issue
+        ├─ 高复杂度 → full 或 plan-verify
+        └─ 默认 → lite
+```
+
+## 执行流程
+
+```
+用户输入
+    ↓
+阶段 1: 分析需求
+    ├─ 提取: goal, scope, complexity, constraints
+    └─ 检测: task type, keywords
+    ↓
+阶段 2: 选择模式并构建命令链
+    ├─ 检测模式（显式或自动）
+    ├─ 基于模式构建命令链
+    └─ 显示规划策略
+    ↓
+阶段 3: 用户确认（可选）
+    ├─ 显示命令链
+    └─ 允许更改模式
+    ↓
+阶段 4: 执行规划链
+    ├─ 设置 TODO 跟踪（CCWP 前缀）
+    ├─ 初始化状态文件
+    └─ 按顺序执行命令
+    ↓
+输出完成摘要
+```
+
+## 示例
+
+### 自动模式选择
+
+```bash
+# CCW 检测关键词并选择模式
+/ccw-plan "Implement user authentication with TDD"
+
+# Output:
+# Detecting mode...
+# Keywords: "TDD" → Mode: tdd
+# Commands: tdd-plan
+# Confirm? (y/n): y
+```
+
+### 头脑风暴模式
+
+```bash
+# 多视角探索
+/ccw-plan --mode brainstorm-with-file "Design notification system"
+
+# 使用头脑风暴工作流进行多 CLI 协作
+```
+
+### CLI 快速建议
+
+```bash
+# 快速架构问题
+/ccw-plan --mode cli "Should we use Redux or Zustand for state?"
+
+# 使用 CLI 进行快速分析和建议
+```
+
+### 重新规划现有会话
+
+```bash
+# 修改现有计划
+/ccw-plan --mode replan --session WFS-auth-2025-01-28
+
+# 打开现有计划进行修改
+```
+
+## 相关命令
+
+- **/ccw** - 主工作流协调器
+- **/ccw-test** - 测试工作流协调器
+- **/ccw-debug** - 调试工作流协调器
+- **/workflow:plan** - 标准规划工作流
+- **/workflow:tdd-plan** - TDD 规划工作流
+
+## 注意事项
+
+- **关键词检测** 用于自动模式选择
+- **规划单元** 确保完整的规划里程碑
+- **TODO 跟踪** 使用 CCWP 前缀
+- **状态文件** 存储在 `.workflow/.ccw-plan/{session}/`
+- **多 CLI 协作** 用于 with-file 模式
+- **Issue 集成** 实现无缝的工作流过渡

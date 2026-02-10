@@ -1,0 +1,596 @@
+---
+title: "Flow Coordinator"
+description: "模板驱动的工作流协调器，具有最小状态追踪"
+category: "api"
+locale: "zh"
+order: 4
+---
+
+# Flow Coordinator
+
+模板驱动的工作流协调器，具有最小状态追踪。从工作流模板执行命令链或统一的 PromptTemplate 工作流。支持斜杠命令和基于 DAG 的执行。触发关键词："flow-coordinator"、"workflow template"、"orchestrate"。
+
+## 概览
+
+| 属性 | 值 |
+|------|-----|
+| **名称** | `flow-coordinator` |
+| **工具** | `Task`, `AskUserQuestion`, `Read`, `Write`, `Bash`, `Glob`, `Grep` |
+
+## 参考
+
+轻量级工作流协调器，支持两种工作流格式：
+1. **Legacy 模板**：使用斜杠命令执行的命令链
+2. **统一工作流**：基于 DAG 的 PromptTemplate 节点（规范：`spec/unified-workflow-spec.md`）
+
+## 规范参考
+
+- **统一工作流规范**：@spec/unified-workflow-spec.md
+- **示例工作流**：`ccw/data/flows/demo-unified-workflow.json`
+
+## 架构
+
+```
+User Task → Detect Format → Select Workflow → Init Status → Execute → Complete
+                │                                              │
+                ├─ Legacy Template                             │
+                │   └─ Sequential cmd execution                │
+                │                                              │
+                └─ Unified Workflow                            │
+                    └─ DAG traversal with contextRefs          │
+                                                               │
+     └──────────────── Resume (from status.json) ──────────────┘
+
+Execution Modes:
+  ├─ analysis     → Read-only, CLI --mode analysis
+  ├─ write        → File changes, CLI --mode write
+  ├─ mainprocess  → Blocking, synchronous
+  └─ async        → Background, ccw cli
+```
+
+## 核心概念
+
+**双格式支持**：
+- Legacy：`templates/*.json`，包含 `cmd`、`args`、`execution`
+- 统一格式：`ccw/data/flows/*.json`，包含 `nodes`、`edges`、`contextRefs`
+
+**统一 PromptTemplate 模型**：所有工作流步骤都是自然语言指令，包含：
+- `instruction`：要执行的内容（自然语言）
+- `slashCommand`：可选的斜杠命令名称（如 "workflow:plan"）
+- `slashArgs`：可选的斜杠命令参数（支持 {{variable}}）
+- `outputName`：输出引用名称
+- `contextRefs`：对前序步骤输出的引用
+- `tool`：可选的 CLI 工具（gemini/qwen/codex/claude）
+- `mode`：执行模式（analysis/write/mainprocess/async）
+
+**DAG 执行**：统一工作流按有向无环图执行，支持并行分支和条件边。
+
+**动态发现**：两种格式均在运行时通过 Glob 发现。
+
+---
+
+## 执行流程
+
+```javascript
+async function execute(task) {
+  // 1. Discover and select template
+  const templates = await discoverTemplates();
+  const template = await selectTemplate(templates);
+
+  // 2. Init status
+  const sessionId = `fc-${timestamp()}`;
+  const statusPath = `.workflow/.flow-coordinator/${sessionId}/status.json`;
+  const status = initStatus(template, task);
+  write(statusPath, JSON.stringify(status, null, 2));
+
+  // 3. Execute steps based on execution config
+  await executeSteps(status, statusPath);
+}
+
+async function executeSteps(status, statusPath) {
+  for (let i = status.current; i < status.steps.length; i++) {
+    const step = status.steps[i];
+    status.current = i;
+
+    // Execute based on step mode (all steps use slash-command type)
+    const execConfig = step.execution || { type: 'slash-command', mode: 'mainprocess' };
+
+    if (execConfig.mode === 'async') {
+      // Async execution - stop and wait for hook callback
+      await executeSlashCommandAsync(step, status, statusPath);
+      break;
+    } else {
+      // Mainprocess execution - continue immediately
+      await executeSlashCommandSync(step, status);
+      step.status = 'done';
+      write(statusPath, JSON.stringify(status, null, 2));
+    }
+  }
+
+  // All steps complete
+  if (status.current >= status.steps.length) {
+    status.complete = true;
+    write(statusPath, JSON.stringify(status, null, 2));
+  }
+}
+```
+
+---
+
+## 统一工作流执行
+
+对于使用统一 PromptTemplate 格式的工作流（`ccw/data/flows/*.json`）：
+
+```javascript
+async function executeUnifiedWorkflow(workflow, task) {
+  // 1. Initialize execution state
+  const sessionId = `ufc-${timestamp()}`;
+  const statusPath = `.workflow/.flow-coordinator/${sessionId}/status.json`;
+  const state = {
+    id: sessionId,
+    workflow: workflow.id,
+    goal: task,
+    nodeStates: {},  // nodeId -> { status, result, error }
+    outputs: {},     // outputName -> result
+    complete: false
+  };
+
+  // 2. Topological sort for execution order
+  const executionOrder = topologicalSort(workflow.nodes, workflow.edges);
+
+  // 3. Execute nodes respecting DAG dependencies
+  await executeDAG(workflow, executionOrder, state, statusPath);
+}
+
+async function executeDAG(workflow, order, state, statusPath) {
+  for (const nodeId of order) {
+    const node = workflow.nodes.find(n => n.id === nodeId);
+    const data = node.data;
+
+    // Check if all dependencies are satisfied
+    if (!areDependenciesSatisfied(nodeId, workflow.edges, state)) {
+      continue; // Will be executed when dependencies complete
+    }
+
+    // Build instruction from slashCommand or raw instruction
+    let instruction = buildNodeInstruction(data, state.outputs);
+
+    // Execute based on mode
+    state.nodeStates[nodeId] = { status: 'running' };
+    write(statusPath, JSON.stringify(state, null, 2));
+
+    const result = await executeNode(instruction, data.tool, data.mode);
+
+    // Store output for downstream nodes
+    state.nodeStates[nodeId] = { status: 'completed', result };
+    if (data.outputName) {
+      state.outputs[data.outputName] = result;
+    }
+    write(statusPath, JSON.stringify(state, null, 2));
+  }
+
+  state.complete = true;
+  write(statusPath, JSON.stringify(state, null, 2));
+}
+
+/**
+ * Build node instruction from slashCommand or raw instruction
+ * Handles slashCommand/slashArgs fields from frontend orchestrator
+ */
+function buildNodeInstruction(data, outputs) {
+  const refs = data.contextRefs || [];
+
+  // If slashCommand is set, construct instruction from it
+  if (data.slashCommand) {
+    // Resolve variables in slashArgs
+    const args = data.slashArgs
+      ? resolveContextRefs(data.slashArgs, refs, outputs)
+      : '';
+
+    // Build slash command instruction
+    let instruction = `/${data.slashCommand}${args ? ' ' + args : ''}`;
+
+    // Append additional instruction if provided
+    if (data.instruction) {
+      const additionalInstruction = resolveContextRefs(data.instruction, refs, outputs);
+      instruction = `${instruction}\n\n${additionalInstruction}`;
+    }
+
+    return instruction;
+  }
+
+  // Fallback: use raw instruction with context refs resolved
+  return resolveContextRefs(data.instruction || '', refs, outputs);
+}
+
+function resolveContextRefs(instruction, refs, outputs) {
+  let resolved = instruction;
+  for (const ref of refs) {
+    const value = outputs[ref];
+    const placeholder = `{{${ref}}}`;
+    resolved = resolved.replace(new RegExp(placeholder, 'g'),
+      typeof value === 'object' ? JSON.stringify(value) : String(value));
+  }
+  return resolved;
+}
+
+async function executeNode(instruction, tool, mode) {
+  // Build CLI command based on tool and mode
+  const cliTool = tool || 'gemini';
+  const cliMode = mode === 'write' ? 'write' : 'analysis';
+
+  if (mode === 'async') {
+    // Background execution
+    return Bash(
+      `ccw cli -p "${escapePrompt(instruction)}" --tool ${cliTool} --mode ${cliMode}`,
+      { run_in_background: true }
+    );
+  } else {
+    // Synchronous execution
+    return Bash(
+      `ccw cli -p "${escapePrompt(instruction)}" --tool ${cliTool} --mode ${cliMode}`
+    );
+  }
+}
+```
+
+### 统一工作流发现
+
+```javascript
+async function discoverUnifiedWorkflows() {
+  const files = Glob('*.json', { path: 'ccw/data/flows/' });
+
+  const workflows = [];
+  for (const file of files) {
+    const content = JSON.parse(Read(file));
+    // Detect unified format by checking for 'nodes' array
+    if (content.nodes && Array.isArray(content.nodes)) {
+      workflows.push({
+        id: content.id,
+        name: content.name,
+        description: content.description,
+        nodeCount: content.nodes.length,
+        format: 'unified',
+        file: file
+      });
+    }
+  }
+  return workflows;
+}
+```
+
+### 格式检测
+
+```javascript
+function detectWorkflowFormat(content) {
+  if (content.nodes && content.edges) {
+    return 'unified';  // PromptTemplate DAG format
+  }
+  if (content.steps && content.steps[0]?.cmd) {
+    return 'legacy';   // Command chain format
+  }
+  throw new Error('Unknown workflow format');
+}
+```
+
+---
+
+## Legacy 模板发现
+
+**动态查询** - 绝不硬编码模板列表：
+
+```javascript
+async function discoverTemplates() {
+  // Discover all JSON templates
+  const files = Glob('*.json', { path: 'templates/' });
+
+  // Parse each template
+  const templates = [];
+  for (const file of files) {
+    const content = JSON.parse(Read(file));
+    templates.push({
+      name: content.name,
+      description: content.description,
+      steps: content.steps.map(s => s.cmd).join(' → '),
+      file: file
+    });
+  }
+
+  return templates;
+}
+```
+
+---
+
+## 模板选择
+
+用户从发现的模板中选择：
+
+```javascript
+async function selectTemplate(templates) {
+  // Build options from discovered templates
+  const options = templates.slice(0, 4).map(t => ({
+    label: t.name,
+    description: t.steps
+  }));
+
+  const response = await AskUserQuestion({
+    questions: [{
+      question: 'Select workflow template:',
+      header: 'Template',
+      options: options,
+      multiSelect: false
+    }]
+  });
+
+  // Handle "Other" - show remaining templates or custom input
+  if (response.template === 'Other') {
+    return await selectFromRemainingTemplates(templates.slice(4));
+  }
+
+  return templates.find(t => t.name === response.template);
+}
+```
+
+---
+
+## 状态 Schema
+
+**创建**：复制模板 JSON → 更新 `id`、`template`、`goal`，将所有步骤设为 `status: "pending"`
+
+**位置**：`.workflow/.flow-coordinator/{session-id}/status.json`
+
+**核心字段**：
+- `id`：会话 ID（fc-YYYYMMDD-HHMMSS）
+- `template`：模板名称
+- `goal`：用户任务描述
+- `current`：当前步骤索引
+- `steps[]`：模板中的步骤数组（包含运行时的 `status`、`session`、`taskId`）
+- `complete`：是否所有步骤完成
+
+**步骤状态**：`pending` → `running` → `done` | `failed` | `skipped`
+
+---
+
+## 扩展模板 Schema
+
+**模板存储在**：`templates/*.json`（运行时通过 Glob 发现）
+
+**TemplateStep 字段**：
+- `cmd`：完整命令路径（如 `/workflow:lite-plan`、`/workflow:execute`）
+- `args?`：带 `{{goal}}` 和 `{{prev}}` 占位符的参数
+- `unit?`：最小执行单元名称（分组相关命令）
+- `optional?`：用户可跳过
+- `execution`：类型和模式配置
+  - `type`：始终为 `'slash-command'`（适用于所有工作流命令）
+  - `mode`：`'mainprocess'`（阻塞）或 `'async'`（后台）
+- `contextHint?`：用于上下文组装的自然语言指导
+
+**模板示例**：
+```json
+{
+  "name": "rapid",
+  "steps": [
+    {
+      "cmd": "/workflow:lite-plan",
+      "args": "\"{{goal}}\"",
+      "unit": "quick-implementation",
+      "execution": { "type": "slash-command", "mode": "mainprocess" },
+      "contextHint": "Create lightweight implementation plan"
+    },
+    {
+      "cmd": "/workflow:lite-execute",
+      "args": "--in-memory",
+      "unit": "quick-implementation",
+      "execution": { "type": "slash-command", "mode": "async" },
+      "contextHint": "Execute plan from previous step"
+    }
+  ]
+}
+```
+
+---
+
+## 执行实现
+
+### Mainprocess 模式（阻塞）
+
+```javascript
+async function executeSlashCommandSync(step, status) {
+  // Build command: /workflow:cmd -y args
+  const cmd = buildCommand(step, status);
+  const result = await SlashCommand({ command: cmd });
+
+  step.session = result.session_id;
+  step.status = 'done';
+  return result;
+}
+```
+
+### Async 模式（后台）
+
+```javascript
+async function executeSlashCommandAsync(step, status, statusPath) {
+  // Build prompt: /workflow:cmd -y args + context
+  const prompt = buildCommandPrompt(step, status);
+
+  step.status = 'running';
+  write(statusPath, JSON.stringify(status, null, 2));
+
+  // Execute via ccw cli in background
+  const taskId = Bash(
+    `ccw cli -p "${escapePrompt(prompt)}" --tool claude --mode write`,
+    { run_in_background: true }
+  ).task_id;
+
+  step.taskId = taskId;
+  write(statusPath, JSON.stringify(status, null, 2));
+
+  console.log(`Executing: ${step.cmd} (async)`);
+  console.log(`Resume: /flow-coordinator --resume ${status.id}`);
+}
+```
+
+---
+
+## Prompt 构建
+
+Prompt 按以下格式构建：`/workflow:cmd -y args` + context
+
+```javascript
+function buildCommandPrompt(step, status) {
+  // step.cmd already contains full path: /workflow:lite-plan, /workflow:execute, etc.
+  let prompt = `${step.cmd} -y`;
+
+  // Add arguments (with placeholder replacement)
+  if (step.args) {
+    const args = step.args
+      .replace('{{goal}}', status.goal)
+      .replace('{{prev}}', getPreviousSessionId(status));
+    prompt += ` ${args}`;
+  }
+
+  // Add context based on contextHint
+  if (step.contextHint) {
+    const context = buildContextFromHint(step.contextHint, status);
+    prompt += `\n\nContext:\n${context}`;
+  } else {
+    // Default context: previous session IDs
+    const previousContext = collectPreviousResults(status);
+    if (previousContext) {
+      prompt += `\n\nPrevious results:\n${previousContext}`;
+    }
+  }
+
+  return prompt;
+}
+
+function buildContextFromHint(hint, status) {
+  // Parse contextHint instruction and build context accordingly
+  // Examples:
+  // "Summarize IMPL_PLAN.md" → read and summarize plan
+  // "List test coverage gaps" → analyze previous test results
+  // "Pass session ID" → just return session reference
+
+  return parseAndBuildContext(hint, status);
+}
+```
+
+### Prompt 输出示例
+
+```
+/workflow:lite-plan -y "Implement user registration"
+
+Context:
+Task: Implement user registration
+Previous results:
+- None (first step)
+```
+
+```
+/workflow:execute -y --in-memory
+
+Context:
+Task: Implement user registration
+Previous results:
+- lite-plan: WFS-plan-20250130 (planning-context.md)
+```
+
+---
+
+## 用户交互
+
+### 步骤 1：选择模板
+
+```
+Select workflow template:
+
+○ rapid      lite-plan → lite-execute → test-cycle-execute
+○ coupled    plan → plan-verify → execute → review → test
+○ bugfix     lite-fix → lite-execute → test-cycle-execute
+○ tdd        tdd-plan → execute → tdd-verify
+○ Other      (more templates or custom)
+```
+
+### 步骤 2：审查执行计划
+
+```
+Template: coupled
+Steps:
+  1. /workflow:plan (slash-command mainprocess)
+  2. /workflow:plan-verify (slash-command mainprocess)
+  3. /workflow:execute (slash-command async)
+  4. /workflow:review-session-cycle (slash-command mainprocess)
+  5. /workflow:review-cycle-fix (slash-command mainprocess)
+  6. /workflow:test-fix-gen (slash-command mainprocess)
+  7. /workflow:test-cycle-execute (slash-command async)
+
+Proceed? [Confirm / Cancel]
+```
+
+---
+
+## 恢复能力
+
+```javascript
+async function resume(sessionId) {
+  const statusPath = `.workflow/.flow-coordinator/${sessionId}/status.json`;
+  const status = JSON.parse(Read(statusPath));
+
+  // Find first incomplete step
+  status.current = status.steps.findIndex(s => s.status !== 'done');
+  if (status.current === -1) {
+    console.log('All steps complete');
+    return;
+  }
+
+  // Continue executing steps
+  await executeSteps(status, statusPath);
+}
+```
+
+---
+
+## 可用模板
+
+从 `templates/*.json` 发现的模板：
+
+| 模板 | 使用场景 | 步骤 |
+|------|---------|------|
+| rapid | 简单功能 | /workflow:lite-plan → /workflow:lite-execute → /workflow:test-cycle-execute |
+| coupled | 复杂功能 | /workflow:plan → /workflow:plan-verify → /workflow:execute → /workflow:review-session-cycle → /workflow:test-fix-gen |
+| bugfix | Bug 修复 | /workflow:lite-fix → /workflow:lite-execute → /workflow:test-cycle-execute |
+| tdd | 测试驱动 | /workflow:tdd-plan → /workflow:execute → /workflow:tdd-verify |
+| test-fix | 修复失败测试 | /workflow:test-fix-gen → /workflow:test-cycle-execute |
+| brainstorm | 探索 | /workflow:brainstorm-with-file |
+| debug | 带文档调试 | /workflow:debug-with-file |
+| analyze | 协作分析 | /workflow:analyze-with-file |
+| issue | Issue 工作流 | /workflow:issue:plan → /workflow:issue:queue → /workflow:issue:execute |
+
+---
+
+## 设计原则
+
+1. **最小字段**：只包含必要的追踪数据
+2. **扁平结构**：除 steps 数组外无嵌套对象
+3. **步骤级执行**：每个步骤定义自己的执行方式
+4. **可恢复**：任何步骤都可从状态恢复
+5. **人类可读**：清晰的 JSON 格式
+
+---
+
+## 参考文档
+
+| 文档 | 用途 |
+|------|------|
+| spec/unified-workflow-spec.md | 统一 PromptTemplate 工作流规范 |
+| ccw/data/flows/*.json | 统一工作流（DAG 格式，动态发现） |
+| templates/*.json | Legacy 工作流模板（命令链格式） |
+
+### 示例工作流（统一格式）
+
+| 文件 | 描述 | 节点 |
+|------|------|------|
+| `demo-unified-workflow.json` | 认证实现 | 7 个节点：Analyze → Plan → Implement → Review → Tests → Report |
+| `parallel-ci-workflow.json` | CI/CD 流水线 | 8 个节点：并行检查 → 合并 → 条件通知 |
+| `simple-analysis-workflow.json` | 分析流水线 | 3 个节点：Explore → Analyze → Report |

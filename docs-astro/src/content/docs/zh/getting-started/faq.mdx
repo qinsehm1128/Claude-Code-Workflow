@@ -1,0 +1,724 @@
+---
+title: 常见问题
+description: 常见问题文档
+category: getting-started
+order: 99
+locale: zh
+---
+
+# 常见问题
+
+关于 CCW、工作流、命令和故障排除的常见问题。
+
+## 一般问题
+
+### 什么是 CCW？
+
+CCW（Claude Code Workflows）是一个专业的工作流自动化平台，将 AI 驱动的智能与结构化开发工作流相结合。它提供 40 多个命令和 15 个集成工作流，在保持质量标准的同时加速软件开发。
+
+**核心特性：**
+- AI 驱动的代码分析、生成和审查
+- 15 个工作流级别，从快速执行到智能编排
+- 具有完整状态持久化的会话管理
+- 支持并行执行的多代理协调
+- 内置测试、验证和代码审查
+
+### 系统要求是什么？
+
+**最低要求：**
+- Node.js 16.x 或更高版本
+- Git 2.x 或更高版本
+- 4GB 可用内存
+- 500MB 磁盘空间
+
+**推荐配置：**
+- Node.js 18.x LTS
+- 8GB 可用内存
+- 2GB 磁盘空间用于产物和会话
+
+### 如何安装 CCW？
+
+```bash
+# 通过 npm 全局安装
+npm install -g @ccw/cli
+
+# 或使用 npx（无需安装）
+npx @ccw/cli init
+
+# 在项目中初始化
+ccw init
+```
+
+### CCW 是否免费使用？
+
+是的，CCW 是开源且免费使用的。但是，CCW 集成了第三方 AI 服务（Gemini、Codex、Claude、Qwen），这些服务可能有各自的定价。您需要为想要使用的 AI 服务提供 API 密钥。
+
+### 支持哪些编程语言？
+
+CCW 支持所有编程语言。AI 模型可以分析和生成任何语言的代码，包括：
+
+- **Web**：JavaScript、TypeScript、Python、PHP、Ruby
+- **移动端**：Swift、Kotlin、React Native、Flutter
+- **系统**：Rust、Go、C、C++
+- **数据**：Python、R、SQL
+- **企业**：Java、C#、.NET
+
+## 工作流选择
+
+### 如何选择合适的工作流？
+
+<details>
+<summary>决策框架</summary>
+
+使用以下快速决策树：
+
+1. **开发后维护？** -> 使用 [问题工作流](/zh/workflows/faq#what-is-the-difference-between-main-workflow-and-issue-workflow)
+2. **不确定使用哪些命令？** -> 使用 `ccw-coordinator`（级别 5）
+3. **需求不明确？** -> 使用 `brainstorm:auto-parallel`（级别 4）
+4. **需要持久化会话？**
+   - 标准开发 -> `plan` -> `execute`（级别 3）
+   - 测试驱动 -> `tdd-plan` -> `execute`（级别 3）
+   - 测试修复 -> `test-fix-gen` -> `test-cycle-execute`（级别 3）
+5. **需要多视角分析？** -> 使用 `multi-cli-plan`（级别 2）
+6. **缺陷修复？** -> 使用 `lite-fix`（级别 2）
+7. **需要规划？** -> 使用 `lite-plan` -> `lite-execute`（级别 2）
+8. **快速任务？** -> 使用 `lite-lite-lite`（级别 1）
+
+</details>
+
+### 主工作流和问题工作流有什么区别？
+
+<details>
+<summary>对比</summary>
+
+**主工作流** 用于主要开发：
+- 功能开发（级别 1-5）
+- 活跃开发阶段
+- 基于依赖的并行处理
+- 在当前分支上工作
+
+**问题工作流** 用于开发后维护：
+- 合并后的缺陷修复和增强
+- 在主工作流完成后使用
+- 可选的 worktree 隔离
+- 保持主分支稳定
+
+| 方面 | 主工作流 | 问题工作流 |
+|------|----------|-----------|
+| **用途** | 功能开发 | 开发后修复 |
+| **时机** | 开发阶段 | 主工作流完成后 |
+| **范围** | 完整功能实现 | 定向修复/增强 |
+| **并行方式** | 依赖分析 | Worktree 隔离（可选） |
+| **分支模型** | 在当前分支上工作 | 可使用隔离的 worktree |
+
+</details>
+
+### 什么是最小执行单元？
+
+<details>
+<summary>说明</summary>
+
+**最小执行单元** 是必须作为原子组一起执行的命令集，以实现有意义的工作流里程碑。拆分这些命令会破坏逻辑流程并导致不完整状态。
+
+**常见最小执行单元：**
+
+| 单元 | 命令 | 用途 |
+|------|------|------|
+| 快速实现 | `lite-plan` -> `lite-execute` | 轻量规划和执行 |
+| 多 CLI 规划 | `multi-cli-plan` -> `lite-execute` | 多视角分析和执行 |
+| 缺陷修复 | `lite-fix` -> `lite-execute` | 缺陷诊断和修复执行 |
+| 验证规划 | `plan` -> `plan-verify` -> `execute` | 带验证的规划和执行 |
+| TDD 规划 | `tdd-plan` -> `execute` | 测试驱动开发规划和执行 |
+| 测试验证 | `test-fix-gen` -> `test-cycle-execute` | 生成测试任务和执行测试修复周期 |
+
+**示例**：单元 `lite-plan -> lite-execute` 必须一起完成。在 `lite-plan` 之后停止会留下一个计划但没有实现。
+
+</details>
+
+### 每个工作流级别适合在什么时候使用？
+
+<details>
+<summary>级别选择指南</summary>
+
+**级别 1（lite-lite-lite）：**
+- 快速修复（拼写错误、小调整）
+- 简单功能（单个函数、小型工具）
+- 配置变更（环境变量、超时设置）
+- 文档更新
+
+**级别 2（lite-plan, lite-fix, multi-cli-plan）：**
+- 单模块功能
+- 缺陷诊断和修复
+- 技术选型决策
+- 方案对比
+
+**级别 3（plan, tdd-plan, test-fix-gen）：**
+- 多模块变更
+- 重构
+- 测试驱动开发
+- 测试失败修复
+
+**级别 4（brainstorm:auto-parallel）：**
+- 新功能设计
+- 系统架构重构
+- 探索性需求
+- 多维度权衡
+
+**级别 5（ccw-coordinator）：**
+- 复杂多步骤工作流
+- 不确定使用哪些命令
+- 端到端自动化
+- 团队协作
+
+**问题工作流：**
+- 开发后问题修复
+- 维护主分支稳定性
+
+</details>
+
+## 命令使用
+
+### 如何使用工作流命令？
+
+<details>
+<summary>命令模式</summary>
+
+**基本模式：**
+```bash
+ccw &lt;command&gt; &lt;arguments&gt;
+```
+
+**示例：**
+```bash
+# 级别 1 - 直接执行
+ccw lite-lite-lite "Fix login button"
+
+# 级别 2 - 轻量规划
+ccw lite-plan "Add user profile page"
+ccw lite-execute --in-memory
+
+# 级别 3 - 完整工作流
+ccw workflow:plan "Implement OAuth2"
+ccw workflow:execute --session WFS-oauth-auth
+
+# 级别 4 - 头脑风暴
+ccw brainstorm:auto-parallel "Design notification system"
+
+# 级别 5 - 智能协调
+ccw ccw-coordinator "Refactor API layer"
+```
+
+</details>
+
+### lite-execute 和 execute 有什么区别？
+
+<details>
+<summary>对比</summary>
+
+**lite-execute**（级别 2）：
+```bash
+ccw lite-execute --in-memory
+```
+- 用于级别 2 工作流
+- 内存规划（无会话文件）
+- 独立任务并行执行
+- 可选代码审查
+
+**execute**（级别 3）：
+```bash
+ccw workflow:execute --session WFS-{session-id}
+```
+- 用于级别 3 工作流
+- 基于会话的执行
+- 依赖分析
+- 完整的状态跟踪和可恢复性
+- 任务完成摘要
+
+</details>
+
+### 如何使用 hotfix 模式？
+
+<details>
+<summary>Hotfix 用法</summary>
+
+**Hotfix 模式** 用于生产环境紧急情况：
+
+```bash
+ccw lite-fix --hotfix "Production database connection failing"
+```
+
+**功能说明：**
+- 跳过大部分诊断阶段
+- 最小化规划（直接执行）
+- 自动生成后续任务，用于完整修复和事后分析
+
+**适用场景：**
+- 生产事故
+- 需要立即修复的关键缺陷
+- 服务中断和故障
+
+**后续处理：**
+CCW 自动生成后续任务，包括：
+- 完整的根因分析
+- 全面修复
+- 事后复盘文档
+
+</details>
+
+### 如何恢复暂停的会话？
+
+<details>
+<summary>会话恢复</summary>
+
+```bash
+# 恢复最近的会话
+ccw workflow:session:resume
+
+# 恢复特定会话
+ccw workflow:session:resume WFS-user-auth-v2
+
+# 列出所有会话
+ccw workflow:session:list
+```
+
+**会话状态：**
+- **active**：正在运行
+- **paused**：已暂停，可以恢复
+- **completed**：已完成并归档
+
+</details>
+
+## AI 模型
+
+### CCW 支持哪些 AI 模型？
+
+<details>
+<summary>支持的模型</summary>
+
+CCW 通过 CLI 端点支持多种 AI 模型：
+
+| 模型 | 能力 | 最佳用途 |
+|------|------|----------|
+| **Gemini** | 分析 + 编写 | 代码审查、调试、重构 |
+| **Codex** | 分析 + 编写 + 审查 | Git 感知代码审查、实现 |
+| **Claude** | 分析 + 编写 | 复杂推理、文档编写 |
+| **Qwen** | 分析 + 编写 | 代码生成、模式匹配 |
+
+在 `~/.claude/cli-tools.json` 中配置模型。
+
+</details>
+
+### 如何配置 API 密钥？
+
+<details>
+<summary>API 密钥配置</summary>
+
+**设置环境变量：**
+
+```bash
+# Gemini
+export GEMINI_API_KEY="your-key-here"
+
+# OpenAI (Codex)
+export OPENAI_API_KEY="your-key-here"
+
+# Anthropic (Claude)
+export ANTHROPIC_API_KEY="your-key-here"
+
+# Qwen
+export DASHSCOPE_API_KEY="your-key-here"
+```
+
+**或在 `.env` 文件中配置：**
+```env
+GEMINI_API_KEY=your-key-here
+OPENAI_API_KEY=your-key-here
+ANTHROPIC_API_KEY=your-key-here
+DASHSCOPE_API_KEY=your-key-here
+```
+
+</details>
+
+### 什么是多 CLI 协作？
+
+<details>
+<summary>多 CLI 协作说明</summary>
+
+**多 CLI 协作** 使用多个 AI 模型从不同角度分析同一个问题：
+
+```bash
+ccw multi-cli-plan "Compare Redis vs RabbitMQ for message queuing"
+```
+
+**工作原理：**
+1. 多个 AI 模型独立分析
+2. 每个模型提供独特的见解和建议
+3. 结果被综合为全面的分析报告
+4. 您在做出决策前获得多种视角
+
+**最佳适用场景：**
+- 技术选型
+- 架构决策
+- 方案对比
+- 权衡分析
+
+</details>
+
+## 测试
+
+### 如何为现有代码添加测试？
+
+<details>
+<summary>测试生成</summary>
+
+**会话模式（从已有会话）：**
+```bash
+ccw test-fix-gen WFS-user-auth-v2
+```
+
+**提示模式（直接描述）：**
+```bash
+ccw test-fix-gen "Add unit tests for the auth API"
+```
+
+**CCW 将会：**
+1. 分析代码结构
+2. 生成适当的测试用例
+3. 按照项目模式创建测试文件
+4. 使用正确的断言实现测试
+
+</details>
+
+### 如何修复失败的测试？
+
+<details>
+<summary>测试修复工作流</summary>
+
+```bash
+# 生成测试修复任务
+ccw test-fix-gen "Tests failing for user registration"
+
+# 执行测试修复周期
+ccw test-cycle-execute
+```
+
+**工作流：**
+1. 分析测试失败
+2. 识别根本原因
+3. 迭代修复问题
+4. 验证通过率 >= 95%
+5. 测试通过或达到最大迭代次数时停止
+
+</details>
+
+### 什么是 TDD（测试驱动开发）？
+
+<details>
+<summary>TDD 说明</summary>
+
+**TDD** 遵循红-绿-重构周期：
+
+1. **红色**：编写一个失败的测试
+2. **绿色**：编写最少的代码使测试通过
+3. **重构**：在保持测试通过的同时改进代码
+
+**铁律：**
+```
+没有失败的测试，就不写生产代码
+```
+
+**为什么要先写测试？**
+
+| 方面 | 先写测试 | 后写测试 |
+|------|---------|---------|
+| **证明** | 测试在实现前失败 | 测试立即通过（什么都没证明） |
+| **发现** | 在编码前发现边界情况 | 在编码后发现边界情况 |
+| **验证** | 验证需求 | 验证实现 |
+
+</details>
+
+## 故障排除
+
+### 我的工作流失败了，该怎么办？
+
+<details>
+<summary>故障排除步骤</summary>
+
+1. **检查错误消息** - 识别根本原因
+2. **查看会话状态** - 检查 `.workflow/.ccw-coordinator/{session}/state.json`
+3. **恢复会话** - 使用 `ccw workflow:session:resume` 继续
+4. **调整并重试** - 根据错误修改方案
+
+**常见修复：**
+- **API 密钥错误**：验证环境变量是否已设置
+- **模块未找到**：运行 `npm install` 或 `pip install`
+- **Git 错误**：确保 Git 状态干净（`git status`）
+- **超时错误**：增加任务 JSON 中的超时时间
+
+</details>
+
+### 如何跳过失败的任务？
+
+<details>
+<summary>跳过任务</summary>
+
+编辑任务 JSON 将状态设置为 "completed"：
+
+```bash
+jq '.status = "completed"' .workflow/active/WFS-{session}/.task/IMPL-001.json
+```
+
+**谨慎使用：** 跳过任务可能导致工作流处于不完整状态。
+
+</details>
+
+### 如何清理旧会话？
+
+<details>
+<summary>清理命令</summary>
+
+```bash
+# 列出会话
+ccw workflow:session:list
+
+# 删除特定会话
+rm -rf .workflow/active/WFS-{session-id}
+
+# 清理所有已完成的会话
+ccw workflow:clean
+```
+
+**自动清理：**
+- 已完成的会话会归档到 `.workflow/completed/`
+- 超过 30 天的旧会话可以安全删除
+
+</details>
+
+### 为什么我的工作流运行缓慢？
+
+<details>
+<summary>性能优化技巧</summary>
+
+**可能的原因：**
+
+1. **大型代码库**：CCW 分析整个项目
+   - **修复**：使用 `--focus-paths` 限制分析范围
+
+2. **大量依赖**：AI 响应时间慢
+   - **修复**：使用更快的模型（Gemini Flash）进行初始分析
+
+3. **顺序任务**：等待依赖任务
+   - **修复**：在 `plan-verify` 中审查任务依赖关系
+
+4. **网络问题**：AI 服务 API 调用缓慢
+   - **修复**：检查网络连接和 API 状态
+
+**优化技巧：**
+```bash
+# 限制分析范围
+ccw plan "Add login" --focus-paths src/auth
+
+# 使用更快的模型进行初始分析
+ccw cli -p "Quick analysis" --model gemini-2.0-flash --mode analysis
+
+# 尽可能并行运行
+ccw workflow:execute --parallel 4
+```
+
+</details>
+
+### 如何调试工作流问题？
+
+<details>
+<summary>工作流调试</summary>
+
+**启用调试日志：**
+```bash
+DEBUG=ccw:* ccw workflow:plan "My feature"
+```
+
+**查看会话日志：**
+```bash
+# 查看会话状态
+cat .workflow/active/WFS-{session}/workflow-session.json
+
+# 查看任务进度
+cat .workflow/active/WFS-{session}/TODO_LIST.md
+```
+
+**使用调试工作流：**
+```bash
+ccw workflow:debug-with-file "Debug memory leak in connection handler"
+```
+
+这提供了基于假设的调试，并记录探索过程。
+
+</details>
+
+## 集成
+
+### 我可以将 CCW 与现有的 CI/CD 集成吗？
+
+<details>
+<summary>CI/CD 集成</summary>
+
+可以，CCW 可以集成到 CI/CD 流水线中：
+
+**GitHub Actions 示例：**
+```yaml
+- name: Run CCW Workflow
+  run: |
+    ccw workflow:plan "Implement feature"
+    ccw workflow:execute --session WFS-feature
+  env:
+    GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+```
+
+**最佳实践：**
+- 在 CI 中使用 `--mode analysis` 进行代码审查
+- 将 API 密钥存储在密钥管理系统中
+- 在隔离环境中运行工作流
+- 归档会话用于审计追踪
+
+</details>
+
+### CCW 能在 monorepo 中工作吗？
+
+<details>
+<summary>Monorepo 支持</summary>
+
+可以，CCW 支持 monorepo：
+
+**工作区感知执行：**
+```bash
+# 在特定包中执行
+ccw plan "Add auth to frontend" --cd packages/frontend
+
+# 跨包执行
+ccw plan "Update API contracts" --include-dir packages/api,packages/shared
+```
+
+**优势：**
+- 依赖感知的任务分发
+- 跨包并行执行
+- 共享会话状态
+- 跨工作区的协调变更
+
+</details>
+
+### 如何从其他工具迁移？
+
+<details>
+<summary>迁移指南</summary>
+
+**从基本 Git 工作流迁移：**
+```bash
+# 之前：手动规划
+git checkout -b feature
+# ... 手动规划 ...
+
+# 之后：CCW 规划
+ccw plan "Add feature"
+ccw execute --session WFS-feature
+```
+
+**从其他 AI 工具迁移：**
+- CCW 提供结构化工作流（对比临时提示）
+- 会话管理（对比聊天历史）
+- 多代理协调（对比单一 AI）
+- 持久化产物（对比临时响应）
+
+**迁移步骤：**
+1. 安装 CCW：`npm install -g @ccw/cli`
+2. 初始化：`ccw init`
+3. 从级别 2 工作流开始，熟悉模式
+4. 根据需要逐步采用更高级别
+
+</details>
+
+## 最佳实践
+
+### 工作流最佳实践有哪些？
+
+<details>
+<summary>最佳实践</summary>
+
+**1. 从简单开始**
+- 使用满足需求的最低级别
+- 不要过度工程化简单任务
+- 按需扩展复杂度
+
+**2. 执行前先规划**
+- 在可用时使用验证步骤
+- 在执行前审查生成的计划
+- 根据项目上下文调整任务
+
+**3. 持续测试**
+- 将测试集成到工作流中
+- 对关键功能使用 TDD
+- 每次迭代后运行测试
+
+**4. 审查代码**
+- 使用内置的审查工作流
+- 利用多 CLI 协作
+- 迭代合并审查反馈
+
+**5. 记录决策**
+- 使用头脑风暴工作流处理复杂决策
+- 保留会话产物供参考
+- 归档已完成的会话
+
+**6. 保持会话整洁**
+- 完成后关闭会话
+- 定期清理旧会话
+- 归档重要会话
+
+</details>
+
+### 如何最大化利用 AI 辅助？
+
+<details>
+<summary>AI 最佳实践</summary>
+
+**1. 提示要具体**
+```
+差的："Fix the bug"
+好的："Fix the 500 error when users update their profile picture"
+```
+
+**2. 提供上下文**
+```bash
+ccw plan "Add OAuth2" \
+  --context "Using Express.js, MongoDB, Passport.js" \
+  --reference "Similar to existing Google OAuth implementation"
+```
+
+**3. 使用多 CLI 协作**
+```bash
+# 获取多种视角
+ccw multi-cli-plan "Architecture decision"
+```
+
+**4. 利用记忆功能**
+```bash
+# 基于之前的工作继续
+ccw plan "Continue auth refactor" --memory WFS-auth-v1
+```
+
+**5. 选择合适的模型**
+- **Gemini Flash**：速度快，适合初始分析
+- **Gemini Pro**：深度推理，复杂任务
+- **Codex**：代码审查，Git 感知分析
+- **Claude**：文档编写，复杂推理
+
+</details>
+
+## 相关文档
+
+- [工作流介绍](/zh/workflows/introduction) - 完整的工作流指南
+- [工作流常见问题](/zh/workflows/faq) - 工作流相关问题
+- [命令参考](/zh/cli-commands/general/ccw) - 所有命令
+
+---
+
+**还有问题？** [提交 issue](https://github.com/ccw/ccw/issues) 或查看 [讨论论坛](https://github.com/ccw/ccw/discussions)。
