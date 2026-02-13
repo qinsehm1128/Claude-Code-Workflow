@@ -1,0 +1,281 @@
+src/components/api-settings/CliSettingsModal.tsx(40,10): error TS6133: 'safeStringifyConfig' is declared but its value is never read.
+src/components/issue/queue/ExecutionGroup.test.tsx(130,13): error TS6133: 'numberElements' is declared but its value is never read.
+src/components/issue/queue/QueueCard.test.tsx(20,13): error TS2322: Type 'string' is not assignable to type 'QueueItem'.
+src/components/issue/queue/QueueCard.test.tsx(20,22): error TS2322: Type 'string' is not assignable to type 'QueueItem'.
+src/components/issue/queue/QueueCard.test.tsx(21,17): error TS2322: Type 'string' is not assignable to type 'QueueItem'.
+src/components/layout/AppShell.tsx(130,9): error TS6133: 'handleMenuClick' is declared but its value is never read.
+src/components/layout/Header.test.tsx(45,22): error TS2322: Type '{ onMenuClick: Mock<Procedure>; }' is not assignable to type 'IntrinsicAttributes & HeaderProps'.
+  Property 'onMenuClick' does not exist on type 'IntrinsicAttributes & HeaderProps'.
+src/components/mcp/ConfigTypeToggle.tsx(18,1): error TS6133: 'Button' is declared but its value is never read.
+src/components/mcp/ConfigTypeToggle.tsx(19,1): error TS6133: 'Badge' is declared but its value is never read.
+src/components/mcp/CrossCliSyncPanel.tsx(33,6): error TS6196: 'CopyDirection' is declared but never used.
+src/components/mcp/RecommendedMcpSection.tsx(13,3): error TS6133: 'Check' is declared but its value is never read.
+src/components/notification/NotificationPanel.tsx(24,12): error TS6133: 'ImageIcon' is declared but its value is never read.
+src/components/notification/NotificationPanel.tsx(70,10): error TS6133: 'formatDetails' is declared but its value is never read.
+src/components/notification/NotificationPanel.tsx(721,9): error TS6133: 'formatMessage' is declared but its value is never read.
+src/components/orchestrator/ToolCallCard.tsx(64,15): error TS2304: Cannot find name 'FileText'.
+src/components/orchestrator/ToolCallsTimeline.tsx(6,8): error TS6133: 'React' is declared but its value is never read.
+src/components/shared/CliStreamMonitor/components/JsonCard.tsx(13,3): error TS6133: 'ChevronRight' is declared but its value is never read.
+src/components/shared/CliStreamMonitor/components/JsonCard.tsx(17,1): error TS6133: 'Button' is declared but its value is never read.
+src/components/shared/CliStreamMonitor/components/JsonCard.tsx(18,1): error TS6133: 'Badge' is declared but its value is never read.
+src/components/shared/CliStreamMonitor/components/JsonCard.tsx(97,3): error TS6133: 'timestamp' is declared but its value is never read.
+src/components/shared/CliStreamMonitor/components/JsonCard.tsx(98,3): error TS6133: 'onCopy' is declared but its value is never read.
+src/components/shared/CliStreamMonitor/components/JsonField.tsx(12,10): error TS6133: 'copied' is declared but its value is never read.
+src/components/shared/CliStreamMonitor/components/OutputLine.tsx(8,1): error TS6133: 'cn' is declared but its value is never read.
+src/components/shared/CliStreamMonitor/messages/AssistantMessage.tsx(94,9): error TS6133: 'formatMessage' is declared but its value is never read.
+src/components/shared/CliStreamMonitor/messages/ErrorMessage.tsx(22,3): error TS6133: 'timestamp' is declared but its value is never read.
+src/components/shared/CliStreamMonitor/messages/UserMessage.tsx(21,3): error TS6133: 'timestamp' is declared but its value is never read.
+src/components/shared/CliStreamMonitorLegacy.tsx(157,34): error TS6133: 'onCopy' is declared but its value is never read.
+src/components/shared/CliStreamMonitorLegacy.tsx(361,9): error TS6133: 'scrollToBottom' is declared but its value is never read.
+src/components/shared/InsightDetailPanel.tsx(6,1): error TS6133: 'React' is declared but its value is never read.
+src/components/shared/InsightDetailPanel.tsx(136,33): error TS6133: 'locale' is declared but its value is never read.
+src/components/shared/InsightDetailPanel.tsx(137,9): error TS6133: 'formatMessage' is declared but its value is never read.
+src/components/shared/InsightDetailPanel.tsx(180,39): error TS6133: 'locale' is declared but its value is never read.
+src/components/shared/InsightsPanel.tsx(6,1): error TS6133: 'React' is declared but its value is never read.
+src/components/shared/LogBlock/LogBlock.tsx(5,8): error TS6133: 'React' is declared but its value is never read.
+src/components/shared/LogBlock/LogBlockList.tsx(6,33): error TS6133: 'useMemo' is declared but its value is never read.
+src/components/shared/PromptStats.tsx(6,1): error TS6133: 'React' is declared but its value is never read.
+src/components/shared/TickerMarquee.tsx(6,1): error TS6133: 'React' is declared but its value is never read.
+src/components/shared/TickerMarquee.tsx(13,3): error TS6133: 'XCircle' is declared but its value is never read.
+src/components/shared/VersionCheck.tsx(2,23): error TS1149: File name 'D:/Claude_dms3/ccw/frontend/src/components/ui/badge.tsx' differs from already included file name 'D:/Claude_dms3/ccw/frontend/src/components/ui/Badge.tsx' only in casing.
+  The file is in the program because:
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/layout/Header.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/shared/CliStreamMonitorLegacy.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/shared/LogBlock/LogBlock.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/shared/CliStreamMonitor/components/JsonCard.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/notification/NotificationPanel.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/dashboard/widgets/RecentSessionsWidget.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/shared/SessionCard.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/pages/SessionsPage.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/pages/FixSessionPage.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/pages/ProjectOverviewPage.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/session-detail/tasks/TaskStatusDropdown.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/pages/session-detail/ContextTab.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/session-detail/context/FieldRenderer.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/session-detail/context/ExplorationsSection.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/session-detail/context/AssetsCard.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/session-detail/context/DependenciesCard.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/session-detail/context/TestContextCard.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/session-detail/context/ConflictDetectionCard.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/pages/session-detail/ConflictTab.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/pages/session-detail/ReviewTab.tsx'
+    Imported via '../ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/shared/TaskDrawer.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/pages/SessionDetailPage.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/shared/ConversationCard.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/shared/CliStreamPanel.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/shared/NativeSessionPanel.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/pages/orchestrator/InlineTemplatePanel.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/pages/orchestrator/TemplateLibrary.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/pages/orchestrator/ExecutionMonitor.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/pages/LoopMonitorPage.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/shared/KanbanBoard.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/issue/hub/IssuesPanel.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/shared/IssueCard.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/issue/hub/IssueDrawer.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/issue/hub/QueuePanel.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/issue/queue/QueueCard.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/issue/queue/ExecutionGroup.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/issue/queue/QueueBoard.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/issue/queue/SolutionDrawer.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/issue/hub/DiscoveryPanel.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/issue/discovery/DiscoveryCard.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/issue/discovery/DiscoveryDetail.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/issue/discovery/FindingList.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/issue/hub/ObservabilityPanel.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/pages/QueuePage.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/pages/DiscoveryPage.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/pages/SkillsManagerPage.tsx'
+    Imported via "./Badge" from file 'D:/Claude_dms3/ccw/frontend/src/components/ui/index.ts'
+    Imported via "./Badge" from file 'D:/Claude_dms3/ccw/frontend/src/components/ui/index.ts'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/shared/SkillCard.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/shared/SkillDetailPanel.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/shared/RuleCard.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/shared/PromptCard.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/shared/QualityBadge.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/shared/GraphToolbar.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/shared/GraphSidebar.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/shared/InsightsPanel.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/shared/IndexManager.tsx'
+    Imported via '../ui/badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/shared/VersionCheck.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/shared/ConfigSync.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/pages/CommandsManagerPage.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/commands/CommandGroupAccordion.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/pages/MemoryPage.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/pages/SettingsPage.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/pages/HookManagerPage.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/hook/HookCard.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/hook/EventGroup.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/hook/HookQuickTemplates.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/hook/HookWizard.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/pages/LiteTasksPage.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/lite-tasks/LiteContextContent.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/pages/ReviewSessionPage.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/pages/McpManagerPage.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/mcp/McpServerDialog.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/mcp/ConfigTypeToggle.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/mcp/CodexMcpEditableCard.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/mcp/CcwToolsMcpCard.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/mcp/McpTemplatesSection.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/mcp/RecommendedMcpSection.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/mcp/WindowsCompatibilityWarning.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/mcp/CrossCliSyncPanel.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/mcp/AllProjectsTable.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/mcp/OtherProjectsSection.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/pages/EndpointsPage.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/pages/InstallationsPage.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/pages/RulesManagerPage.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/pages/PromptHistoryPage.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/codexlens/FileWatcherCard.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/codexlens/AdvancedTab.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/codexlens/GpuSelector.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/codexlens/ModelsTab.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/codexlens/ModelCard.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/api-settings/ProviderList.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/api-settings/EndpointList.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/api-settings/ModelPoolList.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/api-settings/CliSettingsList.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/api-settings/ManageModelsModal.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/pages/CliSessionSharePage.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/pages/IssueManagerPage.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/team/TeamHeader.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/team/TeamMembersPanel.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/team/TeamMessageFeed.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/dashboard/widgets/TaskMarqueeWidget.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/dashboard/widgets/WorkflowStatusProgressWidget.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/mcp/CodexMcpCard.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/mcp/CrossCliCopyButton.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/mcp/EnterpriseMcpBadge.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/components/mcp/InstallCommandDialog.tsx'
+    Matched by include pattern 'src' in 'D:/Claude_dms3/ccw/frontend/tsconfig.json'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/pages/ExecutionMonitorPage.tsx'
+    Imported via '@/components/ui/Badge' from file 'D:/Claude_dms3/ccw/frontend/src/pages/LiteTaskDetailPage.tsx'
+src/components/shared/VersionCheckModal.tsx(6,8): error TS1149: File name 'D:/Claude_dms3/ccw/frontend/src/components/ui/dialog.tsx' differs from already included file name 'D:/Claude_dms3/ccw/frontend/src/components/ui/Dialog.tsx' only in casing.
+  The file is in the program because:
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/components/workspace/WorkspaceSelector.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/components/a2ui/AskQuestionDialog.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/components/a2ui/A2UIPopupCard.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/pages/SessionsPage.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/components/shared/MarkdownModal.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/components/shared/CliStreamPanel.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/components/shared/NativeSessionPanel.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/pages/HistoryPage.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/pages/orchestrator/TemplateLibrary.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/pages/LoopMonitorPage.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/components/issue/queue/QueueActions.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/pages/IssueHubPage.tsx'
+    Imported via "./Dialog" from file 'D:/Claude_dms3/ccw/frontend/src/components/ui/index.ts'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/components/shared/SkillCreateDialog.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/components/shared/RuleDialog.tsx'
+    Imported via '../ui/dialog' from file 'D:/Claude_dms3/ccw/frontend/src/components/shared/VersionCheckModal.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/components/shared/ConfigSyncModal.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/pages/MemoryPage.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/components/hook/HookFormDialog.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/components/hook/HookWizard.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/components/mcp/McpServerDialog.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/components/mcp/McpTemplatesSection.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/components/mcp/RecommendedMcpWizard.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/components/cli-endpoints/CliEndpointFormDialog.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/pages/RulesManagerPage.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/pages/PromptHistoryPage.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/components/codexlens/SemanticInstallDialog.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/components/codexlens/InstallProgressOverlay.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/components/api-settings/ProviderModal.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/components/api-settings/EndpointModal.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/components/api-settings/ModelPoolModal.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/components/api-settings/CliSettingsModal.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/components/api-settings/MultiKeySettingsModal.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/components/api-settings/ManageModelsModal.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/components/cli-viewer/ExecutionPicker.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/pages/IssueManagerPage.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/components/mcp/CrossCliCopyButton.tsx'
+    Imported via '@/components/ui/Dialog' from file 'D:/Claude_dms3/ccw/frontend/src/components/mcp/InstallCommandDialog.tsx'
+    Matched by include pattern 'src' in 'D:/Claude_dms3/ccw/frontend/tsconfig.json'
+src/components/team/TeamHeader.tsx(7,32): error TS6133: 'Clock' is declared but its value is never read.
+src/components/team/TeamMessageFeed.tsx(10,1): error TS6133: 'Badge' is declared but its value is never read.
+src/components/team/TeamMessageFeed.tsx(20,28): error TS6196: 'TeamMessageType' is declared but never used.
+src/components/team/TeamPipeline.tsx(107,10): error TS6133: 'ForkArrow' is declared but its value is never read.
+src/components/ui/ContextAssembler.tsx(9,16): error TS6133: 'Plus' is declared but its value is never read.
+src/components/ui/MultiNodeSelector.tsx(22,47): error TS6133: 'placeholder' is declared but its value is never read.
+src/hooks/useActiveCliExecutions.ts(111,9): error TS6133: 'markExecutionClosedByUser' is declared but its value is never read.
+src/hooks/useApiSettings.ts(47,8): error TS6133: 'GlobalCacheSettings' is declared but its value is never read.
+src/hooks/useApiSettings.ts(50,8): error TS6133: 'DiscoveredProvider' is declared but its value is never read.
+src/hooks/useGraphData.ts(12,8): error TS6133: 'GraphImpactRequest' is declared but its value is never read.
+src/hooks/useGraphData.ts(13,8): error TS6133: 'GraphImpactResponse' is declared but its value is never read.
+src/hooks/useGraphData.ts(17,3): error TS6196: 'GraphNode' is declared but never used.
+src/hooks/useGraphData.ts(18,3): error TS6196: 'GraphEdge' is declared but never used.
+src/hooks/useGraphData.ts(20,3): error TS6196: 'GraphMetadata' is declared but never used.
+src/hooks/useGraphData.ts(135,42): error TS6133: 'node' is declared but its value is never read.
+src/hooks/useGraphData.ts(242,5): error TS6133: 'edgeTypes' is declared but its value is never read.
+src/hooks/useIssues.test.tsx(11,3): error TS6133: 'useIssueMutations' is declared but its value is never read.
+src/hooks/useIssues.ts(28,8): error TS6133: 'IssuesResponse' is declared but its value is never read.
+src/hooks/useMcpServers.ts(27,8): error TS6133: 'AllProjectsResponse' is declared but its value is never read.
+src/hooks/useMcpServers.ts(442,30): error TS6133: 'context' is declared but its value is never read.
+src/hooks/useSessions.ts(171,17): error TS6133: 'newSession' is declared but its value is never read.
+src/hooks/useSkills.ts(12,8): error TS6133: 'SkillsResponse' is declared but its value is never read.
+src/hooks/useWebSocket.ts(54,36): error TS2339: Property 'getToolCallsForNode' does not exist on type 'ExecutionStore'.
+src/hooks/useWebSocket.ts(245,52): error TS7006: Parameter 'c' implicitly has an 'any' type.
+src/hooks/useWorkflowStatusCounts.ts(6,20): error TS6133: 'useQueryClient' is declared but its value is never read.
+src/hooks/useWorkflowStatusCounts.ts(8,1): error TS6133: 'workspaceQueryKeys' is declared but its value is never read.
+src/lib/api.mcp.test.ts(77,41): error TS6133: 'init' is declared but its value is never read.
+src/packages/a2ui-runtime/__tests__/A2UIComponentRegistry.test.ts(264,47): error TS6133: 'actionId' is declared but its value is never read.
+src/packages/a2ui-runtime/__tests__/A2UIComponentRegistry.test.ts(264,57): error TS6133: 'params' is declared but its value is never read.
+src/packages/a2ui-runtime/__tests__/A2UIParser.test.ts(8,10): error TS6133: 'A2UIParser' is declared but its value is never read.
+src/packages/a2ui-runtime/__tests__/A2UIParser.test.ts(9,1): error TS6192: All imports in import declaration are unused.
+src/packages/a2ui-runtime/__tests__/components.test.tsx(7,35): error TS6133: 'within' is declared but its value is never read.
+src/packages/a2ui-runtime/__tests__/components.test.tsx(656,49): error TS6133: 'actionId' is declared but its value is never read.
+src/packages/a2ui-runtime/__tests__/components.test.tsx(656,59): error TS6133: 'params' is declared but its value is never read.
+src/packages/a2ui-runtime/renderer/A2UIRenderer.tsx(6,8): error TS6133: 'React' is declared but its value is never read.
+src/packages/a2ui-runtime/renderer/A2UIRenderer.tsx(7,30): error TS6196: 'SurfaceComponent' is declared but never used.
+src/packages/a2ui-runtime/renderer/A2UIRenderer.tsx(66,9): error TS6133: 'contextValue' is declared but its value is never read.
+src/packages/a2ui-runtime/renderer/components/A2UIButton.tsx(6,1): error TS6133: 'React' is declared but its value is never read.
+src/packages/a2ui-runtime/renderer/components/A2UIButton.tsx(13,11): error TS6196: 'A2UIButtonRendererProps' is declared but never used.
+src/packages/a2ui-runtime/renderer/components/A2UIButton.tsx(24,60): error TS6133: 'state' is declared but its value is never read.
+src/packages/a2ui-runtime/renderer/components/A2UICard.tsx(6,1): error TS6133: 'React' is declared but its value is never read.
+src/packages/a2ui-runtime/renderer/components/A2UICard.tsx(12,11): error TS6196: 'A2UICardProps' is declared but never used.
+src/packages/a2ui-runtime/renderer/components/A2UICard.tsx(23,58): error TS6133: 'state' is declared but its value is never read.
+src/packages/a2ui-runtime/renderer/components/A2UICard.tsx(23,65): error TS6133: 'onAction' is declared but its value is never read.
+src/packages/a2ui-runtime/renderer/components/A2UICheckbox.tsx(6,8): error TS6133: 'React' is declared but its value is never read.
+src/packages/a2ui-runtime/renderer/components/A2UICheckbox.tsx(13,11): error TS6196: 'A2UICheckboxProps' is declared but never used.
+src/packages/a2ui-runtime/renderer/components/A2UICheckbox.tsx(24,62): error TS6133: 'state' is declared but its value is never read.
+src/packages/a2ui-runtime/renderer/components/A2UICLIOutput.tsx(104,63): error TS6133: 'state' is declared but its value is never read.
+src/packages/a2ui-runtime/renderer/components/A2UICLIOutput.tsx(104,70): error TS6133: 'onAction' is declared but its value is never read.
+src/packages/a2ui-runtime/renderer/components/A2UIDateTimeInput.tsx(8,10): error TS6133: 'resolveLiteralOrBinding' is declared but its value is never read.
+src/packages/a2ui-runtime/renderer/components/A2UIDateTimeInput.tsx(33,52): error TS6133: 'includeTime' is declared but its value is never read.
+src/packages/a2ui-runtime/renderer/components/A2UIDateTimeInput.tsx(46,67): error TS6133: 'state' is declared but its value is never read.
+src/packages/a2ui-runtime/renderer/components/A2UIProgress.tsx(6,1): error TS6133: 'React' is declared but its value is never read.
+src/packages/a2ui-runtime/renderer/components/A2UIProgress.tsx(12,11): error TS6196: 'A2UIProgressProps' is declared but never used.
+src/packages/a2ui-runtime/renderer/components/A2UIProgress.tsx(23,62): error TS6133: 'state' is declared but its value is never read.
+src/packages/a2ui-runtime/renderer/components/A2UIProgress.tsx(23,69): error TS6133: 'onAction' is declared but its value is never read.
+src/packages/a2ui-runtime/renderer/components/A2UIRadioGroup.tsx(7,8): error TS6133: 'React' is declared but its value is never read.
+src/packages/a2ui-runtime/renderer/components/A2UIRadioGroup.tsx(14,11): error TS6196: 'A2UIRadioGroupProps' is declared but never used.
+src/packages/a2ui-runtime/renderer/components/A2UIRadioGroup.tsx(25,64): error TS6133: 'state' is declared but its value is never read.
+src/packages/a2ui-runtime/renderer/components/A2UIText.tsx(11,11): error TS6196: 'A2UITextProps' is declared but never used.
+src/packages/a2ui-runtime/renderer/components/A2UIText.tsx(22,58): error TS6133: 'state' is declared but its value is never read.
+src/packages/a2ui-runtime/renderer/components/A2UIText.tsx(22,65): error TS6133: 'onAction' is declared but its value is never read.
+src/packages/a2ui-runtime/renderer/components/A2UITextArea.tsx(12,11): error TS6196: 'A2UITextAreaProps' is declared but never used.
+src/packages/a2ui-runtime/renderer/components/A2UITextArea.tsx(23,62): error TS6133: 'state' is declared but its value is never read.
+src/packages/a2ui-runtime/renderer/components/A2UITextField.tsx(12,11): error TS6196: 'A2UITextFieldProps' is declared but never used.
+src/packages/a2ui-runtime/renderer/components/A2UITextField.tsx(23,63): error TS6133: 'state' is declared but its value is never read.
+src/pages/CliViewerPage.tsx(191,9): error TS6133: 'isSyncing' is declared but its value is never read.
+src/pages/CodexLensManagerPage.test.tsx(10,1): error TS6133: 'api' is declared but its value is never read.
+src/pages/CodexLensManagerPage.tsx(18,31): error TS6133: 'TabItem' is declared but its value is never read.
+src/pages/CodexLensManagerPage.tsx(33,1): error TS6133: 'GpuSelector' is declared but its value is never read.
+src/pages/DiscoveryPage.test.tsx(7,26): error TS6133: 'waitFor' is declared but its value is never read.
+src/pages/ExecutionMonitorPage.tsx(16,3): error TS6133: 'Filter' is declared but its value is never read.
+src/pages/ExecutionMonitorPage.tsx(23,31): error TS6133: 'TabItem' is declared but its value is never read.
+src/pages/IssueHubPage.tsx(6,33): error TS6133: 'useRef' is declared but its value is never read.
+src/pages/IssueManagerPage.tsx(389,80): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(this: void, descriptor: MessageDescriptor, values?: Record<string, PrimitiveType | FormatXMLElementFn<string, string>> | undefined, opts?: Options | undefined): string', gave the following error.
+    Argument of type 'GitHubPullResponse' is not assignable to parameter of type 'Record<string, PrimitiveType | FormatXMLElementFn<string, string>>'.
+      Index signature for type 'string' is missing in type 'GitHubPullResponse'.
+  Overload 2 of 2, '(this: void, descriptor: MessageDescriptor, values?: Record<string, string | number | boolean | ReactElement<any, string | JSXElementConstructor<any>> | ... 5 more ... | undefined> | undefined, opts?: Options | undefined): ReactNode[]', gave the following error.
+    Argument of type 'GitHubPullResponse' is not assignable to parameter of type 'Record<string, string | number | boolean | ReactElement<any, string | JSXElementConstructor<any>> | Iterable<ReactNode> | ... 4 more ... | undefined>'.
+      Index signature for type 'string' is missing in type 'GitHubPullResponse'.
+src/pages/LiteTaskDetailPage.tsx(18,3): error TS6133: 'Calendar' is declared but its value is never read.
+src/pages/LiteTaskDetailPage.tsx(19,3): error TS6133: 'Loader2' is declared but its value is never read.
+src/pages/LiteTaskDetailPage.tsx(22,3): error TS6133: 'Clock' is declared but its value is never read.
+src/pages/LiteTaskDetailPage.tsx(34,3): error TS6133: 'ChevronDown' is declared but its value is never read.
+src/pages/LiteTaskDetailPage.tsx(44,1): error TS6192: All imports in import declaration are unused.
+src/pages/LiteTaskDetailPage.tsx(47,1): error TS6133: 'LiteTask' is declared but its value is never read.
+src/pages/LiteTaskDetailPage.tsx(67,11): error TS6196: 'ExplorationAngle' is declared but never used.
+src/pages/LiteTaskDetailPage.tsx(89,11): error TS6196: 'DiscussionSolution' is declared but never used.

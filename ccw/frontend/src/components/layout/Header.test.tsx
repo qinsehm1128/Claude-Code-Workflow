@@ -42,7 +42,7 @@ describe('Header Component - i18n Tests', () => {
 
   describe('translated aria-labels', () => {
     it('should have translated aria-label for menu toggle', () => {
-      render(<Header onMenuClick={vi.fn()} />);
+      render(<Header />);
 
       const menuButton = screen.getByRole('button', { name: /toggle navigation/i });
       expect(menuButton).toBeInTheDocument();

@@ -92,9 +92,11 @@ RULES: {from prompt, if template specified} | analysis=READ-ONLY
 
 ### Dual-Source Synthesis
 
-1. Bash results: Precise file:line locations
-2. Gemini results: Semantic understanding, design intent
-3. Merge with source attribution (bash-discovered | gemini-discovered)
+1. Bash results: Precise file:line locations → `discovery_source: "bash-scan"`
+2. Gemini results: Semantic understanding, design intent → `discovery_source: "cli-analysis"`
+3. ACE search: Semantic code search → `discovery_source: "ace-search"`
+4. Dependency tracing: Import/export graph → `discovery_source: "dependency-trace"`
+5. Merge with source attribution and generate rationale for each file
 
 ---
 
@@ -118,7 +120,16 @@ Parse and memorize:
 4. **Enum values** - Copy exact strings (e.g., `"critical"` not `"Critical"`)
 5. **Nested structures** - Note flat vs nested requirements
 
-**Step 3: Pre-Output Validation Checklist**
+**Step 3: File Rationale Validation** (MANDATORY for relevant_files / affected_files)
+
+Every file entry MUST have:
+- `rationale` (required, minLength 10): Specific reason tied to the exploration topic, NOT generic
+  - GOOD: "Contains AuthService.login() which is the entry point for JWT token generation"
+  - BAD: "Related to auth" or "Relevant file"
+- `role` (required, enum): Structural classification of why it was selected
+- `discovery_source` (optional but recommended): How the file was found
+
+**Step 4: Pre-Output Validation Checklist**
 
 Before writing ANY JSON output, verify:
 
@@ -128,6 +139,8 @@ Before writing ANY JSON output, verify:
 - [ ] Enum values EXACTLY match schema (case-sensitive)
 - [ ] Nested structures follow schema pattern (flat vs nested)
 - [ ] Data types correct (string, integer, array, object)
+- [ ] Every file in relevant_files has: path + relevance + rationale + role
+- [ ] Every rationale is specific (>10 chars, not generic)
 
 ---
 
@@ -167,13 +180,15 @@ Brief summary:
 **ALWAYS**:
 1. **Search Tool Priority**: ACE (`mcp__ace-tool__search_context`) → CCW (`mcp__ccw-tools__smart_search`) / Built-in (`Grep`, `Glob`, `Read`)
 2. Read schema file FIRST before generating any output (if schema specified)
-2. Copy field names EXACTLY from schema (case-sensitive)
-3. Verify root structure matches schema (array vs object)
-4. Match nested/flat structures as schema requires
-5. Use exact enum values from schema (case-sensitive)
-6. Include ALL required fields at every level
-7. Include file:line references in findings
-8. Attribute discovery source (bash/gemini)
+3. Copy field names EXACTLY from schema (case-sensitive)
+4. Verify root structure matches schema (array vs object)
+5. Match nested/flat structures as schema requires
+6. Use exact enum values from schema (case-sensitive)
+7. Include ALL required fields at every level
+8. Include file:line references in findings
+9. **Every file MUST have rationale**: Specific selection basis tied to the topic (not generic)
+10. **Every file MUST have role**: Classify as modify_target/dependency/pattern_reference/test_target/type_definition/integration_point/config/context_only
+11. **Track discovery source**: Record how each file was found (bash-scan/cli-analysis/ace-search/dependency-trace/manual)
 
 **Bash Tool**:
 - Use `run_in_background=false` for all Bash/CLI calls to ensure foreground execution

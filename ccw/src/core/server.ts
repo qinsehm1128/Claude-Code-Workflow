@@ -1,14 +1,11 @@
 import http from 'http';
 import { URL } from 'url';
-import { readFileSync, existsSync } from 'fs';
-import { join } from 'path';
-import { resolvePath, getRecentPaths, normalizePathForDisplay } from '../utils/path-resolver.js';
-
 // Import route handlers
 import { handleStatusRoutes } from './routes/status-routes.js';
 import { handleCliRoutes, cleanupStaleExecutions } from './routes/cli-routes.js';
 import { handleCliSettingsRoutes } from './routes/cli-settings-routes.js';
 import { handleCliSessionsRoutes } from './routes/cli-sessions-routes.js';
+import { handleAuditRoutes } from './routes/audit-routes.js';
 import { handleProviderRoutes } from './routes/provider-routes.js';
 import { handleMemoryRoutes } from './routes/memory-routes.js';
 import { handleCoreMemoryRoutes } from './routes/core-memory-routes.js';
@@ -53,6 +50,7 @@ import { randomBytes } from 'crypto';
 
 // Import health check service
 import { getHealthCheckService } from './services/health-check-service.js';
+import { getCliSessionShareManager } from './services/cli-session-share.js';
 
 // Import status check functions for warmup
 import { checkSemanticStatus, checkVenvStatus } from '../tools/codex-lens.js';
@@ -66,122 +64,10 @@ interface ServerOptions {
   initialPath?: string;
   host?: string;
   open?: boolean;
-  frontend?: 'js' | 'react' | 'both';
   reactPort?: number;
-  docsPort?: number;
 }
 
 type PostHandler = PostRequestHandler;
-
-// Template paths
-const TEMPLATE_PATH = join(import.meta.dirname, '../../src/templates/dashboard.html');
-const MODULE_CSS_DIR = join(import.meta.dirname, '../../src/templates/dashboard-css');
-const JS_FILE = join(import.meta.dirname, '../../src/templates/dashboard.js');
-const MODULE_JS_DIR = join(import.meta.dirname, '../../src/templates/dashboard-js');
-const ASSETS_DIR = join(import.meta.dirname, '../../src/templates/assets');
-
-// Modular CSS files in load order
-const MODULE_CSS_FILES = [
-  '01-base.css',
-  '02-session.css',
-  '03-tasks.css',
-  '04-lite-tasks.css',
-  '05-context.css',
-  '06-cards.css',
-  '07-managers.css',
-  '08-review.css',
-  '09-explorer.css',
-  // CLI modules (split from 10-cli.css)
-  '10-cli-status.css',
-  '11-cli-history.css',
-  '12-cli-legacy.css',
-  '13-cli-ccw.css',
-  '14-cli-modals.css',
-  '15-cli-endpoints.css',
-  '16-cli-session.css',
-  '17-cli-conversation.css',
-  '18-cli-settings.css',
-  '19-cli-native-session.css',
-  '20-cli-taskqueue.css',
-  '21-cli-toolmgmt.css',
-  '22-cli-semantic.css',
-  // Other modules
-  '23-memory.css',
-  '24-prompt-history.css',
-  '25-skills-rules.css',
-  '26-claude-manager.css',
-  '27-graph-explorer.css',
-  '28-mcp-manager.css',
-  '29-help.css',
-  '30-core-memory.css',
-  '31-api-settings.css',
-  '32-issue-manager.css',
-  '33-cli-stream-viewer.css',
-  '34-discovery.css',
-  '36-loop-monitor.css'
-];
-
-// Modular JS files in dependency order
-const MODULE_FILES = [
-  'i18n.js',  // Must be loaded first for translations
-  'help-i18n.js',  // Help page translations
-  'utils.js',
-  'state.js',
-  'services.js',  // CacheManager, EventManager, PreloadService - must be before main.js
-  'api.js',
-  'components/theme.js',
-  'components/modals.js',
-  'components/navigation.js',
-  'components/sidebar.js',
-  'components/tabs-context.js',
-  'components/tabs-other.js',
-  'components/task-drawer-core.js',
-  'components/task-drawer-renderers.js',
-  'components/flowchart.js',
-  'components/carousel.js',
-  'components/notifications.js',
-  'components/cli-stream-viewer.js',
-  'components/global-notifications.js',
-  'components/task-queue-sidebar.js',
-  'components/cli-status.js',
-  'components/cli-history.js',
-  'components/mcp-manager.js',
-  'components/hook-manager.js',
-  'components/version-check.js',
-  'components/storage-manager.js',
-  'components/index-manager.js',
-  'components/_exp_helpers.js',
-  'components/_conflict_tab.js',
-  'components/_review_tab.js',
-  'views/home.js',
-  'views/project-overview.js',
-  'views/session-detail.js',
-  'views/review-session.js',
-  'views/lite-tasks.js',
-  'views/fix-session.js',
-  'views/cli-manager.js',
-  'views/codexlens-manager.js',
-  'views/explorer.js',
-  'views/mcp-manager.js',
-  'views/hook-manager.js',
-  'views/history.js',
-  'views/graph-explorer.js',
-  'views/memory.js',
-  'views/core-memory.js',
-  'views/core-memory-graph.js',
-  'views/core-memory-clusters.js',
-  'views/prompt-history.js',
-  'views/skills-manager.js',
-  'views/rules-manager.js',
-  'views/commands-manager.js',
-  'views/claude-manager.js',
-  'views/api-settings.js',
-  'views/help.js',
-  'views/issue-manager.js',
-  'views/issue-discovery.js',
-  'views/loop-monitor.js',
-  'main.js'
-];
 
 /**
  * Handle POST request with JSON body
@@ -363,69 +249,6 @@ async function warmupCaches(initialPath: string): Promise<void> {
 }
 
 /**
- * Generate dashboard HTML with embedded CSS and JS
- */
-function generateServerDashboard(initialPath: string): string {
-  let html = readFileSync(TEMPLATE_PATH, 'utf8');
-
-  // Read and concatenate modular CSS files in load order
-  const cssContent = MODULE_CSS_FILES.map(file => {
-    const filePath = join(MODULE_CSS_DIR, file);
-    return existsSync(filePath) ? readFileSync(filePath, 'utf8') : '';
-  }).join('\n\n');
-
-  // Read and concatenate modular JS files in dependency order
-  let jsContent = MODULE_FILES.map(file => {
-    const filePath = join(MODULE_JS_DIR, file);
-    if (!existsSync(filePath)) {
-      console.error(`[Dashboard] Critical module file not found: ${filePath}`);
-      console.error(`[Dashboard] Expected path relative to: ${MODULE_JS_DIR}`);
-      console.error(`[Dashboard] Check that the file exists and is included in the build.`);
-      // Return empty string with error comment to make the issue visible in browser
-      return `console.error('[Dashboard] Module not loaded: ${file} (see server console for details)');\n`;
-    }
-    return readFileSync(filePath, 'utf8');
-  }).join('\n\n');
-
-  // Inject CSS content
-  html = html.replace('{{CSS_CONTENT}}', cssContent);
-
-  // Prepare JS content with empty initial data (will be loaded dynamically)
-  const emptyData = {
-    generatedAt: new Date().toISOString(),
-    activeSessions: [],
-    archivedSessions: [],
-    liteTasks: { litePlan: [], liteFix: [], multiCliPlan: [] },
-    reviewData: { dimensions: {} },
-    projectOverview: null,
-    statistics: { totalSessions: 0, activeSessions: 0, totalTasks: 0, completedTasks: 0, reviewFindings: 0, litePlanCount: 0, liteFixCount: 0, multiCliPlanCount: 0 }
-  };
-
-  // Replace JS placeholders
-  jsContent = jsContent.replace('{{WORKFLOW_DATA}}', JSON.stringify(emptyData, null, 2));
-  jsContent = jsContent.replace(/\{\{PROJECT_PATH\}\}/g, normalizePathForDisplay(initialPath).replace(/\\/g, '/'));
-  jsContent = jsContent.replace('{{RECENT_PATHS}}', JSON.stringify(getRecentPaths()));
-
-  // Add server mode flag at the start of JS
-  const serverModeScript = `
-// Server mode - load data dynamically
-window.SERVER_MODE = true;
-window.INITIAL_PATH = '${normalizePathForDisplay(initialPath).replace(/\\/g, '/')}';
-`;
-
-  // Prepend server mode script to JS content
-  jsContent = serverModeScript + jsContent;
-
-  // Inject JS content
-  html = html.replace('{{JS_CONTENT}}', jsContent);
-
-  // Replace any remaining placeholders in HTML
-  html = html.replace(/\{\{PROJECT_PATH\}\}/g, normalizePathForDisplay(initialPath).replace(/\\/g, '/'));
-
-  return html;
-}
-
-/**
  * Read request body as text for proxy requests
  * @param req - HTTP request object
  * @returns Promise that resolves to body text
@@ -450,21 +273,15 @@ export async function startServer(options: ServerOptions = {}): Promise<http.Ser
   let serverPort = options.port ?? 3456;
   const initialPath = options.initialPath || process.cwd();
   const host = options.host ?? '127.0.0.1';
-  const frontend = options.frontend || 'js';
   const reactPort = options.reactPort || serverPort + 1;
-  const docsPort = options.docsPort || 3001;
 
-  // Log frontend configuration
-  console.log(`[Server] Frontend mode: ${frontend}`);
-  if (frontend === 'react' || frontend === 'both') {
-    console.log(`[Server] React proxy configured: /react/* -> http://localhost:${reactPort}`);
-    console.log(`[Server] Docs proxy configured: /docs/* -> http://localhost:${docsPort}`);
-  }
+  console.log(`[Server] React proxy configured: /* -> http://localhost:${reactPort}`);
 
   const tokenManager = getTokenManager();
   const secretKey = tokenManager.getSecretKey();
   tokenManager.getOrCreateAuthToken();
   const unauthenticatedPaths = new Set<string>(['/api/auth/token', '/api/csrf-token', '/api/hook', '/api/test/ask-question', '/api/a2ui/answer']);
+  const cliSessionShareManager = getCliSessionShareManager();
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://localhost:${serverPort}`);
@@ -521,8 +338,24 @@ export async function startServer(options: ServerOptions = {}): Promise<http.Ser
 
       // Authentication middleware for all API routes
       if (pathname.startsWith('/api/')) {
-        const ok = authMiddleware({ pathname, req, res, tokenManager, secretKey, unauthenticatedPaths });
-        if (!ok) return;
+        let shareBypass = false;
+        const shareToken = url.searchParams.get('shareToken');
+        if (shareToken) {
+          const match = pathname.match(/^\/api\/cli-sessions\/([^/]+)\/(buffer|stream)$/);
+          if (match?.[1]) {
+            const sessionKey = decodeURIComponent(match[1]);
+            const validated = cliSessionShareManager.validateToken(shareToken, sessionKey);
+            if (validated && (validated.mode === 'read' || validated.mode === 'write')) {
+              (req as any).__cliSessionShareProjectRoot = validated.projectRoot;
+              shareBypass = true;
+            }
+          }
+        }
+
+        if (!shareBypass) {
+          const ok = authMiddleware({ pathname, req, res, tokenManager, secretKey, unauthenticatedPaths });
+          if (!ok) return;
+        }
       }
 
       // CSRF validation middleware for state-changing API routes
@@ -595,6 +428,11 @@ export async function startServer(options: ServerOptions = {}): Promise<http.Ser
       // CLI sessions (PTY) routes (/api/cli-sessions/*) - independent from /api/cli/*
       if (pathname.startsWith('/api/cli-sessions')) {
         if (await handleCliSessionsRoutes(routeContext)) return;
+      }
+
+      // Audit routes (/api/audit/*)
+      if (pathname.startsWith('/api/audit')) {
+        if (await handleAuditRoutes(routeContext)) return;
       }
 
       // CLI routes (/api/cli/*)
@@ -761,8 +599,6 @@ export async function startServer(options: ServerOptions = {}): Promise<http.Ser
         if (await handleSystemRoutes(routeContext)) return;
       }
 
-
-
       // Handle favicon.ico (return empty response to prevent 404)
       if (pathname === '/favicon.ico') {
         res.writeHead(204);
@@ -770,103 +606,17 @@ export async function startServer(options: ServerOptions = {}): Promise<http.Ser
         return;
       }
 
-      // Serve static assets (js, css, images, fonts)
-      if (pathname.startsWith('/assets/')) {
-        const assetPath = join(ASSETS_DIR, pathname.replace('/assets/', ''));
-        if (existsSync(assetPath)) {
-          const ext = assetPath.split('.').pop()?.toLowerCase();
-          const mimeTypes: Record<string, string> = {
-            'js': 'application/javascript',
-            'css': 'text/css',
-            'json': 'application/json',
-            'png': 'image/png',
-            'jpg': 'image/jpeg',
-            'jpeg': 'image/jpeg',
-            'svg': 'image/svg+xml',
-            'woff': 'font/woff',
-            'woff2': 'font/woff2',
-            'ttf': 'font/ttf'
-          };
-          const contentType = ext ? mimeTypes[ext] ?? 'application/octet-stream' : 'application/octet-stream';
-          const content = readFileSync(assetPath);
-          res.writeHead(200, {
-            'Content-Type': contentType,
-            'Cache-Control': 'no-cache, must-revalidate'
-          });
-          res.end(content);
-          return;
-        }
-      }
-
-      // React frontend proxy - proxy requests to React dev server
-      // Use the frontend and reactPort variables defined at startServer scope
-      if (frontend === 'react' || frontend === 'both') {
-        if (pathname === '/react' || pathname.startsWith('/react/')) {
-          // Don't strip the /react prefix - Vite knows it's serving under /react/
-          const reactUrl = `http://localhost:${reactPort}${pathname}${url.search}`;
-
-          console.log(`[React Proxy] Proxying ${pathname} -> ${reactUrl}`);
-
-          try {
-            // Convert headers to plain object for fetch
-            const proxyHeaders: Record<string, string> = {};
-            for (const [key, value] of Object.entries(req.headers)) {
-              if (typeof value === 'string') {
-                proxyHeaders[key] = value;
-              } else if (Array.isArray(value)) {
-                proxyHeaders[key] = value.join(', ');
-              }
-            }
-            proxyHeaders['host'] = `localhost:${reactPort}`;
-
-            const reactResponse = await fetch(reactUrl, {
-              method: req.method,
-              headers: proxyHeaders,
-              body: req.method !== 'GET' && req.method !== 'HEAD' ? await readRequestBody(req) : undefined,
-            });
-
-            const contentType = reactResponse.headers.get('content-type') || 'text/html';
-            const body = await reactResponse.text();
-
-            console.log(`[React Proxy] Response ${reactResponse.status}: ${contentType}`);
-
-            res.writeHead(reactResponse.status, {
-              'Content-Type': contentType,
-              'Cache-Control': 'no-cache',
-            });
-            res.end(body);
-            return;
-          } catch (err) {
-            console.error(`[React Proxy] Failed to proxy to ${reactUrl}:`, err);
-            console.error(`[React Proxy] Error details:`, (err as Error).message);
-            res.writeHead(502, { 'Content-Type': 'text/plain' });
-            res.end(`Bad Gateway: React frontend not available at ${reactUrl}\nError: ${(err as Error).message}`);
-            return;
-          }
-        }
-
-        // Redirect root to React if react-only mode
-        if (frontend === 'react' && (pathname === '/' || pathname === '/index.html')) {
-          res.writeHead(302, { 'Location': `/react${url.search}` });
-          res.end();
-          return;
-        }
-      }
-
-      // Docs site proxy - proxy requests to Docusaurus dev server (port 3001)
-      // Redirect /docs to /docs/ to match Docusaurus baseUrl
-      if (pathname === '/docs') {
-        res.writeHead(302, { 'Location': `/docs/${url.search}` });
+      // Backward compatibility: redirect /react/* to /* (strip /react prefix)
+      if (pathname === '/react' || pathname.startsWith('/react/')) {
+        const newPath = pathname === '/react' ? '/' : pathname.slice('/react'.length);
+        res.writeHead(301, { 'Location': `${newPath}${url.search}` });
         res.end();
         return;
       }
 
-      // Proxy /docs/* requests to Docusaurus
-      if (pathname.startsWith('/docs/')) {
-        // Preserve the /docs prefix when forwarding to Docusaurus
-        const docsUrl = `http://localhost:${docsPort}${pathname}${url.search}`;
-
-        console.log(`[Docs Proxy] Proxying ${pathname} -> ${docsUrl}`);
+      // React frontend proxy - forward all non-API requests to Vite dev server
+      {
+        const reactUrl = `http://localhost:${reactPort}${pathname}${url.search}`;
 
         try {
           // Convert headers to plain object for fetch
@@ -878,54 +628,30 @@ export async function startServer(options: ServerOptions = {}): Promise<http.Ser
               proxyHeaders[key] = value.join(', ');
             }
           }
-          proxyHeaders['host'] = `localhost:${docsPort}`;
+          proxyHeaders['host'] = `localhost:${reactPort}`;
 
-          const docsResponse = await fetch(docsUrl, {
+          const reactResponse = await fetch(reactUrl, {
             method: req.method,
             headers: proxyHeaders,
             body: req.method !== 'GET' && req.method !== 'HEAD' ? await readRequestBody(req) : undefined,
           });
 
-          const contentType = docsResponse.headers.get('content-type') || 'text/html';
-          const body = await docsResponse.text();
+          const contentType = reactResponse.headers.get('content-type') || 'text/html';
+          const body = await reactResponse.text();
 
-          // Forward response headers
-          const responseHeaders: Record<string, string> = {
+          res.writeHead(reactResponse.status, {
             'Content-Type': contentType,
             'Cache-Control': 'no-cache',
-          };
-
-          // Forward Set-Cookie headers if present
-          const setCookieHeaders = docsResponse.headers.get('set-cookie');
-          if (setCookieHeaders) {
-            responseHeaders['Set-Cookie'] = setCookieHeaders;
-          }
-
-          console.log(`[Docs Proxy] Response ${docsResponse.status}: ${contentType}`);
-
-          res.writeHead(docsResponse.status, responseHeaders);
+          });
           res.end(body);
           return;
         } catch (err) {
-          console.error(`[Docs Proxy] Failed to proxy to ${docsUrl}:`, err);
-          console.error(`[Docs Proxy] Error details:`, (err as Error).message);
+          console.error(`[React Proxy] Failed to proxy to ${reactUrl}:`, (err as Error).message);
           res.writeHead(502, { 'Content-Type': 'text/plain' });
-          res.end(`Bad Gateway: Docs site not available at ${docsUrl}\nMake sure the Docusaurus server is running on port ${docsPort}.\nError: ${(err as Error).message}`);
+          res.end(`Bad Gateway: React frontend not available at ${reactUrl}\nError: ${(err as Error).message}`);
           return;
         }
       }
-
-      // Root path - serve JS frontend HTML (default or both mode)
-      if (pathname === '/' || pathname === '/index.html') {
-        const html = generateServerDashboard(initialPath);
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(html);
-        return;
-      }
-
-      // 404
-      res.writeHead(404, { 'Content-Type': 'text/plain' });
-      res.end('Not Found');
 
     } catch (error: unknown) {
       console.error('Server error:', error);

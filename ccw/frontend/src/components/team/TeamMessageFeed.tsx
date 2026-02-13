@@ -7,7 +7,6 @@ import { useState, useMemo } from 'react';
 import { useIntl } from 'react-intl';
 import { ChevronDown, ChevronUp, FileText, Filter, X } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
-import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import {
   Select,
@@ -17,7 +16,7 @@ import {
   SelectValue,
 } from '@/components/ui/Select';
 import { cn } from '@/lib/utils';
-import type { TeamMessage, TeamMessageType, TeamMessageFilter } from '@/types/team';
+import type { TeamMessage, TeamMessageFilter } from '@/types/team';
 
 interface TeamMessageFeedProps {
   messages: TeamMessage[];

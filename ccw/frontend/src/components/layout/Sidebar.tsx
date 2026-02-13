@@ -14,7 +14,6 @@ import {
   Terminal,
   Brain,
   Settings,
-  HelpCircle,
   PanelLeftClose,
   PanelLeftOpen,
   LayoutDashboard,
@@ -112,7 +111,6 @@ const navGroupDefinitions: NavGroupDef[] = [
       { path: '/settings/codexlens', labelKey: 'navigation.main.codexlens', icon: Sparkles },
       { path: '/api-settings', labelKey: 'navigation.main.apiSettings', icon: Server },
       { path: '/settings', labelKey: 'navigation.main.settings', icon: Settings, end: true },
-      { path: '/help', labelKey: 'navigation.main.help', icon: HelpCircle },
     ],
   },
 ];

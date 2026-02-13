@@ -101,7 +101,7 @@ function StreamingIndicator() {
  * A2UI CLIOutput Component Renderer
  * Displays CLI output with optional syntax highlighting and streaming indicator
  */
-export const A2UICLIOutput: ComponentRenderer = ({ component, state, onAction, resolveBinding }) => {
+export const A2UICLIOutput: ComponentRenderer = ({ component, resolveBinding }) => {
   const cliOutputComp = component as CLIOutputComponent;
   const { CLIOutput: config } = cliOutputComp;
 

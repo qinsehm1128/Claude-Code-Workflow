@@ -119,7 +119,19 @@
       "none": "暂无会话",
       "refresh": "刷新",
       "new": "新建会话",
-      "close": "关闭"
+      "close": "关闭",
+      "share": "分享（只读）",
+      "revokeShare": "撤销分享",
+      "expiresAt": "过期时间",
+      "activeShares": "分享列表"
+    },
+    "share": {
+      "pageTitle": "共享终端会话",
+      "missingParams": "链接缺少 sessionKey 或 shareToken 参数",
+      "connecting": "连接中",
+      "connected": "实时",
+      "error": "错误",
+      "linkLabel": "分享链接"
     },
     "exec": {
       "tool": "工具",
@@ -145,7 +157,21 @@
       "empty": "暂无队列"
     },
     "exec": {
-      "title": "在会话中执行"
+      "title": "执行",
+      "sessionTab": "会话",
+      "orchestratorTab": "编排器"
+    },
+    "orchestrator": {
+      "title": "发送到编排器",
+      "targetSession": "目标会话",
+      "tool": "工具",
+      "mode": "模式",
+      "resumeStrategy": "resumeStrategy",
+      "send": "发送",
+      "sending": "发送中...",
+      "sentTitle": "已发送到编排器",
+      "sentDesc": "已创建 flow: {flowId}",
+      "sendFailed": "发送失败"
     },
     "status": {
       "pending": "待处理",
@@ -347,8 +373,73 @@
       "issues": "问题列表",
       "board": "看板",
       "queue": "执行队列",
-      "discovery": "问题发现"
+      "discovery": "问题发现",
+      "observability": "可观测",
+      "executions": "执行"
     }
+  },
+  "executions": {
+    "pageTitle": "执行管理",
+    "description": "监控和管理队列执行会话",
+    "stats": {
+      "running": "运行中",
+      "completed": "已完成",
+      "failed": "失败",
+      "total": "总计"
+    },
+    "list": {
+      "title": "执行列表",
+      "clearCompleted": "清除已完成"
+    },
+    "detail": {
+      "selectExecution": "选择执行以查看详情",
+      "openInTerminal": "在终端中打开",
+      "id": "执行 ID",
+      "queueItemId": "队列项",
+      "issueId": "问题",
+      "solutionId": "解决方案",
+      "type": "类型",
+      "tool": "工具",
+      "mode": "模式",
+      "status": "状态",
+      "startedAt": "开始时间",
+      "completedAt": "完成时间",
+      "sessionKey": "会话 Key",
+      "flowId": "流程 ID",
+      "execId": "执行 ID (编排器)"
+    },
+    "emptyState": {
+      "title": "暂无执行",
+      "description": "尚未启动任何队列执行"
+    }
+  },
+  "observability": {
+    "pageTitle": "可观测面板",
+    "description": "审计并查看自动投递与 CLI 会话活动",
+    "audit": {
+      "title": "CLI 会话审计"
+    },
+    "filters": {
+      "search": "搜索",
+      "searchPlaceholder": "搜索 type/sessionKey/resumeKey/details...",
+      "sessionKey": "会话 Key",
+      "sessionKeyPlaceholder": "例如 cli-xxxx",
+      "type": "类型",
+      "typeAll": "全部类型",
+      "limit": "条数"
+    },
+    "table": {
+      "timestamp": "时间戳",
+      "type": "类型",
+      "sessionKey": "会话",
+      "tool": "工具",
+      "resumeKey": "resumeKey",
+      "workingDir": "工作目录",
+      "ip": "IP",
+      "userAgent": "User-Agent"
+    },
+    "empty": "暂无审计事件",
+    "error": "加载审计事件失败"
   },
   "board": {
     "pageTitle": "问题看板",

@@ -12,7 +12,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { getAllToolSchemas, executeTool, executeToolWithProgress } from '../tools/index.js';
 import type { ToolSchema, ToolResult } from '../types/tool.js';
-import { getProjectRoot, getAllowedDirectories, isSandboxDisabled } from '../utils/path-validator.js';
+import { getProjectRoot, getAllowedDirectories, isSandboxEnabled } from '../utils/path-validator.js';
 
 const SERVER_NAME = 'ccw-tools';
 const SERVER_VERSION = '6.2.0';
@@ -22,7 +22,7 @@ const ENV_PROJECT_ROOT = 'CCW_PROJECT_ROOT';
 const ENV_ALLOWED_DIRS = 'CCW_ALLOWED_DIRS';
 
 // Default enabled tools (core set - file operations, core memory, and smart search)
-const DEFAULT_TOOLS: string[] = ['write_file', 'edit_file', 'read_file', 'read_many_files', 'core_memory', 'smart_search'];
+const DEFAULT_TOOLS: string[] = ['write_file', 'edit_file', 'read_file', 'read_many_files', 'read_outline', 'core_memory', 'smart_search'];
 
 /**
  * Get list of enabled tools from environment or defaults
@@ -155,7 +155,16 @@ async function main(): Promise<void> {
   // Connect server to transport
   await server.connect(transport);
 
-  // Error handling
+  // Error handling - prevent process crashes from closing transport
+  process.on('uncaughtException', (error) => {
+    console.error(`[${SERVER_NAME}] Uncaught exception:`, error.message);
+    console.error(error.stack);
+  });
+
+  process.on('unhandledRejection', (reason) => {
+    console.error(`[${SERVER_NAME}] Unhandled rejection:`, reason);
+  });
+
   process.on('SIGINT', async () => {
     await server.close();
     process.exit(0);
@@ -169,13 +178,14 @@ async function main(): Promise<void> {
   // Log server start (to stderr to not interfere with stdio protocol)
   const projectRoot = getProjectRoot();
   const allowedDirs = getAllowedDirectories();
-  const sandboxDisabled = isSandboxDisabled();
+  const sandboxEnabled = isSandboxEnabled();
   console.error(`${SERVER_NAME} v${SERVER_VERSION} started`);
   console.error(`Project root: ${projectRoot}`);
-  if (sandboxDisabled) {
-    console.error(`Sandbox: DISABLED (CCW_DISABLE_SANDBOX=true)`);
-  } else {
+  if (sandboxEnabled) {
+    console.error(`Sandbox: ENABLED (CCW_ENABLE_SANDBOX=true)`);
     console.error(`Allowed directories: ${allowedDirs.join(', ')}`);
+  } else {
+    console.error(`Sandbox: DISABLED (default)`);
   }
   if (!process.env[ENV_PROJECT_ROOT]) {
     console.error(`[Warning] ${ENV_PROJECT_ROOT} not set, using process.cwd()`);

@@ -49,26 +49,22 @@ Read(.workflow/active/${SESSION_ID}/.process/context-package.json)
 **Task JSON Parsing** (when task JSON path provided):
 Read task JSON and extract structured context:
 ```
-Task JSON Fields:
-├── context.requirements[]     → What to implement (list of requirements)
-├── context.acceptance[]       → How to verify (validation commands)
-├── context.focus_paths[]      → Where to focus (directories/files)
-├── context.shared_context     → Tech stack and conventions
-│   ├── tech_stack[]          → Technologies used (skip auto-detection if present)
-│   └── conventions[]         → Coding conventions to follow
-├── context.artifacts[]        → Additional context sources
-└── flow_control               → Execution instructions
-    ├── pre_analysis[]        → Context gathering steps (execute first)
-    ├── implementation_approach[] → Implementation steps (execute sequentially)
-    └── target_files[]        → Files to create/modify
+Task JSON Fields (unified flat structure):
+├── description                → What to implement (goal + requirements)
+├── convergence.criteria[]     → How to verify (validation commands)
+├── focus_paths[]              → Where to focus (directories/files)
+├── artifacts[]                → Additional context sources
+├── pre_analysis[]             → Context gathering steps (execute first)
+├── implementation[]           → Implementation steps (execute sequentially)
+└── files[]                    → Files to create/modify (files[].path)
 ```
 
 **Parsing Priority**:
 1. Read task JSON from provided path
-2. Extract `context.requirements` as implementation goals
-3. Extract `context.acceptance` as verification criteria
-4. If `context.shared_context.tech_stack` exists → skip auto-detection, use provided stack
-5. Process `flow_control` if present
+2. Extract `description` as implementation goals
+3. Extract `convergence.criteria` as verification criteria
+4. Read plan.json from session dir → extract `shared_context.tech_stack` and `shared_context.conventions` (skip auto-detection if present)
+5. Process `pre_analysis` and `implementation` if present
 
 **Pre-Analysis: Smart Tech Stack Loading**:
 ```bash
@@ -104,20 +100,20 @@ fi
 STEP 1: Parse Task JSON (if path provided)
     → Read task JSON file from provided path
     → Extract and store in memory:
-      • [requirements] ← context.requirements[]
-      • [acceptance_criteria] ← context.acceptance[]
-      • [tech_stack] ← context.shared_context.tech_stack[] (skip auto-detection if present)
-      • [conventions] ← context.shared_context.conventions[]
-      • [focus_paths] ← context.focus_paths[]
+      • [requirements] ← description
+      • [acceptance_criteria] ← convergence.criteria[]
+      • [tech_stack] ← plan.json shared_context.tech_stack[] (skip auto-detection if present)
+      • [conventions] ← plan.json shared_context.conventions[]
+      • [focus_paths] ← focus_paths[]
 
-STEP 2: Execute Pre-Analysis (if flow_control.pre_analysis exists in Task JSON)
+STEP 2: Execute Pre-Analysis (if pre_analysis exists in Task JSON)
     → Execute each pre_analysis step sequentially
     → Store each step's output in memory using output_to variable name
     → These variables are available for STEP 3
 
 STEP 3: Execute Implementation (choose one path)
-    IF flow_control.implementation_approach exists:
-        → Follow implementation_approach steps sequentially
+    IF implementation[] exists:
+        → Follow implementation steps sequentially
         → Substitute [variable_name] placeholders with stored values BEFORE execution
     ELSE:
         → Use [requirements] as implementation goals
@@ -126,7 +122,7 @@ STEP 3: Execute Implementation (choose one path)
         → Verify against [acceptance_criteria] on completion
 ```
 
-**Pre-Analysis Execution** (flow_control.pre_analysis):
+**Pre-Analysis Execution** (pre_analysis):
 ```
 For each step in pre_analysis[]:
   step.step      → Step identifier (string name)
@@ -175,7 +171,7 @@ Example Parsing:
 - Content search: `rg -i "authentication" src/ -C 3`
 
 **Implementation Approach Execution**:
-When task JSON contains `flow_control.implementation_approach` array:
+When task JSON contains `implementation` array:
 
 **Step Structure**:
 ```
@@ -197,7 +193,7 @@ const cliTool = task.meta?.execution_config?.cli_tool || getDefaultCliTool();  /
 
 // Phase 1: Execute pre_analysis (always by Agent)
 const preAnalysisResults = {};
-for (const step of task.flow_control.pre_analysis || []) {
+for (const step of task.pre_analysis || []) {
   const result = executePreAnalysisStep(step);
   preAnalysisResults[step.output_to] = result;
 }
@@ -213,7 +209,7 @@ IF executionMethod === 'cli':
 
 ELSE (executionMethod === 'agent'):
   // Execute implementation steps directly
-  FOR each step in implementation_approach[]:
+  FOR each step in implementation[]:
     1. Variable Substitution: Replace [variable_name] with preAnalysisResults
     2. Read modification_points[] as files to create/modify
     3. Read logic_flow[] as implementation sequence
@@ -242,7 +238,7 @@ function buildCliHandoffPrompt(preAnalysisResults, task, taskJsonPath) {
     .map(([key, value]) => `### ${key}\n${value}`)
     .join('\n\n');
 
-  const conventions = task.context.shared_context?.conventions?.join(' | ') || '';
+  const conventions = plan?.shared_context?.conventions?.join(' | ') || '';
   const constraints = `Follow existing patterns | No breaking changes${conventions ? ' | ' + conventions : ''}`;
 
   return `
@@ -253,22 +249,22 @@ Complete implementation based on pre-analyzed context and task JSON.
 Read full task definition: ${taskJsonPath}
 
 ## TECH STACK
-${task.context.shared_context?.tech_stack?.map(t => `- ${t}`).join('\n') || 'Auto-detect from project files'}
+${plan?.shared_context?.tech_stack?.map(t => `- ${t}`).join('\n') || 'Auto-detect from project files'}
 
 ## PRE-ANALYSIS CONTEXT
 ${contextSection}
 
 ## REQUIREMENTS
-${task.context.requirements?.map(r => `- ${r}`).join('\n') || task.context.requirements}
+${task.description || 'See task JSON'}
 
 ## ACCEPTANCE CRITERIA
-${task.context.acceptance?.map(a => `- ${a}`).join('\n') || task.context.acceptance}
+${task.convergence?.criteria?.map(a => `- ${a}`).join('\n') || 'See task JSON'}
 
 ## TARGET FILES
-${task.flow_control.target_files?.map(f => `- ${f}`).join('\n') || 'See task JSON modification_points'}
+${task.files?.map(f => `- ${f.path || f}`).join('\n') || 'See task JSON'}
 
 ## FOCUS PATHS
-${task.context.focus_paths?.map(p => `- ${p}`).join('\n') || 'See task JSON'}
+${task.focus_paths?.map(p => `- ${p}`).join('\n') || 'See task JSON'}
 
 MODE: write
 CONSTRAINTS: ${constraints}
@@ -283,13 +279,13 @@ function buildCliCommand(task, cliTool, cliPrompt) {
 
   switch (cli.strategy) {
     case 'new':
-      return `${baseCmd} --tool ${cliTool} --mode write --id ${task.cli_execution_id}`;
+      return `${baseCmd} --tool ${cliTool} --mode write --id ${task.cli_execution.id}`;
     case 'resume':
       return `${baseCmd} --resume ${cli.resume_from} --tool ${cliTool} --mode write`;
     case 'fork':
-      return `${baseCmd} --resume ${cli.resume_from} --id ${task.cli_execution_id} --tool ${cliTool} --mode write`;
+      return `${baseCmd} --resume ${cli.resume_from} --id ${task.cli_execution.id} --tool ${cliTool} --mode write`;
     case 'merge_fork':
-      return `${baseCmd} --resume ${cli.merge_from.join(',')} --id ${task.cli_execution_id} --tool ${cliTool} --mode write`;
+      return `${baseCmd} --resume ${cli.merge_from.join(',')} --id ${task.cli_execution.id} --tool ${cliTool} --mode write`;
     default:
       // Fallback: no resume, no id
       return `${baseCmd} --tool ${cliTool} --mode write`;

@@ -11,6 +11,7 @@ import {
   exportMemories,
   importMemories
 } from '../core/core-memory-store.js';
+import { MemoryJobScheduler } from '../core/memory-job-scheduler.js';
 import { notifyRefreshRequired } from '../tools/notifier.js';
 
 interface CommandOptions {
@@ -664,6 +665,185 @@ async function searchAction(keyword: string, options: CommandOptions): Promise<v
   }
 }
 
+// ============================================================================
+// Memory V2 CLI Subcommands
+// ============================================================================
+
+/**
+ * Run batch extraction
+ */
+async function extractAction(options: CommandOptions): Promise<void> {
+  try {
+    const projectPath = getProjectPath();
+
+    console.log(chalk.cyan('\n  Triggering memory extraction...\n'));
+
+    const { MemoryExtractionPipeline } = await import('../core/memory-extraction-pipeline.js');
+    const pipeline = new MemoryExtractionPipeline(projectPath);
+
+    // Scan eligible sessions first
+    const eligible = await pipeline.scanEligibleSessions();
+    console.log(chalk.white(`  Eligible sessions: ${eligible.length}`));
+
+    if (eligible.length === 0) {
+      console.log(chalk.yellow('  No eligible sessions for extraction.\n'));
+      return;
+    }
+
+    // Run extraction (synchronous for CLI - shows progress)
+    console.log(chalk.cyan('  Running batch extraction...'));
+    await pipeline.runBatchExtraction();
+
+    const store = getCoreMemoryStore(projectPath);
+    const stage1Count = store.countStage1Outputs();
+
+    console.log(chalk.green(`\n  Extraction complete.`));
+    console.log(chalk.white(`  Total stage1 outputs: ${stage1Count}\n`));
+
+    notifyRefreshRequired('memory').catch(() => { /* ignore */ });
+
+  } catch (error) {
+    console.error(chalk.red(`Error: ${(error as Error).message}`));
+    process.exit(1);
+  }
+}
+
+/**
+ * Show extraction status
+ */
+async function extractStatusAction(options: CommandOptions): Promise<void> {
+  try {
+    const projectPath = getProjectPath();
+    const store = getCoreMemoryStore(projectPath);
+    const scheduler = new MemoryJobScheduler(store.getDb());
+
+    const stage1Count = store.countStage1Outputs();
+    const extractionJobs = scheduler.listJobs('extraction');
+
+    if (options.json) {
+      console.log(JSON.stringify({ total_stage1: stage1Count, jobs: extractionJobs }, null, 2));
+      return;
+    }
+
+    console.log(chalk.bold.cyan('\n  Extraction Pipeline Status\n'));
+    console.log(chalk.white(`  Stage 1 outputs: ${stage1Count}`));
+    console.log(chalk.white(`  Extraction jobs: ${extractionJobs.length}`));
+
+    if (extractionJobs.length > 0) {
+      console.log(chalk.gray('\n  ─────────────────────────────────────────────────────────────────'));
+
+      for (const job of extractionJobs) {
+        const statusColor = job.status === 'done' ? chalk.green
+          : job.status === 'error' ? chalk.red
+          : job.status === 'running' ? chalk.yellow
+          : chalk.gray;
+
+        console.log(chalk.cyan(`  ${job.job_key}`) + chalk.white(` [${statusColor(job.status)}]`));
+        if (job.last_error) console.log(chalk.red(`    Error: ${job.last_error}`));
+        if (job.started_at) console.log(chalk.gray(`    Started: ${new Date(job.started_at * 1000).toLocaleString()}`));
+        if (job.finished_at) console.log(chalk.gray(`    Finished: ${new Date(job.finished_at * 1000).toLocaleString()}`));
+        console.log(chalk.gray('  ─────────────────────────────────────────────────────────────────'));
+      }
+    }
+
+    console.log();
+
+  } catch (error) {
+    console.error(chalk.red(`Error: ${(error as Error).message}`));
+    process.exit(1);
+  }
+}
+
+/**
+ * Run consolidation
+ */
+async function consolidateAction(options: CommandOptions): Promise<void> {
+  try {
+    const projectPath = getProjectPath();
+
+    console.log(chalk.cyan('\n  Triggering memory consolidation...\n'));
+
+    const { MemoryConsolidationPipeline } = await import('../core/memory-consolidation-pipeline.js');
+    const pipeline = new MemoryConsolidationPipeline(projectPath);
+
+    await pipeline.runConsolidation();
+
+    const memoryMd = pipeline.getMemoryMdContent();
+
+    console.log(chalk.green('  Consolidation complete.'));
+    if (memoryMd) {
+      console.log(chalk.white(`  MEMORY.md generated (${memoryMd.length} chars)`));
+    }
+    console.log();
+
+    notifyRefreshRequired('memory').catch(() => { /* ignore */ });
+
+  } catch (error) {
+    console.error(chalk.red(`Error: ${(error as Error).message}`));
+    process.exit(1);
+  }
+}
+
+/**
+ * List all V2 pipeline jobs
+ */
+async function jobsAction(options: CommandOptions): Promise<void> {
+  try {
+    const projectPath = getProjectPath();
+    const store = getCoreMemoryStore(projectPath);
+    const scheduler = new MemoryJobScheduler(store.getDb());
+
+    const kind = options.type || undefined;
+    const jobs = scheduler.listJobs(kind);
+
+    if (options.json) {
+      console.log(JSON.stringify({ jobs, total: jobs.length }, null, 2));
+      return;
+    }
+
+    console.log(chalk.bold.cyan('\n  Memory V2 Pipeline Jobs\n'));
+
+    if (jobs.length === 0) {
+      console.log(chalk.yellow('  No jobs found.\n'));
+      return;
+    }
+
+    // Summary counts
+    const byStatus: Record<string, number> = {};
+    for (const job of jobs) {
+      byStatus[job.status] = (byStatus[job.status] || 0) + 1;
+    }
+
+    const statusParts = Object.entries(byStatus)
+      .map(([s, c]) => `${s}: ${c}`)
+      .join(' | ');
+    console.log(chalk.white(`  Summary: ${statusParts}`));
+    console.log(chalk.gray('  ─────────────────────────────────────────────────────────────────'));
+
+    for (const job of jobs) {
+      const statusColor = job.status === 'done' ? chalk.green
+        : job.status === 'error' ? chalk.red
+        : job.status === 'running' ? chalk.yellow
+        : chalk.gray;
+
+      console.log(
+        chalk.cyan(`  [${job.kind}]`) +
+        chalk.white(` ${job.job_key}`) +
+        ` [${statusColor(job.status)}]` +
+        chalk.gray(` retries: ${job.retry_remaining}`)
+      );
+      if (job.last_error) console.log(chalk.red(`    Error: ${job.last_error}`));
+      console.log(chalk.gray('  ─────────────────────────────────────────────────────────────────'));
+    }
+
+    console.log(chalk.gray(`\n  Total: ${jobs.length}\n`));
+
+  } catch (error) {
+    console.error(chalk.red(`Error: ${(error as Error).message}`));
+    process.exit(1);
+  }
+}
+
 /**
  * Core Memory command entry point
  */
@@ -724,6 +904,23 @@ export async function coreMemoryCommand(
       await listFromAction(textArg, options);
       break;
 
+    // Memory V2 subcommands
+    case 'extract':
+      await extractAction(options);
+      break;
+
+    case 'extract-status':
+      await extractStatusAction(options);
+      break;
+
+    case 'consolidate':
+      await consolidateAction(options);
+      break;
+
+    case 'jobs':
+      await jobsAction(options);
+      break;
+
     default:
       console.log(chalk.bold.cyan('\n  CCW Core Memory\n'));
       console.log('  Manage core memory entries and session clusters.\n');
@@ -749,6 +946,12 @@ export async function coreMemoryCommand(
       console.log(chalk.white('    load-cluster <id>           ') + chalk.gray('Load cluster context'));
       console.log(chalk.white('    search <keyword>            ') + chalk.gray('Search sessions'));
       console.log();
+      console.log(chalk.bold('  Memory V2 Pipeline:'));
+      console.log(chalk.white('    extract                     ') + chalk.gray('Run batch memory extraction'));
+      console.log(chalk.white('    extract-status              ') + chalk.gray('Show extraction pipeline status'));
+      console.log(chalk.white('    consolidate                 ') + chalk.gray('Run memory consolidation'));
+      console.log(chalk.white('    jobs                        ') + chalk.gray('List all pipeline jobs'));
+      console.log();
       console.log(chalk.bold('  Options:'));
       console.log(chalk.gray('    --id <id>                   Memory ID (for export/summary)'));
       console.log(chalk.gray('    --tool gemini|qwen          AI tool for summary (default: gemini)'));
@@ -765,6 +968,10 @@ export async function coreMemoryCommand(
       console.log(chalk.gray('    ccw core-memory list-from d--other-project'));
       console.log(chalk.gray('    ccw core-memory cluster --auto'));
       console.log(chalk.gray('    ccw core-memory cluster --dedup'));
+      console.log(chalk.gray('    ccw core-memory extract                 # Run memory extraction'));
+      console.log(chalk.gray('    ccw core-memory extract-status          # Check extraction state'));
+      console.log(chalk.gray('    ccw core-memory consolidate             # Run consolidation'));
+      console.log(chalk.gray('    ccw core-memory jobs                    # List pipeline jobs'));
       console.log();
   }
 }

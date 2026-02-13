@@ -220,8 +220,9 @@ bash(cat .workflow/active/${sessionId}/workflow-session.json)
 
 **Process**:
 1. **Check IMPL_PLAN.md**: Verify file exists (defer detailed parsing to Phase 4A)
-2. **Check TODO_LIST.md**: Verify file exists (defer reading to Phase 3)
-3. **Validate Task Directory**: Ensure `.task/` contains at least one IMPL-*.json file
+2. **Check plan.json**: Verify file exists (structured plan overview, used in Phase 4A)
+3. **Check TODO_LIST.md**: Verify file exists (defer reading to Phase 3)
+4. **Validate Task Directory**: Ensure `.task/` contains at least one IMPL-*.json file
 
 **Key Optimization**: Only existence checks here. Actual file reading happens in later phases.
 
@@ -257,15 +258,19 @@ This ensures the dashboard shows the session as "ACTIVE" during execution.
 ### Phase 4: Execution Strategy Selection & Task Execution
 **Applies to**: Both normal and resume modes
 
-**Step 4A: Parse Execution Strategy from IMPL_PLAN.md**
+**Step 4A: Parse Execution Strategy (plan.json preferred, IMPL_PLAN.md fallback)**
 
-Read IMPL_PLAN.md Section 4 to extract:
+Prefer `plan.json` (structured) over `IMPL_PLAN.md` (human-readable) for execution strategy:
+1. **If plan.json exists**: Read `recommended_execution`, `complexity`, `task_ids[]`, `shared_context`
+2. **Fallback to IMPL_PLAN.md**: Read Section 4 to extract execution model
+
+Extract:
 - **Execution Model**: Sequential | Parallel | Phased | TDD Cycles
 - **Parallelization Opportunities**: Which tasks can run in parallel
 - **Serialization Requirements**: Which tasks must run sequentially
 - **Critical Path**: Priority execution order
 
-If IMPL_PLAN.md lacks execution strategy, use intelligent fallback (analyze task structure).
+If neither has execution strategy, use intelligent fallback (analyze task structure).
 
 **Step 4B: Execute Tasks with Lazy Loading**
 
@@ -285,7 +290,7 @@ while (TODO_LIST.md has pending tasks) {
 **Execution Process per Task**:
 1. **Identify Next Task**: From TodoWrite, get the next `in_progress` task ID
 2. **Load Task JSON on Demand**: Read `.task/{task-id}.json` for current task ONLY
-3. **Validate Task Structure**: Ensure all 5 required fields exist (id, title, status, meta, context, flow_control)
+3. **Validate Task Structure**: Ensure required fields exist (id, title, description, depends_on, convergence)
 4. **Launch Agent**: Invoke specialized agent with complete context including flow control steps
 5. **Monitor Progress**: Track agent execution and handle errors without user interruption
 6. **Collect Results**: Gather implementation results and outputs
@@ -476,7 +481,7 @@ TodoWrite({
 ## Agent Execution Pattern
 
 ### Flow Control Execution
-**[FLOW_CONTROL]** marker indicates task JSON contains `flow_control.pre_analysis` steps for context preparation.
+**[FLOW_CONTROL]** marker indicates task JSON contains `pre_analysis` steps for context preparation.
 
 **Note**: Orchestrator does NOT execute flow control steps - Agent interprets and executes them autonomously.
 
@@ -505,10 +510,10 @@ Task(subagent_type="{meta.agent}",
 
 **Key Markers**:
 - `Implement` keyword: Triggers tech stack detection and guidelines loading
-- `[FLOW_CONTROL]`: Triggers flow_control.pre_analysis execution
+- `[FLOW_CONTROL]`: Triggers pre_analysis execution
 
 **Why Path-Based**: Agent (code-developer.md) autonomously:
-- Reads and parses task JSON (requirements, acceptance, flow_control, execution_config)
+- Reads and parses task JSON (description, convergence, implementation, execution_config)
 - Executes pre_analysis steps (Phase 1: context gathering)
 - Checks execution_config.method (Phase 2: determine mode)
 - CLI mode: Builds handoff prompt and executes via ccw cli with resume strategy
@@ -532,7 +537,8 @@ meta.agent missing → Infer from meta.type:
 ```
 .workflow/active/WFS-[topic-slug]/
 ├── workflow-session.json     # Session state and metadata
-├── IMPL_PLAN.md             # Planning document and requirements
+├── plan.json                # Structured plan overview (machine-readable)
+├── IMPL_PLAN.md             # Planning document and requirements (human-readable)
 ├── TODO_LIST.md             # Progress tracking (updated by agents)
 ├── .task/                   # Task definitions (JSON only)
 │   ├── IMPL-1.json          # Main task definitions

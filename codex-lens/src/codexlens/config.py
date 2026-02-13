@@ -145,7 +145,12 @@ class Config:
     # Staged cascade search configuration (4-stage pipeline)
     staged_coarse_k: int = 200  # Number of coarse candidates from Stage 1 binary search
     staged_lsp_depth: int = 2  # LSP relationship expansion depth in Stage 2
-    staged_stage2_mode: str = "precomputed"  # "precomputed" (graph_neighbors) | "realtime" (LSP)
+    staged_stage2_mode: str = "precomputed"  # "precomputed" (graph_neighbors) | "realtime" (LSP) | "static_global_graph" (global_relationships)
+
+    # Static graph configuration (write relationships to global index during build)
+    static_graph_enabled: bool = False
+    static_graph_relationship_types: List[str] = field(default_factory=lambda: ["imports", "inherits"])
+
     staged_realtime_lsp_timeout_s: float = 30.0  # Max time budget for realtime LSP expansion
     staged_realtime_lsp_depth: int = 1  # BFS depth for realtime LSP expansion
     staged_realtime_lsp_max_nodes: int = 50  # Node cap for realtime graph expansion
@@ -315,119 +320,117 @@ class Config:
 
     def load_settings(self) -> None:
         """Load settings from file if exists."""
-        if not self.settings_path.exists():
-            return
+        if self.settings_path.exists():
+            try:
+                with open(self.settings_path, "r", encoding="utf-8") as f:
+                    settings = json.load(f)
 
-        try:
-            with open(self.settings_path, "r", encoding="utf-8") as f:
-                settings = json.load(f)
+                # Load embedding settings
+                embedding = settings.get("embedding", {})
+                if "backend" in embedding:
+                    backend = embedding["backend"]
+                    # Support 'api' as alias for 'litellm'
+                    if backend == "api":
+                        backend = "litellm"
+                    if backend in {"fastembed", "litellm"}:
+                        self.embedding_backend = backend
+                    else:
+                        log.warning(
+                            "Invalid embedding backend in %s: %r (expected 'fastembed' or 'litellm')",
+                            self.settings_path,
+                            embedding["backend"],
+                        )
+                if "model" in embedding:
+                    self.embedding_model = embedding["model"]
+                if "use_gpu" in embedding:
+                    self.embedding_use_gpu = embedding["use_gpu"]
 
-            # Load embedding settings
-            embedding = settings.get("embedding", {})
-            if "backend" in embedding:
-                backend = embedding["backend"]
-                # Support 'api' as alias for 'litellm'
-                if backend == "api":
-                    backend = "litellm"
-                if backend in {"fastembed", "litellm"}:
-                    self.embedding_backend = backend
-                else:
-                    log.warning(
-                        "Invalid embedding backend in %s: %r (expected 'fastembed' or 'litellm')",
-                        self.settings_path,
-                        embedding["backend"],
-                    )
-            if "model" in embedding:
-                self.embedding_model = embedding["model"]
-            if "use_gpu" in embedding:
-                self.embedding_use_gpu = embedding["use_gpu"]
+                # Load multi-endpoint configuration
+                if "endpoints" in embedding:
+                    self.embedding_endpoints = embedding["endpoints"]
+                if "pool_enabled" in embedding:
+                    self.embedding_pool_enabled = embedding["pool_enabled"]
+                if "strategy" in embedding:
+                    self.embedding_strategy = embedding["strategy"]
+                if "cooldown" in embedding:
+                    self.embedding_cooldown = embedding["cooldown"]
 
-            # Load multi-endpoint configuration
-            if "endpoints" in embedding:
-                self.embedding_endpoints = embedding["endpoints"]
-            if "pool_enabled" in embedding:
-                self.embedding_pool_enabled = embedding["pool_enabled"]
-            if "strategy" in embedding:
-                self.embedding_strategy = embedding["strategy"]
-            if "cooldown" in embedding:
-                self.embedding_cooldown = embedding["cooldown"]
+                # Load LLM settings
+                llm = settings.get("llm", {})
+                if "enabled" in llm:
+                    self.llm_enabled = llm["enabled"]
+                if "tool" in llm:
+                    self.llm_tool = llm["tool"]
+                if "timeout_ms" in llm:
+                    self.llm_timeout_ms = llm["timeout_ms"]
+                if "batch_size" in llm:
+                    self.llm_batch_size = llm["batch_size"]
 
-            # Load LLM settings
-            llm = settings.get("llm", {})
-            if "enabled" in llm:
-                self.llm_enabled = llm["enabled"]
-            if "tool" in llm:
-                self.llm_tool = llm["tool"]
-            if "timeout_ms" in llm:
-                self.llm_timeout_ms = llm["timeout_ms"]
-            if "batch_size" in llm:
-                self.llm_batch_size = llm["batch_size"]
+                # Load reranker settings
+                reranker = settings.get("reranker", {})
+                if "enabled" in reranker:
+                    self.enable_cross_encoder_rerank = reranker["enabled"]
+                if "backend" in reranker:
+                    backend = reranker["backend"]
+                    if backend in {"fastembed", "onnx", "api", "litellm", "legacy"}:
+                        self.reranker_backend = backend
+                    else:
+                        log.warning(
+                            "Invalid reranker backend in %s: %r (expected 'fastembed', 'onnx', 'api', 'litellm', or 'legacy')",
+                            self.settings_path,
+                            backend,
+                        )
+                if "model" in reranker:
+                    self.reranker_model = reranker["model"]
+                if "top_k" in reranker:
+                    self.reranker_top_k = reranker["top_k"]
+                if "max_input_tokens" in reranker:
+                    self.reranker_max_input_tokens = reranker["max_input_tokens"]
+                if "pool_enabled" in reranker:
+                    self.reranker_pool_enabled = reranker["pool_enabled"]
+                if "strategy" in reranker:
+                    self.reranker_strategy = reranker["strategy"]
+                if "cooldown" in reranker:
+                    self.reranker_cooldown = reranker["cooldown"]
 
-            # Load reranker settings
-            reranker = settings.get("reranker", {})
-            if "enabled" in reranker:
-                self.enable_cross_encoder_rerank = reranker["enabled"]
-            if "backend" in reranker:
-                backend = reranker["backend"]
-                if backend in {"fastembed", "onnx", "api", "litellm", "legacy"}:
-                    self.reranker_backend = backend
-                else:
-                    log.warning(
-                        "Invalid reranker backend in %s: %r (expected 'fastembed', 'onnx', 'api', 'litellm', or 'legacy')",
-                        self.settings_path,
-                        backend,
-                    )
-            if "model" in reranker:
-                self.reranker_model = reranker["model"]
-            if "top_k" in reranker:
-                self.reranker_top_k = reranker["top_k"]
-            if "max_input_tokens" in reranker:
-                self.reranker_max_input_tokens = reranker["max_input_tokens"]
-            if "pool_enabled" in reranker:
-                self.reranker_pool_enabled = reranker["pool_enabled"]
-            if "strategy" in reranker:
-                self.reranker_strategy = reranker["strategy"]
-            if "cooldown" in reranker:
-                self.reranker_cooldown = reranker["cooldown"]
+                # Load cascade settings
+                cascade = settings.get("cascade", {})
+                if "strategy" in cascade:
+                    strategy = cascade["strategy"]
+                    if strategy in {"binary", "binary_rerank", "dense_rerank", "staged"}:
+                        self.cascade_strategy = strategy
+                    else:
+                        log.warning(
+                            "Invalid cascade strategy in %s: %r (expected 'binary', 'binary_rerank', 'dense_rerank', or 'staged')",
+                            self.settings_path,
+                            strategy,
+                        )
+                if "coarse_k" in cascade:
+                    self.cascade_coarse_k = cascade["coarse_k"]
+                if "fine_k" in cascade:
+                    self.cascade_fine_k = cascade["fine_k"]
 
-            # Load cascade settings
-            cascade = settings.get("cascade", {})
-            if "strategy" in cascade:
-                strategy = cascade["strategy"]
-                if strategy in {"binary", "binary_rerank", "dense_rerank", "staged"}:
-                    self.cascade_strategy = strategy
-                else:
-                    log.warning(
-                        "Invalid cascade strategy in %s: %r (expected 'binary', 'binary_rerank', 'dense_rerank', or 'staged')",
-                        self.settings_path,
-                        strategy,
-                    )
-            if "coarse_k" in cascade:
-                self.cascade_coarse_k = cascade["coarse_k"]
-            if "fine_k" in cascade:
-                self.cascade_fine_k = cascade["fine_k"]
-
-            # Load API settings
-            api = settings.get("api", {})
-            if "max_workers" in api:
-                self.api_max_workers = api["max_workers"]
-            if "batch_size" in api:
-                self.api_batch_size = api["batch_size"]
-            if "batch_size_dynamic" in api:
-                self.api_batch_size_dynamic = api["batch_size_dynamic"]
-            if "batch_size_utilization_factor" in api:
-                self.api_batch_size_utilization_factor = api["batch_size_utilization_factor"]
-            if "batch_size_max" in api:
-                self.api_batch_size_max = api["batch_size_max"]
-            if "chars_per_token_estimate" in api:
-                self.chars_per_token_estimate = api["chars_per_token_estimate"]
-        except Exception as exc:
-            log.warning(
-                "Failed to load settings from %s (%s): %s",
-                self.settings_path,
-                type(exc).__name__,
-                exc,
-            )
+                # Load API settings
+                api = settings.get("api", {})
+                if "max_workers" in api:
+                    self.api_max_workers = api["max_workers"]
+                if "batch_size" in api:
+                    self.api_batch_size = api["batch_size"]
+                if "batch_size_dynamic" in api:
+                    self.api_batch_size_dynamic = api["batch_size_dynamic"]
+                if "batch_size_utilization_factor" in api:
+                    self.api_batch_size_utilization_factor = api["batch_size_utilization_factor"]
+                if "batch_size_max" in api:
+                    self.api_batch_size_max = api["batch_size_max"]
+                if "chars_per_token_estimate" in api:
+                    self.chars_per_token_estimate = api["chars_per_token_estimate"]
+            except Exception as exc:
+                log.warning(
+                    "Failed to load settings from %s (%s): %s",
+                    self.settings_path,
+                    type(exc).__name__,
+                    exc,
+                )
 
         # Apply .env overrides (highest priority)
         self._apply_env_overrides()
@@ -450,9 +453,9 @@ class Config:
             RERANKER_STRATEGY: Load balance strategy for reranker
             RERANKER_COOLDOWN: Rate limit cooldown for reranker
         """
-        from .env_config import load_global_env
+        from .env_config import load_env_file
 
-        env_vars = load_global_env()
+        env_vars = load_env_file(self.data_dir / ".env")
         if not env_vars:
             return
 
@@ -460,6 +463,43 @@ class Config:
             """Get env var with or without CODEXLENS_ prefix."""
             # Check prefixed version first (Dashboard format), then unprefixed
             return env_vars.get(f"CODEXLENS_{key}") or env_vars.get(key)
+
+        def _parse_bool(value: str) -> bool:
+            return value.strip().lower() in {"true", "1", "yes", "on"}
+
+        # Cascade overrides
+        cascade_enabled = get_env("ENABLE_CASCADE_SEARCH")
+        if cascade_enabled:
+            self.enable_cascade_search = _parse_bool(cascade_enabled)
+            log.debug(
+                "Overriding enable_cascade_search from .env: %s",
+                self.enable_cascade_search,
+            )
+
+        cascade_strategy = get_env("CASCADE_STRATEGY")
+        if cascade_strategy:
+            strategy = cascade_strategy.strip().lower()
+            if strategy in {"binary", "binary_rerank", "dense_rerank", "staged"}:
+                self.cascade_strategy = strategy
+                log.debug("Overriding cascade_strategy from .env: %s", self.cascade_strategy)
+            else:
+                log.warning("Invalid CASCADE_STRATEGY in .env: %r", cascade_strategy)
+
+        cascade_coarse_k = get_env("CASCADE_COARSE_K")
+        if cascade_coarse_k:
+            try:
+                self.cascade_coarse_k = int(cascade_coarse_k)
+                log.debug("Overriding cascade_coarse_k from .env: %s", self.cascade_coarse_k)
+            except ValueError:
+                log.warning("Invalid CASCADE_COARSE_K in .env: %r", cascade_coarse_k)
+
+        cascade_fine_k = get_env("CASCADE_FINE_K")
+        if cascade_fine_k:
+            try:
+                self.cascade_fine_k = int(cascade_fine_k)
+                log.debug("Overriding cascade_fine_k from .env: %s", self.cascade_fine_k)
+            except ValueError:
+                log.warning("Invalid CASCADE_FINE_K in .env: %r", cascade_fine_k)
 
         # Embedding overrides
         embedding_model = get_env("EMBEDDING_MODEL")
@@ -582,6 +622,136 @@ class Config:
         if strip_docstrings:
             self.chunk_strip_docstrings = strip_docstrings.lower() in ("true", "1", "yes")
             log.debug("Overriding chunk_strip_docstrings from .env: %s", self.chunk_strip_docstrings)
+
+        # Staged cascade overrides
+        staged_stage2_mode = get_env("STAGED_STAGE2_MODE")
+        if staged_stage2_mode:
+            mode = staged_stage2_mode.strip().lower()
+            if mode in {"precomputed", "realtime", "static_global_graph"}:
+                self.staged_stage2_mode = mode
+                log.debug("Overriding staged_stage2_mode from .env: %s", self.staged_stage2_mode)
+            elif mode in {"live"}:
+                self.staged_stage2_mode = "realtime"
+                log.debug("Overriding staged_stage2_mode from .env: %s", self.staged_stage2_mode)
+            else:
+                log.warning("Invalid STAGED_STAGE2_MODE in .env: %r", staged_stage2_mode)
+
+        staged_clustering_strategy = get_env("STAGED_CLUSTERING_STRATEGY")
+        if staged_clustering_strategy:
+            strategy = staged_clustering_strategy.strip().lower()
+            if strategy in {"auto", "hdbscan", "dbscan", "frequency", "noop", "score", "dir_rr", "path"}:
+                self.staged_clustering_strategy = strategy
+                log.debug(
+                    "Overriding staged_clustering_strategy from .env: %s",
+                    self.staged_clustering_strategy,
+                )
+            elif strategy in {"none", "off"}:
+                self.staged_clustering_strategy = "noop"
+                log.debug(
+                    "Overriding staged_clustering_strategy from .env: %s",
+                    self.staged_clustering_strategy,
+                )
+            else:
+                log.warning(
+                    "Invalid STAGED_CLUSTERING_STRATEGY in .env: %r",
+                    staged_clustering_strategy,
+                )
+
+        staged_clustering_min_size = get_env("STAGED_CLUSTERING_MIN_SIZE")
+        if staged_clustering_min_size:
+            try:
+                self.staged_clustering_min_size = int(staged_clustering_min_size)
+                log.debug(
+                    "Overriding staged_clustering_min_size from .env: %s",
+                    self.staged_clustering_min_size,
+                )
+            except ValueError:
+                log.warning(
+                    "Invalid STAGED_CLUSTERING_MIN_SIZE in .env: %r",
+                    staged_clustering_min_size,
+                )
+
+        enable_staged_rerank = get_env("ENABLE_STAGED_RERANK")
+        if enable_staged_rerank:
+            self.enable_staged_rerank = _parse_bool(enable_staged_rerank)
+            log.debug("Overriding enable_staged_rerank from .env: %s", self.enable_staged_rerank)
+
+        rt_timeout = get_env("STAGED_REALTIME_LSP_TIMEOUT_S")
+        if rt_timeout:
+            try:
+                self.staged_realtime_lsp_timeout_s = float(rt_timeout)
+                log.debug(
+                    "Overriding staged_realtime_lsp_timeout_s from .env: %s",
+                    self.staged_realtime_lsp_timeout_s,
+                )
+            except ValueError:
+                log.warning("Invalid STAGED_REALTIME_LSP_TIMEOUT_S in .env: %r", rt_timeout)
+
+        rt_depth = get_env("STAGED_REALTIME_LSP_DEPTH")
+        if rt_depth:
+            try:
+                self.staged_realtime_lsp_depth = int(rt_depth)
+                log.debug(
+                    "Overriding staged_realtime_lsp_depth from .env: %s",
+                    self.staged_realtime_lsp_depth,
+                )
+            except ValueError:
+                log.warning("Invalid STAGED_REALTIME_LSP_DEPTH in .env: %r", rt_depth)
+
+        rt_max_nodes = get_env("STAGED_REALTIME_LSP_MAX_NODES")
+        if rt_max_nodes:
+            try:
+                self.staged_realtime_lsp_max_nodes = int(rt_max_nodes)
+                log.debug(
+                    "Overriding staged_realtime_lsp_max_nodes from .env: %s",
+                    self.staged_realtime_lsp_max_nodes,
+                )
+            except ValueError:
+                log.warning("Invalid STAGED_REALTIME_LSP_MAX_NODES in .env: %r", rt_max_nodes)
+
+        rt_max_seeds = get_env("STAGED_REALTIME_LSP_MAX_SEEDS")
+        if rt_max_seeds:
+            try:
+                self.staged_realtime_lsp_max_seeds = int(rt_max_seeds)
+                log.debug(
+                    "Overriding staged_realtime_lsp_max_seeds from .env: %s",
+                    self.staged_realtime_lsp_max_seeds,
+                )
+            except ValueError:
+                log.warning("Invalid STAGED_REALTIME_LSP_MAX_SEEDS in .env: %r", rt_max_seeds)
+
+        rt_max_concurrent = get_env("STAGED_REALTIME_LSP_MAX_CONCURRENT")
+        if rt_max_concurrent:
+            try:
+                self.staged_realtime_lsp_max_concurrent = int(rt_max_concurrent)
+                log.debug(
+                    "Overriding staged_realtime_lsp_max_concurrent from .env: %s",
+                    self.staged_realtime_lsp_max_concurrent,
+                )
+            except ValueError:
+                log.warning(
+                    "Invalid STAGED_REALTIME_LSP_MAX_CONCURRENT in .env: %r",
+                    rt_max_concurrent,
+                )
+
+        rt_warmup = get_env("STAGED_REALTIME_LSP_WARMUP_S")
+        if rt_warmup:
+            try:
+                self.staged_realtime_lsp_warmup_s = float(rt_warmup)
+                log.debug(
+                    "Overriding staged_realtime_lsp_warmup_s from .env: %s",
+                    self.staged_realtime_lsp_warmup_s,
+                )
+            except ValueError:
+                log.warning("Invalid STAGED_REALTIME_LSP_WARMUP_S in .env: %r", rt_warmup)
+
+        rt_resolve = get_env("STAGED_REALTIME_LSP_RESOLVE_SYMBOLS")
+        if rt_resolve:
+            self.staged_realtime_lsp_resolve_symbols = _parse_bool(rt_resolve)
+            log.debug(
+                "Overriding staged_realtime_lsp_resolve_symbols from .env: %s",
+                self.staged_realtime_lsp_resolve_symbols,
+            )
 
     @classmethod
     def load(cls) -> "Config":

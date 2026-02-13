@@ -20,7 +20,7 @@ Schema reference for `prep-package.json` consumed by ccw-loop Phase 1. Generated
   "source": {
     "tool": "collaborative-plan-with-file | analyze-with-file | brainstorm-to-cycle | manual",
     "session_id": "string",
-    "jsonl_path": "absolute path to original JSONL",
+    "task_dir": "absolute path to source .task/ directory",
     "task_count": "number",
     "tasks_with_convergence": "number"
   },
@@ -40,9 +40,9 @@ Schema reference for `prep-package.json` consumed by ccw-loop Phase 1. Generated
 }
 ```
 
-## prep-tasks.jsonl Schema
+## .task/*.json Schema (task-schema.json)
 
-One task per line, each in ccw-loop `develop.tasks[]` format with extended fields:
+One task per file in `.task/` directory, each following `task-schema.json` with ccw-loop extended fields:
 
 ```json
 {
@@ -71,8 +71,8 @@ One task per line, each in ccw-loop `develop.tasks[]` format with extended field
 | 2 | target_skill | `=== "ccw-loop"` | Skip prep, use default INIT |
 | 3 | project_root | Matches current `projectRoot` | Skip prep, warn mismatch |
 | 4 | freshness | `generated_at` within 24h | Skip prep, warn stale |
-| 5 | tasks file | `prep-tasks.jsonl` exists and readable | Skip prep, use default INIT |
-| 6 | tasks content | At least 1 valid task line in JSONL | Skip prep, use default INIT |
+| 5 | tasks dir | `.task/` directory exists with *.json files | Skip prep, use default INIT |
+| 6 | tasks content | At least 1 valid task JSON in `.task/` | Skip prep, use default INIT |
 
 ## Integration Points
 
@@ -89,9 +89,9 @@ if (fs.existsSync(prepPath)) {
 
   if (checks.valid) {
     prepPackage = raw
-    // Load pre-built tasks from prep-tasks.jsonl
-    const tasksPath = `${projectRoot}/.workflow/.loop/prep-tasks.jsonl`
-    const prepTasks = loadPrepTasks(tasksPath)
+    // Load pre-built tasks from .task/*.json
+    const taskDir = `${projectRoot}/.workflow/.loop/.task`
+    const prepTasks = loadPrepTasks(taskDir)
     // → Inject into state.skill_state.develop.tasks
     // → Set max_iterations from auto_loop config
   } else {

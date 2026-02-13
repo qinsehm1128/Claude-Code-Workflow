@@ -517,6 +517,8 @@ class IndexTreeBuilder:
             "supported_languages": self.config.supported_languages,
             "parsing_rules": self.config.parsing_rules,
             "global_symbol_index_enabled": self.config.global_symbol_index_enabled,
+            "static_graph_enabled": self.config.static_graph_enabled,
+            "static_graph_relationship_types": self.config.static_graph_relationship_types,
         }
 
         worker_args = [
@@ -626,6 +628,27 @@ class IndexTreeBuilder:
                         symbols=indexed_file.symbols,
                         relationships=indexed_file.relationships,
                     )
+
+                    # Write global relationships if enabled
+                    if (
+                        self.config.static_graph_enabled
+                        and global_index is not None
+                        and indexed_file.relationships
+                    ):
+                        try:
+                            filtered_rels = [
+                                r for r in indexed_file.relationships
+                                if r.relationship_type.value in self.config.static_graph_relationship_types
+                            ]
+                            if filtered_rels:
+                                global_index.update_file_relationships(
+                                    file_path, filtered_rels
+                                )
+                        except Exception as rel_exc:
+                            self.logger.warning(
+                                "Failed to write global relationships for %s: %s",
+                                file_path, rel_exc,
+                            )
 
                     files_count += 1
                     symbols_count += len(indexed_file.symbols)
@@ -959,6 +982,8 @@ def _build_dir_worker(args: tuple) -> DirBuildResult:
         supported_languages=config_dict["supported_languages"],
         parsing_rules=config_dict["parsing_rules"],
         global_symbol_index_enabled=bool(config_dict.get("global_symbol_index_enabled", True)),
+        static_graph_enabled=bool(config_dict.get("static_graph_enabled", False)),
+        static_graph_relationship_types=list(config_dict.get("static_graph_relationship_types", ["imports", "inherits"])),
     )
 
     parser_factory = ParserFactory(config)
@@ -1007,6 +1032,25 @@ def _build_dir_worker(args: tuple) -> DirBuildResult:
                     symbols=indexed_file.symbols,
                     relationships=indexed_file.relationships,
                 )
+
+                # Write global relationships if enabled
+                if (
+                    config.static_graph_enabled
+                    and global_index is not None
+                    and indexed_file.relationships
+                ):
+                    try:
+                        allowed_types = config.static_graph_relationship_types
+                        filtered_rels = [
+                            r for r in indexed_file.relationships
+                            if r.relationship_type.value in allowed_types
+                        ]
+                        if filtered_rels:
+                            global_index.update_file_relationships(
+                                item, filtered_rels
+                            )
+                    except Exception:
+                        pass  # Don't block indexing
 
                 files_count += 1
                 symbols_count += len(indexed_file.symbols)

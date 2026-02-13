@@ -14,9 +14,37 @@ Interactive collaborative analysis workflow with **documented discussion process
 
 **Key features**:
 - **Documented discussion timeline**: Captures understanding evolution across all phases
+- **Decision recording at every critical point**: Mandatory recording of key findings, direction changes, and trade-offs
 - **Multi-perspective analysis**: Supports up to 4 analysis perspectives (serial, inline)
 - **Interactive discussion**: Multi-round Q&A with user feedback and direction adjustments
 - **Quick execute**: Convert conclusions directly to executable tasks
+
+### Decision Recording Protocol
+
+**CRITICAL**: During analysis, the following situations **MUST** trigger immediate recording to discussion.md:
+
+| Trigger | What to Record | Target Section |
+|---------|---------------|----------------|
+| **Direction choice** | What was chosen, why, what alternatives were discarded | `#### Decision Log` |
+| **Key finding** | Finding content, impact scope, confidence level | `#### Key Findings` |
+| **Assumption change** | Old assumption → new understanding, reason, impact | `#### Corrected Assumptions` |
+| **User feedback** | User's original input, rationale for adoption/adjustment | `#### User Input` |
+| **Disagreement & trade-off** | Conflicting viewpoints, trade-off basis, final choice | `#### Decision Log` |
+| **Scope adjustment** | Before/after scope, trigger reason | `#### Decision Log` |
+
+**Decision Record Format**:
+```markdown
+> **Decision**: [Description of the decision]
+> - **Context**: [What triggered this decision]
+> - **Options considered**: [Alternatives evaluated]
+> - **Chosen**: [Selected approach] — **Reason**: [Rationale]
+> - **Impact**: [Effect on analysis direction/conclusions]
+```
+
+**Recording Principles**:
+- **Immediacy**: Record decisions as they happen, not at the end of a phase
+- **Completeness**: Capture context, options, chosen approach, and reason
+- **Traceability**: Later phases must be able to trace back why a decision was made
 
 ## Auto Mode
 
@@ -82,7 +110,7 @@ Step 4: Synthesis & Conclusion
    └─ Offer options: quick execute / create issue / generate task / export / done
 
 Step 5: Quick Execute (Optional - user selects)
-   ├─ Convert conclusions.recommendations → tasks.jsonl (unified JSONL with convergence)
+   ├─ Convert conclusions.recommendations → .task/TASK-*.json (individual task files with convergence)
    ├─ Pre-execution analysis (dependencies, file conflicts, execution order)
    ├─ User confirmation
    ├─ Direct inline execution (Read/Edit/Write/Grep/Glob/Bash)
@@ -215,11 +243,21 @@ const discussionMd = `# Analysis Discussion
 ## Initial Questions
 ${generateInitialQuestions(topic, dimensions).map(q => `- ${q}`).join('\n')}
 
+## Initial Decisions
+> Record why these dimensions and focus areas were selected.
+
 ---
 
 ## Discussion Timeline
 
 > Rounds will be appended below as analysis progresses.
+> Each round MUST include a Decision Log section for any decisions made.
+
+---
+
+## Decision Trail
+
+> Consolidated critical decisions across all rounds (populated in Phase 4).
 
 ---
 
@@ -234,6 +272,7 @@ Write(`${sessionFolder}/discussion.md`, discussionMd)
 - Session folder created with discussion.md initialized
 - Analysis dimensions identified
 - User preferences captured (focus, perspectives, depth)
+- **Initial decisions recorded**: Dimension selection rationale, excluded dimensions with reasons, user preference intent
 
 ### Phase 2: Exploration
 
@@ -390,6 +429,8 @@ Append Round 1 with exploration results:
 - explorations.json (single) or perspectives.json (multi) created with findings
 - discussion.md updated with Round 1 results
 - Ready for interactive discussion
+- **Key findings recorded** with evidence references and confidence levels
+- **Exploration decisions recorded** (why certain perspectives/search strategies were chosen)
 
 ### Phase 3: Interactive Discussion
 
@@ -424,6 +465,11 @@ if (!autoYes) {
 
 ##### Step 3.2: Process User Response
 
+**Recording Checkpoint**: Regardless of which option the user selects, the following MUST be recorded to discussion.md:
+- User's original choice and expression
+- Impact of this choice on analysis direction
+- If direction changed, record a full Decision Record
+
 **Deepen** — continue analysis in current direction:
 ```javascript
 // Deeper inline analysis using search tools
@@ -432,6 +478,7 @@ if (!autoYes) {
 // Suggest improvement approaches
 // Provide risk/impact assessments
 // Update explorations.json with deepening findings
+// Record: Which assumptions were confirmed, specific angles for deeper exploration
 ```
 
 **Adjust Direction** — new focus area:
@@ -454,6 +501,7 @@ const adjustedFocus = AskUserQuestion({
 // Compare new insights with prior analysis
 // Identify what was missed and why
 // Update explorations.json with adjusted findings
+// Record Decision: Trigger reason for direction adjustment, old vs new direction, expected impact
 ```
 
 **Specific Questions** — answer directly:
@@ -463,9 +511,13 @@ const adjustedFocus = AskUserQuestion({
 // Provide evidence and file references
 // Rate confidence for each answer (high/medium/low)
 // Document Q&A in discussion.md
+// Record: Knowledge gaps revealed by the question, new understanding from the answer
 ```
 
 **Analysis Complete** — exit loop, proceed to Phase 4.
+```javascript
+// Record: Why concluding at this round (sufficient information / scope fully focused / user satisfied)
+```
 
 ##### Step 3.3: Document Each Round
 
@@ -474,6 +526,7 @@ Update discussion.md with results from each discussion round:
 | Section | Content |
 |---------|---------|
 | User Direction | Action taken (deepen/adjust/questions) and focus area |
+| Decision Log | Decisions made this round using Decision Record format |
 | Analysis Results | Key findings, insights, evidence with file references |
 | Insights | New learnings or clarifications from this round |
 | Corrected Assumptions | Important wrong→right transformations with explanation |
@@ -491,6 +544,8 @@ Update discussion.md with results from each discussion round:
 - discussion.md updated with all discussion rounds
 - Assumptions documented and corrected
 - Exit condition reached (user selects complete or max rounds)
+- **All decision points recorded** with Decision Record format
+- **Direction changes documented** with before/after comparison and rationale
 
 ### Phase 4: Synthesis & Conclusion
 
@@ -514,6 +569,9 @@ const conclusions = {
   open_questions: [...],             // Unresolved questions
   follow_up_suggestions: [           // Next steps
     { type: 'issue|task|research', summary: '...' }
+  ],
+  decision_trail: [                  // Consolidated decisions from all phases
+    { round: 1, decision: '...', context: '...', options_considered: [...], chosen: '...', reason: '...', impact: '...' }
   ]
 }
 Write(`${sessionFolder}/conclusions.json`, JSON.stringify(conclusions, null, 2))
@@ -537,7 +595,15 @@ Append conclusions section and finalize:
 | What Was Clarified | Important corrections (~~wrong→right~~) |
 | Key Insights | Valuable learnings for future reference |
 
-**Session Statistics**: Total discussion rounds, key findings count, dimensions covered, artifacts generated.
+**Decision Trail Section**:
+
+| Subsection | Content |
+|------------|---------|
+| Critical Decisions | Pivotal decisions that shaped the analysis outcome |
+| Direction Changes | Timeline of scope/focus adjustments with rationale |
+| Trade-offs Made | Key trade-offs and why certain paths were chosen |
+
+**Session Statistics**: Total discussion rounds, key findings count, dimensions covered, artifacts generated, **decision count**.
 
 ##### Step 4.3: Post-Completion Options
 
@@ -570,24 +636,27 @@ if (!autoYes) {
 
 **Success Criteria**:
 - conclusions.json created with complete synthesis
-- discussion.md finalized with conclusions
+- discussion.md finalized with conclusions and decision trail
 - User offered meaningful next step options
+- **Complete decision trail** documented and traceable from initial scoping to final conclusions
 
 ### Phase 5: Quick Execute (Optional)
 
-**Objective**: Convert analysis conclusions into JSONL execution list with convergence criteria, then execute tasks directly inline.
+**Objective**: Convert analysis conclusions into individual task JSON files with convergence criteria, then execute tasks directly inline.
 
 **Trigger**: User selects "Quick Execute" in Phase 4.
 
 **Key Principle**: No additional exploration — analysis phase has already collected all necessary context. No CLI delegation — execute directly using tools.
 
-**Flow**: `conclusions.json → tasks.jsonl → User Confirmation → Direct Inline Execution → execution.md + execution-events.md`
+**Flow**: `conclusions.json → .task/*.json → User Confirmation → Direct Inline Execution → execution.md + execution-events.md`
 
 **Full specification**: See `EXECUTE.md` for detailed step-by-step implementation.
 
-##### Step 5.1: Generate tasks.jsonl
+**Schema**: `cat ~/.ccw/workflows/cli-templates/schemas/task-schema.json`
 
-Convert `conclusions.recommendations` into unified JSONL task format. Each line is a self-contained task with convergence criteria:
+##### Step 5.1: Generate .task/*.json
+
+Convert `conclusions.recommendations` into individual task JSON files. Each file is a self-contained task with convergence criteria:
 
 ```javascript
 const conclusions = JSON.parse(Read(`${sessionFolder}/conclusions.json`))
@@ -623,8 +692,11 @@ const tasks = conclusions.recommendations.map((rec, index) => ({
 }))
 
 // Validate convergence quality (same as req-plan-with-file)
-// Write one task per line
-Write(`${sessionFolder}/tasks.jsonl`, tasks.map(t => JSON.stringify(t)).join('\n'))
+// Write each task as individual JSON file
+Bash(`mkdir -p ${sessionFolder}/.task`)
+tasks.forEach(task => {
+  Write(`${sessionFolder}/.task/${task.id}.json`, JSON.stringify(task, null, 2))
+})
 ```
 
 ##### Step 5.2: Pre-Execution Analysis
@@ -647,7 +719,7 @@ if (!autoYes) {
       options: [
         { label: "Start Execution", description: "Execute all tasks serially" },
         { label: "Adjust Tasks", description: "Modify, reorder, or remove tasks" },
-        { label: "Cancel", description: "Cancel execution, keep tasks.jsonl" }
+        { label: "Cancel", description: "Cancel execution, keep .task/" }
       ]
     }]
   })
@@ -670,7 +742,7 @@ For each task in execution order:
 
 - Update `execution.md` with final summary (statistics, task results table)
 - Finalize `execution-events.md` with session footer
-- Update `tasks.jsonl` with `_execution` state per task
+- Update `.task/*.json` with `_execution` state per task
 
 ```javascript
 if (!autoYes) {
@@ -691,7 +763,7 @@ if (!autoYes) {
 ```
 
 **Success Criteria**:
-- `tasks.jsonl` generated with convergence criteria and source provenance per task
+- `.task/*.json` generated with convergence criteria and source provenance per task
 - `execution.md` contains plan overview, task table, pre-execution analysis, final summary
 - `execution-events.md` contains chronological event stream with convergence verification
 - All tasks executed (or explicitly skipped) via direct inline execution
@@ -710,7 +782,10 @@ if (!autoYes) {
 ├── explorations.json          # Phase 2: Single perspective aggregated findings
 ├── perspectives.json          # Phase 2: Multi-perspective findings with synthesis
 ├── conclusions.json           # Phase 4: Final synthesis with recommendations
-├── tasks.jsonl                # Phase 5: Unified JSONL with convergence + source (if quick execute)
+├── .task/                     # Phase 5: Individual task JSON files (if quick execute)
+│   ├── TASK-001.json          #   One file per task with convergence + source
+│   ├── TASK-002.json
+│   └── ...
 ├── execution.md               # Phase 5: Execution overview + task table + summary (if quick execute)
 └── execution-events.md        # Phase 5: Chronological event log (if quick execute)
 ```
@@ -723,7 +798,7 @@ if (!autoYes) {
 | `explorations.json` | 2 | Single perspective aggregated findings |
 | `perspectives.json` | 2 | Multi-perspective findings with cross-perspective synthesis |
 | `conclusions.json` | 4 | Final synthesis: conclusions, recommendations, open questions |
-| `tasks.jsonl` | 5 | Unified JSONL from recommendations, each line with convergence criteria and source provenance |
+| `.task/*.json` | 5 | Individual task files from recommendations, each with convergence criteria and source provenance |
 | `execution.md` | 5 | Execution overview: plan source, task table, pre-execution analysis, final summary |
 | `execution-events.md` | 5 | Chronological event stream with task details and convergence verification |
 
@@ -822,12 +897,14 @@ The discussion.md file evolves through the analysis:
 - **Header**: Session ID, topic, start time, identified dimensions
 - **Analysis Context**: Focus areas, perspectives, depth level
 - **Initial Questions**: Key questions to guide the analysis
+- **Initial Decisions**: Why these dimensions and focus areas were selected
 - **Discussion Timeline**: Round-by-round findings
-  - Round 1: Initial Understanding + Exploration Results
-  - Round 2-N: User feedback + direction adjustments + new insights
+  - Round 1: Initial Understanding + Exploration Results + **Initial Decision Log**
+  - Round 2-N: User feedback + direction adjustments + new insights + **Decision Log per round**
+- **Decision Trail**: Consolidated critical decisions across all rounds
 - **Synthesis & Conclusions**: Summary, key conclusions, recommendations
 - **Current Understanding (Final)**: Consolidated insights
-- **Session Statistics**: Rounds completed, findings count, artifacts generated
+- **Session Statistics**: Rounds completed, findings count, artifacts generated, decision count
 
 ### Round Documentation Pattern
 
@@ -838,6 +915,13 @@ Each discussion round follows a consistent structure:
 
 #### User Input
 What the user indicated they wanted to focus on
+
+#### Decision Log
+> **Decision**: [Description of direction/scope/approach decision made this round]
+> - **Context**: [What triggered this decision]
+> - **Options considered**: [Alternatives evaluated]
+> - **Chosen**: [Selected approach] — **Reason**: [Rationale]
+> - **Impact**: [Effect on analysis direction/conclusions]
 
 #### Analysis Results
 New findings from this round's analysis
@@ -867,7 +951,7 @@ Remaining questions or areas for investigation
 | Session folder conflict | Append timestamp suffix | Create unique folder and continue |
 | Quick execute: task fails | Record failure in execution-events.md | User can retry, skip, or abort |
 | Quick execute: verification fails | Mark criterion as unverified, continue | Note in events, manual check |
-| Quick execute: no recommendations | Cannot generate tasks.jsonl | Suggest using lite-plan instead |
+| Quick execute: no recommendations | Cannot generate .task/*.json | Suggest using lite-plan instead |
 
 ## Best Practices
 
@@ -889,6 +973,7 @@ Remaining questions or areas for investigation
 3. **Use Continue Mode**: Resume sessions to build on previous findings rather than starting over
 4. **Embrace Corrections**: Track wrong→right transformations as valuable learnings
 5. **Iterate Thoughtfully**: Each discussion round should meaningfully refine understanding
+6. **Record Decisions Immediately**: Never defer recording — capture decisions as they happen using the Decision Record format. A decision not recorded in-the-moment is a decision lost
 
 ### Documentation Practices
 
@@ -898,6 +983,7 @@ Remaining questions or areas for investigation
 4. **Evolution Tracking**: Document how understanding changed across rounds
 5. **Action Items**: Generate specific, actionable recommendations
 6. **Multi-Perspective Synthesis**: When using multiple perspectives, document convergent/conflicting themes
+7. **Link Decisions to Outcomes**: When writing conclusions, explicitly reference which decisions led to which outcomes — this creates an auditable trail from initial scoping to final recommendations
 
 ## When to Use
 
@@ -911,7 +997,7 @@ Remaining questions or areas for investigation
 **Use Quick Execute (Phase 5) when:**
 - Analysis conclusions contain clear, actionable recommendations
 - Context is already sufficient — no additional exploration needed
-- Want a streamlined analyze → JSONL plan → direct execute pipeline
+- Want a streamlined analyze → .task/*.json plan → direct execute pipeline
 - Tasks are relatively independent and can be executed serially
 
 **Consider alternatives when:**

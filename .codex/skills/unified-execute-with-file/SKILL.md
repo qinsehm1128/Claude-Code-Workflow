@@ -1,40 +1,41 @@
 ---
 name: unified-execute-with-file
-description: Universal execution engine consuming unified JSONL task format. Serial task execution with convergence verification, progress tracking via execution.md + execution-events.md.
-argument-hint: "PLAN=\"<path/to/tasks.jsonl>\" [--auto-commit] [--dry-run]"
+description: Universal execution engine consuming .task/*.json directory format. Serial task execution with convergence verification, progress tracking via execution.md + execution-events.md.
+argument-hint: "PLAN=\"<path/to/.task/>\" [--auto-commit] [--dry-run]"
 ---
 
 # Unified-Execute-With-File Workflow
 
 ## Quick Start
 
-Universal execution engine consuming **unified JSONL** (`tasks.jsonl`) and executing tasks serially with convergence verification and progress tracking.
+Universal execution engine consuming **`.task/*.json`** directory and executing tasks serially with convergence verification and progress tracking.
 
 ```bash
-# Execute from req-plan output
-/codex:unified-execute-with-file PLAN=".workflow/.req-plan/RPLAN-auth-2025-01-21/tasks.jsonl"
+# Execute from lite-plan output
+/codex:unified-execute-with-file PLAN=".workflow/.lite-plan/LPLAN-auth-2025-01-21/.task/"
 
-# Execute from collaborative-plan output
-/codex:unified-execute-with-file PLAN=".workflow/.planning/CPLAN-xxx/tasks.jsonl" --auto-commit
+# Execute from workflow session output
+/codex:unified-execute-with-file PLAN=".workflow/active/WFS-xxx/.task/" --auto-commit
 
-# Dry-run mode
-/codex:unified-execute-with-file PLAN="tasks.jsonl" --dry-run
+# Execute a single task JSON file
+/codex:unified-execute-with-file PLAN=".workflow/active/WFS-xxx/.task/IMPL-001.json" --dry-run
 
 # Auto-detect from .workflow/ directories
 /codex:unified-execute-with-file
 ```
 
-**Core workflow**: Load JSONL → Validate → Pre-Execution Analysis → Execute → Verify Convergence → Track Progress
+**Core workflow**: Scan .task/*.json → Validate → Pre-Execution Analysis → Execute → Verify Convergence → Track Progress
 
 **Key features**:
-- **Single format**: Only consumes unified JSONL (`tasks.jsonl`)
+- **Directory-based**: Consumes `.task/` directory containing individual task JSON files
 - **Convergence-driven**: Verifies each task's convergence criteria after execution
 - **Serial execution**: Process tasks in topological order with dependency tracking
 - **Dual progress tracking**: `execution.md` (overview) + `execution-events.md` (event stream)
 - **Auto-commit**: Optional conventional commits per task
 - **Dry-run mode**: Simulate execution without changes
+- **Flexible input**: Accepts `.task/` directory path or a single `.json` file path
 
-**Input format**: Use `plan-converter` to convert other formats (roadmap.jsonl, plan-note.md, conclusions.json, synthesis.json) to unified JSONL first.
+**Input format**: Each task is a standalone JSON file in `.task/` directory (e.g., `IMPL-001.json`). Use `plan-converter` to convert other formats to `.task/*.json` first.
 
 ## Overview
 
@@ -44,7 +45,7 @@ Universal execution engine consuming **unified JSONL** (`tasks.jsonl`) and execu
 ├─────────────────────────────────────────────────────────────┤
 │                                                               │
 │  Phase 1: Load & Validate                                     │
-│     ├─ Parse tasks.jsonl (one task per line)                   │
+│     ├─ Scan .task/*.json (one task per file)                   │
 │     ├─ Validate schema (id, title, depends_on, convergence)   │
 │     ├─ Detect cycles, build topological order                 │
 │     └─ Initialize execution.md + execution-events.md          │
@@ -63,13 +64,13 @@ Universal execution engine consuming **unified JSONL** (`tasks.jsonl`) and execu
 │     ├─ Verify convergence.criteria[]                          │
 │     ├─ Run convergence.verification command                   │
 │     ├─ Record COMPLETE/FAIL event with verification results   │
-│     ├─ Update _execution state in JSONL                       │
+│     ├─ Update _execution state in task JSON file               │
 │     └─ Auto-commit if enabled                                 │
 │                                                               │
 │  Phase 4: Completion                                          │
 │     ├─ Finalize execution.md with summary statistics          │
 │     ├─ Finalize execution-events.md with session footer       │
-│     ├─ Write back tasks.jsonl with _execution states          │
+│     ├─ Write back .task/*.json with _execution states          │
 │     └─ Offer follow-up actions                                │
 │                                                               │
 └─────────────────────────────────────────────────────────────┘
@@ -83,7 +84,7 @@ ${projectRoot}/.workflow/.execution/EXEC-{slug}-{date}-{random}/
 └── execution-events.md       # ⭐ Unified event log (single source of truth)
 ```
 
-Additionally, the source `tasks.jsonl` is updated in-place with `_execution` states.
+Additionally, each source `.task/*.json` file is updated in-place with `_execution` states.
 
 ---
 
@@ -105,12 +106,12 @@ let planPath = planMatch ? planMatch[1] : null
 
 // Auto-detect if no PLAN specified
 if (!planPath) {
-  // Search in order:
-  //   .workflow/.req-plan/*/tasks.jsonl
-  //   .workflow/.planning/*/tasks.jsonl
-  //   .workflow/.analysis/*/tasks.jsonl
-  //   .workflow/.brainstorm/*/tasks.jsonl
-  // Use most recently modified
+  // Search in order (most recent first):
+  //   .workflow/active/*/.task/
+  //   .workflow/.lite-plan/*/.task/
+  //   .workflow/.req-plan/*/.task/
+  //   .workflow/.planning/*/.task/
+  // Use most recently modified directory containing *.json files
 }
 
 // Resolve path
@@ -130,41 +131,93 @@ Bash(`mkdir -p ${sessionFolder}`)
 
 ## Phase 1: Load & Validate
 
-**Objective**: Parse unified JSONL, validate schema and dependencies, build execution order.
+**Objective**: Scan `.task/` directory, parse individual task JSON files, validate schema and dependencies, build execution order.
 
-### Step 1.1: Parse Unified JSONL
+### Step 1.1: Scan .task/ Directory and Parse Task Files
 
 ```javascript
-const content = Read(planPath)
-const tasks = content.split('\n')
-  .filter(line => line.trim())
-  .map((line, i) => {
-    try { return JSON.parse(line) }
-    catch (e) { throw new Error(`Line ${i + 1}: Invalid JSON — ${e.message}`) }
-  })
+// Determine if planPath is a directory or single file
+const isDirectory = planPath.endsWith('/') || Bash(`test -d "${planPath}" && echo dir || echo file`).trim() === 'dir'
 
-if (tasks.length === 0) throw new Error('No tasks found in JSONL file')
+let taskFiles, tasks
+
+if (isDirectory) {
+  // Directory mode: scan for all *.json files
+  taskFiles = Glob('*.json', planPath)
+  if (taskFiles.length === 0) throw new Error(`No .json files found in ${planPath}`)
+
+  tasks = taskFiles.map(filePath => {
+    try {
+      const content = Read(filePath)
+      const task = JSON.parse(content)
+      task._source_file = filePath  // Track source file for write-back
+      return task
+    } catch (e) {
+      throw new Error(`${path.basename(filePath)}: Invalid JSON - ${e.message}`)
+    }
+  })
+} else {
+  // Single file mode: parse one task JSON
+  try {
+    const content = Read(planPath)
+    const task = JSON.parse(content)
+    task._source_file = planPath
+    tasks = [task]
+  } catch (e) {
+    throw new Error(`${path.basename(planPath)}: Invalid JSON - ${e.message}`)
+  }
+}
+
+if (tasks.length === 0) throw new Error('No tasks found')
 ```
 
 ### Step 1.2: Validate Schema
 
+Validate against unified task schema: `~/.ccw/workflows/cli-templates/schemas/task-schema.json`
+
 ```javascript
 const errors = []
 tasks.forEach((task, i) => {
-  // Required fields
-  if (!task.id) errors.push(`Task ${i + 1}: missing 'id'`)
-  if (!task.title) errors.push(`Task ${i + 1}: missing 'title'`)
-  if (!task.description) errors.push(`Task ${i + 1}: missing 'description'`)
-  if (!Array.isArray(task.depends_on)) errors.push(`${task.id}: missing 'depends_on' array`)
+  const src = task._source_file ? path.basename(task._source_file) : `Task ${i + 1}`
 
-  // Convergence required
+  // Required fields (per task-schema.json)
+  if (!task.id) errors.push(`${src}: missing 'id'`)
+  if (!task.title) errors.push(`${src}: missing 'title'`)
+  if (!task.description) errors.push(`${src}: missing 'description'`)
+  if (!Array.isArray(task.depends_on)) errors.push(`${task.id || src}: missing 'depends_on' array`)
+
+  // Context block (optional but validated if present)
+  if (task.context) {
+    if (task.context.requirements && !Array.isArray(task.context.requirements))
+      errors.push(`${task.id}: context.requirements must be array`)
+    if (task.context.acceptance && !Array.isArray(task.context.acceptance))
+      errors.push(`${task.id}: context.acceptance must be array`)
+    if (task.context.focus_paths && !Array.isArray(task.context.focus_paths))
+      errors.push(`${task.id}: context.focus_paths must be array`)
+  }
+
+  // Convergence (required for execution verification)
   if (!task.convergence) {
-    errors.push(`${task.id}: missing 'convergence'`)
+    errors.push(`${task.id || src}: missing 'convergence'`)
   } else {
     if (!task.convergence.criteria?.length) errors.push(`${task.id}: empty convergence.criteria`)
     if (!task.convergence.verification) errors.push(`${task.id}: missing convergence.verification`)
     if (!task.convergence.definition_of_done) errors.push(`${task.id}: missing convergence.definition_of_done`)
   }
+
+  // Flow control (optional but validated if present)
+  if (task.flow_control) {
+    if (task.flow_control.target_files && !Array.isArray(task.flow_control.target_files))
+      errors.push(`${task.id}: flow_control.target_files must be array`)
+  }
+
+  // New unified schema fields (backward compatible addition)
+  if (task.focus_paths && !Array.isArray(task.focus_paths))
+    errors.push(`${task.id}: focus_paths must be array`)
+  if (task.implementation && !Array.isArray(task.implementation))
+    errors.push(`${task.id}: implementation must be array`)
+  if (task.files && !Array.isArray(task.files))
+    errors.push(`${task.id}: files must be array`)
 })
 
 if (errors.length) {
@@ -390,6 +443,12 @@ ${task.convergence.criteria.map(c => `- [ ] ${c}`).join('\n')}
   //    - Use Grep/Glob/mcp__ace-tool for discovery if needed
   //    - Use Bash for build/test commands
 
+  // Dual-path field access (supports both unified and legacy 6-field schema)
+  // const targetFiles = task.files?.map(f => f.path) || task.flow_control?.target_files || []
+  // const acceptanceCriteria = task.convergence?.criteria || task.context?.acceptance || []
+  // const requirements = task.implementation || task.context?.requirements || []
+  // const focusPaths = task.focus_paths || task.context?.focus_paths || []
+
   // 4. Verify convergence
   const convergenceResults = verifyConvergence(task)
 
@@ -610,14 +669,29 @@ appendToEvents(`
 `)
 ```
 
-### Step 4.3: Write Back tasks.jsonl with _execution
+### Step 4.3: Write Back .task/*.json with _execution
 
-Update the source JSONL file with execution states:
+Update each source task JSON file with execution states:
 
 ```javascript
-const updatedJsonl = tasks.map(task => JSON.stringify(task)).join('\n')
-Write(planPath, updatedJsonl)
-// Each task now has _execution: { status, executed_at, result }
+tasks.forEach(task => {
+  const filePath = task._source_file
+  if (!filePath) return
+
+  // Read current file to preserve formatting and non-execution fields
+  const current = JSON.parse(Read(filePath))
+
+  // Update _execution status and result
+  current._execution = {
+    status: task._execution?.status || 'pending',
+    executed_at: task._execution?.executed_at || null,
+    result: task._execution?.result || null
+  }
+
+  // Write back individual task file
+  Write(filePath, JSON.stringify(current, null, 2))
+})
+// Each task JSON file now has _execution: { status, executed_at, result }
 ```
 
 ### Step 4.4: Post-Completion Options
@@ -651,20 +725,20 @@ AskUserQuestion({
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `PLAN="..."` | auto-detect | Path to unified JSONL file (`tasks.jsonl`) |
+| `PLAN="..."` | auto-detect | Path to `.task/` directory or single task `.json` file |
 | `--auto-commit` | false | Commit changes after each successful task |
 | `--dry-run` | false | Simulate execution without making changes |
 
 ### Plan Auto-Detection Order
 
-When no `PLAN` specified, search in order (most recent first):
+When no `PLAN` specified, search for `.task/` directories in order (most recent first):
 
-1. `.workflow/.req-plan/*/tasks.jsonl`
-2. `.workflow/.planning/*/tasks.jsonl`
-3. `.workflow/.analysis/*/tasks.jsonl`
-4. `.workflow/.brainstorm/*/tasks.jsonl`
+1. `.workflow/active/*/.task/`
+2. `.workflow/.lite-plan/*/.task/`
+3. `.workflow/.req-plan/*/.task/`
+4. `.workflow/.planning/*/.task/`
 
-**If source is not unified JSONL**: Run `plan-converter` first.
+**If source is not `.task/*.json`**: Run `plan-converter` first to generate `.task/` directory.
 
 ---
 
@@ -672,10 +746,10 @@ When no `PLAN` specified, search in order (most recent first):
 
 | Situation | Action | Recovery |
 |-----------|--------|----------|
-| JSONL file not found | Report error with path | Check path, run plan-converter |
-| Invalid JSON line | Report line number and error | Fix JSONL file manually |
+| .task/ directory not found | Report error with path | Check path, run plan-converter |
+| Invalid JSON in task file | Report filename and error | Fix task JSON file manually |
 | Missing convergence | Report validation error | Run plan-converter to add convergence |
-| Circular dependency | Stop, report cycle path | Fix dependencies in JSONL |
+| Circular dependency | Stop, report cycle path | Fix dependencies in task JSON |
 | Task execution fails | Record in events, ask user | Retry, skip, accept, or abort |
 | Convergence verification fails | Mark task failed, ask user | Fix code and retry, or accept |
 | Verification command timeout | Mark as unverified | Manual verification needed |
@@ -692,7 +766,7 @@ When no `PLAN` specified, search in order (most recent first):
 2. **Check Convergence**: Ensure all tasks have meaningful convergence criteria
 3. **Review Dependencies**: Verify execution order makes sense
 4. **Backup**: Commit pending changes before starting
-5. **Convert First**: Use `plan-converter` for non-JSONL sources
+5. **Convert First**: Use `plan-converter` for non-.task/ sources
 
 ### During Execution
 
@@ -704,7 +778,7 @@ When no `PLAN` specified, search in order (most recent first):
 
 1. **Review Summary**: Check execution.md statistics and failed tasks
 2. **Verify Changes**: Inspect modified files match expectations
-3. **Check JSONL**: Review `_execution` states in tasks.jsonl
+3. **Check Task Files**: Review `_execution` states in `.task/*.json` files
 4. **Next Steps**: Use completion options for follow-up
 
 ---

@@ -36,7 +36,7 @@ All user interactions use AskUserQuestion tool (max 4 questions per call, multi-
 | 2 | Role selection | 1 multi-select | selected_roles |
 | 3 | Role questions | 3-4 per role | role_decisions[role] |
 | 4 | Conflict resolution | max 4 per round | cross_role_decisions |
-| 4.5 | Final check | progressive rounds | additional_decisions |
+| 4.5 | Final check + Feature decomposition | progressive rounds | additional_decisions, feature_list |
 | 5 | Generate spec | - | guidance-specification.md |
 
 ### AskUserQuestion Pattern
@@ -102,7 +102,7 @@ for (let i = 0; i < allQuestions.length; i += BATCH_SIZE) {
   {"content": "Phase 2: Role selection", "status": "pending", "activeForm": "Phase 2"},
   {"content": "Phase 3: Role questions (per role)", "status": "pending", "activeForm": "Phase 3"},
   {"content": "Phase 4: Conflict resolution", "status": "pending", "activeForm": "Phase 4"},
-  {"content": "Phase 4.5: Final clarification", "status": "pending", "activeForm": "Phase 4.5"},
+  {"content": "Phase 4.5: Final clarification + Feature decomposition", "status": "pending", "activeForm": "Phase 4.5"},
   {"content": "Phase 5: Generate specification", "status": "pending", "activeForm": "Phase 5"}
 ]
 ```
@@ -313,10 +313,66 @@ AskUserQuestion({
 
 **Progressive Pattern**: Questions interconnected, each round informs next, continue until resolved.
 
+#### Feature Decomposition
+
+After final clarification, extract implementable feature units from all Phase 1-4 decisions.
+
+**Steps**:
+1. Analyze all accumulated decisions (`intent_context` + `role_decisions` + `cross_role_decisions` + `additional_decisions`)
+2. Extract candidate features: each must be an independently implementable unit with clear boundaries
+3. Generate candidate list (max 8 features) with structured format:
+   - Feature ID: `F-{3-digit}` (e.g., F-001)
+   - Name: kebab-case slug (e.g., `real-time-sync`, `user-auth`)
+   - Description: one-sentence summary of the feature's scope
+   - Related roles: which roles' decisions drive this feature
+   - Priority: High / Medium / Low
+4. Present candidate list to user for confirmation:
+   ```javascript
+   AskUserQuestion({
+     questions: [{
+       question: "以下是从讨论中提取的功能点清单：\n\nF-001: [name] - [description]\nF-002: [name] - [description]\n...\n\n是否需要调整？",
+       header: "功能点确认",
+       multiSelect: false,
+       options: [
+         { label: "确认无误", description: "功能点清单完整且合理，继续生成规范" },
+         { label: "需要调整", description: "需要增加、删除或修改功能点" }
+       ]
+     }]
+   })
+   ```
+5. If "需要调整": Collect adjustments and re-present until user confirms
+6. Store confirmed list to `session.feature_list`
+
+**Constraints**:
+- Maximum 8 features (if more candidates, merge related items)
+- Each feature MUST be independently implementable (no implicit cross-feature dependencies)
+- Feature ID format: `F-{3-digit}` (F-001, F-002, ...)
+- Feature slug: kebab-case, descriptive of the feature scope
+
+**Granularity Guidelines** (用于验证功能点粒度是否合适):
+
+| Signal | Too Coarse | Just Right | Too Fine |
+|--------|-----------|------------|----------|
+| 实现范围 | 需要 5+ 个独立模块协同 | 1-3 个模块，边界清晰 | 单个函数或单个 API 端点 |
+| 角色关注 | 所有角色都深度涉及 | 2-4 个角色有实质贡献 | 仅 1 个角色关注 |
+| 可测试性 | 无法写出清晰的验收标准 | 可定义 3-5 条可测量验收标准 | 验收标准等同于单元测试 |
+| 依赖关系 | 与其他功能点循环依赖 | 依赖关系单向且可识别 | 无任何外部依赖（可能遗漏） |
+
+**Quality Validation** (Step 3 提取候选功能点后，逐条验证):
+1. **独立性检查**: 该功能点是否可以在其他功能点未完成时独立交付？若否 → 考虑合并或重新划分
+2. **完整性检查**: 该功能点是否覆盖了一个用户可感知的完整价值？若否 → 可能太细，考虑合并
+3. **粒度均衡检查**: 各功能点之间的复杂度是否大致均衡（最大不超过最小的 3 倍）？若否 → 拆分过大的或合并过小的
+4. **边界清晰检查**: 是否能用一句话描述该功能点的输入和输出？若否 → 边界模糊，需重新定义
+
+**Handling Vague Requirements** (当用户需求模糊时的额外步骤):
+- 如果 Phase 1-4 的决策不足以支撑功能点分解（如缺少具体业务场景、技术选型未定），在 Step 4 确认时**主动告知用户**哪些功能点的粒度可能不够精确
+- 对不确定的功能点标注 `Priority: TBD`，在后续 synthesis 阶段通过跨角色分析进一步明确
+- 如果候选功能点 ≤ 2 个，可能是需求过于抽象 → 提示用户补充更多具体场景后再分解
+
 ### Phase 5: Generate Specification
 
 **Steps**:
-1. Load all decisions: `intent_context` + `selected_roles` + `role_decisions` + `cross_role_decisions` + `additional_decisions`
+1. Load all decisions: `intent_context` + `selected_roles` + `role_decisions` + `cross_role_decisions` + `additional_decisions` + `feature_list`
 2. Transform Q&A to declarative: Questions → Headers, Answers → CONFIRMED/SELECTED statements
 3. Generate `guidance-specification.md`
 4. Update `workflow-session.json` (metadata only)
@@ -393,6 +449,15 @@ AskUserQuestion({
 - auto-parallel assigns agents for role-specific analysis
 - Each selected role gets conceptual-planning-agent
 - Agents read this guidance-specification.md for context
+
+## Feature Decomposition
+
+**Constraints**: Max 8 features | Each independently implementable | ID format: F-{3-digit}
+
+| Feature ID | Name | Description | Related Roles | Priority |
+|------------|------|-------------|---------------|----------|
+| F-001 | [kebab-case-slug] | [One-sentence scope description] | [role1, role2] | High/Medium/Low |
+| F-002 | [kebab-case-slug] | [One-sentence scope description] | [role1] | High/Medium/Low |
 
 ## Appendix: Decision Tracking
 | Decision ID | Category | Question | Selected | Phase | Rationale |

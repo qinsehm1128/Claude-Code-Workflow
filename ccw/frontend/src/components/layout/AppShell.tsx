@@ -11,6 +11,7 @@ import { Sidebar } from './Sidebar';
 import { MainContent } from './MainContent';
 import { CliStreamMonitor } from '@/components/shared/CliStreamMonitor';
 import { NotificationPanel } from '@/components/notification';
+import { TerminalPanel } from '@/components/terminal-panel';
 import { AskQuestionDialog, A2UIPopupCard } from '@/components/a2ui';
 import { BackgroundImage } from '@/components/shared/BackgroundImage';
 import { useNotificationStore, selectCurrentQuestion, selectCurrentPopupCard } from '@/stores';
@@ -127,10 +128,6 @@ export function AppShell({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const handleMenuClick = useCallback(() => {
-    setMobileOpen((prev) => !prev);
-  }, []);
-
   const handleMobileClose = useCallback(() => {
     setMobileOpen(false);
   }, []);
@@ -203,6 +200,9 @@ export function AppShell({
         isOpen={isNotificationPanelVisible}
         onClose={handleNotificationPanelClose}
       />
+
+      {/* Terminal Panel - Global Drawer */}
+      <TerminalPanel />
 
       {/* Ask Question Dialog - For ask_question MCP tool (legacy) */}
       {currentQuestion && (

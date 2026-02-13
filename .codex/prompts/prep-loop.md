@@ -1,6 +1,6 @@
 ---
-description: "Interactive pre-flight checklist for ccw-loop. Discovers JSONL from collaborative-plan-with-file, analyze-with-file, brainstorm-to-cycle sessions; validates, transforms to ccw-loop task format, writes prep-package.json + tasks.jsonl, then launches the loop."
-argument-hint: '[SOURCE="<path-to-tasks.jsonl-or-session-folder>"] [MAX_ITER=10]'
+description: "Interactive pre-flight checklist for ccw-loop. Discovers .task/*.json from collaborative-plan-with-file, analyze-with-file, brainstorm-to-cycle sessions; validates, transforms to ccw-loop task format, writes prep-package.json + .task/*.json, then launches the loop."
+argument-hint: '[SOURCE="<path-to-.task/-dir-or-session-folder>"] [MAX_ITER=10]'
 ---
 
 # Pre-Flight Checklist for CCW Loop
@@ -19,24 +19,27 @@ Scan for upstream artifacts from the three supported source skills:
 const projectRoot = Bash('git rev-parse --show-toplevel 2>/dev/null || pwd').trim()
 
 // Source 1: collaborative-plan-with-file
-const cplanSessions = Glob(`${projectRoot}/.workflow/.planning/CPLAN-*/tasks.jsonl`)
+const cplanSessions = Glob(`${projectRoot}/.workflow/.planning/CPLAN-*/.task/*.json`)
   .map(p => ({
-    path: p,
+    path: p.replace(/\/\.task\/[^/]+$/, '/.task'),
     source: 'collaborative-plan-with-file',
-    type: 'jsonl',
+    type: 'task-dir',
     session: p.match(/CPLAN-[^/]+/)?.[0],
     mtime: fs.statSync(p).mtime
   }))
+  // Deduplicate by session
+  .filter((v, i, a) => a.findIndex(x => x.session === v.session) === i)
 
 // Source 2: analyze-with-file
-const anlSessions = Glob(`${projectRoot}/.workflow/.analysis/ANL-*/tasks.jsonl`)
+const anlSessions = Glob(`${projectRoot}/.workflow/.analysis/ANL-*/.task/*.json`)
   .map(p => ({
-    path: p,
+    path: p.replace(/\/\.task\/[^/]+$/, '/.task'),
     source: 'analyze-with-file',
-    type: 'jsonl',
+    type: 'task-dir',
     session: p.match(/ANL-[^/]+/)?.[0],
     mtime: fs.statSync(p).mtime
   }))
+  .filter((v, i, a) => a.findIndex(x => x.session === v.session) === i)
 
 // Source 3: brainstorm-to-cycle
 const bsSessions = Glob(`${projectRoot}/.workflow/.brainstorm/*/cycle-task.md`)
@@ -59,25 +62,25 @@ const allSources = [...cplanSessions, ...anlSessions, ...bsSessions]
 ════════════════
 
 collaborative-plan-with-file:
-  1. CPLAN-auth-redesign-20260208  tasks.jsonl  (5 tasks, 2h ago)
-  2. CPLAN-api-cleanup-20260205    tasks.jsonl  (3 days ago)
+  1. CPLAN-auth-redesign-20260208  .task/  (5 tasks, 2h ago)
+  2. CPLAN-api-cleanup-20260205    .task/  (3 days ago)
 
 analyze-with-file:
-  3. ANL-perf-audit-20260207       tasks.jsonl  (8 tasks, 1d ago)
+  3. ANL-perf-audit-20260207       .task/  (8 tasks, 1d ago)
 
 brainstorm-to-cycle:
   4. BS-notification-system         cycle-task.md  (1d ago)
 
 手动输入:
-  5. 自定义路径 (输入 JSONL 文件路径或任务描述)
+  5. 自定义路径 (输入 .task/ 目录路径或任务描述)
 ```
 
 ### 1.3 User Selection
 
 Ask the user to select a source:
 
-> "请选择任务来源（输入编号），或输入 JSONL 文件的完整路径:
-> 也可以输入 'manual' 手动输入任务描述（不使用上游 JSONL）"
+> "请选择任务来源（输入编号），或输入 .task/ 目录的完整路径:
+> 也可以输入 'manual' 手动输入任务描述（不使用上游任务文件）"
 
 **If `$SOURCE` argument provided**, skip discovery and use directly:
 
@@ -85,13 +88,13 @@ Ask the user to select a source:
 if (options.SOURCE) {
   // Validate path exists
   if (!fs.existsSync(options.SOURCE)) {
-    console.error(`文件不存在: ${options.SOURCE}`)
+    console.error(`Path not found: ${options.SOURCE}`)
     return
   }
   selectedSource = {
     path: options.SOURCE,
     source: inferSource(options.SOURCE),
-    type: options.SOURCE.endsWith('.jsonl') ? 'jsonl' : 'markdown'
+    type: fs.statSync(options.SOURCE).isDirectory() ? 'task-dir' : 'markdown'
   }
 }
 ```
@@ -100,24 +103,24 @@ if (options.SOURCE) {
 
 ## Step 2: Source Validation & Task Loading
 
-### 2.1 For JSONL Sources (collaborative-plan / analyze-with-file)
+### 2.1 For .task/ Sources (collaborative-plan / analyze-with-file)
 
 ```javascript
-function validateAndLoadJsonl(jsonlPath) {
-  const content = Read(jsonlPath)
-  const lines = content.trim().split('\n').filter(l => l.trim())
+function validateAndLoadTaskDir(taskDirPath) {
+  const taskFiles = Glob(`${taskDirPath}/*.json`).sort()
   const tasks = []
   const errors = []
 
-  for (let i = 0; i < lines.length; i++) {
+  for (let i = 0; i < taskFiles.length; i++) {
     try {
-      const task = JSON.parse(lines[i])
+      const content = Read(taskFiles[i])
+      const task = JSON.parse(content)
 
-      // Required fields check
+      // Required fields check (task-schema.json: id, title, description, depends_on, convergence)
       const requiredFields = ['id', 'title', 'description']
       const missing = requiredFields.filter(f => !task[f])
       if (missing.length > 0) {
-        errors.push(`Line ${i + 1}: missing fields: ${missing.join(', ')}`)
+        errors.push(`${taskFiles[i]}: missing fields: ${missing.join(', ')}`)
         continue
       }
 
@@ -126,11 +129,11 @@ function validateAndLoadJsonl(jsonlPath) {
         tasks.push(task)
       }
     } catch (e) {
-      errors.push(`Line ${i + 1}: invalid JSON: ${e.message}`)
+      errors.push(`${taskFiles[i]}: invalid JSON: ${e.message}`)
     }
   }
 
-  return { tasks, errors, total_lines: lines.length }
+  return { tasks, errors, total_files: taskFiles.length }
 }
 ```
 
@@ -139,10 +142,10 @@ Display validation results:
 ```
 JSONL 验证
 ══════════
-文件: .workflow/.planning/CPLAN-auth-redesign-20260208/tasks.jsonl
+目录: .workflow/.planning/CPLAN-auth-redesign-20260208/.task/
 来源: collaborative-plan-with-file
 
-✓ 5/5 行解析成功
+✓ 5/5 任务文件解析成功
 ✓ 必需字段完整 (id, title, description)
 ✓ 3 个任务含收敛标准 (convergence)
 ⚠ 2 个任务缺少收敛标准 (将使用默认)
@@ -228,7 +231,7 @@ If validation has errors:
 
 ## Step 3: Task Transformation
 
-Transform unified JSONL tasks → ccw-loop `develop.tasks[]` format.
+Transform unified task JSON files -> ccw-loop `develop.tasks[]` format.
 
 ```javascript
 function transformToCcwLoopTasks(sourceTasks) {
@@ -277,7 +280,7 @@ Display transformed tasks:
 ```
 任务转换
 ════════
-源格式: unified JSONL (collaborative-plan-with-file)
+源格式: .task/*.json (collaborative-plan-with-file)
 目标格式: ccw-loop develop.tasks
 
   task-001  [P1]  Implement JWT token service: Create JWT service...   gemini/write  pending
@@ -373,7 +376,7 @@ Write to `{projectRoot}/.workflow/.loop/prep-package.json`:
   "source": {
     "tool": "collaborative-plan-with-file",
     "session_id": "CPLAN-auth-redesign-20260208",
-    "jsonl_path": "{projectRoot}/.workflow/.planning/CPLAN-auth-redesign-20260208/tasks.jsonl",
+    "task_dir": "{projectRoot}/.workflow/.planning/CPLAN-auth-redesign-20260208/.task",
     "task_count": 5,
     "tasks_with_convergence": 3
   },
@@ -393,20 +396,25 @@ Write to `{projectRoot}/.workflow/.loop/prep-package.json`:
 }
 ```
 
-### 6.2 Write tasks.jsonl
+### 6.2 Write .task/*.json
 
-Write transformed tasks to `{projectRoot}/.workflow/.loop/prep-tasks.jsonl` (ccw-loop format):
+Write transformed tasks to `{projectRoot}/.workflow/.loop/.task/` directory (one file per task, following task-schema.json):
 
 ```javascript
-const jsonlContent = transformedTasks.map(t => JSON.stringify(t)).join('\n')
-Write(`${projectRoot}/.workflow/.loop/prep-tasks.jsonl`, jsonlContent)
+const taskDir = `${projectRoot}/.workflow/.loop/.task`
+Bash(`mkdir -p ${taskDir}`)
+
+for (const task of transformedTasks) {
+  const fileName = `TASK-${task.id.replace(/^task-/, '')}.json`
+  Write(`${taskDir}/${fileName}`, JSON.stringify(task, null, 2))
+}
 ```
 
 Confirm:
 
 ```
-✓ prep-package.json   → .workflow/.loop/prep-package.json
-✓ prep-tasks.jsonl    → .workflow/.loop/prep-tasks.jsonl
+ok prep-package.json   -> .workflow/.loop/prep-package.json
+ok .task/ directory     -> .workflow/.loop/.task/ (5 task files)
 ```
 
 ---
@@ -422,7 +430,7 @@ $ccw-loop --auto TASK="Execute tasks from {source.tool} session {source.session_
 其中:
 - `$ccw-loop` — 展开为 skill 调用
 - `--auto` — 启用全自动模式
-- Skill 端会检测 `prep-package.json` 并加载 `prep-tasks.jsonl`
+- Skill 端会检测 `prep-package.json` 并加载 `.task/*.json`
 
 **Skill 端会做以下检查**（见 Phase 1 Step 1.1）:
 1. 检测 `prep-package.json` 是否存在
@@ -430,15 +438,15 @@ $ccw-loop --auto TASK="Execute tasks from {source.tool} session {source.session_
 3. 验证 `target_skill === "ccw-loop"`
 4. 校验 `project_root` 与当前项目一致
 5. 校验文件时效（24h 内生成）
-6. 验证 `prep-tasks.jsonl` 存在且可读
-7. 全部通过 → 加载预构建任务列表；任一失败 → 回退到默认 INIT 行为
+6. 验证 `.task/` 目录存在且含有效任务文件
+7. 全部通过 -> 加载预构建任务列表；任一失败 -> 回退到默认 INIT 行为
 
 Print:
 
 ```
 启动 ccw-loop (自动模式)...
   prep-package.json → Phase 1 自动加载并校验
-  prep-tasks.jsonl  → 5 个预构建任务加载到 develop.tasks
+  .task/*.json      → 5 个预构建任务加载到 develop.tasks
   循环: develop → validate → complete (最多 10 次迭代)
 ```
 
@@ -450,7 +458,7 @@ Print:
 |------|------|
 | 无可用上游会话 | 提示用户先运行 collaborative-plan / analyze-with-file / brainstorm，或选择手动输入 |
 | JSONL 格式全部无效 | 报告错误，**不启动 loop** |
-| JSONL 部分无效 | 警告无效行，用有效任务继续 |
+| JSONL 部分无效 | 警告无效文件，用有效任务继续 |
 | brainstorm cycle-task.md 为空 | 报告错误，建议完成 brainstorm 流程 |
 | 用户取消确认 | 保存 prep-package.json (prep_status="cancelled")，提示可修改后重新运行 |
 | Skill 端 prep-package 校验失败 | Skill 打印警告，回退到无 prep 的默认 INIT 行为（不阻塞执行） |

@@ -135,22 +135,18 @@ async function createServer(initialPath: string): Promise<{ server: http.Server;
   return { server, baseUrl: `http://127.0.0.1:${port}` };
 }
 
-function loadMaskApiKey(): (apiKey: string) => string {
-  const filePath = new URL('../../src/templates/dashboard-js/views/api-settings.js', import.meta.url);
-  const source = readFileSync(filePath, 'utf8');
-
-  const match = source.match(/function\s+maskApiKey\(apiKey\)\s*\{[\s\S]*?\r?\n\}/);
-  if (!match) {
-    throw new Error('maskApiKey function not found in api-settings.js');
-  }
-
-  // eslint-disable-next-line no-new-func
-  const fn = new Function(`${match[0]}; return maskApiKey;`) as () => (apiKey: string) => string;
-  return fn();
+/**
+ * maskApiKey - inline implementation (previously extracted from old JS frontend).
+ * Hides raw API keys while keeping env var references readable.
+ */
+function maskApiKey(apiKey: string): string {
+  if (!apiKey) return '';
+  if (apiKey.startsWith('${')) return apiKey; // Environment variable
+  if (apiKey.length <= 8) return '***';
+  return apiKey.substring(0, 4) + '...' + apiKey.substring(apiKey.length - 4);
 }
 
 describe('security: credential handling', async () => {
-  const maskApiKey = loadMaskApiKey();
 
   function listFilesRecursive(dirPath: string): string[] {
     const results: string[] = [];

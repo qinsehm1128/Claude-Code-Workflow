@@ -18,7 +18,6 @@ export interface UserMessageProps {
 
 export function UserMessage({
   content,
-  timestamp,
   onCopy,
   onViewRaw,
   className

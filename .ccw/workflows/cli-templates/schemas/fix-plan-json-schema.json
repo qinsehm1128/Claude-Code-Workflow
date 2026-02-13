@@ -294,5 +294,22 @@
         }
       }
     }
+  },
+
+  "deprecated": true,
+  "deprecated_message": "Migrated to plan-overview-fix-schema.json (extends base) + task-schema.json.",
+  "migration_guide": {
+    "plan_level": "→ plan-overview-fix-schema.json (继承 base，含 fix_context)",
+    "task_level": "→ .task/FIX-*.json (task-schema.json)",
+    "field_mapping": {
+      "root_cause": "→ fix_context.root_cause",
+      "strategy": "→ fix_context.strategy",
+      "severity": "→ fix_context.severity",
+      "risk_level": "→ fix_context.risk_level",
+      "test_strategy": "→ plan-overview-fix-schema.test_strategy",
+      "rollback_plan": "→ plan-overview-fix-schema.rollback_plan",
+      "tasks[].verification[]": "→ convergence.criteria[]",
+      "tasks[].risk": "→ risks[] (结构化)"
+    }
   }
 }

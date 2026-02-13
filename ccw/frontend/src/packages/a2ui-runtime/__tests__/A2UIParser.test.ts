@@ -5,8 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
-import { A2UIParser, a2uiParser, A2UIParseError } from '../core/A2UIParser';
-import type { SurfaceUpdate, A2UIComponent } from '../core/A2UITypes';
+import { a2uiParser, A2UIParseError } from '../core/A2UIParser';
 
 // Import component renderers to trigger auto-registration
 import '../renderer/components';

@@ -227,7 +227,7 @@ describe('path-resolver utility module', async () => {
     const locations = pathResolver.getTemplateLocations();
     assert.deepEqual(locations, [homeTemplates]);
 
-    const templateName = 'workflow-dashboard.html';
+    const templateName = 'my-template.html';
     const templatePath = path.join(homeTemplates, templateName);
     setExists(templatePath, true);
 

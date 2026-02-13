@@ -46,11 +46,19 @@ describe('view command module', async () => {
 
     mock.method(globalThis as any, 'fetch', async (url: string) => {
       if (url.includes('/api/health')) {
-        return { ok: true };
+        return { ok: true, status: 200 };
+      }
+      if (url.includes('/api/auth/token')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ token: 'test-token' }),
+        };
       }
       if (url.includes('/api/switch-path')) {
         return {
           ok: true,
+          status: 200,
           json: async () => ({ success: true, path: 'C:\\test-workspace' }),
         };
       }
@@ -59,7 +67,7 @@ describe('view command module', async () => {
 
     await viewModule.viewCommand({ port: 3456, browser: false });
     assert.ok(logs.some((l) => l.includes('Server already running')));
-    assert.ok(logs.some((l) => l.includes('URL: http://localhost:3456/')));
+    assert.ok(logs.some((l) => l.includes('http://') && l.includes(':3456/')));
   });
 
   it('starts server when not running (browser disabled) and can be shut down via captured SIGINT handler', async () => {

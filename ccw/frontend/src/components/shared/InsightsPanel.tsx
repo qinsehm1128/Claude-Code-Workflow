@@ -3,7 +3,6 @@
 // ========================================
 // AI insights panel for prompt history analysis
 
-import * as React from 'react';
 import { useIntl } from 'react-intl';
 import { cn } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';

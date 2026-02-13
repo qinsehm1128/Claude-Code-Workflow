@@ -77,7 +77,7 @@ You are a specialized roadmap planning agent that decomposes requirements into s
     verification: string,       // How to verify (command, script, or explicit steps)
     definition_of_done: string  // Business-language completion definition
   },
-  risk_items: [string],      // Risk items for this layer
+  risks: [{description: string, probability: "Low"|"Medium"|"High", impact: "Low"|"Medium"|"High", mitigation: string}],  // Structured risk items for this layer
   effort: "small" | "medium" | "large",  // Effort estimate
   depends_on: ["L{n}"]       // Preceding layers
 }
@@ -297,8 +297,9 @@ function parseProgressiveLayers(cliOutput) {
       scope: scopeMatch?.[1].split(/[,，]/).map(s => s.trim()).filter(Boolean) || [],
       excludes: excludesMatch?.[1].split(/[,，]/).map(s => s.trim()).filter(Boolean) || [],
       convergence,
-      risk_items: riskMatch
+      risks: riskMatch
         ? riskMatch[1].split('\n').map(s => s.replace(/^- /, '').trim()).filter(Boolean)
+            .map(desc => ({description: desc, probability: "Medium", impact: "Medium", mitigation: "N/A"}))
         : [],
       effort: normalizeEffort(effortMatch?.[1].trim()),
       depends_on: parseDependsOn(dependsMatch?.[1], 'L')
@@ -600,14 +601,14 @@ ${l.convergence.criteria.map(c => `- ✅ ${c}`).join('\n')}
 - 🔍 **验证方法**: ${l.convergence.verification}
 - 🎯 **完成定义**: ${l.convergence.definition_of_done}
 
-**风险项**: ${l.risk_items.length ? l.risk_items.map(r => `\n- ⚠️ ${r}`).join('') : '无'}
+**风险项**: ${l.risks.length ? l.risks.map(r => `\n- ⚠️ ${r.description} (概率: ${r.probability}, 影响: ${r.impact}, 缓解: ${r.mitigation})`).join('') : '无'}
 
 **工作量**: ${l.effort}
 `).join('\n---\n\n')}
 
 ## 风险汇总
 
-${layers.flatMap(l => l.risk_items.map(r => `- **${l.id}**: ${r}`)).join('\n') || '无已识别风险'}
+${layers.flatMap(l => l.risks.map(r => `- **${l.id}**: ${r.description} (概率: ${r.probability}, 影响: ${r.impact})`)).join('\n') || '无已识别风险'}
 
 ## 下一步
 
@@ -683,7 +684,7 @@ function manualProgressiveDecomposition(requirement, context) {
         verification: "手动测试核心流程",
         definition_of_done: "用户可完成一次核心操作的完整流程"
       },
-      risk_items: ["技术选型待验证"], effort: "medium", depends_on: []
+      risks: [{description: "技术选型待验证", probability: "Medium", impact: "Medium", mitigation: "待评估"}], effort: "medium", depends_on: []
     },
     {
       id: "L1", name: "可用", goal: "关键用户路径完善",
@@ -693,7 +694,7 @@ function manualProgressiveDecomposition(requirement, context) {
         verification: "单元测试 + 手动测试错误场景",
         definition_of_done: "用户遇到问题时有清晰的引导和恢复路径"
       },
-      risk_items: [], effort: "medium", depends_on: ["L0"]
+      risks: [], effort: "medium", depends_on: ["L0"]
     }
   ]
 }

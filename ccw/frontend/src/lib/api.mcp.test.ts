@@ -74,7 +74,7 @@ describe('MCP API (frontend ↔ backend contract)', () => {
   it('toggleMcpServer uses /api/mcp-toggle with { projectPath, serverName, enable }', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
-      .mockImplementation(async (input, init) => {
+      .mockImplementation(async (input, _init) => {
         if (input === '/api/mcp-toggle') {
           return jsonResponse({ success: true, serverName: 'global1', enabled: false });
         }

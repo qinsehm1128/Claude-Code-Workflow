@@ -3,14 +3,12 @@
 // ========================================
 // Real-time scrolling ticker with CSS marquee animation and WebSocket messages
 
-import * as React from 'react';
 import { useIntl } from 'react-intl';
 import { cn } from '@/lib/utils';
 import { useRealtimeUpdates, type TickerMessage } from '@/hooks/useRealtimeUpdates';
 import {
   Play,
   CheckCircle2,
-  XCircle,
   Workflow,
   Activity,
   WifiOff,

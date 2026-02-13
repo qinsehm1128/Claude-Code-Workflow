@@ -3,9 +3,8 @@
 // ========================================
 // TanStack Query hook for fetching workflow status distribution
 
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useWorkflowStore, selectProjectPath } from '@/stores/workflowStore';
-import { workspaceQueryKeys } from '@/lib/queryKeys';
 
 /**
  * Workflow status count data structure

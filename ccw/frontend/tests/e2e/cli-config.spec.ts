@@ -15,7 +15,7 @@ test.describe.skip('[CLI Config] - CLI Configuration Tests', () => {
     const monitoring = setupEnhancedMonitoring(page);
 
     // Navigate to CLI config page
-    await page.goto('/react/settings/cli/config', { waitUntil: 'domcontentloaded' as const });
+    await page.goto('/settings/cli/config', { waitUntil: 'domcontentloaded' as const });
 
     // Look for endpoints list container
     const endpointsList = page.getByTestId('cli-endpoints-list').or(

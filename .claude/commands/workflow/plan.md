@@ -394,7 +394,7 @@ Return to user showing conflict resolution results (if executed) and selected st
 Skill(skill="workflow:tools:task-generate-agent", args="--session [sessionId]")
 ```
 
-**CLI Execution Note**: CLI tool usage is now determined semantically by action-planning-agent based on user's task description. If user specifies "use Codex/Gemini/Qwen for X", the agent embeds `command` fields in relevant `implementation_approach` steps.
+**CLI Execution Note**: CLI tool usage is now determined semantically by action-planning-agent based on user's task description. If user specifies "use Codex/Gemini/Qwen for X", CLI tool usage is controlled by `meta.execution_config.method` per task, not by `command` fields in implementation steps.
 
 **Input**:
 - `sessionId` from Phase 1
@@ -404,6 +404,7 @@ Skill(skill="workflow:tools:task-generate-agent", args="--session [sessionId]")
   - **Purpose**: Provides structured, minimal context summary to action-planning-agent
 
 **Validation**:
+- `.workflow/active/[sessionId]/plan.json` exists (structured plan overview)
 - `.workflow/active/[sessionId]/IMPL_PLAN.md` exists
 - `.workflow/active/[sessionId]/.task/IMPL-*.json` exists (at least one)
 - `.workflow/active/[sessionId]/TODO_LIST.md` exists

@@ -84,6 +84,17 @@ export interface ClaudeUpdateRecord {
 }
 
 /**
+ * Memory V2: Phase 1 extraction output row
+ */
+export interface Stage1Output {
+  thread_id: string;
+  source_updated_at: number;
+  raw_memory: string;
+  rollout_summary: string;
+  generated_at: number;
+}
+
+/**
  * Core Memory Store using SQLite
  */
 export class CoreMemoryStore {
@@ -215,6 +226,40 @@ export class CoreMemoryStore {
       CREATE INDEX IF NOT EXISTS idx_claude_history_path ON claude_update_history(file_path);
       CREATE INDEX IF NOT EXISTS idx_claude_history_updated ON claude_update_history(updated_at DESC);
       CREATE INDEX IF NOT EXISTS idx_claude_history_module ON claude_update_history(module_path);
+
+      -- Memory V2: Phase 1 extraction outputs
+      CREATE TABLE IF NOT EXISTS stage1_outputs (
+        thread_id TEXT PRIMARY KEY,
+        source_updated_at INTEGER NOT NULL,
+        raw_memory TEXT NOT NULL,
+        rollout_summary TEXT NOT NULL,
+        generated_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_stage1_generated ON stage1_outputs(generated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_stage1_source_updated ON stage1_outputs(source_updated_at DESC);
+
+      -- Memory V2: Job scheduler
+      CREATE TABLE IF NOT EXISTS jobs (
+        kind TEXT NOT NULL,
+        job_key TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'running', 'done', 'error')),
+        worker_id TEXT,
+        ownership_token TEXT,
+        started_at INTEGER,
+        finished_at INTEGER,
+        lease_until INTEGER,
+        retry_at INTEGER,
+        retry_remaining INTEGER NOT NULL DEFAULT 3,
+        last_error TEXT,
+        input_watermark INTEGER DEFAULT 0,
+        last_success_watermark INTEGER DEFAULT 0,
+        PRIMARY KEY (kind, job_key)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
+      CREATE INDEX IF NOT EXISTS idx_jobs_kind_status ON jobs(kind, status);
+      CREATE INDEX IF NOT EXISTS idx_jobs_lease ON jobs(lease_until);
     `);
   }
 
@@ -273,6 +318,14 @@ export class CoreMemoryStore {
         // Ignore
       }
     }
+  }
+
+  /**
+   * Get the underlying database instance.
+   * Used by MemoryJobScheduler and other V2 components that share this DB.
+   */
+  getDb(): Database.Database {
+    return this.db;
   }
 
   /**
@@ -1253,6 +1306,88 @@ ${memory.content}
     `);
     const result = stmt.run(filePath);
     return result.changes;
+  }
+
+  // ============================================================================
+  // Memory V2: Stage 1 Output CRUD Operations
+  // ============================================================================
+
+  /**
+   * Upsert a Phase 1 extraction output (idempotent by thread_id)
+   */
+  upsertStage1Output(output: Stage1Output): void {
+    const stmt = this.db.prepare(`
+      INSERT INTO stage1_outputs (thread_id, source_updated_at, raw_memory, rollout_summary, generated_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(thread_id) DO UPDATE SET
+        source_updated_at = excluded.source_updated_at,
+        raw_memory = excluded.raw_memory,
+        rollout_summary = excluded.rollout_summary,
+        generated_at = excluded.generated_at
+    `);
+
+    stmt.run(
+      output.thread_id,
+      output.source_updated_at,
+      output.raw_memory,
+      output.rollout_summary,
+      output.generated_at
+    );
+  }
+
+  /**
+   * Get a Phase 1 output by thread_id
+   */
+  getStage1Output(threadId: string): Stage1Output | null {
+    const stmt = this.db.prepare(`SELECT * FROM stage1_outputs WHERE thread_id = ?`);
+    const row = stmt.get(threadId) as any;
+    if (!row) return null;
+
+    return {
+      thread_id: row.thread_id,
+      source_updated_at: row.source_updated_at,
+      raw_memory: row.raw_memory,
+      rollout_summary: row.rollout_summary,
+      generated_at: row.generated_at,
+    };
+  }
+
+  /**
+   * List all Phase 1 outputs, ordered by generated_at descending
+   */
+  listStage1Outputs(limit?: number): Stage1Output[] {
+    const query = limit
+      ? `SELECT * FROM stage1_outputs ORDER BY generated_at DESC LIMIT ?`
+      : `SELECT * FROM stage1_outputs ORDER BY generated_at DESC`;
+
+    const stmt = this.db.prepare(query);
+    const rows = (limit ? stmt.all(limit) : stmt.all()) as any[];
+
+    return rows.map(row => ({
+      thread_id: row.thread_id,
+      source_updated_at: row.source_updated_at,
+      raw_memory: row.raw_memory,
+      rollout_summary: row.rollout_summary,
+      generated_at: row.generated_at,
+    }));
+  }
+
+  /**
+   * Count Phase 1 outputs
+   */
+  countStage1Outputs(): number {
+    const stmt = this.db.prepare(`SELECT COUNT(*) as count FROM stage1_outputs`);
+    const row = stmt.get() as { count: number };
+    return row.count;
+  }
+
+  /**
+   * Delete a Phase 1 output by thread_id
+   */
+  deleteStage1Output(threadId: string): boolean {
+    const stmt = this.db.prepare(`DELETE FROM stage1_outputs WHERE thread_id = ?`);
+    const result = stmt.run(threadId);
+    return result.changes > 0;
   }
 
   /**

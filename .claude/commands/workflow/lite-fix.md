@@ -44,7 +44,8 @@ Intelligent lightweight bug fixing command with dynamic workflow adaptation base
 | `diagnosis-{angle}.json` | Per-angle diagnosis results (1-4 files based on severity) |
 | `diagnoses-manifest.json` | Index of all diagnosis files |
 | `planning-context.md` | Evidence paths + synthesized understanding |
-| `fix-plan.json` | Structured fix plan (fix-plan-json-schema.json) |
+| `fix-plan.json` | Fix plan overview with `task_ids[]` (plan-overview-fix-schema.json) |
+| `.task/FIX-*.json` | Independent fix task files (one per task) |
 
 **Output Directory**: `.workflow/.lite-fix/{bug-slug}-{YYYY-MM-DD}/`
 
@@ -52,7 +53,7 @@ Intelligent lightweight bug fixing command with dynamic workflow adaptation base
 - Low/Medium severity → Direct Claude planning (no agent)
 - High/Critical severity → `cli-lite-planning-agent` generates `fix-plan.json`
 
-**Schema Reference**: `~/.ccw/workflows/cli-templates/schemas/fix-plan-json-schema.json`
+**Schema Reference**: `~/.ccw/workflows/cli-templates/schemas/plan-overview-fix-schema.json`
 
 ## Auto Mode Defaults
 
@@ -91,7 +92,7 @@ Phase 2: Clarification (optional, multi-round)
 
 Phase 3: Fix Planning (NO CODE EXECUTION - planning only)
    +- Decision (based on Phase 1 severity):
-      |- Low/Medium -> Load schema: cat ~/.ccw/workflows/cli-templates/schemas/fix-plan-json-schema.json -> Direct Claude planning (following schema) -> fix-plan.json -> MUST proceed to Phase 4
+      |- Low/Medium -> Load schema: cat ~/.ccw/workflows/cli-templates/schemas/plan-overview-fix-schema.json -> Direct Claude planning (following schema) -> fix-plan.json -> MUST proceed to Phase 4
       +- High/Critical -> cli-lite-planning-agent -> fix-plan.json -> MUST proceed to Phase 4
 
 Phase 4: Confirmation & Selection
@@ -254,8 +255,12 @@ Execute **${angle}** diagnosis for bug root cause analysis. Analyze codebase fro
   **IMPORTANT**: Use structured format:
   \`{file: "src/module/file.ts", line_range: "45-60", issue: "Description", confidence: 0.85}\`
 - affected_files: Files involved from ${angle} perspective
-  **IMPORTANT**: Use object format with relevance scores:
-  \`[{path: "src/file.ts", relevance: 0.85, rationale: "Contains ${angle} logic"}]\`
+  **MANDATORY**: Every file MUST use structured object format with ALL required fields:
+  \`[{path: "src/file.ts", relevance: 0.85, rationale: "Contains handleLogin() at line 45 where null check is missing", change_type: "fix_target", discovery_source: "bash-scan", key_symbols: ["handleLogin"]}]\`
+  - **rationale** (required): Specific reason why this file is affected (>10 chars, not generic)
+  - **change_type** (required): fix_target|needs_update|test_coverage|reference_only
+  - **discovery_source** (recommended): bash-scan|cli-analysis|ace-search|dependency-trace|stack-trace|manual
+  - **key_symbols** (recommended): Key functions/classes related to the bug
 - reproduction_steps: Steps to reproduce the bug
 - fix_hints: Suggested fix approaches from ${angle} viewpoint
 - dependencies: Dependencies relevant to ${angle} diagnosis
@@ -268,7 +273,9 @@ Execute **${angle}** diagnosis for bug root cause analysis. Analyze codebase fro
 - [ ] Schema obtained via cat diagnosis-json-schema.json
 - [ ] get_modules_by_depth.sh executed
 - [ ] Root cause identified with confidence score
-- [ ] At least 3 affected files identified with ${angle} rationale
+- [ ] At least 3 affected files identified with specific rationale + change_type
+- [ ] Every file has rationale >10 chars (not generic like "Contains ${angle} logic")
+- [ ] Every file has change_type classification (fix_target/needs_update/etc.)
 - [ ] Fix hints are actionable (specific code changes, not generic advice)
 - [ ] Reproduction steps are verifiable
 - [ ] JSON output follows schema exactly
@@ -426,21 +433,74 @@ if (autoYes) {
 **Low/Medium Severity** - Direct planning by Claude:
 ```javascript
 // Step 1: Read schema
-const schema = Bash(`cat ~/.ccw/workflows/cli-templates/schemas/fix-plan-json-schema.json`)
+const schema = Bash(`cat ~/.ccw/workflows/cli-templates/schemas/plan-overview-fix-schema.json`)
 
-// Step 2: Generate fix-plan following schema (Claude directly, no agent)
-// For Medium complexity: include rationale + verification (optional, but recommended)
+// Step 2: Generate fix tasks with NEW field names (Claude directly, no agent)
+// Field mapping: modification_points -> files, acceptance -> convergence, verification -> test
+const fixTasks = [
+  {
+    id: "FIX-001",
+    title: "...",
+    description: "...",
+    scope: "...",
+    action: "Fix|Update|Refactor|Add|Delete",
+    depends_on: [],
+    convergence: {
+      criteria: ["..."]  // Quantified acceptance criteria
+    },
+    files: [
+      { path: "src/module/file.ts", action: "modify", target: "functionName", change: "Description of change" }
+    ],
+    implementation: ["Step 1: ...", "Step 2: ..."],
+    test: {
+      manual_checks: ["Reproduce issue", "Verify fix"],
+      success_metrics: ["Issue resolved", "No regressions"]
+    },
+    complexity: "Low|Medium",
+
+    // Medium severity fields (optional for Low, recommended for Medium)
+    ...(severity === "Medium" ? {
+      rationale: {
+        chosen_approach: "Direct fix approach",
+        alternatives_considered: ["Workaround", "Refactor"],
+        decision_factors: ["Minimal impact", "Quick turnaround"],
+        tradeoffs: "Doesn't address underlying issue"
+      },
+      test: {
+        unit: ["test_bug_fix_basic"],
+        integration: [],
+        manual_checks: ["Reproduce issue", "Verify fix"],
+        success_metrics: ["Issue resolved", "No regressions"]
+      }
+    } : {})
+  }
+  // ... additional tasks as needed
+]
+
+// Step 3: Write individual task files to .task/ directory
+const taskDir = `${sessionFolder}/.task`
+Bash(`mkdir -p "${taskDir}"`)
+
+fixTasks.forEach(task => {
+  Write(`${taskDir}/${task.id}.json`, JSON.stringify(task, null, 2))
+})
+
+// Step 4: Generate fix-plan overview (NO embedded tasks[])
 const fixPlan = {
   summary: "...",
-  root_cause: "...",
-  strategy: "immediate_patch|comprehensive_fix|refactor",
-  tasks: [...],  // Each task: { id, title, scope, ..., depends_on, complexity }
+  approach: "...",
+  task_ids: fixTasks.map(t => t.id),
+  task_count: fixTasks.length,
+  fix_context: {
+    root_cause: "...",
+    strategy: "immediate_patch|comprehensive_fix|refactor",
+    severity: severity,
+    risk_level: "..."
+  },
   estimated_time: "...",
   recommended_execution: "Agent",
-  severity: severity,
-  risk_level: "...",
 
-  // Medium complexity fields (optional for direct planning, auto-filled for Low)
+  // Medium complexity fields (optional for Low)
   ...(severity === "Medium" ? {
     design_decisions: [
       {
@@ -448,58 +508,22 @@ const fixPlan = {
         rationale: "Keeps changes localized and quick to review",
         tradeoff: "Defers comprehensive refactoring"
       }
-    ],
-    tasks_with_rationale: {
-      // Each task gets rationale if Medium
-      task_rationale_example: {
-        rationale: {
-          chosen_approach: "Direct fix approach",
-          alternatives_considered: ["Workaround", "Refactor"],
-          decision_factors: ["Minimal impact", "Quick turnaround"],
-          tradeoffs: "Doesn't address underlying issue"
-        },
-        verification: {
-          unit_tests: ["test_bug_fix_basic"],
-          integration_tests: [],
-          manual_checks: ["Reproduce issue", "Verify fix"],
-          success_metrics: ["Issue resolved", "No regressions"]
-        }
-      }
-    }
+    ]
   } : {}),
 
   _metadata: {
     timestamp: getUtc8ISOString(),
     source: "direct-planning",
     planning_mode: "direct",
+    plan_type: "fix",
     complexity: severity === "Medium" ? "Medium" : "Low"
   }
 }
 
-// Step 3: Merge task rationale into tasks array
-if (severity === "Medium") {
-  fixPlan.tasks = fixPlan.tasks.map(task => ({
-    ...task,
-    rationale: fixPlan.tasks_with_rationale[task.id]?.rationale || {
-      chosen_approach: "Standard fix",
-      alternatives_considered: [],
-      decision_factors: ["Correctness", "Simplicity"],
-      tradeoffs: "None"
-    },
-    verification: fixPlan.tasks_with_rationale[task.id]?.verification || {
-      unit_tests: [`test_${task.id}_basic`],
-      integration_tests: [],
-      manual_checks: ["Verify fix works"],
-      success_metrics: ["Test pass"]
-    }
-  }))
-  delete fixPlan.tasks_with_rationale  // Clean up temp field
-}
-
-// Step 4: Write fix-plan to session folder
+// Step 5: Write fix-plan overview to session folder
 Write(`${sessionFolder}/fix-plan.json`, JSON.stringify(fixPlan, null, 2))
 
-// Step 5: MUST continue to Phase 4 (Confirmation) - DO NOT execute code here
+// Step 6: MUST continue to Phase 4 (Confirmation) - DO NOT execute code here
 ```
 
 **High/Critical Severity** - Invoke cli-lite-planning-agent:
@@ -510,17 +534,18 @@ Task(
   run_in_background=false,
   description="Generate detailed fix plan",
   prompt=`
-Generate fix plan and write fix-plan.json.
+Generate fix plan using two-layer output format.
 
 ## Output Location
 
 **Session Folder**: ${sessionFolder}
 **Output Files**:
 - ${sessionFolder}/planning-context.md (evidence + understanding)
-- ${sessionFolder}/fix-plan.json (fix plan)
+- ${sessionFolder}/fix-plan.json (fix plan overview -- NO embedded tasks[])
+- ${sessionFolder}/.task/FIX-*.json (independent fix task files, one per task)
 
 ## Output Schema Reference
-Execute: cat ~/.ccw/workflows/cli-templates/schemas/fix-plan-json-schema.json (get schema reference before generating plan)
+Execute: cat ~/.ccw/workflows/cli-templates/schemas/plan-overview-fix-schema.json (get schema reference before generating plan)
 
 ## Project Context (MANDATORY - Read Both Files)
 1. Read: .workflow/project-tech.json (technology stack, architecture, key components)
@@ -550,20 +575,49 @@ ${JSON.stringify(clarificationContext) || "None"}
 ${severity}
 
 ## Requirements
-Generate fix-plan.json with:
+
+**Output Format**: Two-layer structure:
+- fix-plan.json: Overview with task_ids[] referencing .task/ files (NO tasks[] array)
+- .task/FIX-*.json: Independent task files following task-schema.json
+
+**fix-plan.json required fields**:
 - summary: 2-3 sentence overview of the fix
-- root_cause: Consolidated root cause from all diagnoses
-- strategy: "immediate_patch" | "comprehensive_fix" | "refactor"
-- tasks: 1-5 structured fix tasks (**IMPORTANT: group by fix area, NOT by file**)
-  - **Task Granularity Principle**: Each task = one complete fix unit
-  - title: action verb + target (e.g., "Fix token validation edge case")
-  - scope: module path (src/auth/) or feature name
-  - action: "Fix" | "Update" | "Refactor" | "Add" | "Delete"
-  - description
-  - modification_points: ALL files to modify for this fix (group related changes)
-  - implementation (2-5 steps covering all modification_points)
-  - acceptance: Quantified acceptance criteria
-  - depends_on: task IDs this task depends on (use sparingly)
+- approach: Overall fix approach description
+- task_ids: Array of task IDs (e.g., ["FIX-001", "FIX-002"])
+- task_count: Number of tasks
+- fix_context:
+  - root_cause: Consolidated root cause from all diagnoses
+  - strategy: "immediate_patch" | "comprehensive_fix" | "refactor"
+  - severity: ${severity}
+  - risk_level: "Low" | "Medium" | "High"
+- estimated_time, recommended_execution
+- data_flow (High/Critical REQUIRED): How data flows through affected code
+  - diagram: "A -> B -> C" style flow
+  - stages: [{stage, input, output, component}]
+- design_decisions (High/Critical REQUIRED): Global fix decisions
+  - [{decision, rationale, tradeoff}]
+- _metadata:
+  - timestamp, source, planning_mode
+  - plan_type: "fix"
+  - complexity: "High" | "Critical"
+  - diagnosis_angles: ${JSON.stringify(manifest.diagnoses.map(d => d.angle))}
+
+**Each .task/FIX-*.json required fields**:
+- id: "FIX-001" (prefix FIX-, NOT TASK-)
+- title: action verb + target (e.g., "Fix token validation edge case")
+- description
+- scope: module path (src/auth/) or feature name
+- action: "Fix" | "Update" | "Refactor" | "Add" | "Delete"
+- depends_on: task IDs this task depends on (use sparingly)
+- convergence: { criteria: ["Quantified acceptance criterion 1", "..."] }
+- files: ALL files to modify for this fix (group related changes)
+  - [{ path: "src/file.ts", action: "modify|create|delete", target: "component/function", change: "Description of what changes" }]
+- implementation: ["Step 1: ...", "Step 2: ..."] (2-5 steps covering all files)
+- test:
+  - unit: ["test names to add/verify"]
+  - integration: ["integration test names"]
+  - manual_checks: ["manual verification steps"]
+  - success_metrics: ["quantified success criteria"]
 
   **High/Critical complexity fields per task** (REQUIRED):
   - rationale:
@@ -571,11 +625,6 @@ Generate fix-plan.json with:
     - alternatives_considered: Other approaches evaluated
     - decision_factors: Key factors influencing choice
     - tradeoffs: Known tradeoffs of this approach
-  - verification:
-    - unit_tests: Test names to add/verify
-    - integration_tests: Integration test names
-    - manual_checks: Manual verification steps
-    - success_metrics: Quantified success criteria
   - risks:
     - description: Risk description
     - probability: Low|Medium|High
@@ -586,18 +635,10 @@ Generate fix-plan.json with:
     - interfaces: [{name, definition, purpose}]
     - key_functions: [{signature, purpose, returns}]
 
-**Top-level High/Critical fields** (REQUIRED):
-- data_flow: How data flows through affected code
-  - diagram: "A → B → C" style flow
-  - stages: [{stage, input, output, component}]
-- design_decisions: Global fix decisions
-  - [{decision, rationale, tradeoff}]
-
-- estimated_time, recommended_execution, severity, risk_level
-- _metadata:
-  - timestamp, source, planning_mode
-  - complexity: "High" | "Critical"
-  - diagnosis_angles: ${JSON.stringify(manifest.diagnoses.map(d => d.angle))}
+**Field name rules** (do NOT use old names):
+- files[].change (NOT modification_points)
+- convergence.criteria (NOT acceptance)
+- test (NOT verification at task level)
 
 ## Task Grouping Rules
 1. **Group by fix area**: All changes for one fix = one task (even if 2-3 files)
@@ -605,25 +646,30 @@ Generate fix-plan.json with:
 3. **Substantial tasks**: Each task should represent 10-45 minutes of work
 4. **True dependencies only**: Only use depends_on when Task B cannot start without Task A's output
 5. **Prefer parallel**: Most tasks should be independent (no depends_on)
+6. **Task IDs**: Use FIX-001, FIX-002 prefix (NOT TASK-)
 
 ## Execution
 1. Read ALL diagnosis files for comprehensive context
 2. Execute CLI planning using Gemini (Qwen fallback) with --rule planning-fix-strategy template
 3. Synthesize findings from multiple diagnosis angles
-4. Generate fix-plan with:
-   - For High/Critical: REQUIRED new fields (rationale, verification, risks, code_skeleton, data_flow, design_decisions)
-   - Each task MUST have rationale (why this fix), verification (how to verify success), and risks (potential issues)
-5. Parse output and structure fix-plan
+4. Generate fix tasks (1-5 tasks):
+   - Each task file written to \`${sessionFolder}/.task/FIX-NNN.json\`
+   - For High/Critical: REQUIRED fields (rationale, test, risks, code_skeleton)
+5. Generate fix-plan overview:
+   - Written to \`${sessionFolder}/fix-plan.json\`
+   - Contains task_ids[] referencing .task/ files (NO embedded tasks[])
+   - For High/Critical: REQUIRED fields (data_flow, design_decisions)
 6. **Write**: \`${sessionFolder}/planning-context.md\` (evidence paths + understanding)
-7. **Write**: \`${sessionFolder}/fix-plan.json\`
-8. Return brief completion summary
+7. **Write**: \`${sessionFolder}/.task/FIX-*.json\` (individual task files)
+8. **Write**: \`${sessionFolder}/fix-plan.json\` (plan overview with task_ids[])
+9. Return brief completion summary
 
 ## Output Format for CLI
 Include these sections in your fix-plan output:
-- Summary, Root Cause, Strategy (existing)
+- Summary, Root Cause (in fix_context), Strategy (existing)
 - Data Flow: Diagram showing affected code paths
 - Design Decisions: Key architectural choices in the fix
-- Tasks: Each with rationale (Medium/High), verification (Medium/High), risks (High), code_skeleton (High)
+- Task files: Each with convergence, files, test, rationale (High), risks (High), code_skeleton (High)
 `
 )
 ```
@@ -638,18 +684,26 @@ Include these sections in your fix-plan output:
 ```javascript
 const fixPlan = JSON.parse(Read(`${sessionFolder}/fix-plan.json`))
 
+// Load tasks from .task/ directory (two-layer format)
+const tasks = (fixPlan.task_ids || []).map(id => {
+  return JSON.parse(Read(`${sessionFolder}/.task/${id}.json`))
+})
+const taskList = tasks
+
+const fixContext = fixPlan.fix_context || {}
+
 console.log(`
 ## Fix Plan
 
 **Summary**: ${fixPlan.summary}
-**Root Cause**: ${fixPlan.root_cause}
-**Strategy**: ${fixPlan.strategy}
+**Root Cause**: ${fixContext.root_cause || fixPlan.root_cause}
+**Strategy**: ${fixContext.strategy || fixPlan.strategy}
 
-**Tasks** (${fixPlan.tasks.length}):
-${fixPlan.tasks.map((t, i) => `${i+1}. ${t.title} (${t.scope})`).join('\n')}
+**Tasks** (${taskList.length}):
+${taskList.map((t, i) => `${i+1}. ${t.title} (${t.scope})`).join('\n')}
 
-**Severity**: ${fixPlan.severity}
-**Risk Level**: ${fixPlan.risk_level}
+**Severity**: ${fixContext.severity || fixPlan.severity}
+**Risk Level**: ${fixContext.risk_level || fixPlan.risk_level}
 **Estimated Time**: ${fixPlan.estimated_time}
 **Recommended**: ${fixPlan.recommended_execution}
 `)
@@ -679,7 +733,7 @@ if (autoYes) {
   userSelection = AskUserQuestion({
     questions: [
       {
-        question: `Confirm fix plan? (${fixPlan.tasks.length} tasks, ${fixPlan.severity} severity)`,
+        question: `Confirm fix plan? (${taskList.length} tasks, ${fixContext.severity || fixPlan.severity} severity)`,
         header: "Confirm",
         multiSelect: false,
         options: [
@@ -695,7 +749,7 @@ if (autoYes) {
         options: [
           { label: "Agent", description: "@code-developer agent" },
           { label: "Codex", description: "codex CLI tool" },
-          { label: "Auto", description: `Auto: ${fixPlan.severity === 'Low' ? 'Agent' : 'Codex'}` }
+          { label: "Auto", description: `Auto: ${(fixContext.severity || fixPlan.severity) === 'Low' ? 'Agent' : 'Codex'}` }
         ]
       },
       {
@@ -734,14 +788,21 @@ manifest.diagnoses.forEach(diag => {
 
 const fixPlan = JSON.parse(Read(`${sessionFolder}/fix-plan.json`))
 
+const fixSeverity = fixPlan.fix_context?.severity || fixPlan.severity
+
 executionContext = {
   mode: "bugfix",
-  severity: fixPlan.severity,
+  severity: fixSeverity,
   planObject: {
     ...fixPlan,
     // Ensure complexity is set based on severity for new field consumption
-    complexity: fixPlan.complexity || (fixPlan.severity === 'Critical' ? 'High' : (fixPlan.severity === 'High' ? 'High' : 'Medium'))
+    complexity: fixPlan.complexity || (fixSeverity === 'Critical' ? 'High' : (fixSeverity === 'High' ? 'High' : 'Medium'))
   },
+  // Task files from .task/ directory (two-layer format)
+  taskFiles: (fixPlan.task_ids || []).map(id => ({
+    id,
+    path: `${sessionFolder}/.task/${id}.json`
+  })),
   diagnosisContext: diagnoses,
   diagnosisAngles: manifest.diagnoses.map(d => d.angle),
   diagnosisManifest: manifest,
@@ -758,7 +819,8 @@ executionContext = {
         path: diag.path
       })),
       diagnoses_manifest: `${sessionFolder}/diagnoses-manifest.json`,
-      fix_plan: `${sessionFolder}/fix-plan.json`
+      fix_plan: `${sessionFolder}/fix-plan.json`,
+      task_dir: `${sessionFolder}/.task`
     }
   }
 }
@@ -780,7 +842,11 @@ Skill(skill="workflow:lite-execute", args="--in-memory --mode bugfix")
 ├── diagnosis-{angle4}.json      # Diagnosis angle 4 (if applicable)
 ├── diagnoses-manifest.json      # Diagnosis index
 ├── planning-context.md          # Evidence + understanding
-└── fix-plan.json                # Fix plan
+├── fix-plan.json                # Fix plan overview (task_ids[], NO embedded tasks[])
+└── .task/                       # Independent fix task files
+    ├── FIX-001.json             # Fix task 1
+    ├── FIX-002.json             # Fix task 2
+    └── ...                      # Additional fix tasks
 ```
 
 **Example**:
@@ -791,7 +857,10 @@ Skill(skill="workflow:lite-execute", args="--in-memory --mode bugfix")
 ├── diagnosis-validation.json
 ├── diagnoses-manifest.json
 ├── planning-context.md
-└── fix-plan.json
+├── fix-plan.json
+└── .task/
+    ├── FIX-001.json
+    └── FIX-002.json
 ```
 
 ## Error Handling

@@ -3,8 +3,8 @@
 // ========================================
 // React component that renders A2UI surfaces
 
-import React, { useState, useCallback, useMemo } from 'react';
-import type { SurfaceUpdate, SurfaceComponent, A2UIComponent, LiteralString, Binding } from '../core/A2UITypes';
+import { useState, useCallback } from 'react';
+import type { SurfaceUpdate, A2UIComponent, LiteralString, Binding } from '../core/A2UITypes';
 import { a2uiRegistry, type A2UIState, type ActionHandler, type BindingResolver } from '../core/A2UIComponentRegistry';
 
 // ========== Renderer Props ==========
@@ -26,7 +26,7 @@ interface A2UIRendererProps {
  */
 export function A2UIRenderer({ surface, onAction, className = '' }: A2UIRendererProps) {
   // Local state initialized with surface's initial state
-  const [localState, setLocalState] = useState<A2UIState>(surface.initialState || {});
+  const [localState] = useState<A2UIState>(surface.initialState || {});
 
   // Handle action from components
   const handleAction = useCallback<ActionHandler>(
@@ -55,21 +55,6 @@ export function A2UIRenderer({ surface, onAction, className = '' }: A2UIRenderer
       return value;
     },
     [localState]
-  );
-
-  // Update state from external source
-  const updateState = useCallback((updates: Partial<A2UIState>) => {
-    setLocalState((prev) => ({ ...prev, ...updates }));
-  }, []);
-
-  // Memoize context for components
-  const contextValue = useMemo(
-    () => ({
-      state: localState,
-      resolveBinding,
-      updateState,
-    }),
-    [localState, resolveBinding, updateState]
   );
 
   return (

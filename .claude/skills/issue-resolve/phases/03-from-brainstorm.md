@@ -93,12 +93,12 @@ interface Task {
   description: string;
 
   implementation: string[];      // Step-by-step guide
-  acceptance: {
+  convergence: {
     criteria: string[];          // What defines success
     verification: string[];      // How to verify
   };
 
-  priority: number;              // 1-5
+  priority: string;              // "critical"|"high"|"medium"|"low"
   depends_on: string[];          // Task dependencies
 }
 ```
@@ -152,7 +152,7 @@ Phase 5: Generate Solution Tasks
    ├─ T1: Research & Validate (if main_challenges exist)
    ├─ T2: Design & Specification (if key_strengths exist)
    ├─ T3+: Implementation tasks (from idea.next_steps)
-   └─ Each task includes: implementation steps + acceptance criteria
+   └─ Each task includes: implementation steps + convergence criteria
 ```
 
 ### Step 3.6: Bind Solution
@@ -228,7 +228,7 @@ Phase 7: Next Steps
 - **Title**: `idea.title`
 - **Scope**: implementation
 - **Action**: Implement
-- **Generic implementation + acceptance criteria**
+- **Generic implementation + convergence criteria**
 
 ## Priority Calculation
 

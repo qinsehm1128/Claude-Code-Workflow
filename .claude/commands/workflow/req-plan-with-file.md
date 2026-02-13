@@ -115,8 +115,8 @@ Requirement-level layered roadmap planning command. Decomposes a requirement int
 ## Convergence Criteria Details
 {Expanded convergence for each layer/task}
 
-## Risk Items
-{Aggregated risk_items}
+## Risks
+{Aggregated risks}
 
 ## Next Steps
 {Execution guidance}
@@ -158,11 +158,11 @@ Each line = one layer. Layer naming convention:
 | L2 | Refined | Edge case handling, performance optimization, security hardening |
 | L3 | Optimized | Advanced features, observability, operations support |
 
-**Schema**: `id, name, goal, scope[], excludes[], convergence{}, risk_items[], effort, depends_on[]`
+**Schema**: `id, name, goal, scope[], excludes[], convergence{}, risks[], effort, depends_on[]`
 
 ```jsonl
-{"id":"L0","name":"MVP","goal":"Minimum viable closed loop","scope":["User registration and login","Basic CRUD"],"excludes":["OAuth","2FA"],"convergence":{"criteria":["End-to-end register→login→operate flow works","Core API returns correct responses"],"verification":"curl/Postman manual testing or smoke test script","definition_of_done":"New user can complete the full flow of register→login→perform one core operation"},"risk_items":["JWT library selection needs validation"],"effort":"medium","depends_on":[]}
-{"id":"L1","name":"Usable","goal":"Complete key user paths","scope":["Password reset","Input validation","Error messages"],"excludes":["Audit logs","Rate limiting"],"convergence":{"criteria":["All form fields have frontend+backend validation","Password reset email can be sent and reset completed","Error scenarios show user-friendly messages"],"verification":"Unit tests cover validation logic + manual test of reset flow","definition_of_done":"Users have a clear recovery path when encountering input errors or forgotten passwords"},"risk_items":[],"effort":"medium","depends_on":["L0"]}
+{"id":"L0","name":"MVP","goal":"Minimum viable closed loop","scope":["User registration and login","Basic CRUD"],"excludes":["OAuth","2FA"],"convergence":{"criteria":["End-to-end register→login→operate flow works","Core API returns correct responses"],"verification":"curl/Postman manual testing or smoke test script","definition_of_done":"New user can complete the full flow of register→login→perform one core operation"},"risks":[{"description":"JWT library selection needs validation","probability":"Medium","impact":"Medium","mitigation":"N/A"}],"effort":"medium","depends_on":[]}
+{"id":"L1","name":"Usable","goal":"Complete key user paths","scope":["Password reset","Input validation","Error messages"],"excludes":["Audit logs","Rate limiting"],"convergence":{"criteria":["All form fields have frontend+backend validation","Password reset email can be sent and reset completed","Error scenarios show user-friendly messages"],"verification":"Unit tests cover validation logic + manual test of reset flow","definition_of_done":"Users have a clear recovery path when encountering input errors or forgotten passwords"},"risks":[],"effort":"medium","depends_on":["L0"]}
 ```
 
 **Constraints**: 2-4 layers, L0 must be a self-contained closed loop with no dependencies, each feature belongs to exactly ONE layer (no scope overlap).
@@ -467,7 +467,7 @@ Bash(`mkdir -p ${sessionFolder}`)
 
    ${selectedMode === 'progressive' ? `**Progressive Mode**:
    - 2-4 layers from MVP to full implementation
-   - Each layer: id (L0-L3), name, goal, scope, excludes, convergence, risk_items, effort, depends_on
+   - Each layer: id (L0-L3), name, goal, scope, excludes, convergence, risks, effort, depends_on
    - L0 (MVP) must be a self-contained closed loop with no dependencies
    - Scope: each feature belongs to exactly ONE layer (no overlap)
    - Layer names: MVP / Usable / Refined / Optimized` :

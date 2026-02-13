@@ -337,7 +337,7 @@ Execute each task in order (T1 → T2 → T3 → ...):
 For each task:
 - Follow task.implementation steps
 - Run task.test commands
-- Verify task.acceptance criteria
+- Verify task.convergence criteria
 - Do NOT commit after each task
 
 ### Step 3: Commit Solution (Once)
@@ -380,7 +380,7 @@ On success, run:
     "tests_passed": true,
     "verification": {
       "all_tests_passed": true,
-      "acceptance_criteria_met": true,
+      "convergence_criteria_met": true,
       "regression_checked": true
     },
     "summary": "<brief description of accomplishment>"

@@ -712,7 +712,7 @@ function VersionCheckSection() {
               {formatMessage({ id: 'settings.versionCheck.latestVersion' })}
             </span>
             <Badge
-              variant={versionData?.updateAvailable ? 'default' : 'secondary'}
+              variant={versionData?.hasUpdate ? 'default' : 'secondary'}
               className="font-mono text-xs"
             >
               {versionData?.latestVersion ?? '...'}

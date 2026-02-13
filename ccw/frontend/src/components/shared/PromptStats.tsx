@@ -3,7 +3,6 @@
 // ========================================
 // Statistics display for prompt history
 
-import * as React from 'react';
 import { useIntl } from 'react-intl';
 import { StatCard, StatCardSkeleton } from '@/components/shared/StatCard';
 import { MessageSquare, FileType, Hash, Star } from 'lucide-react';

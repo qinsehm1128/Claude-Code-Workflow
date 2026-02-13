@@ -24,7 +24,7 @@
       "description": "Task breakdown for this solution",
       "items": {
         "type": "object",
-        "required": ["id", "title", "scope", "action", "implementation", "acceptance"],
+        "required": ["id", "title", "scope", "action", "implementation"],
         "properties": {
           "id": {
             "type": "string",
@@ -46,8 +46,26 @@
             "type": "string",
             "description": "1-2 sentences describing what to implement"
           },
+          "files": {
+            "type": "array",
+            "description": "Files affected by this task (preferred over modification_points)",
+            "items": {
+              "type": "object",
+              "required": ["path"],
+              "properties": {
+                "path": { "type": "string", "description": "File path relative to project root" },
+                "action": { "type": "string", "enum": ["modify", "create", "delete"], "description": "Type of file operation" },
+                "target": { "type": "string", "description": "Target symbol or location within file" },
+                "change": { "type": "string", "description": "Description of the change" },
+                "changes": { "type": "array", "items": { "type": "string" }, "description": "Multiple changes to the file" },
+                "conflict_risk": { "type": "string", "enum": ["low", "medium", "high"], "description": "Risk of merge conflict" }
+              }
+            }
+          },
           "modification_points": {
             "type": "array",
+            "deprecated": true,
+            "description": "DEPRECATED: Use 'files' instead. Legacy field for backward compatibility.",
             "items": {
               "type": "object",
               "properties": {
@@ -69,7 +87,9 @@
               "unit": { "type": "array", "items": { "type": "string" } },
               "integration": { "type": "array", "items": { "type": "string" } },
               "commands": { "type": "array", "items": { "type": "string" } },
-              "coverage_target": { "type": "number" }
+              "coverage_target": { "type": "number" },
+              "manual_checks": { "type": "array", "items": { "type": "string" }, "description": "Manual verification steps" },
+              "success_metrics": { "type": "array", "items": { "type": "string" }, "description": "Success metrics for the task" }
             }
           },
           "regression": {
@@ -77,10 +97,25 @@
             "items": { "type": "string" },
             "description": "Regression check points"
           },
+          "convergence": {
+            "type": "object",
+            "description": "Convergence criteria & verification (preferred over acceptance)",
+            "required": ["criteria"],
+            "properties": {
+              "criteria": { "type": "array", "items": { "type": "string" } },
+              "verification": {
+                "oneOf": [
+                  { "type": "string" },
+                  { "type": "array", "items": { "type": "string" } }
+                ]
+              },
+              "definition_of_done": { "type": "string" }
+            }
+          },
           "acceptance": {
             "type": "object",
-            "description": "Acceptance criteria & verification",
-            "required": ["criteria", "verification"],
+            "deprecated": true,
+            "description": "DEPRECATED: Use 'convergence' instead. Legacy field for backward compatibility.",
             "properties": {
               "criteria": { "type": "array", "items": { "type": "string" } },
               "verification": { "type": "array", "items": { "type": "string" } },
@@ -105,17 +140,41 @@
           },
           "estimated_minutes": {
             "type": "integer",
-            "description": "Estimated time to complete"
+            "description": "DEPRECATED: Use 'effort' instead. Estimated time to complete."
+          },
+          "effort": {
+            "type": "string",
+            "enum": ["small", "medium", "large", "xlarge"],
+            "description": "Effort estimate for the task"
           },
           "status": {
             "type": "string",
             "description": "Task status (optional, for tracking)"
           },
           "priority": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 5,
-            "default": 3
+            "oneOf": [
+              { "type": "string", "enum": ["critical", "high", "medium", "low"] },
+              { "type": "integer", "minimum": 1, "maximum": 5 }
+            ],
+            "default": "medium",
+            "description": "Task priority. Prefer string enum; integer 1-5 accepted for backward compatibility."
+          }
+        },
+        "anyOf": [
+          { "required": ["convergence"] },
+          { "required": ["acceptance"] }
+        ],
+        "_migration": {
+          "description": "Field migration mapping from legacy to current format",
+          "mappings": {
+            "modification_points[].file": "files[].path",
+            "modification_points[].target": "files[].target",
+            "modification_points[].change": "files[].change",
+            "acceptance.criteria": "convergence.criteria",
+            "acceptance.verification": "convergence.verification",
+            "acceptance.manual_checks": "test.manual_checks",
+            "priority (integer 1-5)": "priority (string enum)",
+            "estimated_minutes": "effort"
           }
         }
       }

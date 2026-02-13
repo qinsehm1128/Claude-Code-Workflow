@@ -5,7 +5,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useIntl } from 'react-intl';
-import { Plus, RefreshCw, XCircle } from 'lucide-react';
+import { Copy, Plus, RefreshCw, Share2, XCircle } from 'lucide-react';
 import { Terminal as XTerm } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { Button } from '@/components/ui/Button';
@@ -16,6 +16,9 @@ import { useWorkflowStore, selectProjectPath } from '@/stores/workflowStore';
 import {
   closeCliSession,
   createCliSession,
+  createCliSessionShareToken,
+  fetchCliSessionShares,
+  revokeCliSessionShareToken,
   executeInCliSession,
   fetchCliSessionBuffer,
   fetchCliSessions,
@@ -53,6 +56,12 @@ export function IssueTerminalTab({ issueId }: { issueId: string }) {
   const [resumeStrategy, setResumeStrategy] = useState<ResumeStrategy>('nativeResume');
   const [prompt, setPrompt] = useState('');
   const [isExecuting, setIsExecuting] = useState(false);
+  const [shareUrl, setShareUrl] = useState<string>('');
+  const [shareToken, setShareToken] = useState<string>('');
+  const [shareExpiresAt, setShareExpiresAt] = useState<string>('');
+  const [shareRecords, setShareRecords] = useState<Array<{ shareToken: string; expiresAt: string; mode: 'read' | 'write' }>>([]);
+  const [isLoadingShares, setIsLoadingShares] = useState(false);
+  const [isRevokingShare, setIsRevokingShare] = useState(false);
 
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
   const xtermRef = useRef<XTerm | null>(null);
@@ -69,7 +78,7 @@ export function IssueTerminalTab({ issueId }: { issueId: string }) {
     pendingInputRef.current = '';
     if (!pending) return;
     try {
-      await sendCliSessionText(sessionKey, { text: pending, appendNewline: false });
+      await sendCliSessionText(sessionKey, { text: pending, appendNewline: false }, projectPath || undefined);
     } catch (e) {
       // Ignore transient failures (WS output still shows process state)
     }
@@ -86,13 +95,13 @@ export function IssueTerminalTab({ issueId }: { issueId: string }) {
   useEffect(() => {
     setIsLoadingSessions(true);
     setError(null);
-    fetchCliSessions()
+    fetchCliSessions(projectPath || undefined)
       .then((r) => {
         setSessions(r.sessions as unknown as CliSession[]);
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setIsLoadingSessions(false));
-  }, [setSessions]);
+  }, [projectPath, setSessions]);
 
   // Auto-select a session if none selected yet
   useEffect(() => {
@@ -100,6 +109,39 @@ export function IssueTerminalTab({ issueId }: { issueId: string }) {
     if (sessions.length === 0) return;
     setSelectedSessionKey(sessions[sessions.length - 1]?.sessionKey ?? '');
   }, [sessions, selectedSessionKey]);
+
+  const buildShareLink = (sessionKey: string, token: string): string => {
+    const url = new URL(window.location.href);
+    const base = (import.meta.env.BASE_URL ?? '/').replace(/\/$/, '');
+    url.pathname = `${base}/cli-sessions/share`;
+    url.search = `sessionKey=${encodeURIComponent(sessionKey)}&shareToken=${encodeURIComponent(token)}`;
+    return url.toString();
+  };
+
+  const refreshShares = async (sessionKey: string) => {
+    if (!sessionKey) {
+      setShareRecords([]);
+      return;
+    }
+    setIsLoadingShares(true);
+    try {
+      const r = await fetchCliSessionShares(sessionKey, projectPath || undefined);
+      setShareRecords(r.shares || []);
+    } catch {
+      setShareRecords([]);
+    } finally {
+      setIsLoadingShares(false);
+    }
+  };
+
+  // Refresh share tokens when session changes
+  useEffect(() => {
+    setShareUrl('');
+    setShareToken('');
+    setShareExpiresAt('');
+    void refreshShares(selectedSessionKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSessionKey, projectPath]);
 
   // Init xterm
   useEffect(() => {
@@ -152,7 +194,7 @@ export function IssueTerminalTab({ issueId }: { issueId: string }) {
     if (!selectedSessionKey) return;
     clearOutput(selectedSessionKey);
 
-    fetchCliSessionBuffer(selectedSessionKey)
+    fetchCliSessionBuffer(selectedSessionKey, projectPath || undefined)
       .then(({ buffer }) => {
         setBuffer(selectedSessionKey, buffer || '');
       })
@@ -162,7 +204,7 @@ export function IssueTerminalTab({ issueId }: { issueId: string }) {
       .finally(() => {
         fitAddon.fit();
       });
-  }, [selectedSessionKey, setBuffer, clearOutput]);
+  }, [selectedSessionKey, projectPath, setBuffer, clearOutput]);
 
   // Stream new output chunks into xterm
   useEffect(() => {
@@ -192,7 +234,7 @@ export function IssueTerminalTab({ issueId }: { issueId: string }) {
       if (selectedSessionKey) {
         void (async () => {
           try {
-            await resizeCliSession(selectedSessionKey, { cols: term.cols, rows: term.rows });
+            await resizeCliSession(selectedSessionKey, { cols: term.cols, rows: term.rows }, projectPath || undefined);
           } catch {
             // ignore
           }
@@ -203,7 +245,7 @@ export function IssueTerminalTab({ issueId }: { issueId: string }) {
     const ro = new ResizeObserver(resize);
     ro.observe(host);
     return () => ro.disconnect();
-  }, [selectedSessionKey]);
+  }, [selectedSessionKey, projectPath]);
 
   const handleCreateSession = async () => {
     setIsCreating(true);
@@ -217,7 +259,7 @@ export function IssueTerminalTab({ issueId }: { issueId: string }) {
         tool,
         model: undefined,
         resumeKey,
-      });
+      }, projectPath || undefined);
       upsertSession(created.session as unknown as CliSession);
       setSelectedSessionKey(created.session.sessionKey);
     } catch (e) {
@@ -232,7 +274,7 @@ export function IssueTerminalTab({ issueId }: { issueId: string }) {
     setIsClosing(true);
     setError(null);
     try {
-      await closeCliSession(selectedSessionKey);
+      await closeCliSession(selectedSessionKey, projectPath || undefined);
       setSelectedSessionKey('');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -254,7 +296,7 @@ export function IssueTerminalTab({ issueId }: { issueId: string }) {
         resumeKey: resumeKey.trim() || undefined,
         resumeStrategy,
         category: 'user',
-      });
+      }, projectPath || undefined);
       setPrompt('');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -267,12 +309,57 @@ export function IssueTerminalTab({ issueId }: { issueId: string }) {
     setIsLoadingSessions(true);
     setError(null);
     try {
-      const r = await fetchCliSessions();
+      const r = await fetchCliSessions(projectPath || undefined);
       setSessions(r.sessions as unknown as CliSession[]);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setIsLoadingSessions(false);
+    }
+  };
+
+  const handleCreateShareLink = async () => {
+    if (!selectedSessionKey) return;
+    setError(null);
+    setShareUrl('');
+    setShareToken('');
+    setShareExpiresAt('');
+    try {
+      const r = await createCliSessionShareToken(selectedSessionKey, { mode: 'read' }, projectPath || undefined);
+      setShareUrl(buildShareLink(selectedSessionKey, r.shareToken));
+      setShareToken(r.shareToken);
+      setShareExpiresAt(r.expiresAt);
+      void refreshShares(selectedSessionKey);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const handleRevokeShareLink = async (token: string) => {
+    if (!selectedSessionKey || !token) return;
+    setIsRevokingShare(true);
+    setError(null);
+    try {
+      await revokeCliSessionShareToken(selectedSessionKey, { shareToken: token }, projectPath || undefined);
+      if (token === shareToken) {
+        setShareUrl('');
+        setShareToken('');
+        setShareExpiresAt('');
+      }
+      void refreshShares(selectedSessionKey);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIsRevokingShare(false);
+    }
+  };
+
+  const handleCopyShareLink = async () => {
+    if (!shareUrl) return;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+    } catch {
+      // ignore
     }
   };
 
@@ -317,7 +404,77 @@ export function IssueTerminalTab({ issueId }: { issueId: string }) {
           <XCircle className="w-4 h-4 mr-2" />
           {formatMessage({ id: 'issues.terminal.session.close' })}
         </Button>
+
+        <Button variant="outline" onClick={handleCreateShareLink} disabled={!selectedSessionKey}>
+          <Share2 className="w-4 h-4 mr-2" />
+          {formatMessage({ id: 'issues.terminal.session.share' })}
+        </Button>
       </div>
+
+      {shareUrl && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Input value={shareUrl} readOnly />
+            <Button variant="outline" onClick={handleCopyShareLink}>
+              <Copy className="w-4 h-4 mr-2" />
+              {formatMessage({ id: 'common.actions.copy' })}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => handleRevokeShareLink(shareToken)}
+              disabled={isRevokingShare || !shareToken}
+            >
+              {formatMessage({ id: 'issues.terminal.session.revokeShare' })}
+            </Button>
+          </div>
+          {shareExpiresAt && (
+            <div className="text-xs text-muted-foreground font-mono">
+              {formatMessage({ id: 'issues.terminal.session.expiresAt' })}: {shareExpiresAt}
+            </div>
+          )}
+        </div>
+      )}
+
+      {selectedSessionKey && shareRecords.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-xs text-muted-foreground">
+            {formatMessage({ id: 'issues.terminal.session.activeShares' })}
+            {isLoadingShares ? '…' : ''}
+          </div>
+          <div className="space-y-1">
+            {shareRecords.map((s) => (
+              <div key={s.shareToken} className="flex items-center gap-2">
+                <div className="text-xs font-mono truncate flex-1 min-w-0">
+                  {s.shareToken.slice(0, 6)}…{s.shareToken.slice(-6)}
+                </div>
+                <div className="text-xs text-muted-foreground font-mono">{s.mode}</div>
+                <div className="text-xs text-muted-foreground font-mono truncate max-w-[220px]">{s.expiresAt}</div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(buildShareLink(selectedSessionKey, s.shareToken));
+                    } catch {
+                      // ignore
+                    }
+                  }}
+                >
+                  {formatMessage({ id: 'common.actions.copy' })}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isRevokingShare}
+                  onClick={() => handleRevokeShareLink(s.shareToken)}
+                >
+                  {formatMessage({ id: 'issues.terminal.session.revokeShare' })}
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">

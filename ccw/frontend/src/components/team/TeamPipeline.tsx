@@ -104,18 +104,6 @@ function Arrow() {
   );
 }
 
-function ForkArrow() {
-  return (
-    <div className="flex items-center px-1">
-      <div className="w-4 h-0.5 bg-border" />
-      <div className="flex flex-col gap-1">
-        <div className="w-3 h-0.5 bg-border -rotate-20" />
-        <div className="w-3 h-0.5 bg-border rotate-20" />
-      </div>
-    </div>
-  );
-}
-
 export function TeamPipeline({ messages }: TeamPipelineProps) {
   const { formatMessage } = useIntl();
   const stageStatus = derivePipelineStatus(messages);

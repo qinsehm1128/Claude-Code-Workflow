@@ -9,15 +9,10 @@ import {
   fetchGraphImpact,
   type GraphDependenciesRequest,
   type GraphDependenciesResponse,
-  type GraphImpactRequest,
-  type GraphImpactResponse,
 } from '../lib/api';
 import type {
   GraphData,
-  GraphNode,
-  GraphEdge,
   GraphFilters,
-  GraphMetadata,
   NodeType,
   EdgeType,
 } from '../types/graph-explorer';
@@ -132,7 +127,7 @@ function filterGraphData(
 
   // Filter by minimum complexity
   if (filters.minComplexity !== undefined) {
-    filteredNodes = filteredNodes.filter(node => {
+    filteredNodes = filteredNodes.filter(_node => {
       // This would require complexity data to be available
       // For now, we'll skip this filter
       return true;
@@ -239,7 +234,6 @@ export function useGraphData(options: UseGraphDataOptions = {}): UseGraphDataRet
     rootPath,
     maxDepth,
     nodeTypes,
-    edgeTypes,
   } = options;
 
   const queryClient = useQueryClient();

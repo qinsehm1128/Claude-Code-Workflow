@@ -3,25 +3,16 @@
 // ========================================
 // Maps A2UI Button component to shadcn/ui Button
 
-import React from 'react';
 import { Button } from '@/components/ui/Button';
 import type { ComponentRenderer } from '../../core/A2UIComponentRegistry';
-import type { A2UIState, ActionHandler, BindingResolver } from '../../core/A2UIComponentRegistry';
-import type { ButtonComponent, A2UIComponent } from '../../core/A2UITypes';
+import type { ButtonComponent } from '../../core/A2UITypes';
 import { resolveLiteralOrBinding } from '../A2UIRenderer';
-
-interface A2UIButtonRendererProps {
-  component: A2UIComponent;
-  state: A2UIState;
-  onAction: ActionHandler;
-  resolveBinding: BindingResolver;
-}
 
 /**
  * A2UI Button Component Renderer
  * Maps A2UI variants (primary/secondary/destructive) to shadcn/ui variants (default/secondary/destructive/ghost)
  */
-export const A2UIButton: ComponentRenderer = ({ component, state, onAction, resolveBinding }) => {
+export const A2UIButton: ComponentRenderer = ({ component, onAction, resolveBinding }) => {
   const buttonComp = component as ButtonComponent;
   const { Button: buttonConfig } = buttonComp;
 

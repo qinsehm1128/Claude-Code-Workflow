@@ -153,7 +153,7 @@
       "allowedDirs": "Allowed Directories",
       "allowedDirsPlaceholder": "dir1,dir2,dir3",
       "allowedDirsHint": "Comma-separated list of allowed directories",
-      "disableSandbox": "Disable Sandbox"
+      "enableSandbox": "Enable Sandbox (restrict to workspace files only)"
     },
     "actions": {
       "enableAll": "Enable All",

@@ -91,7 +91,6 @@ export function AssistantMessage({
   onCopy,
   className
 }: AssistantMessageProps) {
-  const { formatMessage } = useIntl();
   const [isExpanded, setIsExpanded] = useState(true);
   const [copied, setCopied] = useState(false);
 

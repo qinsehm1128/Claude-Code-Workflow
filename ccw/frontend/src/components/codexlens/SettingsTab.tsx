@@ -7,21 +7,264 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useIntl } from 'react-intl';
-import { Save, RefreshCw } from 'lucide-react';
+import { Save, RefreshCw, Loader2 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Label } from '@/components/ui/Label';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  SelectGroup,
+  SelectLabel,
+} from '@/components/ui/Select';
+import {
   useCodexLensConfig,
   useCodexLensEnv,
   useUpdateCodexLensEnv,
   useCodexLensModels,
+  useCodexLensRerankerConfig,
+  useUpdateRerankerConfig,
 } from '@/hooks';
 import { useNotifications } from '@/hooks';
 import { cn } from '@/lib/utils';
 import { SchemaFormRenderer } from './SchemaFormRenderer';
 import { envVarGroupsSchema, getSchemaDefaults } from './envVarSchema';
+
+// ========== Reranker Configuration Card ==========
+
+interface RerankerConfigCardProps {
+  enabled?: boolean;
+}
+
+function RerankerConfigCard({ enabled = true }: RerankerConfigCardProps) {
+  const { formatMessage } = useIntl();
+  const { success: showSuccess, error: showError } = useNotifications();
+
+  const {
+    backend: serverBackend,
+    modelName: serverModelName,
+    apiProvider: serverApiProvider,
+    apiKeySet,
+    availableBackends,
+    apiProviders,
+    litellmModels,
+    configSource,
+    isLoading,
+  } = useCodexLensRerankerConfig({ enabled });
+
+  const { updateConfig, isUpdating } = useUpdateRerankerConfig();
+
+  const [backend, setBackend] = useState('');
+  const [modelName, setModelName] = useState('');
+  const [apiProvider, setApiProvider] = useState('');
+  const [hasChanges, setHasChanges] = useState(false);
+
+  // Initialize form from server data
+  useEffect(() => {
+    setBackend(serverBackend);
+    setModelName(serverModelName);
+    setApiProvider(serverApiProvider);
+    setHasChanges(false);
+  }, [serverBackend, serverModelName, serverApiProvider]);
+
+  // Detect changes
+  useEffect(() => {
+    const changed =
+      backend !== serverBackend ||
+      modelName !== serverModelName ||
+      apiProvider !== serverApiProvider;
+    setHasChanges(changed);
+  }, [backend, modelName, apiProvider, serverBackend, serverModelName, serverApiProvider]);
+
+  const handleSave = async () => {
+    try {
+      const request: Record<string, string> = {};
+      if (backend !== serverBackend) request.backend = backend;
+      if (modelName !== serverModelName) {
+        // When backend is litellm, model_name is sent as litellm_endpoint
+        if (backend === 'litellm') {
+          request.litellm_endpoint = modelName;
+        } else {
+          request.model_name = modelName;
+        }
+      }
+      if (apiProvider !== serverApiProvider) request.api_provider = apiProvider;
+
+      const result = await updateConfig(request);
+      if (result.success) {
+        showSuccess(
+          formatMessage({ id: 'codexlens.reranker.saveSuccess' }),
+          result.message || ''
+        );
+      } else {
+        showError(
+          formatMessage({ id: 'codexlens.reranker.saveFailed' }),
+          result.error || ''
+        );
+      }
+    } catch (err) {
+      showError(
+        formatMessage({ id: 'codexlens.reranker.saveFailed' }),
+        err instanceof Error ? err.message : ''
+      );
+    }
+  };
+
+  // Determine whether to show litellm model dropdown or text input
+  const showLitellmModelSelect = backend === 'litellm' && litellmModels && litellmModels.length > 0;
+  // Show provider dropdown only for api backend
+  const showProviderSelect = backend === 'api';
+
+  if (isLoading) {
+    return (
+      <Card className="p-6">
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          <span>{formatMessage({ id: 'common.loading' })}</span>
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="p-6">
+      <h3 className="text-lg font-semibold text-foreground mb-1">
+        {formatMessage({ id: 'codexlens.reranker.title' })}
+      </h3>
+      <p className="text-sm text-muted-foreground mb-4">
+        {formatMessage({ id: 'codexlens.reranker.description' })}
+      </p>
+
+      <div className="space-y-4">
+        {/* Backend Select */}
+        <div className="space-y-2">
+          <Label>{formatMessage({ id: 'codexlens.reranker.backend' })}</Label>
+          <Select value={backend} onValueChange={setBackend}>
+            <SelectTrigger>
+              <SelectValue placeholder={formatMessage({ id: 'codexlens.reranker.selectBackend' })} />
+            </SelectTrigger>
+            <SelectContent>
+              {availableBackends.length > 0 ? (
+                availableBackends.map((b) => (
+                  <SelectItem key={b} value={b}>
+                    {b}
+                  </SelectItem>
+                ))
+              ) : (
+                <SelectItem value="_none" disabled>
+                  {formatMessage({ id: 'codexlens.reranker.noBackends' })}
+                </SelectItem>
+              )}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            {formatMessage({ id: 'codexlens.reranker.backendHint' })}
+          </p>
+        </div>
+
+        {/* Model - Select for litellm, Input for others */}
+        <div className="space-y-2">
+          <Label>{formatMessage({ id: 'codexlens.reranker.model' })}</Label>
+          {showLitellmModelSelect ? (
+            <Select value={modelName} onValueChange={setModelName}>
+              <SelectTrigger>
+                <SelectValue placeholder={formatMessage({ id: 'codexlens.reranker.selectModel' })} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectLabel>
+                    {formatMessage({ id: 'codexlens.reranker.litellmModels' })}
+                  </SelectLabel>
+                  {litellmModels!.map((m) => (
+                    <SelectItem key={m.modelId} value={m.modelId}>
+                      {m.modelName}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          ) : (
+            <Input
+              value={modelName}
+              onChange={(e) => setModelName(e.target.value)}
+              placeholder={formatMessage({ id: 'codexlens.reranker.selectModel' })}
+            />
+          )}
+          <p className="text-xs text-muted-foreground">
+            {formatMessage({ id: 'codexlens.reranker.modelHint' })}
+          </p>
+        </div>
+
+        {/* Provider Select (only for api backend) */}
+        {showProviderSelect && (
+          <div className="space-y-2">
+            <Label>{formatMessage({ id: 'codexlens.reranker.provider' })}</Label>
+            <Select value={apiProvider} onValueChange={setApiProvider}>
+              <SelectTrigger>
+                <SelectValue placeholder={formatMessage({ id: 'codexlens.reranker.selectProvider' })} />
+              </SelectTrigger>
+              <SelectContent>
+                {apiProviders.length > 0 ? (
+                  apiProviders.map((p) => (
+                    <SelectItem key={p} value={p}>
+                      {p}
+                    </SelectItem>
+                  ))
+                ) : (
+                  <SelectItem value="_none" disabled>
+                    {formatMessage({ id: 'codexlens.reranker.noProviders' })}
+                  </SelectItem>
+                )}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {formatMessage({ id: 'codexlens.reranker.providerHint' })}
+            </p>
+          </div>
+        )}
+
+        {/* Status Row */}
+        <div className="flex items-center gap-4 text-sm text-muted-foreground pt-2 border-t">
+          <span>
+            {formatMessage({ id: 'codexlens.reranker.apiKeyStatus' })}:{' '}
+            <span className={apiKeySet ? 'text-green-600' : 'text-yellow-600'}>
+              {apiKeySet
+                ? formatMessage({ id: 'codexlens.reranker.apiKeySet' })
+                : formatMessage({ id: 'codexlens.reranker.apiKeyNotSet' })}
+            </span>
+          </span>
+          <span>
+            {formatMessage({ id: 'codexlens.reranker.configSource' })}: {configSource}
+          </span>
+        </div>
+
+        {/* Save Button */}
+        <div className="flex items-center gap-2 pt-2">
+          <Button
+            onClick={handleSave}
+            disabled={isUpdating || !hasChanges}
+            size="sm"
+          >
+            {isUpdating ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <Save className="w-4 h-4 mr-2" />
+            )}
+            {isUpdating
+              ? formatMessage({ id: 'codexlens.reranker.saving' })
+              : formatMessage({ id: 'codexlens.reranker.save' })}
+          </Button>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+// ========== Settings Tab ==========
 
 interface SettingsTabProps {
   enabled?: boolean;
@@ -218,6 +461,9 @@ export function SettingsTab({ enabled = true }: SettingsTabProps) {
           </div>
         </div>
       </Card>
+
+      {/* Reranker Configuration */}
+      <RerankerConfigCard enabled={enabled} />
 
       {/* General Configuration */}
       <Card className="p-6">

@@ -29,11 +29,23 @@ Unified issue discovery and creation skill covering three entry points: manual i
   Issue      Discoveries  Discoveries   │
 (registered)  (export)    (export)      │
      │           │           │          │
-     └───────────┴───────────┘          │
-                  ↓                     │
-          issue-resolve (plan/queue)    │
-                  ↓                     │
-            /issue:execute              │
+     │           ├───────────┤          │
+     │           ↓                      │
+     │     ┌───────────┐               │
+     │     │  Phase 4  │               │
+     │     │Quick Plan │               │
+     │     │& Execute  │               │
+     │     └─────┬─────┘               │
+     │           ↓                      │
+     │     .task/*.json                 │
+     │           ↓                      │
+     │     Direct Execution             │
+     │           │                      │
+     └───────────┴──────────────────────┘
+                  ↓ (fallback/remaining)
+          issue-resolve (plan/queue)
+                  ↓
+            /issue:execute
 ```
 
 ## Key Design Principles
@@ -107,6 +119,7 @@ Post-Phase:
 | Phase 1 | [phases/01-issue-new.md](phases/01-issue-new.md) | Action = Create New | Create issue from GitHub URL or text description |
 | Phase 2 | [phases/02-discover.md](phases/02-discover.md) | Action = Discover | Multi-perspective issue discovery (bug, security, test, etc.) |
 | Phase 3 | [phases/03-discover-by-prompt.md](phases/03-discover-by-prompt.md) | Action = Discover by Prompt | Prompt-driven iterative exploration with Gemini planning |
+| Phase 4 | [phases/04-quick-execute.md](phases/04-quick-execute.md) | Post-Phase = Quick Plan & Execute | Convert high-confidence findings to tasks and execute directly |
 
 ## Core Rules
 
@@ -321,13 +334,15 @@ ASK_USER([{
 ASK_USER([{
   id: "next_after_discover",
   type: "select",
-  prompt: "Discovery complete. What next?",
+  prompt: `Discovery complete: ${findings.length} findings, ${executableFindings.length} executable. What next?`,
   options: [
+    { label: "Quick Plan & Execute (Recommended)", description: `Fix ${executableFindings.length} high-confidence findings directly` },
     { label: "Export to Issues", description: "Convert discoveries to issues" },
     { label: "Plan Solutions", description: "Plan solutions for exported issues via issue-resolve" },
     { label: "Done", description: "Exit workflow" }
   ]
 }]);  // BLOCKS (wait for user response)
+// If "Quick Plan & Execute" → Read phases/04-quick-execute.md, execute
 ```
 
 ## Related Skills & Commands

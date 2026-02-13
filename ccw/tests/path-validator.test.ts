@@ -95,14 +95,25 @@ describe('path-validator utility module', async () => {
     assert.deepEqual(realpathCalls, [absolute]);
   });
 
-  it('validatePath rejects paths outside allowed directories', async () => {
+  it('validatePath rejects paths outside allowed directories when sandbox is enabled', async () => {
+    process.env.CCW_ENABLE_SANDBOX = '1';
     await assert.rejects(
       mod.validatePath('C:\\secret\\file.txt', { allowedDirectories: ['C:\\allowed'] }),
       (err: any) => err instanceof Error && err.message.includes('Access denied: path'),
     );
   });
 
-  it('validatePath re-checks symlink target after realpath', async () => {
+  it('validatePath allows paths outside allowed directories when sandbox is disabled (default)', async () => {
+    delete process.env.CCW_ENABLE_SANDBOX;
+    const link = 'C:\\secret\\file.txt';
+    realpathPlan.set(link, { type: 'return', value: link });
+
+    const result = await mod.validatePath(link, { allowedDirectories: ['C:\\allowed'] });
+    assert.equal(result, 'C:/secret/file.txt');
+  });
+
+  it('validatePath re-checks symlink target after realpath when sandbox is enabled', async () => {
+    process.env.CCW_ENABLE_SANDBOX = '1';
     const link = 'C:\\allowed\\link.txt';
     realpathPlan.set(link, { type: 'return', value: 'C:\\secret\\target.txt' });
 

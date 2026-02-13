@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/Button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs';
 import { cn } from '@/lib/utils';
 import type { Issue } from '@/lib/api';
-import { IssueTerminalTab } from './IssueTerminalTab';
+import { useOpenTerminalPanel } from '@/stores/terminalPanelStore';
 
 // ========== Types ==========
 export interface IssueDrawerProps {
@@ -43,6 +43,7 @@ const priorityConfig: Record<string, { label: string; variant: 'default' | 'seco
 
 export function IssueDrawer({ issue, isOpen, onClose, initialTab = 'overview' }: IssueDrawerProps) {
   const { formatMessage } = useIntl();
+  const openTerminal = useOpenTerminalPanel();
   const [activeTab, setActiveTab] = useState<TabValue>(initialTab);
 
   // Reset to initial tab when opening/switching issues
@@ -224,9 +225,21 @@ export function IssueDrawer({ issue, isOpen, onClose, initialTab = 'overview' }:
                 )}
               </TabsContent>
 
-              {/* Terminal Tab */}
+              {/* Terminal Tab - Link to Terminal Panel */}
               <TabsContent value="terminal" className="mt-4 pb-6 focus-visible:outline-none">
-                <IssueTerminalTab issueId={issue.id} />
+                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                  <Terminal className="h-12 w-12 mb-4 opacity-50" />
+                  <p className="text-sm mb-4">{formatMessage({ id: 'home.terminalPanel.openInPanel' })}</p>
+                  <Button
+                    onClick={() => {
+                      openTerminal(issue.id);
+                      onClose();
+                    }}
+                  >
+                    <Terminal className="h-4 w-4 mr-2" />
+                    {formatMessage({ id: 'home.terminalPanel.openInPanel' })}
+                  </Button>
+                </div>
               </TabsContent>
 
               {/* History Tab */}

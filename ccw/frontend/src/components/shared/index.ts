@@ -159,3 +159,12 @@ export { ConfigSync } from './ConfigSync';
 export { ConfigSyncModal } from './ConfigSyncModal';
 export type { ConfigSyncProps, BackupInfo, SyncResult, BackupResult } from './ConfigSync';
 export type { ConfigSyncModalProps } from './ConfigSyncModal';
+
+// CLI execution settings
+export { CliExecutionSettings } from './CliExecutionSettings';
+export type {
+  CliExecutionSettingsProps,
+  ToolName,
+  ExecutionMode,
+  ResumeStrategy,
+} from './CliExecutionSettings';

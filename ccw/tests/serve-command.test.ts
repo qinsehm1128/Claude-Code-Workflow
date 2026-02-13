@@ -63,7 +63,11 @@ describe('serve command module', async () => {
       assert.ok(sigintHandler, 'Expected serveCommand to register SIGINT handler');
 
       sigintHandler?.();
-      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      // Wait for async shutdown (stopReactFrontend can take up to ~6s)
+      for (let i = 0; i < 40 && !exitCodes.includes(0); i++) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
 
       assert.ok(exitCodes.includes(0));
     } finally {

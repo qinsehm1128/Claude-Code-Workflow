@@ -1191,8 +1191,8 @@ export async function handleMcpRoutes(ctx: RouteContext): Promise<boolean> {
         return { error: 'projectPath is required', status: 400 };
       }
 
-      // Check if sandbox should be disabled
-      const disableSandbox = body.disableSandbox === true;
+      // Check if sandbox should be enabled
+      const enableSandbox = body.enableSandbox === true;
 
       // Parse enabled tools from request body
       const enabledTools = Array.isArray(body.enabledTools) && body.enabledTools.length > 0
@@ -1207,7 +1207,7 @@ export async function handleMcpRoutes(ctx: RouteContext): Promise<boolean> {
         args: isWin ? ["/c", "npx", "-y", "ccw-mcp"] : ["-y", "ccw-mcp"],
         env: {
           CCW_ENABLED_TOOLS: enabledTools,
-          ...(disableSandbox && { CCW_DISABLE_SANDBOX: "1" })
+          ...(enableSandbox && { CCW_ENABLE_SANDBOX: "1" })
         }
       };
 

@@ -44,12 +44,13 @@
   },
   "emptyState": {
     "noSessions": {
-      "title": "No Sessions Found",
-      "message": "No workflow sessions match your current filter."
+      "title": "No Active Sessions",
+      "message": "Start your first workflow session to begin tracking tasks and progress.",
+      "hint": "Create a planning session to get started"
     },
     "noTasks": {
       "title": "No Tasks",
-      "message": "No tasks match your current filter."
+      "message": "No tasks available in this session."
     },
     "noLoops": {
       "title": "No Active Loops",
@@ -104,5 +105,22 @@
   },
   "project": {
     "features": "features"
+  },
+  "terminalPanel": {
+    "title": "Terminal Monitor",
+    "executionQueue": "Execution Queue",
+    "executionQueueDesc": "Execution Queue Management",
+    "executionQueuePhase2": "Coming in Phase 2",
+    "noTerminalSelected": "No terminal selected",
+    "selectTerminalHint": "Select a terminal from the sidebar",
+    "commandPlaceholder": "Enter command... (Ctrl+Enter to execute)",
+    "execute": "Execute",
+    "openInPanel": "Open in Terminal Panel",
+    "status": {
+      "running": "Running",
+      "completed": "Completed",
+      "failed": "Failed",
+      "idle": "Idle"
+    }
   }
 }

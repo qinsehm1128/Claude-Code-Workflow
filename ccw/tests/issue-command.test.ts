@@ -626,6 +626,19 @@ describe('issue command module', async () => {
         tasks: [
           {
             id: 'T1',
+            files: files.map((file) => ({ path: file, target: 'x', change: 'y' })),
+          },
+        ],
+      });
+    }
+
+    function makeSolutionWithLegacyFiles(id: string, files: string[], isBound = true): MockSolution {
+      return createMockSolution({
+        id,
+        is_bound: isBound,
+        tasks: [
+          {
+            id: 'T1',
             modification_points: files.map((file) => ({ file, target: 'x', change: 'y' })),
           },
         ],
@@ -712,7 +725,7 @@ describe('issue command module', async () => {
       assert.equal(items[0].solution_id, solutionId);
     });
 
-    it('deduplicates files_touched extracted from modification_points', async () => {
+    it('deduplicates files_touched extracted from files (new format)', async () => {
       issueModule ??= await import(issueCommandUrl);
       assert.ok(env);
 
@@ -733,6 +746,29 @@ describe('issue command module', async () => {
       const items = queue.solutions || [];
       assert.equal(items.length, 1);
       assert.deepEqual(items[0].files_touched?.sort(), ['src/dup.ts', 'src/other.ts']);
+    });
+
+    it('extracts files_touched from legacy modification_points format', async () => {
+      issueModule ??= await import(issueCommandUrl);
+      assert.ok(env);
+
+      mock.method(console, 'log', () => {});
+      mock.method(console, 'error', () => {});
+
+      const issueId = 'ISS-QUEUE-LEGACY';
+      const solutionId = 'SOL-ISS-QUEUE-LEGACY-1';
+      const files = ['src/legacy-a.ts', 'src/legacy-b.ts'];
+
+      issueModule.writeIssues([createMockIssue({ id: issueId, status: 'planned', bound_solution_id: solutionId })]);
+      issueModule.writeSolutions(issueId, [makeSolutionWithLegacyFiles(solutionId, files, true)]);
+
+      await issueModule.issueCommand('queue', ['add', issueId], {});
+
+      const queue = issueModule.readQueue();
+      assert.ok(queue);
+      const items = queue.solutions || [];
+      assert.equal(items.length, 1);
+      assert.deepEqual(items[0].files_touched?.sort(), files.slice().sort());
     });
 
     it('adds multiple issues to the same active queue with incrementing item IDs', async () => {

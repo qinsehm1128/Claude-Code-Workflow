@@ -33,10 +33,15 @@ import { join, dirname } from 'path';
 import { randomBytes } from 'crypto';
 import { fileURLToPath } from 'url';
 import type { RouteContext } from './types.js';
+import { FlowExecutor } from '../services/flow-executor.js';
+import { validatePath as validateAllowedPath } from '../../utils/path-validator.js';
 
 // ES Module __dirname equivalent
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+// In-memory execution engines for pause/resume/stop (best-effort; resets on server restart)
+const activeExecutors = new Map<string, FlowExecutor>();
 
 // ============================================================================
 // TypeScript Interfaces
@@ -847,8 +852,25 @@ function flowToTemplate(
 export async function handleOrchestratorRoutes(ctx: RouteContext): Promise<boolean> {
   const { pathname, req, res, initialPath, handlePostRequest, broadcastToClients } = ctx;
 
-  // Get workflow directory from initialPath
-  const workflowDir = initialPath || process.cwd();
+  // Get workflow directory from initialPath, optionally overridden by ?path= (scoped to allowed dirs)
+  const allowedRoot = initialPath || process.cwd();
+  let workflowDir = allowedRoot;
+
+  const projectPathParam = ctx.url.searchParams.get('path');
+  if (projectPathParam && projectPathParam.trim()) {
+    try {
+      workflowDir = await validateAllowedPath(projectPathParam, {
+        mustExist: true,
+        allowedDirectories: [allowedRoot],
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      const status = message.toLowerCase().includes('access denied') ? 403 : 400;
+      res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ success: false, error: status === 403 ? 'Access denied' : 'Invalid path' }));
+      return true;
+    }
+  }
 
   // ==== LIST FLOWS ====
   // GET /api/orchestrator/flows
@@ -1209,9 +1231,24 @@ export async function handleOrchestratorRoutes(ctx: RouteContext): Promise<boole
         // Broadcast execution created
         broadcastExecutionStateUpdate(execution);
 
-        // TODO: Trigger actual flow executor (future enhancement)
-        // For now, just create the execution in pending state
-        // The executor will be implemented in a later task
+        // Trigger actual flow executor (best-effort, async)
+        // Execution state is persisted by FlowExecutor and updates are broadcast via WebSocket.
+        try {
+          const executor = new FlowExecutor(flow, execId, workflowDir);
+          activeExecutors.set(execId, executor);
+
+          void executor.execute(inputVariables).then((finalState) => {
+            // Keep executor instance if paused, so it can be resumed.
+            if (finalState.status !== 'paused') {
+              activeExecutors.delete(execId);
+            }
+          }).catch(() => {
+            // Best-effort cleanup on unexpected failures.
+            activeExecutors.delete(execId);
+          });
+        } catch {
+          // If executor bootstrap fails, keep the pending execution for inspection.
+        }
 
         return {
           success: true,
@@ -1241,6 +1278,19 @@ export async function handleOrchestratorRoutes(ctx: RouteContext): Promise<boole
     }
 
     try {
+      const executor = activeExecutors.get(execId);
+      if (executor) {
+        executor.pause();
+        const execution = await readExecutionStorage(workflowDir, execId);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          success: true,
+          data: execution ?? executor.getState(),
+          message: 'Pause requested'
+        }));
+        return true;
+      }
+
       const execution = await readExecutionStorage(workflowDir, execId);
       if (!execution) {
         res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -1294,6 +1344,36 @@ export async function handleOrchestratorRoutes(ctx: RouteContext): Promise<boole
     }
 
     try {
+      const executor = activeExecutors.get(execId);
+      if (executor) {
+        const current = executor.getState();
+        if (current.status !== 'paused') {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            success: false,
+            error: `Cannot resume execution with status: ${current.status}`
+          }));
+          return true;
+        }
+
+        void executor.resume().then((finalState) => {
+          if (finalState.status !== 'paused') {
+            activeExecutors.delete(execId);
+          }
+        }).catch(() => {
+          // Best-effort: keep executor for inspection/resume retries.
+        });
+
+        const execution = await readExecutionStorage(workflowDir, execId);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          success: true,
+          data: execution ?? executor.getState(),
+          message: 'Resume requested'
+        }));
+        return true;
+      }
+
       const execution = await readExecutionStorage(workflowDir, execId);
       if (!execution) {
         res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -1347,6 +1427,36 @@ export async function handleOrchestratorRoutes(ctx: RouteContext): Promise<boole
     }
 
     try {
+      const executor = activeExecutors.get(execId);
+      if (executor) {
+        executor.stop();
+
+        // If currently paused, mark as failed immediately (no running loop to observe stop flag).
+        const current = executor.getState();
+        if (current.status === 'paused') {
+          const now = new Date().toISOString();
+          current.status = 'failed';
+          current.completedAt = now;
+          current.logs.push({
+            timestamp: now,
+            level: 'warn',
+            message: 'Execution manually stopped by user'
+          });
+          await writeExecutionStorage(workflowDir, current);
+          broadcastExecutionStateUpdate(current);
+          activeExecutors.delete(execId);
+        }
+
+        const execution = await readExecutionStorage(workflowDir, execId);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          success: true,
+          data: execution ?? current,
+          message: 'Stop requested'
+        }));
+        return true;
+      }
+
       const execution = await readExecutionStorage(workflowDir, execId);
       if (!execution) {
         res.writeHead(404, { 'Content-Type': 'application/json' });

@@ -92,7 +92,7 @@ function TaskMarqueeWidgetComponent({ className }: TaskMarqueeWidgetProps) {
         {/* Status and Priority badges */}
         <div className="flex items-center gap-2 flex-wrap">
           <Badge className={cn(statusColors[currentTask.status], 'capitalize')}>
-            {formatMessage({ id: statusLabelKeys[currentTask.status] })}
+            {formatMessage({ id: statusLabelKeys[currentTask.status] ?? 'sessions.status.inProgress' })}
           </Badge>
           <Badge className={cn(priorityColors[currentTask.priority], 'capitalize')}>
             {formatMessage({ id: `common.priority.${currentTask.priority}` })}

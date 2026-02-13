@@ -3,24 +3,16 @@
 // ========================================
 // Maps A2UI Progress component to shadcn/ui Progress
 
-import React from 'react';
 import { Progress } from '@/components/ui/Progress';
 import type { ComponentRenderer } from '../../core/A2UIComponentRegistry';
 import { resolveLiteralOrBinding } from '../A2UIRenderer';
 import type { ProgressComponent } from '../../core/A2UITypes';
 
-interface A2UIProgressProps {
-  component: ProgressComponent;
-  state: Record<string, unknown>;
-  onAction: (actionId: string, params: Record<string, unknown>) => void | Promise<void>;
-  resolveBinding: (binding: { path: string }) => unknown;
-}
-
 /**
  * A2UI Progress Component Renderer
  * For CLI output progress display
  */
-export const A2UIProgress: ComponentRenderer = ({ component, state, onAction, resolveBinding }) => {
+export const A2UIProgress: ComponentRenderer = ({ component, resolveBinding }) => {
   const progressComp = component as ProgressComponent;
   const { Progress: progressConfig } = progressComp;
 

@@ -43,15 +43,66 @@ interface ExportTemplateResponse {
 
 // ========== Fetch Functions ==========
 
+function toFlowTemplate(raw: any): FlowTemplate {
+  const meta = raw?.template_metadata ?? {};
+  const nodes = Array.isArray(raw?.nodes) ? raw.nodes : [];
+  const edges = Array.isArray(raw?.edges) ? raw.edges : [];
+
+  return {
+    id: String(raw?.id ?? ''),
+    name: String(raw?.name ?? ''),
+    description: (typeof meta.description === 'string' ? meta.description : raw?.description) || undefined,
+    category: typeof meta.category === 'string' ? meta.category : undefined,
+    tags: Array.isArray(meta.tags) ? meta.tags : undefined,
+    author: typeof meta.author === 'string' ? meta.author : undefined,
+    version: String(meta.version ?? raw?.version ?? '1.0.0'),
+    created_at: String(raw?.created_at ?? new Date().toISOString()),
+    updated_at: String(raw?.updated_at ?? new Date().toISOString()),
+    nodeCount: nodes.length,
+    edgeCount: edges.length,
+  };
+}
+
+function toFlowFromTemplate(raw: any): Flow {
+  const meta = raw?.template_metadata ?? {};
+  const now = new Date().toISOString();
+  return {
+    id: `flow-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+    name: String(raw?.name ?? 'Template Flow'),
+    description: (typeof meta.description === 'string' ? meta.description : raw?.description) || undefined,
+    version: String(meta.version ?? raw?.version ?? '1.0.0'),
+    created_at: String(raw?.created_at ?? now),
+    updated_at: String(raw?.updated_at ?? now),
+    nodes: Array.isArray(raw?.nodes) ? raw.nodes : [],
+    edges: Array.isArray(raw?.edges) ? raw.edges : [],
+    variables: typeof raw?.variables === 'object' && raw.variables ? raw.variables : {},
+    metadata: {
+      source: 'template',
+      templateId: typeof raw?.id === 'string' ? raw.id : undefined,
+      tags: Array.isArray(meta.tags) ? meta.tags : undefined,
+      category: typeof meta.category === 'string' ? meta.category : undefined,
+    },
+  };
+}
+
 async function fetchTemplates(category?: string): Promise<TemplatesListResponse> {
   const url = category
     ? `${API_BASE}/templates?category=${encodeURIComponent(category)}`
     : `${API_BASE}/templates`;
-  const response = await fetch(url);
+  const response = await fetch(url, { credentials: 'same-origin' });
   if (!response.ok) {
     throw new Error(`Failed to fetch templates: ${response.statusText}`);
   }
-  return response.json();
+  const json = await response.json();
+  const rawTemplates: any[] = Array.isArray(json?.data) ? json.data : (json?.templates || []);
+  const templates: FlowTemplate[] = rawTemplates.map(toFlowTemplate);
+  const total = typeof json?.total === 'number' ? json.total : templates.length;
+  const categories = Array.from(new Set(
+    templates
+      .map((t) => t.category)
+      .filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
+  ));
+  return { templates, total, categories };
 }
 
 async function fetchTemplate(id: string): Promise<TemplateDetailResponse> {
@@ -67,11 +118,14 @@ async function installTemplate(request: TemplateInstallRequest): Promise<Install
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
+    credentials: 'same-origin',
   });
   if (!response.ok) {
     throw new Error(`Failed to install template: ${response.statusText}`);
   }
-  return response.json();
+  const json = await response.json();
+  const template = (json && typeof json === 'object' && 'data' in json) ? json.data : json;
+  return { flow: toFlowFromTemplate(template), message: json?.message || 'Template installed' };
 }
 
 async function exportTemplate(request: TemplateExportRequest): Promise<ExportTemplateResponse> {
@@ -79,16 +133,20 @@ async function exportTemplate(request: TemplateExportRequest): Promise<ExportTem
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
+    credentials: 'same-origin',
   });
   if (!response.ok) {
     throw new Error(`Failed to export template: ${response.statusText}`);
   }
-  return response.json();
+  const json = await response.json();
+  const template = (json && typeof json === 'object' && 'data' in json) ? json.data : json;
+  return { template: toFlowTemplate(template), message: json?.message || 'Template exported' };
 }
 
 async function deleteTemplate(id: string): Promise<void> {
   const response = await fetch(`${API_BASE}/templates/${id}`, {
     method: 'DELETE',
+    credentials: 'same-origin',
   });
   if (!response.ok) {
     throw new Error(`Failed to delete template: ${response.statusText}`);

@@ -3,7 +3,7 @@
 // ========================================
 // Vertical timeline displaying tool calls in chronological order
 
-import React, { memo, useMemo, useCallback, useEffect, useRef } from 'react';
+import { memo, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Wrench, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ToolCallCard } from './ToolCallCard';

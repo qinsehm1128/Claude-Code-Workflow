@@ -5,7 +5,6 @@
 
 import { useMemo } from 'react';
 import { Brain, Settings, AlertCircle, Info, MessageCircle, Wrench } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { JsonCard } from './JsonCard';
 import { detectJsonInLine } from '../utils/jsonDetector';
 

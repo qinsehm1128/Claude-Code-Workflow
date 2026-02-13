@@ -41,7 +41,8 @@ When `--yes` or `-y`: Auto-approve splits, skip confirmations.
 | Artifact | Description |
 |----------|-------------|
 | `planning-context.md` | Evidence paths + synthesized understanding |
-| `plan.json` | Complete agent plan (detailed implementation) |
+| `plan.json` | Plan overview with task_ids[] (NO embedded tasks[]) |
+| `.task/TASK-*.json` | Independent task files following task-schema.json |
 | Updates to `plan-note.md` | Agent fills pre-allocated sections |
 
 ### Phase 3: Final Output
@@ -96,12 +97,15 @@ Unified collaborative planning workflow using **Plan Note** architecture:
 
 ```
 .workflow/.planning/{CPLAN-slug-YYYY-MM-DD}/
-├── plan-note.md                  # ⭐ Core: Requirements + Tasks + Conflicts
+├── plan-note.md                  # Core: Requirements + Tasks + Conflicts
 ├── requirement-analysis.json     # Phase 1: Sub-domain assignments
 ├── agents/                       # Phase 2: Per-agent detailed plans
 │   ├── {focus-area-1}/
 │   │   ├── planning-context.md  # Evidence + understanding
-│   │   └── plan.json            # Complete agent plan
+│   │   ├── plan.json            # Plan overview with task_ids[] (NO embedded tasks[])
+│   │   └── .task/               # Independent task files
+│   │       ├── TASK-{ID}.json   # Task file following task-schema.json
+│   │       └── ...
 │   ├── {focus-area-2}/
 │   │   └── ...
 │   └── {focus-area-N}/
@@ -280,8 +284,8 @@ Structure Requirements:
 
 | Task | Output | Description |
 |------|--------|-------------|
-| Generate plan.json | `{sessionFolder}/agents/{focus-area}/plan.json` | Complete detailed plan following schema |
-| Update plan-note.md | Sync to shared file | Fill pre-allocated "任务池" and "上下文证据" sections |
+| Generate plan.json + .task/*.json | `{sessionFolder}/agents/{focus-area}/plan.json` + `.task/` | Two-layer output: plan overview + independent task files |
+| Update plan-note.md | Sync to shared file | Fill pre-allocated task pool and evidence sections |
 
 **Task Summary Format** (for plan-note.md):
 - Task header: `### TASK-{ID}: {Title} [{focus-area}]`
@@ -347,9 +351,18 @@ subDomains.map(sub =>
 
 ## Dual Output Tasks
 
-### Task 1: Generate Complete plan.json
-Output: ${sessionFolder}/agents/${sub.focus_area}/plan.json
-Schema: ~/.ccw/workflows/cli-templates/schemas/plan-json-schema.json
+### Task 1: Generate Two-Layer Plan Output
+Output: ${sessionFolder}/agents/${sub.focus_area}/plan.json (overview with task_ids[])
+Output: ${sessionFolder}/agents/${sub.focus_area}/.task/TASK-*.json (independent task files)
+Schema (plan): ~/.ccw/workflows/cli-templates/schemas/plan-overview-base-schema.json
+Schema (tasks): ~/.ccw/workflows/cli-templates/schemas/task-schema.json
+
+**Two-Layer Output Format**:
+- plan.json: Overview with task_ids[] referencing .task/ files (NO tasks[] array)
+- .task/TASK-*.json: Independent task files following task-schema.json
+- plan.json required: summary, approach, task_ids, task_count, _metadata (with plan_type)
+- Task files required: id, title, description, depends_on, convergence (with criteria[])
+- Task fields: files[].change (not modification_points), convergence.criteria (not acceptance), test (not verification)
 
 ### Task 2: Sync Summary to plan-note.md
 
@@ -365,12 +378,14 @@ Schema: ~/.ccw/workflows/cli-templates/schemas/plan-json-schema.json
 - 相关文件, 现有模式, 约束
 
 ## Execution Steps
-1. Generate complete plan.json
-2. Extract summary from plan.json
-3. Read ${sessionFolder}/plan-note.md
-4. Locate and replace your task pool section
-5. Locate and replace your evidence section
-6. Write back plan-note.md
+1. Create .task/ directory: mkdir -p ${sessionFolder}/agents/${sub.focus_area}/.task
+2. Generate individual task files in .task/TASK-*.json following task-schema.json
+3. Generate plan.json with task_ids[] referencing .task/ files (NO embedded tasks[])
+4. Extract summary from .task/*.json files
+5. Read ${sessionFolder}/plan-note.md
+6. Locate and replace your task pool section
+7. Locate and replace your evidence section
+8. Write back plan-note.md
 
 ## Important
 - Only modify your pre-allocated sections

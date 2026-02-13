@@ -2,7 +2,7 @@
 // LogBlock Component
 // ========================================
 
-import React, { memo } from 'react';
+import { memo } from 'react';
 import {
   ChevronDown,
   ChevronUp,

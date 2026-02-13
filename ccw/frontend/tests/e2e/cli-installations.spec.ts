@@ -15,7 +15,7 @@ test.describe.skip('[CLI Installations] - CLI Tools Installation Tests', () => {
     const monitoring = setupEnhancedMonitoring(page);
 
     // Navigate to CLI installations page
-    await page.goto('/react/settings/cli/installations', { waitUntil: 'domcontentloaded' as const });
+    await page.goto('/settings/cli/installations', { waitUntil: 'domcontentloaded' as const });
 
     // Look for installations list container
     const installationsList = page.getByTestId('cli-installations-list').or(

@@ -44,12 +44,13 @@
   },
   "emptyState": {
     "noSessions": {
-      "title": "未找到会话",
-      "message": "没有符合当前筛选条件的工作流会话。"
+      "title": "暂无活跃会话",
+      "message": "开始你的第一个工作流会话，追踪任务和进度。",
+      "hint": "创建一个规划会话以开始使用"
     },
     "noTasks": {
       "title": "暂无任务",
-      "message": "没有符合当前筛选条件的任务。"
+      "message": "此会话中没有可用任务。"
     },
     "noLoops": {
       "title": "无活跃循环",
@@ -104,5 +105,22 @@
   },
   "project": {
     "features": "个功能"
+  },
+  "terminalPanel": {
+    "title": "终端监控",
+    "executionQueue": "执行队列",
+    "executionQueueDesc": "执行队列管理",
+    "executionQueuePhase2": "将在 Phase 2 实现",
+    "noTerminalSelected": "未选择终端",
+    "selectTerminalHint": "从侧边栏选择一个终端",
+    "commandPlaceholder": "输入命令... (Ctrl+Enter 执行)",
+    "execute": "执行",
+    "openInPanel": "在终端面板中查看",
+    "status": {
+      "running": "运行中",
+      "completed": "已完成",
+      "failed": "失败",
+      "idle": "空闲"
+    }
   }
 }

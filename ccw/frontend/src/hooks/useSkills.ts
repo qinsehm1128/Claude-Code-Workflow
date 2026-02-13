@@ -9,7 +9,6 @@ import {
   enableSkill,
   disableSkill,
   type Skill,
-  type SkillsResponse,
 } from '../lib/api';
 import { useWorkflowStore, selectProjectPath } from '@/stores/workflowStore';
 import { workspaceQueryKeys } from '@/lib/queryKeys';

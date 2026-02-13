@@ -6,7 +6,7 @@
 
 import { useState } from 'react';
 import { useIntl } from 'react-intl';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Server,
   Plus,
@@ -226,6 +226,7 @@ export function McpManagerPage() {
   const [saveTemplateDialogOpen, setSaveTemplateDialogOpen] = useState(false);
   const [serverToSaveAsTemplate, setServerToSaveAsTemplate] = useState<McpServer | undefined>(undefined);
 
+  const queryClient = useQueryClient();
   const notifications = useNotifications();
 
   const {
@@ -348,19 +349,51 @@ export function McpManagerPage() {
     enabledTools: [],
     projectRoot: undefined,
     allowedDirs: undefined,
-    disableSandbox: undefined,
+    enableSandbox: undefined,
   };
 
   const handleToggleCcwTool = async (tool: string, enabled: boolean) => {
+    // Read latest from cache to avoid stale closures
+    const currentConfig = queryClient.getQueryData<CcwMcpConfig>(['ccwMcpConfig']) ?? ccwConfig;
+    const currentTools = currentConfig.enabledTools;
+    const previousConfig = queryClient.getQueryData<CcwMcpConfig>(['ccwMcpConfig']);
+
     const updatedTools = enabled
-      ? [...ccwConfig.enabledTools, tool]
-      : ccwConfig.enabledTools.filter((t) => t !== tool);
-    await updateCcwConfig({ enabledTools: updatedTools });
+      ? (currentTools.includes(tool) ? currentTools : [...currentTools, tool])
+      : currentTools.filter((t) => t !== tool);
+
+    // Optimistic cache update for immediate UI response
+    queryClient.setQueryData(['ccwMcpConfig'], (old: CcwMcpConfig | undefined) => {
+      if (!old) return old;
+      return { ...old, enabledTools: updatedTools };
+    });
+
+    try {
+      await updateCcwConfig({ ...currentConfig, enabledTools: updatedTools });
+    } catch (error) {
+      console.error('Failed to toggle CCW tool:', error);
+      queryClient.setQueryData(['ccwMcpConfig'], previousConfig);
+    }
     ccwMcpQuery.refetch();
   };
 
   const handleUpdateCcwConfig = async (config: Partial<CcwMcpConfig>) => {
-    await updateCcwConfig(config);
+    // Read BEFORE optimistic update to capture actual server state
+    const currentConfig = queryClient.getQueryData<CcwMcpConfig>(['ccwMcpConfig']) ?? ccwConfig;
+    const previousConfig = queryClient.getQueryData<CcwMcpConfig>(['ccwMcpConfig']);
+
+    // Optimistic cache update for immediate UI response
+    queryClient.setQueryData(['ccwMcpConfig'], (old: CcwMcpConfig | undefined) => {
+      if (!old) return old;
+      return { ...old, ...config };
+    });
+
+    try {
+      await updateCcwConfig({ ...currentConfig, ...config });
+    } catch (error) {
+      console.error('Failed to update CCW config:', error);
+      queryClient.setQueryData(['ccwMcpConfig'], previousConfig);
+    }
     ccwMcpQuery.refetch();
   };
 
@@ -374,19 +407,47 @@ export function McpManagerPage() {
     enabledTools: [],
     projectRoot: undefined,
     allowedDirs: undefined,
-    disableSandbox: undefined,
+    enableSandbox: undefined,
   };
 
   const handleToggleCcwToolCodex = async (tool: string, enabled: boolean) => {
+    const currentConfig = queryClient.getQueryData<CcwMcpConfig>(['ccwMcpConfigCodex']) ?? ccwCodexConfig;
+    const currentTools = currentConfig.enabledTools;
+    const previousConfig = queryClient.getQueryData<CcwMcpConfig>(['ccwMcpConfigCodex']);
+
     const updatedTools = enabled
-      ? [...ccwCodexConfig.enabledTools, tool]
-      : ccwCodexConfig.enabledTools.filter((t) => t !== tool);
-    await updateCcwConfigForCodex({ enabledTools: updatedTools });
+      ? (currentTools.includes(tool) ? currentTools : [...currentTools, tool])
+      : currentTools.filter((t) => t !== tool);
+
+    queryClient.setQueryData(['ccwMcpConfigCodex'], (old: CcwMcpConfig | undefined) => {
+      if (!old) return old;
+      return { ...old, enabledTools: updatedTools };
+    });
+
+    try {
+      await updateCcwConfigForCodex({ ...currentConfig, enabledTools: updatedTools });
+    } catch (error) {
+      console.error('Failed to toggle CCW tool (Codex):', error);
+      queryClient.setQueryData(['ccwMcpConfigCodex'], previousConfig);
+    }
     ccwMcpCodexQuery.refetch();
   };
 
   const handleUpdateCcwConfigCodex = async (config: Partial<CcwMcpConfig>) => {
-    await updateCcwConfigForCodex(config);
+    const currentConfig = queryClient.getQueryData<CcwMcpConfig>(['ccwMcpConfigCodex']) ?? ccwCodexConfig;
+    const previousConfig = queryClient.getQueryData<CcwMcpConfig>(['ccwMcpConfigCodex']);
+
+    queryClient.setQueryData(['ccwMcpConfigCodex'], (old: CcwMcpConfig | undefined) => {
+      if (!old) return old;
+      return { ...old, ...config };
+    });
+
+    try {
+      await updateCcwConfigForCodex({ ...currentConfig, ...config });
+    } catch (error) {
+      console.error('Failed to update CCW config (Codex):', error);
+      queryClient.setQueryData(['ccwMcpConfigCodex'], previousConfig);
+    }
     ccwMcpCodexQuery.refetch();
   };
 
@@ -660,7 +721,7 @@ export function McpManagerPage() {
           enabledTools={ccwConfig.enabledTools}
           projectRoot={ccwConfig.projectRoot}
           allowedDirs={ccwConfig.allowedDirs}
-          disableSandbox={ccwConfig.disableSandbox}
+          enableSandbox={ccwConfig.enableSandbox}
           onToggleTool={handleToggleCcwTool}
           onUpdateConfig={handleUpdateCcwConfig}
           onInstall={handleCcwInstall}
@@ -673,7 +734,7 @@ export function McpManagerPage() {
           enabledTools={ccwCodexConfig.enabledTools}
           projectRoot={ccwCodexConfig.projectRoot}
           allowedDirs={ccwCodexConfig.allowedDirs}
-          disableSandbox={ccwCodexConfig.disableSandbox}
+          enableSandbox={ccwCodexConfig.enableSandbox}
           onToggleTool={handleToggleCcwToolCodex}
           onUpdateConfig={handleUpdateCcwConfigCodex}
           onInstall={handleCcwInstallCodex}
@@ -739,7 +800,7 @@ export function McpManagerPage() {
               </h3>
             </div>
             <Card className="p-4">
-              <CrossCliSyncPanel onSuccess={(count, direction) => refetch()} />
+              <CrossCliSyncPanel onSuccess={() => refetch()} />
             </Card>
           </section>
 

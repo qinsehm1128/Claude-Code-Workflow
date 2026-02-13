@@ -42,7 +42,7 @@ test.describe('[Orchestrator] - Workflow Canvas Tests', () => {
       }
     });
 
-    await page.goto('/react/orchestrator', { waitUntil: 'domcontentloaded' as const });
+    await page.goto('/orchestrator', { waitUntil: 'domcontentloaded' as const });
   });
 
   test('L3.01 - Canvas loads and displays nodes', async ({ page }) => {

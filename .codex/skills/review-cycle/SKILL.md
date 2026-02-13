@@ -34,14 +34,14 @@ Unified multi-dimensional code review orchestrator with dual-mode (session/modul
   ┌─────────────────────────────┼─────────────────────────────────┐
   │           Fix Pipeline (Phase 6-9)                             │
   │                                                                │
-  │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐
-  │  │ Phase 6 │→ │ Phase 7 │→ │ Phase 8 │→ │ Phase 9 │
-  │  │Discovery│  │Parallel │  │Execution│  │Complete │
-  │  │Batching │  │Planning │  │Orchestr.│  │         │
-  │  └─────────┘  └─────────┘  └─────────┘  └─────────┘
-  │   grouping     N agents     M agents     aggregate
-  │   + batch      ×cli-plan    ×cli-exec    + summary
-  └────────────────────────────────────────────────────────────────┘
+  │  ┌─────────┐  ┌─────────┐  ┌──────────┐  ┌─────────┐  ┌─────────┐
+  │  │ Phase 6 │→ │ Phase 7 │→ │Phase 7.5 │→ │ Phase 8 │→ │ Phase 9 │
+  │  │Discovery│  │Parallel │  │Export to │  │Execution│  │Complete │
+  │  │Batching │  │Planning │  │Task JSON │  │Orchestr.│  │         │
+  │  └─────────┘  └─────────┘  └──────────┘  └─────────┘  └─────────┘
+  │   grouping     N agents     fix-plan →    M agents     aggregate
+  │   + batch      ×cli-plan    .task/FIX-*   ×cli-exec    + summary
+  └────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Key Design Principles
@@ -73,6 +73,7 @@ review-cycle --fix <review-dir> [FLAGS]                        # Fix with flags
 --fix                        Enter fix pipeline after review or standalone
 --resume                     Resume interrupted fix session
 --batch-size=N               Findings per planning batch (default: 5, fix mode only)
+--export-tasks               Export fix-plan findings to .task/FIX-*.json (auto-enabled with --fix)
 
 # Examples
 review-cycle src/auth/**                                       # Module: review auth
@@ -159,6 +160,61 @@ Phase 7: Fix Parallel Planning
       ├─ Lifecycle: spawn_agent → batch wait → close_agent
       └─ Orchestrator aggregates → fix-plan.json
 
+Phase 7.5: Export to Task JSON (auto with --fix, or explicit --export-tasks)
+   └─ Convert fix-plan.json findings → .task/FIX-{seq}.json
+      ├─ For each finding in fix-plan.json:
+      │   ├─ finding.file          → files[].path (action: "modify")
+      │   ├─ finding.severity      → priority (critical|high|medium|low)
+      │   ├─ finding.fix_description → description
+      │   ├─ finding.dimension     → scope
+      │   ├─ finding.verification  → convergence.verification
+      │   ├─ finding.changes[]     → convergence.criteria[]
+      │   └─ finding.fix_steps[]   → implementation[]
+      ├─ Output path: {projectRoot}/.workflow/active/WFS-{id}/.review/.task/FIX-{seq}.json
+      ├─ Each file follows task-schema.json (IDENTITY + CONVERGENCE + FILES required)
+      └─ source.tool = "review-cycle", source.session_id = WFS-{id}
+      │
+      ├─ Generate plan.json (plan-overview-fix-schema) after FIX task export:
+      │   ```javascript
+      │   const fixTaskFiles = Glob(`${reviewDir}/.task/FIX-*.json`)
+      │   const taskIds = fixTaskFiles.map(f => JSON.parse(Read(f)).id).sort()
+      │
+      │   // Guard: skip plan.json if no fix tasks generated
+      │   if (taskIds.length === 0) {
+      │     console.warn('No fix tasks generated; skipping plan.json')
+      │   } else {
+      │
+      │   const planOverview = {
+      │     summary: `Fix plan from review cycle: ${reviewSummary}`,
+      │     approach: "Review-driven fix pipeline",
+      │     task_ids: taskIds,
+      │     task_count: taskIds.length,
+      │     complexity: taskIds.length > 5 ? "High" : taskIds.length > 2 ? "Medium" : "Low",
+      │     fix_context: {
+      │       root_cause: "Multiple review findings",
+      │       strategy: "comprehensive_fix",
+      │       severity: aggregatedFindings.maxSeverity || "Medium",  // Derived from max finding severity
+      │       risk_level: aggregatedFindings.overallRisk || "medium" // Derived from combined risk assessment
+      │     },
+      │     test_strategy: {
+      │       scope: "unit",
+      │       specific_tests: [],
+      │       manual_verification: ["Verify all review findings addressed"]
+      │     },
+      │     _metadata: {
+      │       timestamp: getUtc8ISOString(),
+      │       source: "review-cycle-agent",
+      │       planning_mode: "agent-based",
+      │       plan_type: "fix",
+      │       schema_version: "2.0"
+      │     }
+      │   }
+      │   Write(`${reviewDir}/plan.json`, JSON.stringify(planOverview, null, 2))
+      │
+      │   } // end guard
+      │   ```
+      └─ Output path: {reviewDir}/plan.json
+
 Phase 8: Fix Execution
    └─ Ref: phases/08-fix-execution.md
       ├─ Stage-based execution per aggregated timeline
@@ -185,7 +241,8 @@ Complete: Review reports + optional fix results
 | 5 | [phases/05-review-completion.md](phases/05-review-completion.md) | No more iterations needed | Shared from both review commands Phase 5 |
 | 6 | [phases/06-fix-discovery-batching.md](phases/06-fix-discovery-batching.md) | Fix mode entry | review-cycle-fix Phase 1 + 1.5 |
 | 7 | [phases/07-fix-parallel-planning.md](phases/07-fix-parallel-planning.md) | Phase 6 complete | review-cycle-fix Phase 2 |
-| 8 | [phases/08-fix-execution.md](phases/08-fix-execution.md) | Phase 7 complete | review-cycle-fix Phase 3 |
+| 7.5 | _(inline in SKILL.md)_ | Phase 7 complete | Export fix-plan findings to .task/FIX-*.json |
+| 8 | [phases/08-fix-execution.md](phases/08-fix-execution.md) | Phase 7.5 complete | review-cycle-fix Phase 3 |
 | 9 | [phases/09-fix-completion.md](phases/09-fix-completion.md) | Phase 8 complete | review-cycle-fix Phase 4 + 5 |
 
 ## Core Rules
@@ -225,6 +282,8 @@ Phase 6: Fix Discovery & Batching
     ↓ Output: finding batches (in-memory)
 Phase 7: Fix Parallel Planning
     ↓ Output: partial-plan-*.json → fix-plan.json (aggregated)
+Phase 7.5: Export to Task JSON
+    ↓ Output: .task/FIX-{seq}.json (per finding, follows task-schema.json)
 Phase 8: Fix Execution
     ↓ Output: fix-progress-*.json, git commits
 Phase 9: Fix Completion
@@ -324,10 +383,11 @@ Phase 5: Review Completion               → pending
 
 **Fix Pipeline (added after Phase 5 if triggered)**:
 ```
-Phase 6: Fix Discovery & Batching → pending
-Phase 7: Parallel Planning        → pending
-Phase 8: Execution                → pending
-Phase 9: Fix Completion           → pending
+Phase 6: Fix Discovery & Batching   → pending
+Phase 7: Parallel Planning          → pending
+Phase 7.5: Export to Task JSON      → pending
+Phase 8: Execution                  → pending
+Phase 9: Fix Completion             → pending
 ```
 
 ## Error Handling
@@ -386,6 +446,11 @@ Gemini → Qwen → Codex → degraded mode
 │   ├── security-cli-output.txt
 │   ├── deep-dive-1-{uuid}.md
 │   └── ...
+├── .task/                              # Task JSON exports (Phase 7.5)
+│   ├── FIX-001.json                    # Per-finding task (task-schema.json)
+│   ├── FIX-002.json
+│   └── ...
+├── plan.json                           # Plan overview (plan-overview-fix-schema, Phase 7.5)
 └── fixes/{fix-session-id}/             # Fix results (Phase 6-9)
     ├── partial-plan-*.json
     ├── fix-plan.json

@@ -64,8 +64,18 @@ import {
   type CodexLensLspStatusResponse,
   type CodexLensSemanticSearchParams,
   type CodexLensSemanticSearchResponse,
+  type RerankerConfigResponse,
+  type RerankerConfigUpdateRequest,
+  type RerankerConfigUpdateResponse,
   fetchCodexLensLspStatus,
+  startCodexLensLsp,
+  stopCodexLensLsp,
+  restartCodexLensLsp,
   semanticSearchCodexLens,
+  fetchRerankerConfig,
+  updateRerankerConfig,
+  fetchCcwTools,
+  type CcwToolInfo,
 } from '../lib/api';
 import { useWorkflowStore, selectProjectPath } from '@/stores/workflowStore';
 
@@ -91,6 +101,8 @@ export const codexLensKeys = {
   lspStatus: () => [...codexLensKeys.all, 'lspStatus'] as const,
   semanticSearch: (params: CodexLensSemanticSearchParams) => [...codexLensKeys.all, 'semanticSearch', params] as const,
   watcher: () => [...codexLensKeys.all, 'watcher'] as const,
+  rerankerConfig: () => [...codexLensKeys.all, 'rerankerConfig'] as const,
+  ccwTools: () => [...codexLensKeys.all, 'ccwTools'] as const,
 };
 
 // Default stale times
@@ -1384,6 +1396,8 @@ export interface UseCodexLensLspStatusReturn {
   available: boolean;
   semanticAvailable: boolean;
   vectorIndex: boolean;
+  projectCount: number;
+  embeddings: Record<string, unknown> | undefined;
   modes: string[];
   strategies: string[];
   isLoading: boolean;
@@ -1393,6 +1407,7 @@ export interface UseCodexLensLspStatusReturn {
 
 /**
  * Hook for checking CodexLens LSP/semantic search availability
+ * Polls every 5 seconds when the LSP server is available
  */
 export function useCodexLensLspStatus(options: UseCodexLensLspStatusOptions = {}): UseCodexLensLspStatusReturn {
   const { enabled = true, staleTime = STALE_TIME_MEDIUM } = options;
@@ -1402,6 +1417,10 @@ export function useCodexLensLspStatus(options: UseCodexLensLspStatusOptions = {}
     queryFn: fetchCodexLensLspStatus,
     staleTime,
     enabled,
+    refetchInterval: (query) => {
+      const data = query.state.data as CodexLensLspStatusResponse | undefined;
+      return data?.available ? 5000 : false;
+    },
     retry: 2,
   });
 
@@ -1414,11 +1433,91 @@ export function useCodexLensLspStatus(options: UseCodexLensLspStatusOptions = {}
     available: query.data?.available ?? false,
     semanticAvailable: query.data?.semantic_available ?? false,
     vectorIndex: query.data?.vector_index ?? false,
+    projectCount: query.data?.project_count ?? 0,
+    embeddings: query.data?.embeddings,
     modes: query.data?.modes ?? [],
     strategies: query.data?.strategies ?? [],
     isLoading: query.isLoading,
     error: query.error,
     refetch,
+  };
+}
+
+export interface UseCodexLensLspMutationsReturn {
+  startLsp: (path?: string) => Promise<{ success: boolean; message?: string; error?: string }>;
+  stopLsp: (path?: string) => Promise<{ success: boolean; message?: string; error?: string }>;
+  restartLsp: (path?: string) => Promise<{ success: boolean; message?: string; error?: string }>;
+  isStarting: boolean;
+  isStopping: boolean;
+  isRestarting: boolean;
+}
+
+/**
+ * Hook for LSP server start/stop/restart mutations
+ */
+export function useCodexLensLspMutations(): UseCodexLensLspMutationsReturn {
+  const queryClient = useQueryClient();
+  const formatMessage = useFormatMessage();
+  const { success, error: errorToast } = useNotifications();
+
+  const startMutation = useMutation({
+    mutationFn: ({ path }: { path?: string }) => startCodexLensLsp(path),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: codexLensKeys.lspStatus() });
+      success(
+        formatMessage({ id: 'common.success' }),
+        formatMessage({ id: 'codexlens.lsp.started' })
+      );
+    },
+    onError: (err) => {
+      const sanitized = sanitizeErrorMessage(err, 'codexLensLspStart');
+      const message = formatMessage({ id: sanitized.messageKey });
+      const title = formatMessage({ id: 'common.error' });
+      errorToast(title, message);
+    },
+  });
+
+  const stopMutation = useMutation({
+    mutationFn: ({ path }: { path?: string }) => stopCodexLensLsp(path),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: codexLensKeys.lspStatus() });
+      success(
+        formatMessage({ id: 'common.success' }),
+        formatMessage({ id: 'codexlens.lsp.stopped' })
+      );
+    },
+    onError: (err) => {
+      const sanitized = sanitizeErrorMessage(err, 'codexLensLspStop');
+      const message = formatMessage({ id: sanitized.messageKey });
+      const title = formatMessage({ id: 'common.error' });
+      errorToast(title, message);
+    },
+  });
+
+  const restartMutation = useMutation({
+    mutationFn: ({ path }: { path?: string }) => restartCodexLensLsp(path),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: codexLensKeys.lspStatus() });
+      success(
+        formatMessage({ id: 'common.success' }),
+        formatMessage({ id: 'codexlens.lsp.restarted' })
+      );
+    },
+    onError: (err) => {
+      const sanitized = sanitizeErrorMessage(err, 'codexLensLspRestart');
+      const message = formatMessage({ id: sanitized.messageKey });
+      const title = formatMessage({ id: 'common.error' });
+      errorToast(title, message);
+    },
+  });
+
+  return {
+    startLsp: (path?: string) => startMutation.mutateAsync({ path }),
+    stopLsp: (path?: string) => stopMutation.mutateAsync({ path }),
+    restartLsp: (path?: string) => restartMutation.mutateAsync({ path }),
+    isStarting: startMutation.isPending,
+    isStopping: stopMutation.isPending,
+    isRestarting: restartMutation.isPending,
   };
 }
 
@@ -1566,5 +1665,129 @@ export function useCodexLensWatcherMutations(): UseCodexLensWatcherMutationsRetu
     stopWatcher: () => stopMutation.mutateAsync(),
     isStarting: startMutation.isPending,
     isStopping: stopMutation.isPending,
+  };
+}
+
+// ========== Reranker Config Hooks ==========
+
+export interface UseCodexLensRerankerConfigOptions {
+  enabled?: boolean;
+  staleTime?: number;
+}
+
+export interface UseCodexLensRerankerConfigReturn {
+  data: RerankerConfigResponse | undefined;
+  backend: string;
+  modelName: string;
+  apiProvider: string;
+  apiKeySet: boolean;
+  availableBackends: string[];
+  apiProviders: string[];
+  litellmModels: RerankerConfigResponse['litellm_models'];
+  configSource: string;
+  isLoading: boolean;
+  error: Error | null;
+  refetch: () => Promise<void>;
+}
+
+/**
+ * Hook for fetching reranker configuration (backends, models, providers)
+ */
+export function useCodexLensRerankerConfig(
+  options: UseCodexLensRerankerConfigOptions = {}
+): UseCodexLensRerankerConfigReturn {
+  const { enabled = true, staleTime = STALE_TIME_MEDIUM } = options;
+
+  const query = useQuery({
+    queryKey: codexLensKeys.rerankerConfig(),
+    queryFn: fetchRerankerConfig,
+    staleTime,
+    enabled,
+    retry: 2,
+  });
+
+  const refetch = async () => {
+    await query.refetch();
+  };
+
+  return {
+    data: query.data,
+    backend: query.data?.backend ?? 'fastembed',
+    modelName: query.data?.model_name ?? '',
+    apiProvider: query.data?.api_provider ?? '',
+    apiKeySet: query.data?.api_key_set ?? false,
+    availableBackends: query.data?.available_backends ?? [],
+    apiProviders: query.data?.api_providers ?? [],
+    litellmModels: query.data?.litellm_models,
+    configSource: query.data?.config_source ?? 'default',
+    isLoading: query.isLoading,
+    error: query.error,
+    refetch,
+  };
+}
+
+export interface UseUpdateRerankerConfigReturn {
+  updateConfig: (request: RerankerConfigUpdateRequest) => Promise<RerankerConfigUpdateResponse>;
+  isUpdating: boolean;
+  error: Error | null;
+}
+
+/**
+ * Hook for updating reranker configuration
+ */
+export function useUpdateRerankerConfig(): UseUpdateRerankerConfigReturn {
+  const queryClient = useQueryClient();
+  const formatMessage = useFormatMessage();
+  const { success, error: errorToast } = useNotifications();
+
+  const mutation = useMutation({
+    mutationFn: (request: RerankerConfigUpdateRequest) => updateRerankerConfig(request),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: codexLensKeys.rerankerConfig() });
+      queryClient.invalidateQueries({ queryKey: codexLensKeys.env() });
+      success(
+        formatMessage({ id: 'common.success' }),
+        formatMessage({ id: 'codexlens.reranker.saveSuccess' })
+      );
+    },
+    onError: (err) => {
+      const sanitized = sanitizeErrorMessage(err, 'rerankerConfigUpdate');
+      const message = formatMessage({ id: sanitized.messageKey });
+      const title = formatMessage({ id: 'common.error' });
+      errorToast(title, message);
+    },
+  });
+
+  return {
+    updateConfig: mutation.mutateAsync,
+    isUpdating: mutation.isPending,
+    error: mutation.error,
+  };
+}
+
+// ========== CCW Tools Hook ==========
+
+export interface UseCcwToolsListReturn {
+  tools: CcwToolInfo[];
+  isLoading: boolean;
+  error: Error | null;
+}
+
+/**
+ * Hook for fetching all registered CCW tools
+ * Uses LONG stale time since tool list rarely changes
+ */
+export function useCcwToolsList(): UseCcwToolsListReturn {
+  const query = useQuery({
+    queryKey: codexLensKeys.ccwTools(),
+    queryFn: fetchCcwTools,
+    staleTime: STALE_TIME_LONG,
+    retry: 2,
+  });
+
+  return {
+    tools: query.data ?? [],
+    isLoading: query.isLoading,
+    error: query.error,
   };
 }

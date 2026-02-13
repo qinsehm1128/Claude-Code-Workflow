@@ -3,7 +3,6 @@
 // ========================================
 // Display detailed view of a single insight with patterns, suggestions, and metadata
 
-import * as React from 'react';
 import { useIntl } from 'react-intl';
 import { cn } from '@/lib/utils';
 import {
@@ -133,8 +132,7 @@ function formatRelativeTime(timestamp: string, locale: string): string {
 /**
  * PatternItem component for displaying a single pattern
  */
-function PatternItem({ pattern, locale }: { pattern: Pattern; locale: string }) {
-  const { formatMessage } = useIntl();
+function PatternItem({ pattern }: { pattern: Pattern; locale: string }) {
   const severity = pattern.severity ?? 'info';
   const config = severityConfig[severity] ?? severityConfig.default;
 
@@ -177,7 +175,7 @@ function PatternItem({ pattern, locale }: { pattern: Pattern; locale: string }) 
 /**
  * SuggestionItem component for displaying a single suggestion
  */
-function SuggestionItem({ suggestion, locale }: { suggestion: Suggestion; locale: string }) {
+function SuggestionItem({ suggestion }: { suggestion: Suggestion; locale: string }) {
   const { formatMessage } = useIntl();
   const config = suggestionTypeConfig[suggestion.type] ?? suggestionTypeConfig.refactor;
   const typeLabel = formatMessage({ id: `prompts.suggestions.types.${suggestion.type}` });

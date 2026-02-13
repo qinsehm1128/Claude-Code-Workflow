@@ -72,7 +72,7 @@ export function PromptHistoryPage() {
 
   // Insight detail state
   const [selectedInsight, setSelectedInsight] = React.useState<InsightHistory | null>(null);
-  const [insightDetailOpen, setInsightDetailOpen] = React.useState(false);
+  const [, setInsightDetailOpen] = React.useState(false);
 
   // Batch operations state
   const [selectedPromptIds, setSelectedPromptIds] = React.useState<Set<string>>(new Set());

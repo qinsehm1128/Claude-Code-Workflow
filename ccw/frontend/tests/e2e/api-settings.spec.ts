@@ -26,7 +26,7 @@ test.describe('[API Settings] - CLI Provider Configuration Tests', () => {
       });
     });
 
-    await page.goto('/react/api-settings', { waitUntil: 'domcontentloaded' as const });
+    await page.goto('/api-settings', { waitUntil: 'domcontentloaded' as const });
   });
 
   test('L3.21 - Page loads and displays current configuration', async ({ page }) => {

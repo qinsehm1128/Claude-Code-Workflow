@@ -154,7 +154,7 @@ interface OutputLineCardProps {
   onCopy?: (content: string) => void;
 }
 
-function OutputLineCard({ group, onCopy }: OutputLineCardProps) {
+function OutputLineCard({ group }: OutputLineCardProps) {
   const borderColor = getBorderColorForType(group.type);
 
   // Extract content from all lines in the group
@@ -355,12 +355,6 @@ export function CliStreamMonitor({ isOpen, onClose }: CliStreamMonitorProps) {
       const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
       setIsUserScrolling(!isAtBottom);
     }, 50); // 50ms debounce
-  }, []);
-
-  // Scroll to bottom handler
-  const scrollToBottom = useCallback(() => {
-    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    setIsUserScrolling(false);
   }, []);
 
   // Handle closing an execution tab

@@ -1,6 +1,6 @@
 ---
 name: plan-converter
-description: Convert any planning/analysis/brainstorm output to unified JSONL task format. Supports roadmap.jsonl, plan.json, plan-note.md, conclusions.json, synthesis.json.
+description: Convert any planning/analysis/brainstorm output to .task/*.json multi-file format. Supports roadmap.jsonl, plan.json, plan-note.md, conclusions.json, synthesis.json.
 argument-hint: "<input-file> [-o <output-file>]"
 ---
 
@@ -8,69 +8,47 @@ argument-hint: "<input-file> [-o <output-file>]"
 
 ## Overview
 
-Converts any planning artifact to **unified JSONL task format** — the single standard consumed by `unified-execute-with-file`.
+Converts any planning artifact to **`.task/*.json` multi-file format** — the single standard consumed by `unified-execute-with-file`.
+
+> **Schema**: `cat ~/.ccw/workflows/cli-templates/schemas/task-schema.json`
 
 ```bash
-# Auto-detect format, output to same directory
+# Auto-detect format, output to same directory .task/
 /codex:plan-converter ".workflow/.req-plan/RPLAN-auth-2025-01-21/roadmap.jsonl"
 
-# Specify output path
-/codex:plan-converter ".workflow/.planning/CPLAN-xxx/plan-note.md" -o tasks.jsonl
+# Specify output directory
+/codex:plan-converter ".workflow/.planning/CPLAN-xxx/plan-note.md" -o .task/
 
 # Convert brainstorm synthesis
 /codex:plan-converter ".workflow/.brainstorm/BS-xxx/synthesis.json"
 ```
 
-**Supported inputs**: roadmap.jsonl, tasks.jsonl (per-domain), plan-note.md, conclusions.json, synthesis.json
+**Supported inputs**: roadmap.jsonl, .task/*.json (per-domain), plan-note.md, conclusions.json, synthesis.json
 
-**Output**: Unified JSONL (`tasks.jsonl` in same directory, or specified `-o` path)
+**Output**: `.task/*.json` (one file per task, in same directory's `.task/` subfolder, or specified `-o` path)
 
-## Unified JSONL Schema
+## Task JSON Schema
 
-每行一条自包含任务记录：
+每个任务一个独立 JSON 文件 (`.task/TASK-{id}.json`)，遵循统一 schema：
+
+> **Schema 定义**: `cat ~/.ccw/workflows/cli-templates/schemas/task-schema.json`
+
+**Producer 使用的字段集** (plan-converter 输出):
 
 ```
-┌─ IDENTITY (必填) ──────────────────────────────────────────┐
-│  id          string       任务 ID (L0/T1/TASK-001)          │
-│  title       string       任务标题                           │
-│  description string       目标 + 原因                        │
-├─ CLASSIFICATION (可选) ────────────────────────────────────┤
-│  type        enum         infrastructure|feature|enhancement│
-│              enum         |fix|refactor|testing              │
-│  priority    enum         high|medium|low                    │
-│  effort      enum         small|medium|large                 │
-├─ SCOPE (可选) ─────────────────────────────────────────────┤
-│  scope       string|[]    覆盖范围                           │
-│  excludes    string[]     明确排除                           │
-├─ DEPENDENCIES (depends_on 必填) ───────────────────────────┤
-│  depends_on  string[]     依赖任务 ID（无依赖则 []）         │
-│  parallel_group  number   并行分组（同组可并行）              │
-│  inputs      string[]     消费的产物                         │
-│  outputs     string[]     产出的产物                         │
-├─ CONVERGENCE (必填) ───────────────────────────────────────┤
-│  convergence.criteria          string[]  可测试的完成条件     │
-│  convergence.verification      string    可执行的验证步骤     │
-│  convergence.definition_of_done string   业务语言完成定义     │
-├─ FILES (可选，渐进详细) ───────────────────────────────────┤
-│  files[].path           string    文件路径 (必填*)           │
-│  files[].action         enum      modify|create|delete       │
-│  files[].changes        string[]  修改描述                   │
-│  files[].conflict_risk  enum      low|medium|high            │
-├─ CONTEXT (可选) ───────────────────────────────────────────┤
-│  source.tool            string    产出工具名                 │
-│  source.session_id      string    来源 session               │
-│  source.original_id     string    转换前原始 ID              │
-│  evidence               any[]     支撑证据                   │
-│  risk_items             string[]  风险项                     │
-├─ EXECUTION (执行时填充，规划时不存在) ─────────────────────┤
-│  _execution.status      enum      pending|in_progress|       │
-│                                   completed|failed|skipped   │
-│  _execution.executed_at string    ISO 时间戳                 │
-│  _execution.result      object    { success, files_modified, │
-│                                     summary, error,          │
-│                                     convergence_verified[] } │
-└────────────────────────────────────────────────────────────┘
+IDENTITY (必填):        id, title, description
+CLASSIFICATION (可选):   type, priority, effort, action
+SCOPE (可选):            scope, excludes, focus_paths
+DEPENDENCIES (必填):     depends_on, parallel_group, inputs, outputs
+CONVERGENCE (必填):      convergence.criteria, convergence.verification, convergence.definition_of_done
+FILES (可选):            files[].path, files[].action, files[].changes, files[].change, files[].target, files[].conflict_risk
+IMPLEMENTATION (可选):   implementation[], test.manual_checks, test.success_metrics
+PLANNING (可选):         reference, rationale, risks
+CONTEXT (可选):          source.tool, source.session_id, source.original_id, evidence, risk_items
+RUNTIME (执行时填充):    status, executed_at, result
 ```
+
+**文件命名**: `TASK-{id}.json` (保留原有 ID 前缀: L0-, T1-, IDEA- 等)
 
 ## Target Input
 
@@ -82,9 +60,9 @@ Converts any planning artifact to **unified JSONL task format** — the single s
 Step 0: Parse arguments, resolve input path
 Step 1: Detect input format
 Step 2: Parse input → extract raw records
-Step 3: Transform → unified JSONL records
+Step 3: Transform → unified task records
 Step 4: Validate convergence quality
-Step 5: Write output + display summary
+Step 5: Write .task/*.json output + display summary
 ```
 
 ## Implementation
@@ -110,7 +88,7 @@ const content = Read(resolvedInput)
 
 function detectFormat(filename, content) {
   if (filename === 'roadmap.jsonl')     return 'roadmap-jsonl'
-  if (filename === 'tasks.jsonl')       return 'tasks-jsonl'    // already unified or per-domain
+  if (filename === 'tasks.jsonl')       return 'tasks-jsonl'    // legacy JSONL or per-domain
   if (filename === 'plan-note.md')      return 'plan-note-md'
   if (filename === 'conclusions.json')  return 'conclusions-json'
   if (filename === 'synthesis.json')    return 'synthesis-json'
@@ -132,7 +110,7 @@ function detectFormat(filename, content) {
 | Filename | Format ID | Source Tool |
 |----------|-----------|------------|
 | `roadmap.jsonl` | roadmap-jsonl | req-plan-with-file |
-| `tasks.jsonl` (per-domain) | tasks-jsonl | collaborative-plan-with-file |
+| `tasks.jsonl` (legacy) / `.task/*.json` | tasks-jsonl / task-json | collaborative-plan-with-file |
 | `plan-note.md` | plan-note-md | collaborative-plan-with-file |
 | `conclusions.json` | conclusions-json | analyze-with-file |
 | `synthesis.json` | synthesis-json | brainstorm-with-file |
@@ -261,7 +239,9 @@ function transformPlanNote(parsed) {
     files: task.files?.map(f => ({
       path: f.path || f.file,
       action: f.action || 'modify',
-      changes: f.changes || [f.change],
+      changes: f.changes || (f.change ? [f.change] : undefined),
+      change: f.change,
+      target: f.target,
       conflict_risk: f.conflict_risk
     })),
     source: {
@@ -394,12 +374,15 @@ function validateConvergence(records) {
 // | Technical DoD        | Rewrite in business language                  |
 ```
 
-### Step 5: Write Output & Summary
+### Step 5: Write .task/*.json Output & Summary
 
 ```javascript
-// Determine output path
-const outputFile = outputPath
-  || `${path.dirname(resolvedInput)}/tasks.jsonl`
+// Determine output directory
+const outputDir = outputPath
+  || `${path.dirname(resolvedInput)}/.task`
+
+// Create output directory
+Bash(`mkdir -p ${outputDir}`)
 
 // Clean records: remove undefined/null optional fields
 const cleanedRecords = records.map(rec => {
@@ -411,16 +394,18 @@ const cleanedRecords = records.map(rec => {
   return clean
 })
 
-// Write JSONL
-const jsonlContent = cleanedRecords.map(r => JSON.stringify(r)).join('\n')
-Write(outputFile, jsonlContent)
+// Write individual task JSON files
+cleanedRecords.forEach(record => {
+  const filename = `${record.id}.json`
+  Write(`${outputDir}/${filename}`, JSON.stringify(record, null, 2))
+})
 
 // Display summary
 // | Source          | Format            | Records | Issues |
 // |-----------------|-------------------|---------|--------|
 // | roadmap.jsonl   | roadmap-jsonl     | 4       | 0      |
 //
-// Output: .workflow/.req-plan/RPLAN-xxx/tasks.jsonl
+// Output: .workflow/.req-plan/RPLAN-xxx/.task/ (4 files)
 // Records: 4 tasks with convergence criteria
 // Quality: All convergence checks passed
 ```
@@ -433,7 +418,7 @@ Write(outputFile, jsonlContent)
 |--------|-----------|------------|-----------------|-----------|--------------|-----------|
 | roadmap.jsonl (progressive) | req-plan | L0-L3 | **Yes** | No | No | **Yes** |
 | roadmap.jsonl (direct) | req-plan | T1-TN | **Yes** | No | No | **Yes** |
-| tasks.jsonl (per-domain) | collaborative-plan | TASK-NNN | **Yes** | **Yes** (detailed) | Optional | **Yes** |
+| .task/TASK-*.json (per-domain) | collaborative-plan | TASK-NNN | **Yes** | **Yes** (detailed) | Optional | **Yes** |
 | plan-note.md | collaborative-plan | TASK-NNN | **Generate** | **Yes** (from 修改文件) | From effort | No |
 | conclusions.json | analyze | TASK-NNN | **Generate** | No | **Yes** | No |
 | synthesis.json | brainstorm | IDEA-NNN | **Generate** | No | From score | No |

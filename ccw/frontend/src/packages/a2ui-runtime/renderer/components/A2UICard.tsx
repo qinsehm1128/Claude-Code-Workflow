@@ -3,24 +3,16 @@
 // ========================================
 // Maps A2UI Card component to shadcn/ui Card
 
-import React from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card';
 import type { ComponentRenderer } from '../../core/A2UIComponentRegistry';
 import { resolveTextContent } from '../A2UIRenderer';
 import type { CardComponent } from '../../core/A2UITypes';
 
-interface A2UICardProps {
-  component: CardComponent;
-  state: Record<string, unknown>;
-  onAction: (actionId: string, params: Record<string, unknown>) => void | Promise<void>;
-  resolveBinding: (binding: { path: string }) => unknown;
-}
-
 /**
  * A2UI Card Component Renderer
  * Container component with optional title and description
  */
-export const A2UICard: ComponentRenderer = ({ component, state, onAction, resolveBinding }) => {
+export const A2UICard: ComponentRenderer = ({ component, resolveBinding }) => {
   const cardComp = component as CardComponent;
   const { Card: cardConfig } = cardComp;
 

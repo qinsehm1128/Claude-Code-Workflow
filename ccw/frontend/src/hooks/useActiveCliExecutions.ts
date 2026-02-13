@@ -108,7 +108,6 @@ export function useActiveCliExecutions(
   const removeExecution = useCliStreamStore(state => state.removeExecution);
   const executions = useCliStreamStore(state => state.executions);
   const setCurrentExecution = useCliStreamStore(state => state.setCurrentExecution);
-  const markExecutionClosedByUser = useCliStreamStore(state => state.markExecutionClosedByUser);
   const isExecutionClosedByUser = useCliStreamStore(state => state.isExecutionClosedByUser);
   const cleanupUserClosedExecutions = useCliStreamStore(state => state.cleanupUserClosedExecutions);
 

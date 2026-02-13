@@ -1,0 +1,78 @@
+{
+  "team_name": "team-lifecycle",
+  "team_display_name": "Team Lifecycle",
+  "description": "Unified team skill covering spec-to-dev-to-test full lifecycle",
+  "version": "1.0.0",
+
+  "roles": {
+    "coordinator": {
+      "task_prefix": null,
+      "responsibility": "Pipeline orchestration, requirement clarification, task chain creation, message dispatch",
+      "message_types": ["plan_approved", "plan_revision", "task_unblocked", "fix_required", "error", "shutdown"]
+    },
+    "analyst": {
+      "task_prefix": "RESEARCH",
+      "responsibility": "Seed analysis, codebase exploration, multi-dimensional context gathering",
+      "message_types": ["research_ready", "research_progress", "error"]
+    },
+    "writer": {
+      "task_prefix": "DRAFT",
+      "responsibility": "Product Brief / PRD / Architecture / Epics document generation",
+      "message_types": ["draft_ready", "draft_revision", "impl_progress", "error"]
+    },
+    "discussant": {
+      "task_prefix": "DISCUSS",
+      "responsibility": "Multi-perspective critique, consensus building, conflict escalation",
+      "message_types": ["discussion_ready", "discussion_blocked", "impl_progress", "error"]
+    },
+    "planner": {
+      "task_prefix": "PLAN",
+      "responsibility": "Multi-angle code exploration, structured implementation planning",
+      "message_types": ["plan_ready", "plan_revision", "impl_progress", "error"]
+    },
+    "executor": {
+      "task_prefix": "IMPL",
+      "responsibility": "Code implementation following approved plans",
+      "message_types": ["impl_complete", "impl_progress", "error"]
+    },
+    "tester": {
+      "task_prefix": "TEST",
+      "responsibility": "Adaptive test-fix cycles, progressive testing, quality gates",
+      "message_types": ["test_result", "impl_progress", "fix_required", "error"]
+    },
+    "reviewer": {
+      "task_prefix": "REVIEW",
+      "additional_prefixes": ["QUALITY"],
+      "responsibility": "Code review (REVIEW-*) + Spec quality validation (QUALITY-*)",
+      "message_types": ["review_result", "quality_result", "fix_required", "error"]
+    }
+  },
+
+  "pipelines": {
+    "spec-only": {
+      "description": "Specification pipeline: research → discuss → draft → quality",
+      "task_chain": [
+        "RESEARCH-001",
+        "DISCUSS-001", "DRAFT-001", "DISCUSS-002",
+        "DRAFT-002", "DISCUSS-003", "DRAFT-003", "DISCUSS-004",
+        "DRAFT-004", "DISCUSS-005", "QUALITY-001", "DISCUSS-006"
+      ]
+    },
+    "impl-only": {
+      "description": "Implementation pipeline: plan → implement → test + review",
+      "task_chain": ["PLAN-001", "IMPL-001", "TEST-001", "REVIEW-001"]
+    },
+    "full-lifecycle": {
+      "description": "Full lifecycle: spec pipeline → implementation pipeline",
+      "task_chain": "spec-only + impl-only (PLAN-001 blockedBy DISCUSS-006)"
+    }
+  },
+
+  "collaboration_patterns": ["CP-1", "CP-2", "CP-4", "CP-5", "CP-6", "CP-10"],
+
+  "session_dirs": {
+    "spec": ".workflow/.spec-team/{topic-slug}-{YYYY-MM-DD}/",
+    "impl": ".workflow/.team-plan/{task-slug}-{YYYY-MM-DD}/",
+    "messages": ".workflow/.team-msg/{team-name}/"
+  }
+}

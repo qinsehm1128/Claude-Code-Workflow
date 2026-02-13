@@ -8,7 +8,6 @@ import { useIntl } from 'react-intl';
 import { FileText, Eye } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Badge } from '@/components/ui/Badge';
 import MarkdownModal from '@/components/shared/MarkdownModal';
 
 // ========================================

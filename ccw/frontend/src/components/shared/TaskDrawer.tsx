@@ -10,46 +10,19 @@ import { Flowchart } from './Flowchart';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/Tabs';
-import type { LiteTask, FlowControl } from '@/lib/api';
+import type { NormalizedTask } from '@/lib/api';
+import { buildFlowControl } from '@/lib/api';
 import type { TaskData } from '@/types/store';
 
 // ========== Types ==========
 
 export interface TaskDrawerProps {
-  task: LiteTask | TaskData | null;
+  task: NormalizedTask | TaskData | null;
   isOpen: boolean;
   onClose: () => void;
 }
 
 type TabValue = 'overview' | 'flowchart' | 'files';
-
-// ========== Helper: Unified Task Access ==========
-
-/**
- * Normalize task data to common interface
- */
-function getTaskId(task: LiteTask | TaskData): string {
-  if ('task_id' in task && task.task_id) return task.task_id;
-  if ('id' in task) return task.id;
-  return 'N/A';
-}
-
-function getTaskTitle(task: LiteTask | TaskData): string {
-  return task.title || 'Untitled Task';
-}
-
-function getTaskDescription(task: LiteTask | TaskData): string | undefined {
-  return task.description;
-}
-
-function getTaskStatus(task: LiteTask | TaskData): string {
-  return task.status;
-}
-
-function getFlowControl(task: LiteTask | TaskData): FlowControl | undefined {
-  if ('flow_control' in task) return task.flow_control;
-  return undefined;
-}
 
 // Status configuration
 const taskStatusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' | 'warning' | 'info' | null; icon: React.ComponentType<{ className?: string }> }> = {
@@ -113,17 +86,28 @@ export function TaskDrawer({ task, isOpen, onClose }: TaskDrawerProps) {
     return null;
   }
 
-  const taskId = getTaskId(task);
-  const taskTitle = getTaskTitle(task);
-  const taskDescription = getTaskDescription(task);
-  const taskStatus = getTaskStatus(task);
-  const flowControl = getFlowControl(task);
+  // Use NormalizedTask fields (works for both old nested and new flat formats)
+  const nt = task as NormalizedTask;
+  const taskId = nt.task_id || 'N/A';
+  const taskTitle = nt.title || 'Untitled Task';
+  const taskDescription = nt.description;
+  const taskStatus = nt.status;
+  const flowControl = buildFlowControl(nt);
+
+  // Normalized flat fields
+  const acceptanceCriteria = nt.convergence?.criteria || [];
+  const focusPaths = nt.focus_paths || [];
+  const dependsOn = nt.depends_on || [];
+  const preAnalysis = nt.pre_analysis || flowControl?.pre_analysis || [];
+  const implSteps = nt.implementation || flowControl?.implementation_approach || [];
+  const taskFiles = nt.files || flowControl?.target_files || [];
+  const taskScope = nt.scope;
 
   const statusConfig = taskStatusConfig[taskStatus] || taskStatusConfig.pending;
   const StatusIcon = statusConfig.icon;
 
-  const hasFlowchart = !!flowControl?.implementation_approach && flowControl.implementation_approach.length > 0;
-  const hasFiles = !!flowControl?.target_files && flowControl.target_files.length > 0;
+  const hasFlowchart = implSteps.length > 0;
+  const hasFiles = taskFiles.length > 0;
 
   return (
     <>
@@ -205,27 +189,27 @@ export function TaskDrawer({ task, isOpen, onClose }: TaskDrawerProps) {
                   )}
 
                   {/* Scope Section */}
-                  {(task as LiteTask).meta?.scope && (
+                  {taskScope && (
                     <div className="p-4 bg-card rounded-lg border border-border">
                       <h3 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
                         <span>📁</span>
                         Scope
                       </h3>
                       <div className="pl-3 border-l-2 border-primary">
-                        <code className="text-sm text-foreground">{(task as LiteTask).meta?.scope}</code>
+                        <code className="text-sm text-foreground">{taskScope}</code>
                       </div>
                     </div>
                   )}
 
-                  {/* Acceptance Criteria Section */}
-                  {(task as LiteTask).context?.acceptance && (task as LiteTask).context!.acceptance!.length > 0 && (
+                  {/* Acceptance / Convergence Criteria Section */}
+                  {acceptanceCriteria.length > 0 && (
                     <div className="p-4 bg-card rounded-lg border border-border">
                       <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
                         <span>✅</span>
                         {formatMessage({ id: 'liteTasks.acceptanceCriteria' })}
                       </h3>
                       <div className="space-y-2">
-                        {(task as LiteTask).context!.acceptance!.map((criterion, i) => (
+                        {acceptanceCriteria.map((criterion, i) => (
                           <div key={i} className="flex items-start gap-2">
                             <span className="text-muted-foreground mt-0.5">○</span>
                             <span className="text-sm text-foreground">{criterion}</span>
@@ -236,14 +220,14 @@ export function TaskDrawer({ task, isOpen, onClose }: TaskDrawerProps) {
                   )}
 
                   {/* Focus Paths / Reference Section */}
-                  {(task as LiteTask).context?.focus_paths && (task as LiteTask).context!.focus_paths!.length > 0 && (
+                  {focusPaths.length > 0 && (
                     <div className="p-4 bg-card rounded-lg border border-border">
                       <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
                         <span>📚</span>
                         {formatMessage({ id: 'liteTasks.focusPaths' })}
                       </h3>
                       <div className="space-y-1">
-                        {(task as LiteTask).context!.focus_paths!.map((path, i) => (
+                        {focusPaths.map((path, i) => (
                           <code key={i} className="block text-xs bg-muted px-3 py-1.5 rounded text-foreground font-mono">
                             {path}
                           </code>
@@ -253,14 +237,14 @@ export function TaskDrawer({ task, isOpen, onClose }: TaskDrawerProps) {
                   )}
 
                   {/* Dependencies Section */}
-                  {(task as LiteTask).context?.depends_on && (task as LiteTask).context!.depends_on!.length > 0 && (
+                  {dependsOn.length > 0 && (
                     <div className="p-4 bg-card rounded-lg border border-border">
                       <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
                         <span>🔗</span>
                         {formatMessage({ id: 'liteTasks.dependsOn' })}
                       </h3>
                       <div className="flex flex-wrap gap-2">
-                        {(task as LiteTask).context!.depends_on!.map((dep, i) => (
+                        {dependsOn.map((dep, i) => (
                           <Badge key={i} variant="secondary">{dep}</Badge>
                         ))}
                       </div>
@@ -268,14 +252,14 @@ export function TaskDrawer({ task, isOpen, onClose }: TaskDrawerProps) {
                   )}
 
                   {/* Pre-analysis Steps */}
-                  {flowControl?.pre_analysis && flowControl.pre_analysis.length > 0 && (
+                  {preAnalysis.length > 0 && (
                     <div className="p-4 bg-card rounded-lg border border-border">
                       <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
                         <span>🔍</span>
                         {formatMessage({ id: 'sessionDetail.taskDrawer.overview.preAnalysis' })}
                       </h3>
                       <div className="space-y-3">
-                        {flowControl.pre_analysis.map((step, index) => (
+                        {preAnalysis.map((step, index) => (
                           <div key={index} className="flex items-start gap-3">
                             <span className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-medium">
                               {index + 1}

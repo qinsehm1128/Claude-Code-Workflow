@@ -7,12 +7,17 @@ import { z } from 'zod';
 import type { ToolSchema, ToolResult } from '../types/tool.js';
 import { getCoreMemoryStore, findMemoryAcrossProjects } from '../core/core-memory-store.js';
 import * as MemoryEmbedder from '../core/memory-embedder-bridge.js';
+import { MemoryJobScheduler } from '../core/memory-job-scheduler.js';
+import type { JobRecord, JobStatus } from '../core/memory-job-scheduler.js';
 import { StoragePaths } from '../config/storage-paths.js';
 import { join } from 'path';
 import { getProjectRoot } from '../utils/path-validator.js';
 
 // Zod schemas
-const OperationEnum = z.enum(['list', 'import', 'export', 'summary', 'embed', 'search', 'embed_status']);
+const OperationEnum = z.enum([
+  'list', 'import', 'export', 'summary', 'embed', 'search', 'embed_status',
+  'extract', 'extract_status', 'consolidate', 'consolidate_status', 'jobs',
+]);
 
 const ParamsSchema = z.object({
   operation: OperationEnum,
@@ -31,6 +36,11 @@ const ParamsSchema = z.object({
   source_id: z.string().optional(),
   batch_size: z.number().optional().default(8),
   force: z.boolean().optional().default(false),
+  // V2 extract parameters
+  max_sessions: z.number().optional(),
+  // V2 jobs parameters
+  kind: z.string().optional(),
+  status_filter: z.enum(['pending', 'running', 'done', 'error']).optional(),
 });
 
 type Params = z.infer<typeof ParamsSchema>;
@@ -105,7 +115,44 @@ interface EmbedStatusResult {
   by_type: Record<string, { total: number; embedded: number }>;
 }
 
-type OperationResult = ListResult | ImportResult | ExportResult | SummaryResult | EmbedResult | SearchResult | EmbedStatusResult;
+// -- Memory V2 operation result types --
+
+interface ExtractResult {
+  operation: 'extract';
+  triggered: boolean;
+  jobIds: string[];
+  message: string;
+}
+
+interface ExtractStatusResult {
+  operation: 'extract_status';
+  total_stage1: number;
+  jobs: Array<{ job_key: string; status: string; last_error?: string }>;
+}
+
+interface ConsolidateResult {
+  operation: 'consolidate';
+  triggered: boolean;
+  message: string;
+}
+
+interface ConsolidateStatusResult {
+  operation: 'consolidate_status';
+  status: string;
+  memoryMdAvailable: boolean;
+  memoryMdPreview?: string;
+}
+
+interface JobsResult {
+  operation: 'jobs';
+  jobs: JobRecord[];
+  total: number;
+  byStatus: Record<string, number>;
+}
+
+type OperationResult = ListResult | ImportResult | ExportResult | SummaryResult
+  | EmbedResult | SearchResult | EmbedStatusResult
+  | ExtractResult | ExtractStatusResult | ConsolidateResult | ConsolidateStatusResult | JobsResult;
 
 /**
  * Get project path - uses explicit path if provided, otherwise falls back to current working directory
@@ -333,6 +380,165 @@ async function executeEmbedStatus(params: Params): Promise<EmbedStatusResult> {
   };
 }
 
+// ============================================================================
+// Memory V2 Operation Handlers
+// ============================================================================
+
+/**
+ * Operation: extract
+ * Trigger batch extraction (fire-and-forget). Returns job IDs immediately.
+ */
+async function executeExtract(params: Params): Promise<ExtractResult> {
+  const { max_sessions, path } = params;
+  const projectPath = getProjectPath(path);
+
+  try {
+    const { MemoryExtractionPipeline } = await import('../core/memory-extraction-pipeline.js');
+    const pipeline = new MemoryExtractionPipeline(projectPath);
+
+    // Fire-and-forget: trigger batch extraction asynchronously
+    const batchPromise = pipeline.runBatchExtraction({ maxSessions: max_sessions });
+
+    // Don't await - let it run in background
+    batchPromise.catch((err: Error) => {
+      // Log errors but don't throw - fire-and-forget
+      console.error(`[memory-v2] Batch extraction error: ${err.message}`);
+    });
+
+    // Scan eligible sessions to report count
+    const eligible = pipeline.scanEligibleSessions(max_sessions);
+    const sessionIds = eligible.map(s => s.id);
+
+    return {
+      operation: 'extract',
+      triggered: true,
+      jobIds: sessionIds,
+      message: `Extraction triggered for ${eligible.length} eligible sessions (max: ${max_sessions || 'default'})`,
+    };
+  } catch (err) {
+    return {
+      operation: 'extract',
+      triggered: false,
+      jobIds: [],
+      message: `Failed to trigger extraction: ${(err as Error).message}`,
+    };
+  }
+}
+
+/**
+ * Operation: extract_status
+ * Get extraction pipeline state.
+ */
+async function executeExtractStatus(params: Params): Promise<ExtractStatusResult> {
+  const { path } = params;
+  const projectPath = getProjectPath(path);
+
+  const store = getCoreMemoryStore(projectPath);
+  const scheduler = new MemoryJobScheduler(store.getDb());
+
+  const stage1Count = store.countStage1Outputs();
+  const extractionJobs = scheduler.listJobs('extraction');
+
+  return {
+    operation: 'extract_status',
+    total_stage1: stage1Count,
+    jobs: extractionJobs.map(j => ({
+      job_key: j.job_key,
+      status: j.status,
+      last_error: j.last_error,
+    })),
+  };
+}
+
+/**
+ * Operation: consolidate
+ * Trigger consolidation (fire-and-forget).
+ */
+async function executeConsolidate(params: Params): Promise<ConsolidateResult> {
+  const { path } = params;
+  const projectPath = getProjectPath(path);
+
+  try {
+    const { MemoryConsolidationPipeline } = await import('../core/memory-consolidation-pipeline.js');
+    const pipeline = new MemoryConsolidationPipeline(projectPath);
+
+    // Fire-and-forget: trigger consolidation asynchronously
+    const consolidatePromise = pipeline.runConsolidation();
+
+    consolidatePromise.catch((err: Error) => {
+      console.error(`[memory-v2] Consolidation error: ${err.message}`);
+    });
+
+    return {
+      operation: 'consolidate',
+      triggered: true,
+      message: 'Consolidation triggered',
+    };
+  } catch (err) {
+    return {
+      operation: 'consolidate',
+      triggered: false,
+      message: `Failed to trigger consolidation: ${(err as Error).message}`,
+    };
+  }
+}
+
+/**
+ * Operation: consolidate_status
+ * Get consolidation pipeline state.
+ */
+async function executeConsolidateStatus(params: Params): Promise<ConsolidateStatusResult> {
+  const { path } = params;
+  const projectPath = getProjectPath(path);
+
+  try {
+    const { MemoryConsolidationPipeline } = await import('../core/memory-consolidation-pipeline.js');
+    const pipeline = new MemoryConsolidationPipeline(projectPath);
+    const status = pipeline.getStatus();
+    const memoryMd = pipeline.getMemoryMdContent();
+
+    return {
+      operation: 'consolidate_status',
+      status: status?.status || 'unknown',
+      memoryMdAvailable: !!memoryMd,
+      memoryMdPreview: memoryMd ? memoryMd.substring(0, 500) : undefined,
+    };
+  } catch {
+    return {
+      operation: 'consolidate_status',
+      status: 'unavailable',
+      memoryMdAvailable: false,
+    };
+  }
+}
+
+/**
+ * Operation: jobs
+ * List all V2 jobs with optional kind filter.
+ */
+function executeJobs(params: Params): JobsResult {
+  const { kind, status_filter, path } = params;
+  const projectPath = getProjectPath(path);
+
+  const store = getCoreMemoryStore(projectPath);
+  const scheduler = new MemoryJobScheduler(store.getDb());
+
+  const jobs = scheduler.listJobs(kind, status_filter as JobStatus | undefined);
+
+  // Compute byStatus counts
+  const byStatus: Record<string, number> = {};
+  for (const job of jobs) {
+    byStatus[job.status] = (byStatus[job.status] || 0) + 1;
+  }
+
+  return {
+    operation: 'jobs',
+    jobs,
+    total: jobs.length,
+    byStatus,
+  };
+}
+
 /**
  * Route to appropriate operation handler
  */
@@ -354,9 +560,19 @@ async function execute(params: Params): Promise<OperationResult> {
       return executeSearch(params);
     case 'embed_status':
       return executeEmbedStatus(params);
+    case 'extract':
+      return executeExtract(params);
+    case 'extract_status':
+      return executeExtractStatus(params);
+    case 'consolidate':
+      return executeConsolidate(params);
+    case 'consolidate_status':
+      return executeConsolidateStatus(params);
+    case 'jobs':
+      return executeJobs(params);
     default:
       throw new Error(
-        `Unknown operation: ${operation}. Valid operations: list, import, export, summary, embed, search, embed_status`
+        `Unknown operation: ${operation}. Valid operations: list, import, export, summary, embed, search, embed_status, extract, extract_status, consolidate, consolidate_status, jobs`
       );
   }
 }
@@ -374,6 +590,11 @@ Usage:
   core_memory(operation="embed", source_id="CMEM-xxx")       # Generate embeddings for memory
   core_memory(operation="search", query="authentication")    # Search memories semantically
   core_memory(operation="embed_status")                      # Check embedding status
+  core_memory(operation="extract")                           # Trigger batch memory extraction (V2)
+  core_memory(operation="extract_status")                    # Check extraction pipeline status
+  core_memory(operation="consolidate")                       # Trigger memory consolidation (V2)
+  core_memory(operation="consolidate_status")                # Check consolidation status
+  core_memory(operation="jobs")                              # List all V2 pipeline jobs
 
 Path parameter (highest priority):
   core_memory(operation="list", path="/path/to/project")     # Use specific project path
@@ -384,7 +605,10 @@ Memory IDs use format: CMEM-YYYYMMDD-HHMMSS`,
     properties: {
       operation: {
         type: 'string',
-        enum: ['list', 'import', 'export', 'summary', 'embed', 'search', 'embed_status'],
+        enum: [
+          'list', 'import', 'export', 'summary', 'embed', 'search', 'embed_status',
+          'extract', 'extract_status', 'consolidate', 'consolidate_status', 'jobs',
+        ],
         description: 'Operation to perform',
       },
       path: {
@@ -436,6 +660,19 @@ Memory IDs use format: CMEM-YYYYMMDD-HHMMSS`,
       force: {
         type: 'boolean',
         description: 'Force re-embedding even if embeddings exist (default: false)',
+      },
+      max_sessions: {
+        type: 'number',
+        description: 'Max sessions to extract in one batch (for extract operation)',
+      },
+      kind: {
+        type: 'string',
+        description: 'Filter jobs by kind (for jobs operation, e.g. "extraction" or "consolidation")',
+      },
+      status_filter: {
+        type: 'string',
+        enum: ['pending', 'running', 'done', 'error'],
+        description: 'Filter jobs by status (for jobs operation)',
       },
     },
     required: ['operation'],

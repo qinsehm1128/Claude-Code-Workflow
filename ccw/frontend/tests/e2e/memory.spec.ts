@@ -15,7 +15,7 @@ test.describe('[Memory] - Memory Management Tests', () => {
     const monitoring = setupEnhancedMonitoring(page);
 
     // Navigate to memory page
-    await page.goto('/react/memory', { waitUntil: 'domcontentloaded' as const });
+    await page.goto('/memory', { waitUntil: 'domcontentloaded' as const });
 
     // Look for memories list container
     const memoriesList = page.getByTestId('memories-list').or(

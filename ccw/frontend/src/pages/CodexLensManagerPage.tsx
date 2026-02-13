@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { TabsNavigation, type TabItem } from '@/components/ui/TabsNavigation';
+import { TabsNavigation } from '@/components/ui/TabsNavigation';
 import {
   AlertDialog,
   AlertDialogTrigger,
@@ -30,7 +30,6 @@ import {
 import { OverviewTab } from '@/components/codexlens/OverviewTab';
 import { SettingsTab } from '@/components/codexlens/SettingsTab';
 import { AdvancedTab } from '@/components/codexlens/AdvancedTab';
-import { GpuSelector } from '@/components/codexlens/GpuSelector';
 import { ModelsTab } from '@/components/codexlens/ModelsTab';
 import { SearchTab } from '@/components/codexlens/SearchTab';
 import { SemanticInstallDialog } from '@/components/codexlens/SemanticInstallDialog';

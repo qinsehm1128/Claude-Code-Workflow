@@ -4,7 +4,7 @@
 // Tests for all A2UI component renderers
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, cleanup, within } from '@testing-library/react';
+import { render, screen, cleanup } from '@testing-library/react';
 import type { A2UIComponent } from '../core/A2UITypes';
 import type { A2UIState, ActionHandler, BindingResolver } from '../core/A2UIComponentRegistry';
 import type { TextComponent, ButtonComponent, DropdownComponent, CLIOutputComponent, DateTimeInputComponent } from '../core/A2UITypes';
@@ -653,7 +653,7 @@ describe('A2UI Component Integration', () => {
   });
 
   it('should handle async action handlers', async () => {
-    const asyncOnAction: ActionHandler = async (actionId, params) => {
+    const asyncOnAction: ActionHandler = async (_actionId, _params) => {
       await new Promise((resolve) => setTimeout(resolve, 10));
     };
 

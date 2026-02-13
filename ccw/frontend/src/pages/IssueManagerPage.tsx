@@ -386,7 +386,7 @@ export function IssueManagerPage() {
     try {
       const result = await pullIssuesFromGitHub({ state: 'open', limit: 100 });
       await refetch();
-      toast.success(formatMessage({ id: 'issues.messages.githubSyncSuccess' }, result));
+      toast.success(formatMessage({ id: 'issues.messages.githubSyncSuccess' }, { ...result }));
     } catch (err) {
       console.error('GitHub sync failed:', err);
       toast.error(formatMessage({ id: 'issues.messages.githubSyncError' }));

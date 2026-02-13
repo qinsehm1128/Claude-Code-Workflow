@@ -312,7 +312,8 @@ function transformBackendSession(
     has_review: backendData.hasReview,
     review,
     summaries: (backendSession as unknown as { summaries?: SessionMetadata['summaries'] }).summaries,
-    tasks: (backendSession as unknown as { tasks?: TaskData[] }).tasks,
+    tasks: ((backendSession as unknown as { tasks?: TaskData[] }).tasks || [])
+      .map(t => normalizeTask(t as unknown as Record<string, unknown>)),
   };
 }
 
@@ -840,6 +841,13 @@ export interface QueueHistoryIndex {
 
 export async function fetchQueueHistory(projectPath: string): Promise<QueueHistoryIndex> {
   return fetchApi<QueueHistoryIndex>(`/api/queue/history?path=${encodeURIComponent(projectPath)}`);
+}
+
+/**
+ * Fetch a specific queue by ID
+ */
+export async function fetchQueueById(queueId: string, projectPath: string): Promise<IssueQueue> {
+  return fetchApi<IssueQueue>(`/api/queue/${encodeURIComponent(queueId)}?path=${encodeURIComponent(projectPath)}`);
 }
 
 /**
@@ -1977,6 +1985,139 @@ export interface LiteTask {
   };
   created_at?: string;
   updated_at?: string;
+}
+
+// ========== Normalized Task (Unified Flat Format) ==========
+
+/**
+ * Normalized task type that unifies both old 6-field nested format
+ * and new unified flat format into a single interface.
+ *
+ * Old format paths → New flat paths:
+ * - context.acceptance[]        → convergence.criteria[]
+ * - context.focus_paths[]       → focus_paths[]
+ * - context.depends_on[]        → depends_on[]
+ * - context.requirements[]      → description
+ * - flow_control.pre_analysis[] → pre_analysis[]
+ * - flow_control.implementation_approach[] → implementation[]
+ * - flow_control.target_files[] → files[]
+ */
+export interface NormalizedTask extends TaskData {
+  // Promoted from context
+  focus_paths?: string[];
+  convergence?: {
+    criteria?: string[];
+    verification?: string;
+    definition_of_done?: string;
+  };
+
+  // Promoted from flow_control
+  pre_analysis?: PreAnalysisStep[];
+  implementation?: (ImplementationStep | string)[];
+  files?: Array<{ path: string; name?: string }>;
+
+  // Promoted from meta
+  type?: string;
+  scope?: string;
+  action?: string;
+
+  // Original nested objects (preserved for long-term compat)
+  flow_control?: FlowControl;
+  context?: {
+    focus_paths?: string[];
+    acceptance?: string[];
+    depends_on?: string[];
+    requirements?: string[];
+  };
+  meta?: {
+    type?: string;
+    scope?: string;
+    [key: string]: unknown;
+  };
+
+  // Raw data reference for JSON viewer / debugging
+  _raw?: unknown;
+}
+
+/**
+ * Normalize a raw task object (old 6-field or new unified flat) into NormalizedTask.
+ * Reads new flat fields first, falls back to old nested paths.
+ * Long-term compatible: handles both formats permanently.
+ */
+export function normalizeTask(raw: Record<string, unknown>): NormalizedTask {
+  if (!raw || typeof raw !== 'object') {
+    return { task_id: 'N/A', status: 'pending', _raw: raw } as NormalizedTask;
+  }
+
+  // Type-safe access helpers
+  const rawContext = raw.context as LiteTask['context'] | undefined;
+  const rawFlowControl = raw.flow_control as FlowControl | undefined;
+  const rawMeta = raw.meta as LiteTask['meta'] | undefined;
+  const rawConvergence = raw.convergence as NormalizedTask['convergence'] | undefined;
+
+  // Description: new flat field first, then join old context.requirements
+  const rawRequirements = rawContext?.requirements;
+  const description = (raw.description as string | undefined)
+    || (Array.isArray(rawRequirements) && rawRequirements.length > 0
+      ? rawRequirements.join('; ')
+      : undefined);
+
+  return {
+    // Identity
+    task_id: (raw.task_id as string) || (raw.id as string) || 'N/A',
+    title: raw.title as string | undefined,
+    description,
+    status: (raw.status as NormalizedTask['status']) || 'pending',
+    priority: raw.priority as NormalizedTask['priority'],
+    created_at: raw.created_at as string | undefined,
+    updated_at: raw.updated_at as string | undefined,
+    has_summary: raw.has_summary as boolean | undefined,
+    estimated_complexity: raw.estimated_complexity as string | undefined,
+
+    // Promoted from context (new first, old fallback)
+    depends_on: (raw.depends_on as string[]) || rawContext?.depends_on || [],
+    focus_paths: (raw.focus_paths as string[]) || rawContext?.focus_paths || [],
+    convergence: rawConvergence || (rawContext?.acceptance?.length
+      ? { criteria: rawContext.acceptance }
+      : undefined),
+
+    // Promoted from flow_control (new first, old fallback)
+    pre_analysis: (raw.pre_analysis as PreAnalysisStep[]) || rawFlowControl?.pre_analysis,
+    implementation: (raw.implementation as (ImplementationStep | string)[]) || rawFlowControl?.implementation_approach,
+    files: (raw.files as Array<{ path: string; name?: string }>) || rawFlowControl?.target_files,
+
+    // Promoted from meta (new first, old fallback)
+    type: (raw.type as string) || rawMeta?.type,
+    scope: (raw.scope as string) || rawMeta?.scope,
+    action: (raw.action as string) || (rawMeta as Record<string, unknown> | undefined)?.action as string | undefined,
+
+    // Preserve original nested objects for backward compat
+    flow_control: rawFlowControl,
+    context: rawContext,
+    meta: rawMeta,
+
+    // Raw reference
+    _raw: raw,
+  };
+}
+
+/**
+ * Build a FlowControl object from NormalizedTask for backward-compatible components (e.g. Flowchart).
+ */
+export function buildFlowControl(task: NormalizedTask): FlowControl | undefined {
+  const preAnalysis = task.pre_analysis;
+  const implementation = task.implementation;
+  const files = task.files;
+
+  if (!preAnalysis?.length && !implementation?.length && !files?.length) {
+    return task.flow_control; // Fall back to original if no flat fields
+  }
+
+  return {
+    pre_analysis: preAnalysis || task.flow_control?.pre_analysis,
+    implementation_approach: implementation || task.flow_control?.implementation_approach,
+    target_files: files || task.flow_control?.target_files,
+  };
 }
 
 export interface LiteTaskSession {
@@ -3270,7 +3411,7 @@ export interface CcwMcpConfig {
   enabledTools: string[];
   projectRoot?: string;
   allowedDirs?: string;
-  disableSandbox?: boolean;
+  enableSandbox?: boolean;
 }
 
 /**
@@ -3285,7 +3426,7 @@ function buildCcwMcpServerConfig(config: {
   enabledTools?: string[];
   projectRoot?: string;
   allowedDirs?: string;
-  disableSandbox?: boolean;
+  enableSandbox?: boolean;
 }): { command: string; args: string[]; env: Record<string, string> } {
   const env: Record<string, string> = {};
 
@@ -3301,8 +3442,8 @@ function buildCcwMcpServerConfig(config: {
   if (config.allowedDirs) {
     env.CCW_ALLOWED_DIRS = config.allowedDirs;
   }
-  if (config.disableSandbox) {
-    env.CCW_DISABLE_SANDBOX = '1';
+  if (config.enableSandbox) {
+    env.CCW_ENABLE_SANDBOX = '1';
   }
 
   // Cross-platform config
@@ -3367,7 +3508,7 @@ export async function fetchCcwMcpConfig(): Promise<CcwMcpConfig> {
       enabledTools,
       projectRoot: env.CCW_PROJECT_ROOT,
       allowedDirs: env.CCW_ALLOWED_DIRS,
-      disableSandbox: env.CCW_DISABLE_SANDBOX === '1',
+      enableSandbox: env.CCW_ENABLE_SANDBOX === '1',
     };
   } catch {
     return {
@@ -3384,7 +3525,7 @@ export async function updateCcwConfig(config: {
   enabledTools?: string[];
   projectRoot?: string;
   allowedDirs?: string;
-  disableSandbox?: boolean;
+  enableSandbox?: boolean;
 }): Promise<CcwMcpConfig> {
   const serverConfig = buildCcwMcpServerConfig(config);
 
@@ -3489,7 +3630,7 @@ export async function fetchCcwMcpConfigForCodex(): Promise<CcwMcpConfig> {
       enabledTools,
       projectRoot: env.CCW_PROJECT_ROOT,
       allowedDirs: env.CCW_ALLOWED_DIRS,
-      disableSandbox: env.CCW_DISABLE_SANDBOX === '1',
+      enableSandbox: env.CCW_ENABLE_SANDBOX === '1',
     };
   } catch {
     return { isInstalled: false, enabledTools: [] };
@@ -3503,7 +3644,7 @@ function buildCcwMcpServerConfigForCodex(config: {
   enabledTools?: string[];
   projectRoot?: string;
   allowedDirs?: string;
-  disableSandbox?: boolean;
+  enableSandbox?: boolean;
 }): { command: string; args: string[]; env: Record<string, string> } {
   const env: Record<string, string> = {};
 
@@ -3519,8 +3660,8 @@ function buildCcwMcpServerConfigForCodex(config: {
   if (config.allowedDirs) {
     env.CCW_ALLOWED_DIRS = config.allowedDirs;
   }
-  if (config.disableSandbox) {
-    env.CCW_DISABLE_SANDBOX = '1';
+  if (config.enableSandbox) {
+    env.CCW_ENABLE_SANDBOX = '1';
   }
 
   return { command: 'ccw-mcp', args: [], env };
@@ -3559,7 +3700,7 @@ export async function updateCcwConfigForCodex(config: {
   enabledTools?: string[];
   projectRoot?: string;
   allowedDirs?: string;
-  disableSandbox?: boolean;
+  enableSandbox?: boolean;
 }): Promise<CcwMcpConfig> {
   const serverConfig = buildCcwMcpServerConfigForCodex(config);
 
@@ -4399,6 +4540,74 @@ export async function updateCodexLensIgnorePatterns(request: CodexLensUpdateIgno
   });
 }
 
+// ========== CodexLens Reranker Config API ==========
+
+/**
+ * Reranker LiteLLM model info
+ */
+export interface RerankerLitellmModel {
+  modelId: string;
+  modelName: string;
+  providers: string[];
+}
+
+/**
+ * Reranker configuration response from GET /api/codexlens/reranker/config
+ */
+export interface RerankerConfigResponse {
+  success: boolean;
+  backend: string;
+  model_name: string;
+  api_provider: string;
+  api_key_set: boolean;
+  available_backends: string[];
+  api_providers: string[];
+  litellm_endpoints: string[];
+  litellm_models?: RerankerLitellmModel[];
+  config_source: string;
+  error?: string;
+}
+
+/**
+ * Reranker configuration update request for POST /api/codexlens/reranker/config
+ */
+export interface RerankerConfigUpdateRequest {
+  backend?: string;
+  model_name?: string;
+  api_provider?: string;
+  api_key?: string;
+  litellm_endpoint?: string;
+}
+
+/**
+ * Reranker configuration update response
+ */
+export interface RerankerConfigUpdateResponse {
+  success: boolean;
+  message?: string;
+  updates?: string[];
+  error?: string;
+}
+
+/**
+ * Fetch reranker configuration (backends, models, providers)
+ */
+export async function fetchRerankerConfig(): Promise<RerankerConfigResponse> {
+  return fetchApi<RerankerConfigResponse>('/api/codexlens/reranker/config');
+}
+
+/**
+ * Update reranker configuration
+ */
+export async function updateRerankerConfig(
+  request: RerankerConfigUpdateRequest
+): Promise<RerankerConfigUpdateResponse> {
+  return fetchApi<RerankerConfigUpdateResponse>('/api/codexlens/reranker/config', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
 // ========== CodexLens Search API ==========
 
 /**
@@ -4566,6 +4775,36 @@ export interface CodexLensSemanticSearchResponse {
  */
 export async function fetchCodexLensLspStatus(): Promise<CodexLensLspStatusResponse> {
   return fetchApi<CodexLensLspStatusResponse>('/api/codexlens/lsp/status');
+}
+
+/**
+ * Start CodexLens LSP server
+ */
+export async function startCodexLensLsp(path?: string): Promise<{ success: boolean; message?: string; workspace_root?: string; error?: string }> {
+  return fetchApi('/api/codexlens/lsp/start', {
+    method: 'POST',
+    body: JSON.stringify({ path }),
+  });
+}
+
+/**
+ * Stop CodexLens LSP server
+ */
+export async function stopCodexLensLsp(path?: string): Promise<{ success: boolean; message?: string; error?: string }> {
+  return fetchApi('/api/codexlens/lsp/stop', {
+    method: 'POST',
+    body: JSON.stringify({ path }),
+  });
+}
+
+/**
+ * Restart CodexLens LSP server
+ */
+export async function restartCodexLensLsp(path?: string): Promise<{ success: boolean; message?: string; workspace_root?: string; error?: string }> {
+  return fetchApi('/api/codexlens/lsp/restart', {
+    method: 'POST',
+    body: JSON.stringify({ path }),
+  });
 }
 
 /**
@@ -5444,6 +5683,52 @@ export interface ExecutionLogsResponse {
   hasMore: boolean;
 }
 
+// ========== Orchestrator Flow API (Create/Execute) ==========
+
+export interface OrchestratorFlowDto {
+  id: string;
+  name: string;
+  description?: string;
+  version: string;
+  created_at: string;
+  updated_at: string;
+  nodes: Array<Record<string, unknown>>;
+  edges: Array<Record<string, unknown>>;
+  variables: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+}
+
+export interface CreateOrchestratorFlowRequest {
+  name: string;
+  description?: string;
+  version?: string;
+  nodes?: Array<Record<string, unknown>>;
+  edges?: Array<Record<string, unknown>>;
+  variables?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}
+
+export async function createOrchestratorFlow(
+  request: CreateOrchestratorFlowRequest,
+  projectPath?: string
+): Promise<{ success: boolean; data: OrchestratorFlowDto }> {
+  return fetchApi(withPath('/api/orchestrator/flows', projectPath), {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+export async function executeOrchestratorFlow(
+  flowId: string,
+  request?: { variables?: Record<string, unknown> },
+  projectPath?: string
+): Promise<{ success: boolean; data: { execId: string; flowId: string; status: string; startedAt: string } }> {
+  return fetchApi(withPath(`/api/orchestrator/flows/${encodeURIComponent(flowId)}/execute`, projectPath), {
+    method: 'POST',
+    body: JSON.stringify(request ?? {}),
+  });
+}
+
 /**
  * Fetch execution state by execId
  * @param execId - Execution ID
@@ -5658,6 +5943,25 @@ export async function upgradeCcwInstallation(
   });
 }
 
+// ========== CCW Tools API ==========
+
+/**
+ * CCW tool info returned by /api/ccw/tools
+ */
+export interface CcwToolInfo {
+  name: string;
+  description: string;
+  parameters?: Record<string, unknown>;
+}
+
+/**
+ * Fetch all registered CCW tools
+ */
+export async function fetchCcwTools(): Promise<CcwToolInfo[]> {
+  const data = await fetchApi<{ tools: CcwToolInfo[] }>('/api/ccw/tools');
+  return data.tools;
+}
+
 // ========== Team API ==========
 
 export async function fetchTeams(): Promise<{ teams: Array<{ name: string; messageCount: number; lastActivity: string }> }> {
@@ -5707,28 +6011,41 @@ export interface CreateCliSessionInput {
   resumeKey?: string;
 }
 
-export async function fetchCliSessions(): Promise<{ sessions: CliSession[] }> {
-  return fetchApi<{ sessions: CliSession[] }>('/api/cli-sessions');
+function withPath(url: string, projectPath?: string): string {
+  if (!projectPath) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}path=${encodeURIComponent(projectPath)}`;
 }
 
-export async function createCliSession(input: CreateCliSessionInput): Promise<{ success: boolean; session: CliSession }> {
-  return fetchApi<{ success: boolean; session: CliSession }>('/api/cli-sessions', {
+export async function fetchCliSessions(projectPath?: string): Promise<{ sessions: CliSession[] }> {
+  return fetchApi<{ sessions: CliSession[] }>(withPath('/api/cli-sessions', projectPath));
+}
+
+export async function createCliSession(
+  input: CreateCliSessionInput,
+  projectPath?: string
+): Promise<{ success: boolean; session: CliSession }> {
+  return fetchApi<{ success: boolean; session: CliSession }>(withPath('/api/cli-sessions', projectPath), {
     method: 'POST',
     body: JSON.stringify(input),
   });
 }
 
-export async function fetchCliSessionBuffer(sessionKey: string): Promise<{ session: CliSession; buffer: string }> {
+export async function fetchCliSessionBuffer(
+  sessionKey: string,
+  projectPath?: string
+): Promise<{ session: CliSession; buffer: string }> {
   return fetchApi<{ session: CliSession; buffer: string }>(
-    `/api/cli-sessions/${encodeURIComponent(sessionKey)}/buffer`
+    withPath(`/api/cli-sessions/${encodeURIComponent(sessionKey)}/buffer`, projectPath)
   );
 }
 
 export async function sendCliSessionText(
   sessionKey: string,
-  input: { text: string; appendNewline?: boolean }
+  input: { text: string; appendNewline?: boolean },
+  projectPath?: string
 ): Promise<{ success: boolean }> {
-  return fetchApi<{ success: boolean }>(`/api/cli-sessions/${encodeURIComponent(sessionKey)}/send`, {
+  return fetchApi<{ success: boolean }>(withPath(`/api/cli-sessions/${encodeURIComponent(sessionKey)}/send`, projectPath), {
     method: 'POST',
     body: JSON.stringify(input),
   });
@@ -5747,27 +6064,119 @@ export interface ExecuteInCliSessionInput {
 
 export async function executeInCliSession(
   sessionKey: string,
-  input: ExecuteInCliSessionInput
+  input: ExecuteInCliSessionInput,
+  projectPath?: string
 ): Promise<{ success: boolean; executionId: string; command: string }> {
   return fetchApi<{ success: boolean; executionId: string; command: string }>(
-    `/api/cli-sessions/${encodeURIComponent(sessionKey)}/execute`,
+    withPath(`/api/cli-sessions/${encodeURIComponent(sessionKey)}/execute`, projectPath),
     { method: 'POST', body: JSON.stringify(input) }
   );
 }
 
 export async function resizeCliSession(
   sessionKey: string,
-  input: { cols: number; rows: number }
+  input: { cols: number; rows: number },
+  projectPath?: string
 ): Promise<{ success: boolean }> {
-  return fetchApi<{ success: boolean }>(`/api/cli-sessions/${encodeURIComponent(sessionKey)}/resize`, {
+  return fetchApi<{ success: boolean }>(withPath(`/api/cli-sessions/${encodeURIComponent(sessionKey)}/resize`, projectPath), {
     method: 'POST',
     body: JSON.stringify(input),
   });
 }
 
-export async function closeCliSession(sessionKey: string): Promise<{ success: boolean }> {
-  return fetchApi<{ success: boolean }>(`/api/cli-sessions/${encodeURIComponent(sessionKey)}/close`, {
+export async function closeCliSession(sessionKey: string, projectPath?: string): Promise<{ success: boolean }> {
+  return fetchApi<{ success: boolean }>(withPath(`/api/cli-sessions/${encodeURIComponent(sessionKey)}/close`, projectPath), {
     method: 'POST',
     body: JSON.stringify({}),
   });
+}
+
+export async function createCliSessionShareToken(
+  sessionKey: string,
+  input: { mode?: 'read' | 'write'; ttlMs?: number },
+  projectPath?: string
+): Promise<{ success: boolean; shareToken: string; expiresAt: string; mode: 'read' | 'write' }> {
+  return fetchApi<{ success: boolean; shareToken: string; expiresAt: string; mode: 'read' | 'write' }>(
+    withPath(`/api/cli-sessions/${encodeURIComponent(sessionKey)}/share`, projectPath),
+    { method: 'POST', body: JSON.stringify(input) }
+  );
+}
+
+export async function fetchCliSessionShares(
+  sessionKey: string,
+  projectPath?: string
+): Promise<{ shares: Array<{ shareToken: string; expiresAt: string; mode: 'read' | 'write' }> }> {
+  return fetchApi<{ shares: Array<{ shareToken: string; expiresAt: string; mode: 'read' | 'write' }> }>(
+    withPath(`/api/cli-sessions/${encodeURIComponent(sessionKey)}/shares`, projectPath)
+  );
+}
+
+export async function revokeCliSessionShareToken(
+  sessionKey: string,
+  input: { shareToken: string },
+  projectPath?: string
+): Promise<{ success: boolean; revoked: boolean }> {
+  return fetchApi<{ success: boolean; revoked: boolean }>(
+    withPath(`/api/cli-sessions/${encodeURIComponent(sessionKey)}/share/revoke`, projectPath),
+    { method: 'POST', body: JSON.stringify(input) }
+  );
+}
+
+// ========== Audit (Observability) API ==========
+
+export type CliSessionAuditEventType =
+  | 'session_created'
+  | 'session_closed'
+  | 'session_send'
+  | 'session_execute'
+  | 'session_resize'
+  | 'session_share_created'
+  | 'session_share_revoked'
+  | 'session_idle_reaped';
+
+export interface CliSessionAuditEvent {
+  type: CliSessionAuditEventType;
+  timestamp: string;
+  projectRoot: string;
+  sessionKey?: string;
+  tool?: string;
+  resumeKey?: string;
+  workingDir?: string;
+  ip?: string;
+  userAgent?: string;
+  details?: Record<string, unknown>;
+}
+
+export interface CliSessionAuditListResponse {
+  events: CliSessionAuditEvent[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+}
+
+export async function fetchCliSessionAudit(
+  options?: {
+    projectPath?: string;
+    sessionKey?: string;
+    type?: CliSessionAuditEventType | CliSessionAuditEventType[];
+    q?: string;
+    limit?: number;
+    offset?: number;
+  }
+): Promise<{ success: boolean; data: CliSessionAuditListResponse }> {
+  const params = new URLSearchParams();
+  if (options?.sessionKey) params.set('sessionKey', options.sessionKey);
+  if (options?.q) params.set('q', options.q);
+  if (typeof options?.limit === 'number') params.set('limit', String(options.limit));
+  if (typeof options?.offset === 'number') params.set('offset', String(options.offset));
+  if (options?.type) {
+    const types = Array.isArray(options.type) ? options.type : [options.type];
+    params.set('type', types.join(','));
+  }
+
+  const queryString = params.toString();
+  return fetchApi<{ success: boolean; data: CliSessionAuditListResponse }>(
+    withPath(`/api/audit/cli-sessions${queryString ? `?${queryString}` : ''}`, options?.projectPath)
+  );
 }

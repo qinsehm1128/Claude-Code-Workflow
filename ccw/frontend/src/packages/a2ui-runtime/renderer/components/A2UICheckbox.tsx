@@ -3,25 +3,18 @@
 // ========================================
 // Maps A2UI Checkbox component to shadcn/ui Checkbox
 
-import React, { useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Label } from '@/components/ui/Label';
 import type { ComponentRenderer } from '../../core/A2UIComponentRegistry';
 import { resolveLiteralOrBinding, resolveTextContent } from '../A2UIRenderer';
 import type { CheckboxComponent } from '../../core/A2UITypes';
 
-interface A2UICheckboxProps {
-  component: CheckboxComponent;
-  state: Record<string, unknown>;
-  onAction: (actionId: string, params: Record<string, unknown>) => void | Promise<void>;
-  resolveBinding: (binding: { path: string }) => unknown;
-}
-
 /**
  * A2UI Checkbox Component Renderer
  * Boolean state binding with onChange handler
  */
-export const A2UICheckbox: ComponentRenderer = ({ component, state, onAction, resolveBinding }) => {
+export const A2UICheckbox: ComponentRenderer = ({ component, onAction, resolveBinding }) => {
   const checkboxComp = component as CheckboxComponent;
   const { Checkbox: checkboxConfig } = checkboxComp;
 

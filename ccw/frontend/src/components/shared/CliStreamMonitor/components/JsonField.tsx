@@ -9,7 +9,7 @@ export interface JsonFieldProps {
 
 export function JsonField({ fieldName, value }: JsonFieldProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [, setCopied] = useState(false);
 
   const isObject = value !== null && typeof value === 'object';
   const isNested = isObject && (Array.isArray(value) || Object.keys(value).length > 0);

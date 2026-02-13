@@ -15,7 +15,7 @@ test.describe('[MCP] - MCP Management Tests', () => {
     const monitoring = setupEnhancedMonitoring(page);
 
     // Navigate to MCP settings page
-    await page.goto('/react/settings/mcp', { waitUntil: 'domcontentloaded' as const });
+    await page.goto('/settings/mcp', { waitUntil: 'domcontentloaded' as const });
 
     // Look for MCP servers list container
     const serversList = page.getByTestId('mcp-servers-list').or(

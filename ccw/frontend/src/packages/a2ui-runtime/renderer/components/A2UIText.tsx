@@ -6,20 +6,12 @@
 import React from 'react';
 import type { ComponentRenderer } from '../../core/A2UIComponentRegistry';
 import { resolveTextContent } from '../A2UIRenderer';
-import type { TextComponent } from '../../core/A2UITypes';
-
-interface A2UITextProps {
-  component: TextComponent;
-  state: Record<string, unknown>;
-  onAction: (actionId: string, params: Record<string, unknown>) => void | Promise<void>;
-  resolveBinding: (binding: { path: string }) => unknown;
-}
 
 /**
  * A2UI Text Component Renderer
  * Maps A2UI Text usageHint to HTML elements (h1, h2, h3, p, span, code)
  */
-export const A2UIText: ComponentRenderer = ({ component, state, onAction, resolveBinding }) => {
+export const A2UIText: ComponentRenderer = ({ component, resolveBinding }) => {
   const { Text } = component as { Text: { text: unknown; usageHint?: string } };
 
   // Resolve text content

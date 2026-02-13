@@ -119,7 +119,19 @@
       "none": "No sessions",
       "refresh": "Refresh",
       "new": "New Session",
-      "close": "Close"
+      "close": "Close",
+      "share": "Share (Read-only)",
+      "revokeShare": "Revoke",
+      "expiresAt": "Expires at",
+      "activeShares": "Active shares"
+    },
+    "share": {
+      "pageTitle": "Shared CLI Session",
+      "missingParams": "Missing sessionKey or shareToken in URL",
+      "connecting": "Connecting",
+      "connected": "Live",
+      "error": "Error",
+      "linkLabel": "Share link"
     },
     "exec": {
       "tool": "Tool",
@@ -145,7 +157,21 @@
       "empty": "No queues"
     },
     "exec": {
-      "title": "Execute in Session"
+      "title": "Execute",
+      "sessionTab": "Session",
+      "orchestratorTab": "Orchestrator"
+    },
+    "orchestrator": {
+      "title": "Send to Orchestrator",
+      "targetSession": "Target session",
+      "tool": "Tool",
+      "mode": "Mode",
+      "resumeStrategy": "resumeStrategy",
+      "send": "Send",
+      "sending": "Sending...",
+      "sentTitle": "Sent to Orchestrator",
+      "sentDesc": "Flow created: {flowId}",
+      "sendFailed": "Failed to send"
     },
     "status": {
       "pending": "Pending",
@@ -347,8 +373,73 @@
       "issues": "Issues",
       "board": "Board",
       "queue": "Queue",
-      "discovery": "Discovery"
+      "discovery": "Discovery",
+      "observability": "Observability",
+      "executions": "Executions"
     }
+  },
+  "executions": {
+    "pageTitle": "Executions",
+    "description": "Monitor and manage queue execution sessions",
+    "stats": {
+      "running": "Running",
+      "completed": "Completed",
+      "failed": "Failed",
+      "total": "Total"
+    },
+    "list": {
+      "title": "Execution List",
+      "clearCompleted": "Clear Completed"
+    },
+    "detail": {
+      "selectExecution": "Select an execution to view details",
+      "openInTerminal": "Open in Terminal",
+      "id": "Execution ID",
+      "queueItemId": "Queue Item",
+      "issueId": "Issue",
+      "solutionId": "Solution",
+      "type": "Type",
+      "tool": "Tool",
+      "mode": "Mode",
+      "status": "Status",
+      "startedAt": "Started At",
+      "completedAt": "Completed At",
+      "sessionKey": "Session Key",
+      "flowId": "Flow ID",
+      "execId": "Execution ID (Orchestrator)"
+    },
+    "emptyState": {
+      "title": "No Executions",
+      "description": "No queue executions have been started yet"
+    }
+  },
+  "observability": {
+    "pageTitle": "Observability",
+    "description": "Audit and inspect automated deliveries and CLI session activity",
+    "audit": {
+      "title": "CLI Session Audit"
+    },
+    "filters": {
+      "search": "Search",
+      "searchPlaceholder": "Search type/sessionKey/resumeKey/details...",
+      "sessionKey": "Session Key",
+      "sessionKeyPlaceholder": "e.g. cli-xxxx",
+      "type": "Type",
+      "typeAll": "All types",
+      "limit": "Limit"
+    },
+    "table": {
+      "timestamp": "Timestamp",
+      "type": "Type",
+      "sessionKey": "Session",
+      "tool": "Tool",
+      "resumeKey": "Resume Key",
+      "workingDir": "Working Dir",
+      "ip": "IP",
+      "userAgent": "User Agent"
+    },
+    "empty": "No audit events",
+    "error": "Failed to load audit events"
   },
   "board": {
     "pageTitle": "Issue Board",

@@ -1,6 +1,6 @@
 ---
 name: issue-resolve
-description: Unified issue resolution pipeline with source selection. Plan issues via AI exploration, convert from artifacts, import from brainstorm sessions, or form execution queues. Triggers on "issue:plan", "issue:queue", "issue:convert-to-plan", "issue:from-brainstorm", "resolve issue", "plan issue", "queue issues", "convert plan to issue".
+description: Unified issue resolution pipeline with source selection. Plan issues via AI exploration, convert from artifacts, import from brainstorm sessions, form execution queues, or export solutions to task JSON. Triggers on "issue:plan", "issue:queue", "issue:convert-to-plan", "issue:from-brainstorm", "export-to-tasks", "resolve issue", "plan issue", "queue issues", "convert plan to issue".
 allowed-tools: spawn_agent, wait, send_input, close_agent, AskUserQuestion, Read, Write, Edit, Bash, Glob, Grep
 ---
 
@@ -28,6 +28,10 @@ Unified issue resolution pipeline that orchestrates solution creation from multi
      ↓           ↓           ↓           ↓          │
   Solutions   Solutions   Issue+Sol   Exec Queue    │
   (bound)     (bound)     (bound)    (ordered)      │
+     │           │           │                       │
+     └─────┬─────┘───────────┘                       │
+           ↓ (optional --export-tasks)               │
+    .task/TASK-*.json                                 │
                                                      │
                     ┌────────────────────────────────┘
                     ↓
@@ -119,6 +123,7 @@ codex -p "@.codex/prompts/issue-resolve.md [FLAGS] \"<input>\""
 --issue <id>           Bind to existing issue (convert mode)
 --supplement           Add tasks to existing solution (convert mode)
 --queues <n>           Number of parallel queues (queue mode, default: 1)
+--export-tasks         Export solution tasks to .task/TASK-*.json (task-schema.json format)
 
 # Examples
 codex -p "@.codex/prompts/issue-resolve.md GH-123,GH-124"                              # Explore & plan issues
@@ -151,6 +156,9 @@ Phase Execution (load one phase):
    └─ Phase 4: Form Queue        → phases/04-issue-queue.md
 
 Post-Phase:
+   ├─ Export to Task JSON (optional, with --export-tasks flag)
+   │   ├─ For each solution.tasks[] → write .task/TASK-{T-id}.json
+   │   └─ Generate plan.json (plan-overview-base-schema) from exported tasks
    └─ Summary + Next steps recommendation
 ```
 
@@ -263,6 +271,58 @@ User Input (issue IDs / artifact path / session ID / flags)
 [Summary + Next Steps]
     ├─ After Plan/Convert/Brainstorm → Suggest /issue:queue or /issue:execute
     └─ After Queue → Suggest /issue:execute
+
+(Optional) Export to Task JSON (when --export-tasks flag is set):
+    ├─ For each solution.tasks[] entry:
+    │   ├─ solution.task.id             → id (prefixed as TASK-{T-id})
+    │   ├─ solution.task.title          → title
+    │   ├─ solution.task.description    → description
+    │   ├─ solution.task.action         → action
+    │   ├─ solution.task.scope          → scope
+    │   ├─ solution.task.modification_points[] → files[]
+    │   │   ├─ mp.file                  → files[].path
+    │   │   ├─ mp.target                → files[].target
+    │   │   └─ mp.change                → files[].changes[]
+    │   ├─ solution.task.acceptance     → convergence
+    │   │   ├─ acceptance.criteria[]    → convergence.criteria[]
+    │   │   └─ acceptance.verification[]→ convergence.verification (joined)
+    │   ├─ solution.task.implementation → implementation[]
+    │   ├─ solution.task.test           → test
+    │   ├─ solution.task.depends_on     → depends_on
+    │   ├─ solution.task.commit         → commit
+    │   └─ solution.task.priority       → priority (1→critical, 2→high, 3→medium, 4-5→low)
+    ├─ Output path: .workflow/issues/{issue-id}/.task/TASK-{T-id}.json
+    ├─ Each file follows task-schema.json (IDENTITY + CONVERGENCE + FILES required)
+    ├─ source.tool = "issue-resolve", source.issue_id = {issue-id}
+    │
+    └─ Generate plan.json (after all TASK-*.json exported):
+        const issueDir = `.workflow/issues/${issueId}`
+        const taskFiles = Glob(`${issueDir}/.task/TASK-*.json`)
+        const taskIds = taskFiles.map(f => JSON.parse(Read(f)).id).sort()
+
+        // Guard: skip plan.json if no tasks generated
+        if (taskIds.length === 0) {
+          console.warn('No tasks generated; skipping plan.json')
+        } else {
+
+        const planOverview = {
+          summary: `Issue resolution plan for ${issueId}: ${issueTitle}`,
+          approach: solution.approach || "AI-explored resolution strategy",
+          task_ids: taskIds,
+          task_count: taskIds.length,
+          complexity: taskIds.length > 5 ? "High" : taskIds.length > 2 ? "Medium" : "Low",
+          _metadata: {
+            timestamp: getUtc8ISOString(),
+            source: "issue-plan-agent",
+            planning_mode: "agent-based",
+            plan_type: "feature",
+            schema_version: "2.0"
+          }
+        }
+        Write(`${issueDir}/plan.json`, JSON.stringify(planOverview, null, 2))
+
+        } // end guard
+        Output path: .workflow/issues/{issue-id}/plan.json
 ```
 
 ## Task Tracking Pattern

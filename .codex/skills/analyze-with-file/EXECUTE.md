@@ -7,14 +7,16 @@
 ## Execution Flow
 
 ```
-conclusions.json → tasks.jsonl → User Confirmation → Direct Inline Execution → execution.md + execution-events.md
+conclusions.json → .task/*.json → User Confirmation → Direct Inline Execution → execution.md + execution-events.md
 ```
 
 ---
 
-## Step 1: Generate tasks.jsonl
+## Step 1: Generate .task/*.json
 
-Convert `conclusions.json` recommendations directly into unified JSONL task format. Each line is a self-contained task with convergence criteria, compatible with `unified-execute-with-file`.
+Convert `conclusions.json` recommendations directly into individual task JSON files. Each file is a self-contained task with convergence criteria, compatible with `unified-execute-with-file`.
+
+**Schema**: `cat ~/.ccw/workflows/cli-templates/schemas/task-schema.json`
 
 **Conversion Logic**:
 
@@ -51,9 +53,11 @@ const tasks = conclusions.recommendations.map((rec, index) => ({
   }
 }))
 
-// Write one task per line
-const jsonlContent = tasks.map(t => JSON.stringify(t)).join('\n')
-Write(`${sessionFolder}/tasks.jsonl`, jsonlContent)
+// Write each task as individual JSON file
+Bash(`mkdir -p ${sessionFolder}/.task`)
+tasks.forEach(task => {
+  Write(`${sessionFolder}/.task/${task.id}.json`, JSON.stringify(task, null, 2))
+})
 ```
 
 **Task Type Inference**:
@@ -106,13 +110,39 @@ tasks.forEach(task => {
 })
 ```
 
-**Output**: `${sessionFolder}/tasks.jsonl`
+**Output**: `${sessionFolder}/.task/TASK-*.json`
 
-**JSONL Schema** (one task per line):
+**Task JSON Schema** (one file per task, e.g. `.task/TASK-001.json`):
 
-```jsonl
-{"id":"TASK-001","title":"Fix authentication token refresh","description":"Token refresh fails silently when...","type":"fix","priority":"high","effort":"large","files":[{"path":"src/auth/token.ts","action":"modify"},{"path":"src/middleware/auth.ts","action":"modify"}],"depends_on":[],"convergence":{"criteria":["Token refresh returns new valid token","Expired token triggers refresh automatically","Failed refresh redirects to login"],"verification":"jest --testPathPattern=token.test.ts","definition_of_done":"Users remain logged in across token expiration without manual re-login"},"evidence":[...],"source":{"tool":"analyze-with-file","session_id":"ANL-xxx","original_id":"TASK-001"}}
-{"id":"TASK-002","title":"Add input validation to user endpoints","description":"Missing validation allows...","type":"enhancement","priority":"medium","effort":"medium","files":[{"path":"src/routes/user.ts","action":"modify"},{"path":"src/validators/user.ts","action":"create"}],"depends_on":["TASK-001"],"convergence":{"criteria":["All user inputs validated against schema","Invalid inputs return 400 with specific error message","SQL injection patterns rejected"],"verification":"jest --testPathPattern=user.validation.test.ts","definition_of_done":"All user-facing inputs are validated with clear error feedback"},"evidence":[...],"source":{"tool":"analyze-with-file","session_id":"ANL-xxx","original_id":"TASK-002"}}
+```json
+{
+  "id": "TASK-001",
+  "title": "Fix authentication token refresh",
+  "description": "Token refresh fails silently when...",
+  "type": "fix",
+  "priority": "high",
+  "effort": "large",
+  "files": [
+    { "path": "src/auth/token.ts", "action": "modify" },
+    { "path": "src/middleware/auth.ts", "action": "modify" }
+  ],
+  "depends_on": [],
+  "convergence": {
+    "criteria": [
+      "Token refresh returns new valid token",
+      "Expired token triggers refresh automatically",
+      "Failed refresh redirects to login"
+    ],
+    "verification": "jest --testPathPattern=token.test.ts",
+    "definition_of_done": "Users remain logged in across token expiration without manual re-login"
+  },
+  "evidence": [],
+  "source": {
+    "tool": "analyze-with-file",
+    "session_id": "ANL-xxx",
+    "original_id": "TASK-001"
+  }
+}
 ```
 
 ---
@@ -124,8 +154,8 @@ Validate feasibility before starting execution. Reference: unified-execute-with-
 ##### Step 2.1: Build Execution Order
 
 ```javascript
-const tasks = Read(`${sessionFolder}/tasks.jsonl`)
-  .split('\n').filter(l => l.trim()).map(l => JSON.parse(l))
+const taskFiles = Glob(`${sessionFolder}/.task/*.json`)
+const tasks = taskFiles.map(f => JSON.parse(Read(f)))
 
 // 1. Dependency validation
 const taskIds = new Set(tasks.map(t => t.id))
@@ -220,7 +250,7 @@ const executionMd = `# Execution Overview
 
 ## Session Info
 - **Session ID**: ${sessionId}
-- **Plan Source**: tasks.jsonl (from analysis conclusions)
+- **Plan Source**: .task/*.json (from analysis conclusions)
 - **Started**: ${getUtc8ISOString()}
 - **Total Tasks**: ${tasks.length}
 - **Execution Mode**: Direct inline (serial)
@@ -270,7 +300,7 @@ const eventsHeader = `# Execution Events
 
 **Session**: ${sessionId}
 **Started**: ${getUtc8ISOString()}
-**Source**: tasks.jsonl
+**Source**: .task/*.json
 
 ---
 
@@ -302,11 +332,11 @@ if (!autoYes) {
       options: [
         { label: "Start Execution", description: "Execute all tasks serially" },
         { label: "Adjust Tasks", description: "Modify, reorder, or remove tasks" },
-        { label: "Cancel", description: "Cancel execution, keep tasks.jsonl" }
+        { label: "Cancel", description: "Cancel execution, keep .task/" }
       ]
     }]
   })
-  // "Adjust Tasks": display task list, user deselects/reorders, regenerate tasks.jsonl
+  // "Adjust Tasks": display task list, user deselects/reorders, regenerate .task/*.json
   // "Cancel": end workflow, keep artifacts
 }
 ```
@@ -321,7 +351,7 @@ Execute tasks one by one directly using tools (Read, Edit, Write, Grep, Glob, Ba
 
 ```
 For each taskId in executionOrder:
-  ├─ Load task from tasks.jsonl
+  ├─ Load task from .task/{taskId}.json
   ├─ Check dependencies satisfied (all deps completed)
   ├─ Record START event to execution-events.md
   ├─ Execute task directly:
@@ -506,7 +536,7 @@ ${[...failedTasks].map(id => {
 }).join('\n')}
 ` : ''}
 ### Artifacts
-- **Execution Plan**: ${sessionFolder}/tasks.jsonl
+- **Execution Plan**: ${sessionFolder}/.task/
 - **Execution Overview**: ${sessionFolder}/execution.md
 - **Execution Events**: ${sessionFolder}/execution-events.md
 `
@@ -530,16 +560,16 @@ appendToEvents(`
 `)
 ```
 
-##### Step 6.3: Update tasks.jsonl
+##### Step 6.3: Update .task/*.json
 
-Rewrite JSONL with `_execution` state per task:
+Write back `_execution` state to each task file:
 
 ```javascript
-const updatedJsonl = tasks.map(task => JSON.stringify({
-  ...task,
-  _execution: {
-    status: task._status,            // "completed" | "failed" | "skipped" | "pending"
-    executed_at: task._executed_at,   // ISO timestamp
+tasks.forEach(task => {
+  const updatedTask = {
+    ...task,
+    status: task._status,                // "completed" | "failed" | "skipped" | "pending"
+    executed_at: task._executed_at,       // ISO timestamp
     result: {
       success: task._status === 'completed',
       files_modified: task._result?.files_modified || [],
@@ -548,8 +578,8 @@ const updatedJsonl = tasks.map(task => JSON.stringify({
       convergence_verified: task._result?.convergence_verified || []
     }
   }
-})).join('\n')
-Write(`${sessionFolder}/tasks.jsonl`, updatedJsonl)
+  Write(`${sessionFolder}/.task/${task.id}.json`, JSON.stringify(updatedTask, null, 2))
+})
 ```
 
 ---
@@ -589,7 +619,7 @@ if (!autoYes) {
 - Filter tasks with `_execution.status === 'failed'`
 - Re-execute in original dependency order
 - Append retry events to execution-events.md with `[RETRY]` prefix
-- Update execution.md and tasks.jsonl
+- Update execution.md and .task/*.json
 
 ---
 
@@ -600,14 +630,17 @@ When Quick Execute is activated, session folder expands with:
 ```
 {projectRoot}/.workflow/.analysis/ANL-{slug}-{date}/
 ├── ...                          # Phase 1-4 artifacts
-├── tasks.jsonl                  # ⭐ Unified JSONL (one task per line, with convergence + source)
+├── .task/                       # Individual task JSON files (one per task, with convergence + source)
+│   ├── TASK-001.json
+│   ├── TASK-002.json
+│   └── ...
 ├── execution.md                 # Plan overview + task table + execution summary
 └── execution-events.md          # ⭐ Unified event log (all task executions with details)
 ```
 
 | File | Purpose |
 |------|---------|
-| `tasks.jsonl` | Unified task list from conclusions, each line has convergence criteria and source provenance |
+| `.task/*.json` | Individual task files from conclusions, each with convergence criteria and source provenance |
 | `execution.md` | Overview: plan source, task table, pre-execution analysis, execution timeline, final summary |
 | `execution-events.md` | Chronological event stream: task start/complete/fail with details, changes, verification results |
 
@@ -620,7 +653,7 @@ When Quick Execute is activated, session folder expands with:
 
 **Session**: ANL-xxx-2025-01-21
 **Started**: 2025-01-21T10:00:00+08:00
-**Source**: tasks.jsonl
+**Source**: .task/*.json
 
 ---
 
@@ -681,9 +714,9 @@ When Quick Execute is activated, session folder expands with:
 |-----------|--------|----------|
 | Task execution fails | Record failure in execution-events.md, ask user | Retry, skip, or abort |
 | Verification command fails | Mark criterion as unverified, continue | Note in events, manual check needed |
-| No recommendations in conclusions | Cannot generate tasks.jsonl | Inform user, suggest lite-plan |
+| No recommendations in conclusions | Cannot generate .task/*.json | Inform user, suggest lite-plan |
 | File conflict during execution | Document in execution-events.md | Resolve in dependency order |
-| Circular dependencies detected | Stop, report error | Fix dependencies in tasks.jsonl |
+| Circular dependencies detected | Stop, report error | Fix dependencies in .task/*.json |
 | All tasks fail | Record all failures, suggest analysis review | Re-run analysis or manual intervention |
 | Missing target file | Attempt to create if task.type is "feature" | Log as warning for other types |
 
@@ -691,10 +724,10 @@ When Quick Execute is activated, session folder expands with:
 
 ## Success Criteria
 
-- `tasks.jsonl` generated with convergence criteria and source provenance per task
+- `.task/*.json` generated with convergence criteria and source provenance per task
 - `execution.md` contains plan overview, task table, pre-execution analysis, final summary
 - `execution-events.md` contains chronological event stream with convergence verification
 - All tasks executed (or explicitly skipped) via direct inline execution
 - Each task's convergence criteria checked and recorded
-- `_execution` state written back to tasks.jsonl after completion
+- `_execution` state written back to .task/*.json after completion
 - User informed of results and next steps

@@ -44,10 +44,8 @@ import {
   type ProviderCredential,
   type CustomEndpoint,
   type CacheStats,
-  type GlobalCacheSettings,
   type ModelPoolConfig,
   type ModelPoolType,
-  type DiscoveredProvider,
   type CliSettingsEndpoint,
   type SaveCliSettingsRequest,
 } from '../lib/api';

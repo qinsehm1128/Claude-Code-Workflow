@@ -206,6 +206,9 @@ export interface ExecutionStoreActions {
   completeToolCall: (nodeId: string, callId: string, result: { status: ToolCallExecution['status']; exitCode?: number; error?: string; result?: unknown }) => void;
   toggleToolCallExpanded: (nodeId: string, callId: string) => void;
 
+  // Tool call getters
+  getToolCallsForNode: (nodeId: string) => ToolCallExecution[];
+
   // Node selection (new)
   selectNode: (nodeId: string | null) => void;
 

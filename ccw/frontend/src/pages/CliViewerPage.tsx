@@ -188,7 +188,7 @@ export function CliViewerPage() {
   const lastMessage = useNotificationStore(selectWsLastMessage);
 
   // Active execution sync from server
-  const { isLoading: isSyncing } = useActiveCliExecutions(true); // Always sync when page is open
+  const { isLoading: _isSyncing } = useActiveCliExecutions(true); // Always sync when page is open
   const invalidateActive = useInvalidateActiveCliExecutions();
 
   // Detect current layout type from store

@@ -255,6 +255,31 @@
       "description": "请先安装 CodexLens 以使用语义代码搜索功能。"
     }
   },
+  "reranker": {
+    "title": "重排序配置",
+    "description": "配置重排序后端、模型和提供商，用于搜索结果排序。",
+    "backend": "后端",
+    "backendHint": "重排序推理后端",
+    "model": "模型",
+    "modelHint": "重排序模型名称或 LiteLLM 端点",
+    "provider": "API 提供商",
+    "providerHint": "重排序服务的 API 提供商",
+    "apiKeyStatus": "API 密钥",
+    "apiKeySet": "已配置",
+    "apiKeyNotSet": "未配置",
+    "configSource": "配置来源",
+    "save": "保存重排序配置",
+    "saving": "保存中...",
+    "saveSuccess": "重排序配置已保存",
+    "saveFailed": "保存重排序配置失败",
+    "noBackends": "无可用后端",
+    "noModels": "无可用模型",
+    "noProviders": "无可用提供商",
+    "litellmModels": "LiteLLM 模型",
+    "selectBackend": "选择后端...",
+    "selectModel": "选择模型...",
+    "selectProvider": "选择提供商..."
+  },
   "envGroup": {
     "embedding": "嵌入模型",
     "reranker": "重排序",
@@ -309,6 +334,16 @@
     "installNow": "立即安装",
     "installing": "安装中..."
   },
+  "mcp": {
+    "title": "CCW 工具注册表",
+    "loading": "加载工具中...",
+    "error": "加载工具失败",
+    "errorDesc": "无法获取 CCW 工具列表。请检查服务器是否正在运行。",
+    "emptyDesc": "当前没有已注册的工具。",
+    "totalCount": "{count} 个工具",
+    "codexLensSection": "CodexLens 工具",
+    "otherSection": "其他工具"
+  },
   "watcher": {
     "title": "文件监听器",
     "status": {
@@ -323,5 +358,27 @@
     "stopping": "停止中...",
     "started": "文件监听器已启动",
     "stopped": "文件监听器已停止"
+  },
+  "lsp": {
+    "title": "LSP 服务器",
+    "status": {
+      "running": "运行中",
+      "stopped": "已停止"
+    },
+    "projects": "项目数",
+    "embeddings": "嵌入模型",
+    "modes": "模式",
+    "semanticAvailable": "语义搜索",
+    "available": "可用",
+    "unavailable": "不可用",
+    "start": "启动服务",
+    "starting": "启动中...",
+    "stop": "停止服务",
+    "stopping": "停止中...",
+    "restart": "重启",
+    "restarting": "重启中...",
+    "started": "LSP 服务器已启动",
+    "stopped": "LSP 服务器已停止",
+    "restarted": "LSP 服务器已重启"
   }
 }

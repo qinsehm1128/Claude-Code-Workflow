@@ -24,7 +24,6 @@ import {
   type McpProjectConfigType,
   type McpTemplate,
   type McpTemplateInstallRequest,
-  type AllProjectsResponse,
   type OtherProjectsServersResponse,
   type CrossCliCopyRequest,
   type CrossCliCopyResponse,
@@ -439,7 +438,7 @@ export function useCodexMutations(): UseCodexMutationsReturn {
       // Optimistic update could be added here if needed
       return { serverName, enabled };
     },
-    onError: (_error, _vars, context) => {
+    onError: (_error, _vars, _context) => {
       // Rollback on error
       console.error('Failed to toggle Codex MCP server:', _error);
     },
@@ -473,6 +472,8 @@ export interface UseProjectOperationsReturn {
   fetchOtherServers: (projectPaths?: string[]) => Promise<OtherProjectsServersResponse>;
   isFetchingServers: boolean;
 }
+
+const EMPTY_PROJECTS: string[] = [];
 
 /**
  * Combined hook for project operations (all projects, cross-CLI copy, other projects' servers)
@@ -520,7 +521,7 @@ export function useProjectOperations(): UseProjectOperationsReturn {
   };
 
   return {
-    projects: projectsQuery.data?.projects ?? [],
+    projects: projectsQuery.data?.projects ?? EMPTY_PROJECTS,
     currentProject: projectsQuery.data?.currentProject ?? projectPath ?? undefined,
     isLoading: projectsQuery.isLoading,
     error: projectsQuery.error,

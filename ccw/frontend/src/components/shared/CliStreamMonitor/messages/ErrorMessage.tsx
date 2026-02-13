@@ -19,7 +19,6 @@ export interface ErrorMessageProps {
 export function ErrorMessage({
   title,
   message,
-  timestamp,
   onRetry,
   onDismiss,
   className

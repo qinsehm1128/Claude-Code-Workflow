@@ -59,7 +59,7 @@ export interface CcwConfig {
   enabledTools: string[];
   projectRoot?: string;
   allowedDirs?: string;
-  disableSandbox?: boolean;
+  enableSandbox?: boolean;
 }
 
 /**
@@ -75,7 +75,7 @@ export interface CcwToolsMcpCardProps {
   /** Comma-separated list of allowed directories */
   allowedDirs?: string;
   /** Whether sandbox is disabled */
-  disableSandbox?: boolean;
+  enableSandbox?: boolean;
   /** Callback when a tool is toggled */
   onToggleTool: (tool: string, enabled: boolean) => void;
   /** Callback when configuration is updated */
@@ -110,7 +110,7 @@ export function CcwToolsMcpCard({
   enabledTools,
   projectRoot,
   allowedDirs,
-  disableSandbox,
+  enableSandbox,
   onToggleTool,
   onUpdateConfig,
   onInstall,
@@ -123,7 +123,7 @@ export function CcwToolsMcpCard({
   // Local state for config inputs
   const [projectRootInput, setProjectRootInput] = useState(projectRoot || '');
   const [allowedDirsInput, setAllowedDirsInput] = useState(allowedDirs || '');
-  const [disableSandboxInput, setDisableSandboxInput] = useState(disableSandbox || false);
+  const [enableSandboxInput, setEnableSandboxInput] = useState(enableSandbox || false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [installScope, setInstallScope] = useState<'global' | 'project'>('global');
 
@@ -193,7 +193,7 @@ export function CcwToolsMcpCard({
     updateConfigMutation.mutate({
       projectRoot: projectRootInput || undefined,
       allowedDirs: allowedDirsInput || undefined,
-      disableSandbox: disableSandboxInput,
+      enableSandbox: enableSandboxInput,
     });
   };
 
@@ -387,22 +387,22 @@ export function CcwToolsMcpCard({
               </p>
             </div>
 
-            {/* Disable Sandbox */}
+            {/* Enable Sandbox */}
             <div className="flex items-center gap-2">
               <input
                 type="checkbox"
-                id="ccw-disable-sandbox"
-                checked={disableSandboxInput}
-                onChange={(e) => setDisableSandboxInput(e.target.checked)}
+                id="ccw-enable-sandbox"
+                checked={enableSandboxInput}
+                onChange={(e) => setEnableSandboxInput(e.target.checked)}
                 disabled={!isInstalled}
                 className="w-4 h-4"
               />
               <label
-                htmlFor="ccw-disable-sandbox"
+                htmlFor="ccw-enable-sandbox"
                 className="text-sm text-foreground flex items-center gap-1 cursor-pointer"
               >
                 <Shield className="w-4 h-4" />
-                {formatMessage({ id: 'mcp.ccw.paths.disableSandbox' })}
+                {formatMessage({ id: 'mcp.ccw.paths.enableSandbox' })}
               </label>
             </div>
 

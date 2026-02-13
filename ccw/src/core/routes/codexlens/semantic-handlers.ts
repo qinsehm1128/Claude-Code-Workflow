@@ -1079,6 +1079,106 @@ except Exception as e:
     return true;
   }
 
+  // API: LSP Start - Start the standalone LSP manager
+  if (pathname === '/api/codexlens/lsp/start' && req.method === 'POST') {
+    handlePostRequest(req, res, async (body) => {
+      const { path: workspacePath } = body as { path?: unknown };
+      const targetPath = typeof workspacePath === 'string' && workspacePath.trim().length > 0
+        ? workspacePath : initialPath;
+
+      try {
+        const venvStatus = await checkVenvStatus();
+        if (!venvStatus.ready) {
+          return { success: false, error: 'CodexLens not installed', status: 400 };
+        }
+
+        const result = await executeCodexLensPythonAPI('lsp_start', {
+          workspace_root: targetPath,
+        }, 30000);
+
+        if (result.success) {
+          return {
+            success: true,
+            message: 'LSP server started',
+            workspace_root: targetPath,
+            ...((result.results && typeof result.results === 'object') ? result.results : {}),
+          };
+        } else {
+          return { success: false, error: result.error || 'Failed to start LSP server', status: 500 };
+        }
+      } catch (err: unknown) {
+        return { success: false, error: err instanceof Error ? err.message : String(err), status: 500 };
+      }
+    });
+    return true;
+  }
+
+  // API: LSP Stop - Stop the standalone LSP manager
+  if (pathname === '/api/codexlens/lsp/stop' && req.method === 'POST') {
+    handlePostRequest(req, res, async (body) => {
+      const { path: workspacePath } = body as { path?: unknown };
+      const targetPath = typeof workspacePath === 'string' && workspacePath.trim().length > 0
+        ? workspacePath : initialPath;
+
+      try {
+        const venvStatus = await checkVenvStatus();
+        if (!venvStatus.ready) {
+          return { success: false, error: 'CodexLens not installed', status: 400 };
+        }
+
+        const result = await executeCodexLensPythonAPI('lsp_stop', {
+          workspace_root: targetPath,
+        }, 15000);
+
+        if (result.success) {
+          return {
+            success: true,
+            message: 'LSP server stopped',
+          };
+        } else {
+          return { success: false, error: result.error || 'Failed to stop LSP server', status: 500 };
+        }
+      } catch (err: unknown) {
+        return { success: false, error: err instanceof Error ? err.message : String(err), status: 500 };
+      }
+    });
+    return true;
+  }
+
+  // API: LSP Restart - Stop then start the standalone LSP manager
+  if (pathname === '/api/codexlens/lsp/restart' && req.method === 'POST') {
+    handlePostRequest(req, res, async (body) => {
+      const { path: workspacePath } = body as { path?: unknown };
+      const targetPath = typeof workspacePath === 'string' && workspacePath.trim().length > 0
+        ? workspacePath : initialPath;
+
+      try {
+        const venvStatus = await checkVenvStatus();
+        if (!venvStatus.ready) {
+          return { success: false, error: 'CodexLens not installed', status: 400 };
+        }
+
+        const result = await executeCodexLensPythonAPI('lsp_restart', {
+          workspace_root: targetPath,
+        }, 45000);
+
+        if (result.success) {
+          return {
+            success: true,
+            message: 'LSP server restarted',
+            workspace_root: targetPath,
+            ...((result.results && typeof result.results === 'object') ? result.results : {}),
+          };
+        } else {
+          return { success: false, error: result.error || 'Failed to restart LSP server', status: 500 };
+        }
+      } catch (err: unknown) {
+        return { success: false, error: err instanceof Error ? err.message : String(err), status: 500 };
+      }
+    });
+    return true;
+  }
+
   // API: LSP Semantic Search - Advanced semantic search via Python API
   if (pathname === '/api/codexlens/lsp/search' && req.method === 'POST') {
     handlePostRequest(req, res, async (body) => {

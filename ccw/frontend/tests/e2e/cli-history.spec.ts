@@ -15,7 +15,7 @@ test.describe.skip('[CLI History] - CLI Execution History Tests', () => {
     const monitoring = setupEnhancedMonitoring(page);
 
     // Navigate to CLI history page
-    await page.goto('/react/settings/cli/history', { waitUntil: 'domcontentloaded' as const });
+    await page.goto('/settings/cli/history', { waitUntil: 'domcontentloaded' as const });
 
     // Look for history list container
     const historyList = page.getByTestId('cli-history-list').or(

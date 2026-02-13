@@ -6,5 +6,4 @@
 export { run } from './cli.js';
 export { scanSessions } from './core/session-scanner.js';
 export { aggregateData } from './core/data-aggregator.js';
-export { generateDashboard } from './core/dashboard-generator.js';
 export { CacheManager, createDashboardCache } from './core/cache-manager.js';

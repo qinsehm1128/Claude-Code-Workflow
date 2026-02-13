@@ -19,7 +19,7 @@ export interface MultiNodeSelectorProps {
 }
 
 const MultiNodeSelector = React.forwardRef<HTMLDivElement, MultiNodeSelectorProps>(
-  ({ availableNodes, selectedNodes, onChange, placeholder, emptyMessage, className }, ref) => {
+  ({ availableNodes, selectedNodes, onChange, emptyMessage, className }, ref) => {
     const { formatMessage } = useIntl();
 
     const isSelected = (nodeId: string) => selectedNodes.includes(nodeId);

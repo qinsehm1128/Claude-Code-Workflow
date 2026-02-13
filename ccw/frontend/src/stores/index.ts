@@ -91,6 +91,46 @@ export {
   selectActiveTab,
 } from './viewerStore';
 
+// Terminal Panel Store
+export {
+  useTerminalPanelStore,
+  selectIsPanelOpen as selectIsTerminalPanelOpen,
+  selectActiveTerminalId,
+  selectPanelView,
+  selectTerminalOrder,
+  selectTerminalCount,
+} from './terminalPanelStore';
+
+// Queue Execution Store
+export {
+  useQueueExecutionStore,
+  selectQueueExecutions,
+  selectActiveExecutions,
+  selectByQueueItem,
+  selectExecutionStats,
+  selectHasActiveExecution,
+} from './queueExecutionStore';
+
+// Terminal Panel Store Types
+export type {
+  PanelView,
+  TerminalPanelState,
+  TerminalPanelActions,
+  TerminalPanelStore,
+} from './terminalPanelStore';
+
+// Queue Execution Store Types
+export type {
+  QueueExecutionType,
+  QueueExecutionStatus,
+  QueueExecutionMode,
+  QueueExecution,
+  QueueExecutionStats,
+  QueueExecutionState,
+  QueueExecutionActions,
+  QueueExecutionStore,
+} from './queueExecutionStore';
+
 // Re-export types for convenience
 export type {
   // App Store Types

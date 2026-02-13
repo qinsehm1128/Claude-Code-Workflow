@@ -60,6 +60,8 @@
     "node-pty": "^1.1.0-beta21",
     "open": "^9.1.0",
     "ora": "^7.0.0",
+    "tree-sitter-wasms": "^0.1.13",
+    "web-tree-sitter": "^0.24.0",
     "zod": "^4.1.13"
   },
   "files": [

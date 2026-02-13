@@ -37,14 +37,6 @@ type ModeType = 'provider-based' | 'direct';
 
 // ========== Helper Functions ==========
 
-function safeStringifyConfig(config: unknown): string {
-  try {
-    return JSON.stringify(config ?? {}, null, 2);
-  } catch {
-    return '{}';
-  }
-}
-
 function parseConfigJson(
   configJson: string
 ): { ok: true; value: Record<string, unknown> } | { ok: false; errorKey: string } {

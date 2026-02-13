@@ -9,7 +9,7 @@ import { setupEnhancedMonitoring } from './helpers/i18n-helpers';
 test.describe('[Commands] - Commands Management Tests', () => {
   test.beforeEach(async ({ page }) => {
     // Navigate to commands page directly and wait for full load
-    await page.goto('/react/commands', { waitUntil: 'networkidle' as const });
+    await page.goto('/commands', { waitUntil: 'networkidle' as const });
   });
 
   test('L3.1 - should display commands list', async ({ page }) => {
@@ -108,7 +108,7 @@ test.describe('[Commands] - Commands Management Tests', () => {
     const monitoring = setupEnhancedMonitoring(page);
 
     // Navigate to commands page
-    await page.goto('/react/commands', { waitUntil: 'networkidle' as const });
+    await page.goto('/commands', { waitUntil: 'networkidle' as const });
 
     // Look for command items
     const commandItems = page.getByTestId(/command-item|command-card/).or(
@@ -141,7 +141,7 @@ test.describe('[Commands] - Commands Management Tests', () => {
     const monitoring = setupEnhancedMonitoring(page);
 
     // Navigate to commands page
-    await page.goto('/react/commands', { waitUntil: 'networkidle' as const });
+    await page.goto('/commands', { waitUntil: 'networkidle' as const });
 
     // Look for command items
     const commandItems = page.getByTestId(/command-item|command-card/).or(
@@ -174,7 +174,7 @@ test.describe('[Commands] - Commands Management Tests', () => {
     const monitoring = setupEnhancedMonitoring(page);
 
     // Navigate to commands page
-    await page.goto('/react/commands', { waitUntil: 'networkidle' as const });
+    await page.goto('/commands', { waitUntil: 'networkidle' as const });
 
     // Look for command items
     const commandItems = page.getByTestId(/command-item|command-card/).or(
@@ -207,7 +207,7 @@ test.describe('[Commands] - Commands Management Tests', () => {
     const monitoring = setupEnhancedMonitoring(page);
 
     // Navigate to commands page
-    await page.goto('/react/commands', { waitUntil: 'networkidle' as const });
+    await page.goto('/commands', { waitUntil: 'networkidle' as const });
 
     // Look for category filter
     const categoryFilter = page.getByRole('combobox', { name: /category|filter/i }).or(
@@ -242,7 +242,7 @@ test.describe('[Commands] - Commands Management Tests', () => {
     const monitoring = setupEnhancedMonitoring(page);
 
     // Navigate to commands page
-    await page.goto('/react/commands', { waitUntil: 'networkidle' as const });
+    await page.goto('/commands', { waitUntil: 'networkidle' as const });
 
     // Look for search input
     const searchInput = page.getByRole('textbox', { name: /search|find/i }).or(
@@ -278,7 +278,7 @@ test.describe('[Commands] - Commands Management Tests', () => {
     const monitoring = setupEnhancedMonitoring(page);
 
     // Navigate to commands page
-    await page.goto('/react/commands', { waitUntil: 'networkidle' as const });
+    await page.goto('/commands', { waitUntil: 'networkidle' as const });
 
     // Look for command items
     const commandItems = page.getByTestId(/command-item|command-card/).or(
@@ -311,7 +311,7 @@ test.describe('[Commands] - Commands Management Tests', () => {
     const monitoring = setupEnhancedMonitoring(page);
 
     // Navigate to commands page
-    await page.goto('/react/commands', { waitUntil: 'networkidle' as const });
+    await page.goto('/commands', { waitUntil: 'networkidle' as const });
 
     // Look for command items
     const commandItems = page.getByTestId(/command-item|command-card/).or(
@@ -362,7 +362,7 @@ test.describe('[Commands] - Commands Management Tests', () => {
       });
 
       // Navigate AFTER mock is set up
-      await page.goto('/react/commands', { waitUntil: 'networkidle' as const });
+      await page.goto('/commands', { waitUntil: 'networkidle' as const });
 
       // Debug: Check if page loaded
       const url = page.url();
@@ -405,7 +405,7 @@ test.describe('[Commands] - Commands Management Tests', () => {
 
       // Navigate AFTER mock is set up
       // Use domcontentloaded instead of networkidle to avoid hanging on failed requests
-      await page.goto('/react/commands', { waitUntil: 'networkidle' as const });
+      await page.goto('/commands', { waitUntil: 'networkidle' as const });
 
       // Wait for React Query to complete retries and set error state
       await page.waitForTimeout(3000);
@@ -449,7 +449,7 @@ test.describe('[Commands] - Commands Management Tests', () => {
 
       // Navigate AFTER mock is set up
       // Use domcontentloaded instead of networkidle to avoid hanging on failed requests
-      await page.goto('/react/commands', { waitUntil: 'networkidle' as const });
+      await page.goto('/commands', { waitUntil: 'networkidle' as const });
 
       // Wait for React Query to complete retries and set error state
       await page.waitForTimeout(3000);
@@ -478,7 +478,7 @@ test.describe('[Commands] - Commands Management Tests', () => {
 
       // Navigate AFTER mock is set up
       // Use domcontentloaded instead of networkidle to avoid hanging on failed requests
-      await page.goto('/react/commands', { waitUntil: 'networkidle' as const });
+      await page.goto('/commands', { waitUntil: 'networkidle' as const });
 
       // Wait for React Query to complete retries and set error state
       await page.waitForTimeout(3000);
@@ -507,7 +507,7 @@ test.describe('[Commands] - Commands Management Tests', () => {
 
       // Navigate AFTER mock is set up
       // Use domcontentloaded instead of networkidle to avoid hanging on failed requests
-      await page.goto('/react/commands', { waitUntil: 'networkidle' as const });
+      await page.goto('/commands', { waitUntil: 'networkidle' as const });
 
       // Wait for React Query to complete retries and set error state
       await page.waitForTimeout(3000);
@@ -532,7 +532,7 @@ test.describe('[Commands] - Commands Management Tests', () => {
 
       // Navigate AFTER mock is set up
       // Use domcontentloaded instead of networkidle to avoid hanging on failed requests
-      await page.goto('/react/commands', { waitUntil: 'networkidle' as const });
+      await page.goto('/commands', { waitUntil: 'networkidle' as const });
 
       // Wait for timeout handling
       await page.waitForTimeout(5000);

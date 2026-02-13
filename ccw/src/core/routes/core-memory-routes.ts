@@ -4,6 +4,8 @@ import { getCoreMemoryStore } from '../core-memory-store.js';
 import type { CoreMemory, SessionCluster, ClusterMember, ClusterRelation } from '../core-memory-store.js';
 import { getEmbeddingStatus, generateEmbeddings } from '../memory-embedder-bridge.js';
 import { checkSemanticStatus } from '../../tools/codex-lens.js';
+import { MemoryJobScheduler } from '../memory-job-scheduler.js';
+import type { JobStatus } from '../memory-job-scheduler.js';
 import { StoragePaths } from '../../config/storage-paths.js';
 import { join } from 'path';
 import { getDefaultTool } from '../../tools/claude-cli-tools.js';
@@ -230,6 +232,199 @@ export async function handleCoreMemoryRoutes(ctx: RouteContext): Promise<boolean
         return { error: (error as Error).message, status: 500 };
       }
     });
+    return true;
+  }
+
+  // ============================================================
+  // Memory V2 Pipeline API Endpoints
+  // ============================================================
+
+  // API: Trigger batch extraction (fire-and-forget)
+  if (pathname === '/api/core-memory/extract' && req.method === 'POST') {
+    handlePostRequest(req, res, async (body) => {
+      const { maxSessions, path: projectPath } = body;
+      const basePath = projectPath || initialPath;
+
+      try {
+        const { MemoryExtractionPipeline } = await import('../memory-extraction-pipeline.js');
+        const pipeline = new MemoryExtractionPipeline(basePath);
+
+        // Broadcast start event
+        broadcastToClients({
+          type: 'MEMORY_EXTRACTION_STARTED',
+          payload: {
+            timestamp: new Date().toISOString(),
+            maxSessions: maxSessions || 'default',
+          }
+        });
+
+        // Fire-and-forget: trigger async, notify on completion
+        const batchPromise = pipeline.runBatchExtraction();
+        batchPromise.then(() => {
+          broadcastToClients({
+            type: 'MEMORY_EXTRACTION_COMPLETED',
+            payload: { timestamp: new Date().toISOString() }
+          });
+        }).catch((err: Error) => {
+          broadcastToClients({
+            type: 'MEMORY_EXTRACTION_FAILED',
+            payload: {
+              timestamp: new Date().toISOString(),
+              error: err.message,
+            }
+          });
+        });
+
+        // Scan eligible sessions to report count
+        const eligible = pipeline.scanEligibleSessions();
+
+        return {
+          success: true,
+          triggered: true,
+          eligibleCount: eligible.length,
+          message: `Extraction triggered for ${eligible.length} eligible sessions`,
+        };
+      } catch (error: unknown) {
+        return { error: (error as Error).message, status: 500 };
+      }
+    });
+    return true;
+  }
+
+  // API: Get extraction pipeline status
+  if (pathname === '/api/core-memory/extract/status' && req.method === 'GET') {
+    const projectPath = url.searchParams.get('path') || initialPath;
+
+    try {
+      const store = getCoreMemoryStore(projectPath);
+      const scheduler = new MemoryJobScheduler(store.getDb());
+
+      const stage1Count = store.countStage1Outputs();
+      const extractionJobs = scheduler.listJobs('phase1_extraction');
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: true,
+        total_stage1: stage1Count,
+        jobs: extractionJobs.map(j => ({
+          job_key: j.job_key,
+          status: j.status,
+          started_at: j.started_at,
+          finished_at: j.finished_at,
+          last_error: j.last_error,
+          retry_remaining: j.retry_remaining,
+        })),
+      }));
+    } catch (error: unknown) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: (error as Error).message }));
+    }
+    return true;
+  }
+
+  // API: Trigger consolidation (fire-and-forget)
+  if (pathname === '/api/core-memory/consolidate' && req.method === 'POST') {
+    handlePostRequest(req, res, async (body) => {
+      const { path: projectPath } = body;
+      const basePath = projectPath || initialPath;
+
+      try {
+        const { MemoryConsolidationPipeline } = await import('../memory-consolidation-pipeline.js');
+        const pipeline = new MemoryConsolidationPipeline(basePath);
+
+        // Broadcast start event
+        broadcastToClients({
+          type: 'MEMORY_CONSOLIDATION_STARTED',
+          payload: { timestamp: new Date().toISOString() }
+        });
+
+        // Fire-and-forget
+        const consolidatePromise = pipeline.runConsolidation();
+        consolidatePromise.then(() => {
+          broadcastToClients({
+            type: 'MEMORY_CONSOLIDATION_COMPLETED',
+            payload: { timestamp: new Date().toISOString() }
+          });
+        }).catch((err: Error) => {
+          broadcastToClients({
+            type: 'MEMORY_CONSOLIDATION_FAILED',
+            payload: {
+              timestamp: new Date().toISOString(),
+              error: err.message,
+            }
+          });
+        });
+
+        return {
+          success: true,
+          triggered: true,
+          message: 'Consolidation triggered',
+        };
+      } catch (error: unknown) {
+        return { error: (error as Error).message, status: 500 };
+      }
+    });
+    return true;
+  }
+
+  // API: Get consolidation status
+  if (pathname === '/api/core-memory/consolidate/status' && req.method === 'GET') {
+    const projectPath = url.searchParams.get('path') || initialPath;
+
+    try {
+      const { MemoryConsolidationPipeline } = await import('../memory-consolidation-pipeline.js');
+      const pipeline = new MemoryConsolidationPipeline(projectPath);
+      const status = pipeline.getStatus();
+      const memoryMd = pipeline.getMemoryMdContent();
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: true,
+        status: status?.status || 'unknown',
+        memoryMdAvailable: !!memoryMd,
+        memoryMdPreview: memoryMd ? memoryMd.substring(0, 500) : undefined,
+      }));
+    } catch (error: unknown) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: true,
+        status: 'unavailable',
+        memoryMdAvailable: false,
+        error: (error as Error).message,
+      }));
+    }
+    return true;
+  }
+
+  // API: List all V2 pipeline jobs
+  if (pathname === '/api/core-memory/jobs' && req.method === 'GET') {
+    const projectPath = url.searchParams.get('path') || initialPath;
+    const kind = url.searchParams.get('kind') || undefined;
+    const statusFilter = url.searchParams.get('status') as JobStatus | undefined;
+
+    try {
+      const store = getCoreMemoryStore(projectPath);
+      const scheduler = new MemoryJobScheduler(store.getDb());
+
+      const jobs = scheduler.listJobs(kind, statusFilter);
+
+      // Compute byStatus counts
+      const byStatus: Record<string, number> = {};
+      for (const job of jobs) {
+        byStatus[job.status] = (byStatus[job.status] || 0) + 1;
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: true,
+        jobs,
+        total: jobs.length,
+        byStatus,
+      }));
+    } catch (error: unknown) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: (error as Error).message }));
+    }
     return true;
   }
 

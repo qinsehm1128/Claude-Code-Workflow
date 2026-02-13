@@ -3,18 +3,21 @@
 // ========================================
 // Combined dashboard widget: project info + stats + workflow status + orchestrator + task carousel
 
-import { memo, useMemo, useState, useEffect } from 'react';
+import { memo, useMemo, useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useIntl } from 'react-intl';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
-import { Card } from '@/components/ui/Card';
+import { Card, CardContent } from '@/components/ui/Card';
 import { Progress } from '@/components/ui/Progress';
 import { Button } from '@/components/ui/Button';
 import { Sparkline } from '@/components/charts/Sparkline';
-import { useWorkflowStatusCounts, generateMockWorkflowStatusCounts } from '@/hooks/useWorkflowStatusCounts';
+import { useWorkflowStatusCounts } from '@/hooks/useWorkflowStatusCounts';
 import { useDashboardStats } from '@/hooks/useDashboardStats';
 import { useProjectOverview } from '@/hooks/useProjectOverview';
 import { useIndexStatus } from '@/hooks/useIndex';
+import { useSessions } from '@/hooks/useSessions';
 import { cn } from '@/lib/utils';
+import type { TaskData } from '@/types/store';
 import {
   ListChecks,
   Clock,
@@ -26,7 +29,6 @@ import {
   ChevronRight,
   ChevronDown,
   ChevronUp,
-  Tag,
   Calendar,
   Code2,
   Server,
@@ -46,12 +48,13 @@ export interface WorkflowTaskWidgetProps {
 }
 
 // ---- Workflow Status section ----
-const statusColors: Record<string, { bg: string; text: string; dot: string }> = {
-  completed: { bg: 'bg-success', text: 'text-success', dot: 'bg-emerald-500' },
-  in_progress: { bg: 'bg-warning', text: 'text-warning', dot: 'bg-amber-500' },
-  planning: { bg: 'bg-violet-500', text: 'text-violet-600', dot: 'bg-violet-500' },
-  paused: { bg: 'bg-slate-400', text: 'text-slate-500', dot: 'bg-slate-400' },
-  archived: { bg: 'bg-slate-300', text: 'text-slate-400', dot: 'bg-slate-300' },
+// Unified color configuration for workflow status
+const statusColors: Record<string, { bg: string; text: string; dot: string; fill: string }> = {
+  completed: { bg: 'bg-success', text: 'text-success', dot: 'bg-emerald-500', fill: '#10b981' },
+  in_progress: { bg: 'bg-warning', text: 'text-warning', dot: 'bg-amber-500', fill: '#f59e0b' },
+  planning: { bg: 'bg-violet-500', text: 'text-violet-600', dot: 'bg-violet-500', fill: '#8b5cf6' },
+  paused: { bg: 'bg-slate-400', text: 'text-slate-500', dot: 'bg-slate-400', fill: '#94a3b8' },
+  archived: { bg: 'bg-slate-300', text: 'text-slate-400', dot: 'bg-slate-300', fill: '#cbd5e1' },
 };
 
 const statusLabelKeys: Record<string, string> = {
@@ -63,86 +66,53 @@ const statusLabelKeys: Record<string, string> = {
 };
 
 // ---- Task List section ----
-interface TaskItem {
-  id: string;
-  name: string;
-  status: 'pending' | 'completed';
-}
-
-// Session with its tasks
-interface SessionWithTasks {
-  id: string;
-  name: string;
-  description?: string;
-  status: 'planning' | 'in_progress' | 'completed' | 'paused';
-  tags: string[];
-  createdAt: string;
-  updatedAt: string;
-  tasks: TaskItem[];
-}
-
-// Mock sessions with their tasks
-const MOCK_SESSIONS: SessionWithTasks[] = [
-  {
-    id: 'WFS-auth-001',
-    name: 'User Authentication System',
-    description: 'Implement OAuth2 and JWT based authentication with role-based access control',
-    status: 'in_progress',
-    tags: ['auth', 'security', 'backend'],
-    createdAt: '2024-01-15',
-    updatedAt: '2024-01-20',
-    tasks: [
-      { id: '1', name: 'Implement user authentication', status: 'pending' },
-      { id: '2', name: 'Design database schema', status: 'completed' },
-      { id: '3', name: 'Setup CI/CD pipeline', status: 'pending' },
-    ],
-  },
-  {
-    id: 'WFS-api-002',
-    name: 'API Documentation',
-    description: 'Create comprehensive API documentation with OpenAPI 3.0 specification',
-    status: 'planning',
-    tags: ['docs', 'api'],
-    createdAt: '2024-01-18',
-    updatedAt: '2024-01-19',
-    tasks: [
-      { id: '4', name: 'Write API documentation', status: 'pending' },
-      { id: '5', name: 'Create OpenAPI spec', status: 'pending' },
-    ],
-  },
-  {
-    id: 'WFS-perf-003',
-    name: 'Performance Optimization',
-    description: 'Optimize database queries and implement caching strategies',
-    status: 'completed',
-    tags: ['performance', 'optimization', 'database'],
-    createdAt: '2024-01-10',
-    updatedAt: '2024-01-17',
-    tasks: [
-      { id: '6', name: 'Performance optimization', status: 'completed' },
-      { id: '7', name: 'Security audit', status: 'completed' },
-    ],
-  },
-  {
-    id: 'WFS-test-004',
-    name: 'Integration Testing',
-    description: 'Setup E2E testing framework and write integration tests',
-    status: 'in_progress',
-    tags: ['testing', 'e2e', 'ci'],
-    createdAt: '2024-01-19',
-    updatedAt: '2024-01-20',
-    tasks: [
-      { id: '8', name: 'Integration testing', status: 'completed' },
-      { id: '9', name: 'Deploy to staging', status: 'pending' },
-      { id: '10', name: 'E2E test setup', status: 'pending' },
-    ],
-  },
-];
+// Task status colors for the task list display
+type TaskStatusDisplay = 'pending' | 'completed' | 'in_progress' | 'blocked' | 'skipped';
 
 const taskStatusColors: Record<string, { bg: string; text: string; icon: typeof CheckCircle2 }> = {
   pending: { bg: 'bg-muted', text: 'text-muted-foreground', icon: Clock },
   completed: { bg: 'bg-success/20', text: 'text-success', icon: CheckCircle2 },
+  in_progress: { bg: 'bg-warning/20', text: 'text-warning', icon: Clock },
+  blocked: { bg: 'bg-destructive/20', text: 'text-destructive', icon: XCircle },
+  skipped: { bg: 'bg-slate-400/20', text: 'text-slate-500', icon: Clock },
 };
+
+// ---- Empty State Component ----
+interface HomeEmptyStateProps {
+  className?: string;
+}
+
+function HomeEmptyState({ className }: HomeEmptyStateProps) {
+  const { formatMessage } = useIntl();
+
+  return (
+    <div className={cn('flex items-center justify-center h-full', className)}>
+      <Card className="max-w-sm w-full border-dashed">
+        <CardContent className="flex flex-col items-center gap-4 py-8">
+          <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center">
+            <ListChecks className="w-7 h-7 text-muted-foreground" />
+          </div>
+          <div className="text-center space-y-2">
+            <h3 className="text-base font-semibold">
+              {formatMessage({ id: 'home.emptyState.noSessions.title' })}
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              {formatMessage({ id: 'home.emptyState.noSessions.message' })}
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 w-full">
+            <code className="px-3 py-2 bg-muted rounded text-xs font-mono text-center">
+              /workflow:plan
+            </code>
+            <p className="text-xs text-muted-foreground text-center">
+              {formatMessage({ id: 'home.emptyState.noSessions.hint' })}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
 
 const sessionStatusColors: Record<string, { bg: string; text: string }> = {
   planning: { bg: 'bg-violet-500/20', text: 'text-violet-600' },
@@ -209,13 +179,20 @@ function generateSparklineData(currentValue: number, variance = 0.3): number[] {
 
 function WorkflowTaskWidgetComponent({ className }: WorkflowTaskWidgetProps) {
   const { formatMessage } = useIntl();
+  const navigate = useNavigate();
   const { data, isLoading } = useWorkflowStatusCounts();
   const { stats, isLoading: statsLoading } = useDashboardStats({ refetchInterval: 60000 });
   const { projectOverview, isLoading: projectLoading } = useProjectOverview();
   const { status: indexStatus } = useIndexStatus({ refetchInterval: 30000 });
 
-  const chartData = data || generateMockWorkflowStatusCounts();
+  // Fetch real sessions data
+  const { activeSessions, isLoading: sessionsLoading } = useSessions({
+    filter: { location: 'active' },
+  });
+
+  const chartData = data || [];
   const total = chartData.reduce((sum, item) => sum + item.count, 0);
+  const hasChartData = chartData.length > 0;
 
   // Generate sparkline data for each stat
   const sparklines = useMemo(() => ({
@@ -230,24 +207,47 @@ function WorkflowTaskWidgetComponent({ className }: WorkflowTaskWidgetProps) {
   // Project info expanded state
   const [projectExpanded, setProjectExpanded] = useState(false);
 
-  // Session carousel state
+  // Session carousel state - use real sessions
   const [currentSessionIndex, setCurrentSessionIndex] = useState(0);
-  const currentSession = MOCK_SESSIONS[currentSessionIndex];
+  const sessionsCount = activeSessions.length;
+  const currentSession = activeSessions[currentSessionIndex];
 
-  // Auto-rotate carousel every 5 seconds
+  // Format relative time
+  const formatRelativeTime = useCallback((dateStr: string | undefined): string => {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return '';
+    return date.toLocaleDateString();
+  }, []);
+
+  // Auto-rotate carousel every 5 seconds (only if more than one session)
   useEffect(() => {
+    if (sessionsCount <= 1) return;
     const timer = setInterval(() => {
-      setCurrentSessionIndex((prev) => (prev + 1) % MOCK_SESSIONS.length);
+      setCurrentSessionIndex((prev) => (prev + 1) % sessionsCount);
     }, 5000);
     return () => clearInterval(timer);
-  }, []);
+  }, [sessionsCount]);
 
   // Manual navigation
   const handlePrevSession = () => {
-    setCurrentSessionIndex((prev) => (prev === 0 ? MOCK_SESSIONS.length - 1 : prev - 1));
+    setCurrentSessionIndex((prev) => (prev === 0 ? sessionsCount - 1 : prev - 1));
   };
   const handleNextSession = () => {
-    setCurrentSessionIndex((prev) => (prev + 1) % MOCK_SESSIONS.length);
+    setCurrentSessionIndex((prev) => (prev + 1) % sessionsCount);
+  };
+
+  // Navigate to session detail
+  const handleSessionClick = (sessionId: string) => {
+    navigate(`/sessions/${sessionId}`);
+  };
+
+  // Map task status to display status
+  const mapTaskStatus = (status: TaskData['status']): TaskStatusDisplay => {
+    if (status === 'in_progress') return 'in_progress';
+    if (status === 'blocked') return 'blocked';
+    if (status === 'skipped') return 'skipped';
+    return status;
   };
 
   return (
@@ -551,6 +551,15 @@ function WorkflowTaskWidgetComponent({ className }: WorkflowTaskWidgetProps) {
             <div className="flex-1 flex items-center justify-center">
               <div className="w-24 h-24 rounded-full bg-muted animate-pulse" />
             </div>
+          ) : !hasChartData ? (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center">
+                <PieChartIcon className="w-12 h-12 mx-auto text-muted-foreground/30 mb-2" />
+                <p className="text-xs text-muted-foreground">
+                  {formatMessage({ id: 'home.emptyState.noSessions.message' })}
+                </p>
+              </div>
+            </div>
           ) : (
             <div className="flex-1 flex flex-col">
               {/* Mini Donut Chart */}
@@ -568,16 +577,8 @@ function WorkflowTaskWidgetComponent({ className }: WorkflowTaskWidgetProps) {
                     >
                       {chartData.map((item) => {
                         const colors = statusColors[item.status] || statusColors.completed;
-                        const fillColor = colors.dot.replace('bg-', '');
-                        const colorMap: Record<string, string> = {
-                          'emerald-500': '#10b981',
-                          'amber-500': '#f59e0b',
-                          'violet-500': '#8b5cf6',
-                          'slate-400': '#94a3b8',
-                          'slate-300': '#cbd5e1',
-                        };
                         return (
-                          <Cell key={item.status} fill={colorMap[fillColor] || '#94a3b8'} />
+                          <Cell key={item.status} fill={colors.fill} />
                         );
                       })}
                     </Pie>
@@ -594,7 +595,7 @@ function WorkflowTaskWidgetComponent({ className }: WorkflowTaskWidgetProps) {
                     <div key={item.status} className="flex items-center gap-1.5 min-w-0">
                       <div className={cn('w-2.5 h-2.5 rounded-full shrink-0', colors.dot)} />
                       <span className="text-xs text-muted-foreground truncate">
-                        {formatMessage({ id: statusLabelKeys[item.status] })}
+                        {formatMessage({ id: statusLabelKeys[item.status] ?? 'sessions.status.inProgress' })}
                       </span>
                       <span className="text-xs font-medium text-foreground ml-auto">
                         {percentage}%
@@ -615,31 +616,48 @@ function WorkflowTaskWidgetComponent({ className }: WorkflowTaskWidgetProps) {
               <ListChecks className="h-4 w-4" />
               {formatMessage({ id: 'home.sections.taskDetails' })}
             </h3>
-            <div className="flex items-center gap-1.5">
-              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={handlePrevSession}>
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <span className="text-xs text-muted-foreground min-w-[45px] text-center">
-                {currentSessionIndex + 1} / {MOCK_SESSIONS.length}
-              </span>
-              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={handleNextSession}>
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
+            {sessionsCount > 0 && (
+              <div className="flex items-center gap-1.5">
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={handlePrevSession} disabled={sessionsCount <= 1}>
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-xs text-muted-foreground min-w-[45px] text-center">
+                  {currentSessionIndex + 1} / {sessionsCount}
+                </span>
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={handleNextSession} disabled={sessionsCount <= 1}>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
           </div>
 
-          {/* Session Card (Carousel Item) */}
-          {currentSession && (
-            <div className="flex-1 flex flex-col min-h-0 rounded-lg border border-border bg-accent/20 p-3 overflow-hidden">
+          {/* Loading State */}
+          {sessionsLoading ? (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="w-full max-w-sm space-y-3">
+                <div className="h-8 bg-muted rounded animate-pulse" />
+                <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
+                <div className="h-20 bg-muted rounded animate-pulse" />
+              </div>
+            </div>
+          ) : sessionsCount === 0 ? (
+            /* Empty State */
+            <HomeEmptyState />
+          ) : currentSession ? (
+            /* Session Card (Carousel Item) */
+            <div
+              className="flex-1 flex flex-col min-h-0 rounded-lg border border-border bg-accent/20 p-3 overflow-hidden cursor-pointer hover:border-primary/30 transition-colors"
+              onClick={() => handleSessionClick(currentSession.session_id)}
+            >
               {/* Session Header */}
               <div className="mb-2 pb-2 border-b border-border shrink-0">
                 <div className="flex items-start gap-2">
-                  <div className={cn('px-2 py-1 rounded text-xs font-medium shrink-0', sessionStatusColors[currentSession.status].bg, sessionStatusColors[currentSession.status].text)}>
+                  <div className={cn('px-2 py-1 rounded text-xs font-medium shrink-0', sessionStatusColors[currentSession.status]?.bg || 'bg-muted', sessionStatusColors[currentSession.status]?.text || 'text-muted-foreground')}>
                     {formatMessage({ id: `common.status.${currentSession.status === 'in_progress' ? 'inProgress' : currentSession.status}` })}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-foreground truncate">{currentSession.name}</p>
-                    <p className="text-xs text-muted-foreground">{currentSession.id}</p>
+                    <p className="text-sm font-medium text-foreground truncate">{currentSession.title || currentSession.session_id}</p>
+                    <p className="text-xs text-muted-foreground">{currentSession.session_id}</p>
                   </div>
                 </div>
                 {/* Description */}
@@ -649,78 +667,85 @@ function WorkflowTaskWidgetComponent({ className }: WorkflowTaskWidgetProps) {
                   </p>
                 )}
                 {/* Progress bar */}
-                <div className="mt-2.5 space-y-1">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">
-                      {formatMessage({ id: 'common.labels.progress' })}
-                    </span>
-                    <span className="font-medium text-foreground">
-                      {currentSession.tasks.filter(t => t.status === 'completed').length}/{currentSession.tasks.length}
-                    </span>
+                {currentSession.tasks && currentSession.tasks.length > 0 && (
+                  <div className="mt-2.5 space-y-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">
+                        {formatMessage({ id: 'common.labels.progress' })}
+                      </span>
+                      <span className="font-medium text-foreground">
+                        {currentSession.tasks.filter(t => t.status === 'completed').length}/{currentSession.tasks.length}
+                      </span>
+                    </div>
+                    <Progress
+                      value={currentSession.tasks.length > 0 ? (currentSession.tasks.filter(t => t.status === 'completed').length / currentSession.tasks.length) * 100 : 0}
+                      className="h-1.5 bg-muted"
+                      indicatorClassName="bg-success"
+                    />
                   </div>
-                  <Progress
-                    value={currentSession.tasks.length > 0 ? (currentSession.tasks.filter(t => t.status === 'completed').length / currentSession.tasks.length) * 100 : 0}
-                    className="h-1.5 bg-muted"
-                    indicatorClassName="bg-success"
-                  />
-                </div>
-                {/* Tags and Date */}
+                )}
+                {/* Date */}
                 <div className="flex items-center gap-2 mt-2 flex-wrap">
-                  {currentSession.tags.map((tag) => (
-                    <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary/10 text-primary text-[10px]">
-                      <Tag className="h-2.5 w-2.5" />
-                      {tag}
-                    </span>
-                  ))}
                   <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground ml-auto">
                     <Calendar className="h-3 w-3" />
-                    {currentSession.updatedAt}
+                    {formatRelativeTime(currentSession.updated_at || currentSession.created_at)}
                   </span>
                 </div>
               </div>
 
               {/* Task List for this Session - Two columns */}
-              <div className="flex-1 overflow-auto min-h-0">
-                <div className="grid grid-cols-2 gap-2 w-full">
-                  {currentSession.tasks.map((task, index) => {
-                    const config = taskStatusColors[task.status];
-                    const StatusIcon = config.icon;
-                    const isLastOdd = currentSession.tasks.length % 2 === 1 && index === currentSession.tasks.length - 1;
-                    return (
-                      <div
-                        key={task.id}
-                        className={cn(
-                          'flex items-center gap-2 p-2 rounded hover:bg-background/50 transition-colors cursor-pointer',
-                          isLastOdd && 'col-span-2'
-                        )}
-                      >
-                        <div className={cn('p-1 rounded shrink-0', config.bg)}>
-                          <StatusIcon className={cn('h-3 w-3', config.text)} />
+              {currentSession.tasks && currentSession.tasks.length > 0 ? (
+                <div className="flex-1 overflow-auto min-h-0">
+                  <div className="grid grid-cols-2 gap-2 w-full">
+                    {currentSession.tasks.map((task, index) => {
+                      const displayStatus = mapTaskStatus(task.status);
+                      const config = taskStatusColors[displayStatus] || taskStatusColors.pending;
+                      const StatusIcon = config.icon;
+                      const isLastOdd = currentSession.tasks!.length % 2 === 1 && index === currentSession.tasks!.length - 1;
+                      return (
+                        <div
+                          key={task.task_id}
+                          className={cn(
+                            'flex items-center gap-2 p-2 rounded hover:bg-background/50 transition-colors',
+                            isLastOdd && 'col-span-2'
+                          )}
+                        >
+                          <div className={cn('p-1 rounded shrink-0', config.bg)}>
+                            <StatusIcon className={cn('h-3 w-3', config.text)} />
+                          </div>
+                          <p className={cn('flex-1 text-xs font-medium truncate', task.status === 'completed' ? 'text-muted-foreground line-through' : 'text-foreground')}>
+                            {task.title || task.task_id}
+                          </p>
                         </div>
-                        <p className={cn('flex-1 text-xs font-medium truncate', task.status === 'completed' ? 'text-muted-foreground line-through' : 'text-foreground')}>
-                          {task.name}
-                        </p>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="flex-1 flex items-center justify-center">
+                  <p className="text-xs text-muted-foreground">
+                    {formatMessage({ id: 'home.emptyState.noTasks.message' })}
+                  </p>
+                </div>
+              )}
+            </div>
+          ) : null}
+
+          {/* Carousel dots - only show if more than one session */}
+          {sessionsCount > 1 && (
+            <div className="flex items-center justify-center gap-1 mt-2">
+              {activeSessions.map((_, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setCurrentSessionIndex(idx)}
+                  className={cn(
+                    'w-1.5 h-1.5 rounded-full transition-colors',
+                    idx === currentSessionIndex ? 'bg-primary' : 'bg-muted hover:bg-muted-foreground/50'
+                  )}
+                />
+              ))}
             </div>
           )}
-
-          {/* Carousel dots */}
-          <div className="flex items-center justify-center gap-1 mt-2">
-            {MOCK_SESSIONS.map((_, idx) => (
-              <button
-                key={idx}
-                onClick={() => setCurrentSessionIndex(idx)}
-                className={cn(
-                  'w-1.5 h-1.5 rounded-full transition-colors',
-                  idx === currentSessionIndex ? 'bg-primary' : 'bg-muted hover:bg-muted-foreground/50'
-                )}
-              />
-            ))}
-          </div>
         </div>
       </Card>
     </div>

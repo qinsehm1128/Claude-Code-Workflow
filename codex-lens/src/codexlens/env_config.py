@@ -45,6 +45,22 @@ ENV_VARS = {
     # General configuration
     "CODEXLENS_DATA_DIR": "Custom data directory path",
     "CODEXLENS_DEBUG": "Enable debug mode (true/false)",
+    # Cascade / staged pipeline configuration
+    "ENABLE_CASCADE_SEARCH": "Enable cascade search (true/false)",
+    "CASCADE_STRATEGY": "Cascade strategy: binary, binary_rerank, dense_rerank, staged",
+    "CASCADE_COARSE_K": "Cascade coarse_k candidate count (int)",
+    "CASCADE_FINE_K": "Cascade fine_k result count (int)",
+    "STAGED_STAGE2_MODE": "Staged Stage 2 mode: precomputed, realtime",
+    "STAGED_CLUSTERING_STRATEGY": "Staged clustering strategy: auto, score, path, dir_rr, noop, ...",
+    "STAGED_CLUSTERING_MIN_SIZE": "Staged clustering min cluster size (int)",
+    "ENABLE_STAGED_RERANK": "Enable staged reranking in Stage 4 (true/false)",
+    "STAGED_REALTIME_LSP_TIMEOUT_S": "Realtime LSP expansion timeout budget (float seconds)",
+    "STAGED_REALTIME_LSP_DEPTH": "Realtime LSP BFS depth (int)",
+    "STAGED_REALTIME_LSP_MAX_NODES": "Realtime LSP max nodes (int)",
+    "STAGED_REALTIME_LSP_MAX_SEEDS": "Realtime LSP max seeds (int)",
+    "STAGED_REALTIME_LSP_MAX_CONCURRENT": "Realtime LSP max concurrent requests (int)",
+    "STAGED_REALTIME_LSP_WARMUP_S": "Realtime LSP warmup wait after didOpen (float seconds)",
+    "STAGED_REALTIME_LSP_RESOLVE_SYMBOLS": "Resolve symbols via documentSymbol in realtime expansion (true/false)",
     # Chunking configuration
     "CHUNK_STRIP_COMMENTS": "Strip comments from code chunks for embedding: true/false (default: true)",
     "CHUNK_STRIP_DOCSTRINGS": "Strip docstrings from code chunks for embedding: true/false (default: true)",

@@ -4,7 +4,7 @@
 // Team selector, stats chips, and controls
 
 import { useIntl } from 'react-intl';
-import { Users, MessageSquare, Clock, RefreshCw } from 'lucide-react';
+import { Users, MessageSquare, RefreshCw } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Switch } from '@/components/ui/Switch';
 import { Label } from '@/components/ui/Label';

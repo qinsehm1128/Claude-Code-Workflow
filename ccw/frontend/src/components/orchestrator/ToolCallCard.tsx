@@ -15,6 +15,7 @@ import {
   Terminal,
   Wrench,
   FileEdit,
+  FileText,
   Brain,
   Search,
 } from 'lucide-react';

@@ -69,7 +69,7 @@ function WorkflowStatusProgressWidgetComponent({ className }: WorkflowStatusProg
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-foreground">
-                      {formatMessage({ id: statusLabelKeys[item.status] })}
+                      {formatMessage({ id: statusLabelKeys[item.status] ?? 'sessions.status.inProgress' })}
                     </span>
                     <Badge variant="secondary" className="text-xs">
                       {item.count}

@@ -255,6 +255,31 @@
       "description": "Please install CodexLens to use semantic code search features."
     }
   },
+  "reranker": {
+    "title": "Reranker Configuration",
+    "description": "Configure the reranker backend, model, and provider for search result ranking.",
+    "backend": "Backend",
+    "backendHint": "Inference backend for reranking",
+    "model": "Model",
+    "modelHint": "Reranker model name or LiteLLM endpoint",
+    "provider": "API Provider",
+    "providerHint": "API provider for reranker service",
+    "apiKeyStatus": "API Key",
+    "apiKeySet": "Configured",
+    "apiKeyNotSet": "Not configured",
+    "configSource": "Config Source",
+    "save": "Save Reranker Config",
+    "saving": "Saving...",
+    "saveSuccess": "Reranker configuration saved",
+    "saveFailed": "Failed to save reranker configuration",
+    "noBackends": "No backends available",
+    "noModels": "No models available",
+    "noProviders": "No providers available",
+    "litellmModels": "LiteLLM Models",
+    "selectBackend": "Select backend...",
+    "selectModel": "Select model...",
+    "selectProvider": "Select provider..."
+  },
   "envGroup": {
     "embedding": "Embedding",
     "reranker": "Reranker",
@@ -309,6 +334,16 @@
     "installNow": "Install Now",
     "installing": "Installing..."
   },
+  "mcp": {
+    "title": "CCW Tools Registry",
+    "loading": "Loading tools...",
+    "error": "Failed to load tools",
+    "errorDesc": "Unable to fetch CCW tools list. Please check if the server is running.",
+    "emptyDesc": "No tools are currently registered.",
+    "totalCount": "{count} tools",
+    "codexLensSection": "CodexLens Tools",
+    "otherSection": "Other Tools"
+  },
   "watcher": {
     "title": "File Watcher",
     "status": {
@@ -323,5 +358,27 @@
     "stopping": "Stopping...",
     "started": "File watcher started",
     "stopped": "File watcher stopped"
+  },
+  "lsp": {
+    "title": "LSP Server",
+    "status": {
+      "running": "Running",
+      "stopped": "Stopped"
+    },
+    "projects": "Projects",
+    "embeddings": "Embeddings",
+    "modes": "Modes",
+    "semanticAvailable": "Semantic",
+    "available": "Available",
+    "unavailable": "Unavailable",
+    "start": "Start Server",
+    "starting": "Starting...",
+    "stop": "Stop Server",
+    "stopping": "Stopping...",
+    "restart": "Restart",
+    "restarting": "Restarting...",
+    "started": "LSP server started",
+    "stopped": "LSP server stopped",
+    "restarted": "LSP server restarted"
   }
 }

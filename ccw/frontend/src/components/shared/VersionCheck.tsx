@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Badge } from '../ui/badge';
+import { Badge } from '../ui/Badge';
 import { toast } from 'sonner';
 import { VersionCheckModal } from './VersionCheckModal';
 

@@ -40,7 +40,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from '@/components/ui/Dropdown';
-import { TabsNavigation, type TabItem } from '@/components/ui/TabsNavigation';
+import { TabsNavigation } from '@/components/ui/TabsNavigation';
 import { cn } from '@/lib/utils';
 import type { SessionMetadata } from '@/types/store';
 

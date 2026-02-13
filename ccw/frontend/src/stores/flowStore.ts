@@ -186,13 +186,18 @@ export const useFlowStore = create<FlowStore>()(
             method,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(flowToSave),
+            credentials: 'same-origin',
           });
 
           if (!response.ok) {
             throw new Error(`Failed to save flow: ${response.statusText}`);
           }
 
-          const savedFlow = await response.json();
+          const payload = await response.json();
+          const savedFlow = (payload && typeof payload === 'object' && 'data' in payload)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ? (payload as any).data
+            : payload;
 
           set(
             (state) => ({
@@ -215,12 +220,16 @@ export const useFlowStore = create<FlowStore>()(
 
       loadFlow: async (id: string): Promise<boolean> => {
         try {
-          const response = await fetch(`${API_BASE}/flows/${id}`);
+          const response = await fetch(`${API_BASE}/flows/${id}`, { credentials: 'same-origin' });
           if (!response.ok) {
             throw new Error(`Failed to load flow: ${response.statusText}`);
           }
 
-          const flow: Flow = await response.json();
+          const payload = await response.json();
+          const flow: Flow = (payload && typeof payload === 'object' && 'data' in payload)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ? (payload as any).data
+            : payload;
 
           set(
             {
@@ -246,6 +255,7 @@ export const useFlowStore = create<FlowStore>()(
         try {
           const response = await fetch(`${API_BASE}/flows/${id}`, {
             method: 'DELETE',
+            credentials: 'same-origin',
           });
 
           if (!response.ok) {
@@ -274,13 +284,18 @@ export const useFlowStore = create<FlowStore>()(
         try {
           const response = await fetch(`${API_BASE}/flows/${id}/duplicate`, {
             method: 'POST',
+            credentials: 'same-origin',
           });
 
           if (!response.ok) {
             throw new Error(`Failed to duplicate flow: ${response.statusText}`);
           }
 
-          const duplicatedFlow: Flow = await response.json();
+          const payload = await response.json();
+          const duplicatedFlow: Flow = (payload && typeof payload === 'object' && 'data' in payload)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ? (payload as any).data
+            : payload;
 
           set(
             (state) => ({
@@ -478,13 +493,13 @@ export const useFlowStore = create<FlowStore>()(
         set({ isLoadingFlows: true }, false, 'fetchFlows/start');
 
         try {
-          const response = await fetch(`${API_BASE}/flows`);
+          const response = await fetch(`${API_BASE}/flows`, { credentials: 'same-origin' });
           if (!response.ok) {
             throw new Error(`Failed to fetch flows: ${response.statusText}`);
           }
 
           const data = await response.json();
-          const flows: Flow[] = data.flows || [];
+          const flows: Flow[] = Array.isArray(data?.data) ? data.data : (data?.flows || []);
 
           set({ flows, isLoadingFlows: false }, false, 'fetchFlows/success');
         } catch (error) {

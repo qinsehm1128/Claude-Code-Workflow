@@ -83,26 +83,45 @@
     },
     "affected_files": {
       "type": "array",
+      "minItems": 1,
       "items": {
-        "oneOf": [
-          {"type": "string"},
-          {
-            "type": "object",
-            "required": ["path", "relevance"],
-            "properties": {
-              "path": {"type": "string", "description": "File path relative to project root"},
-              "relevance": {"type": "number", "minimum": 0, "maximum": 1, "description": "Relevance score 0.0-1.0 (0.7+ high, 0.5-0.7 medium, <0.5 low)"},
-              "rationale": {"type": "string", "description": "Brief explanation of why this file is affected from this diagnosis angle"},
-              "change_type": {
-                "type": "string",
-                "enum": ["fix_target", "needs_update", "test_coverage", "reference_only"],
-                "description": "Type of change needed for this file"
-              }
-            }
+        "type": "object",
+        "required": ["path", "relevance", "rationale", "change_type"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "File path relative to project root"
+          },
+          "relevance": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Relevance score 0.0-1.0 (0.7+ high, 0.5-0.7 medium, <0.5 low)"
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 10,
+            "description": "REQUIRED: Selection rationale explaining why this file is affected. Must be specific. Example: 'Contains handleLogin() at line 45 where null check is missing for token response' rather than 'Related to bug'"
+          },
+          "change_type": {
+            "type": "string",
+            "enum": ["fix_target", "needs_update", "test_coverage", "reference_only"],
+            "description": "Type of change needed: fix_target=contains the bug, needs_update=requires changes due to fix, test_coverage=tests to add/update, reference_only=understanding context"
+          },
+          "discovery_source": {
+            "type": "string",
+            "enum": ["bash-scan", "cli-analysis", "ace-search", "dependency-trace", "stack-trace", "manual"],
+            "description": "How the file was identified as affected"
+          },
+          "key_symbols": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Key symbols (functions, classes) in this file related to the bug"
           }
-        ]
+        },
+        "additionalProperties": false
       },
-      "description": "Files affected by the bug. Prefer object format with relevance scores for synthesis prioritization."
+      "description": "Files affected by the bug. Every file MUST have structured rationale explaining why it is affected and what change is needed."
     },
     "reproduction_steps": {
       "type": "array",

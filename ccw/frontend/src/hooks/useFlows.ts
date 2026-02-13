@@ -5,9 +5,17 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Flow } from '../types/flow';
+import { useWorkflowStore, selectProjectPath } from '@/stores/workflowStore';
 
 // API base URL
 const API_BASE = '/api/orchestrator';
+
+function withPath(url: string, projectPath?: string | null): string {
+  const p = typeof projectPath === 'string' ? projectPath.trim() : '';
+  if (!p) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}path=${encodeURIComponent(p)}`;
+}
 
 // Query keys
 export const flowKeys = {
@@ -30,32 +38,36 @@ interface FlowsListResponse {
 interface ExecutionStartResponse {
   execId: string;
   flowId: string;
-  status: 'running';
+  status: 'pending' | 'running' | 'paused' | 'completed' | 'failed';
   startedAt: string;
 }
 
 interface ExecutionControlResponse {
   execId: string;
-  status: 'paused' | 'running' | 'stopped';
+  status: 'pending' | 'running' | 'paused' | 'completed' | 'failed';
   message: string;
 }
 
 // ========== Fetch Functions ==========
 
 async function fetchFlows(): Promise<FlowsListResponse> {
-  const response = await fetch(`${API_BASE}/flows`);
+  const response = await fetch(`${API_BASE}/flows`, { credentials: 'same-origin' });
   if (!response.ok) {
     throw new Error(`Failed to fetch flows: ${response.statusText}`);
   }
-  return response.json();
+  const json = await response.json();
+  const flows = Array.isArray(json?.data) ? json.data : (json?.flows || []);
+  const total = typeof json?.total === 'number' ? json.total : flows.length;
+  return { flows, total };
 }
 
 async function fetchFlow(id: string): Promise<Flow> {
-  const response = await fetch(`${API_BASE}/flows/${id}`);
+  const response = await fetch(`${API_BASE}/flows/${id}`, { credentials: 'same-origin' });
   if (!response.ok) {
     throw new Error(`Failed to fetch flow: ${response.statusText}`);
   }
-  return response.json();
+  const json = await response.json();
+  return (json && typeof json === 'object' && 'data' in json) ? json.data : json;
 }
 
 async function createFlow(flow: Omit<Flow, 'id' | 'created_at' | 'updated_at'>): Promise<Flow> {
@@ -63,11 +75,13 @@ async function createFlow(flow: Omit<Flow, 'id' | 'created_at' | 'updated_at'>):
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(flow),
+    credentials: 'same-origin',
   });
   if (!response.ok) {
     throw new Error(`Failed to create flow: ${response.statusText}`);
   }
-  return response.json();
+  const json = await response.json();
+  return (json && typeof json === 'object' && 'data' in json) ? json.data : json;
 }
 
 async function updateFlow(id: string, flow: Partial<Flow>): Promise<Flow> {
@@ -75,16 +89,19 @@ async function updateFlow(id: string, flow: Partial<Flow>): Promise<Flow> {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(flow),
+    credentials: 'same-origin',
   });
   if (!response.ok) {
     throw new Error(`Failed to update flow: ${response.statusText}`);
   }
-  return response.json();
+  const json = await response.json();
+  return (json && typeof json === 'object' && 'data' in json) ? json.data : json;
 }
 
 async function deleteFlow(id: string): Promise<void> {
   const response = await fetch(`${API_BASE}/flows/${id}`, {
     method: 'DELETE',
+    credentials: 'same-origin',
   });
   if (!response.ok) {
     throw new Error(`Failed to delete flow: ${response.statusText}`);
@@ -94,53 +111,72 @@ async function deleteFlow(id: string): Promise<void> {
 async function duplicateFlow(id: string): Promise<Flow> {
   const response = await fetch(`${API_BASE}/flows/${id}/duplicate`, {
     method: 'POST',
+    credentials: 'same-origin',
   });
   if (!response.ok) {
     throw new Error(`Failed to duplicate flow: ${response.statusText}`);
   }
-  return response.json();
+  const json = await response.json();
+  return (json && typeof json === 'object' && 'data' in json) ? json.data : json;
 }
 
 // ========== Execution Functions ==========
 
-async function executeFlow(flowId: string): Promise<ExecutionStartResponse> {
-  const response = await fetch(`${API_BASE}/flows/${flowId}/execute`, {
+async function executeFlow(flowId: string, projectPath?: string | null): Promise<ExecutionStartResponse> {
+  const response = await fetch(withPath(`${API_BASE}/flows/${flowId}/execute`, projectPath), {
     method: 'POST',
+    credentials: 'same-origin',
   });
   if (!response.ok) {
     throw new Error(`Failed to execute flow: ${response.statusText}`);
   }
-  return response.json();
+  const json = await response.json();
+  return (json && typeof json === 'object' && 'data' in json) ? json.data : json;
 }
 
-async function pauseExecution(execId: string): Promise<ExecutionControlResponse> {
-  const response = await fetch(`${API_BASE}/executions/${execId}/pause`, {
+async function pauseExecution(execId: string, projectPath?: string | null): Promise<ExecutionControlResponse> {
+  const response = await fetch(withPath(`${API_BASE}/executions/${execId}/pause`, projectPath), {
     method: 'POST',
+    credentials: 'same-origin',
   });
   if (!response.ok) {
     throw new Error(`Failed to pause execution: ${response.statusText}`);
   }
-  return response.json();
+  const json = await response.json();
+  if (json?.data?.id) {
+    return { execId: json.data.id, status: json.data.status, message: json.message || 'Execution paused' };
+  }
+  return json;
 }
 
-async function resumeExecution(execId: string): Promise<ExecutionControlResponse> {
-  const response = await fetch(`${API_BASE}/executions/${execId}/resume`, {
+async function resumeExecution(execId: string, projectPath?: string | null): Promise<ExecutionControlResponse> {
+  const response = await fetch(withPath(`${API_BASE}/executions/${execId}/resume`, projectPath), {
     method: 'POST',
+    credentials: 'same-origin',
   });
   if (!response.ok) {
     throw new Error(`Failed to resume execution: ${response.statusText}`);
   }
-  return response.json();
+  const json = await response.json();
+  if (json?.data?.id) {
+    return { execId: json.data.id, status: json.data.status, message: json.message || 'Execution resumed' };
+  }
+  return json;
 }
 
-async function stopExecution(execId: string): Promise<ExecutionControlResponse> {
-  const response = await fetch(`${API_BASE}/executions/${execId}/stop`, {
+async function stopExecution(execId: string, projectPath?: string | null): Promise<ExecutionControlResponse> {
+  const response = await fetch(withPath(`${API_BASE}/executions/${execId}/stop`, projectPath), {
     method: 'POST',
+    credentials: 'same-origin',
   });
   if (!response.ok) {
     throw new Error(`Failed to stop execution: ${response.statusText}`);
   }
-  return response.json();
+  const json = await response.json();
+  if (json?.data?.id) {
+    return { execId: json.data.id, status: json.data.status, message: json.message || 'Execution stopped' };
+  }
+  return json;
 }
 
 // ========== Query Hooks ==========
@@ -265,8 +301,9 @@ export function useDuplicateFlow() {
  * Execute a flow
  */
 export function useExecuteFlow() {
+  const projectPath = useWorkflowStore(selectProjectPath);
   return useMutation({
-    mutationFn: executeFlow,
+    mutationFn: (flowId: string) => executeFlow(flowId, projectPath),
   });
 }
 
@@ -274,8 +311,9 @@ export function useExecuteFlow() {
  * Pause execution
  */
 export function usePauseExecution() {
+  const projectPath = useWorkflowStore(selectProjectPath);
   return useMutation({
-    mutationFn: pauseExecution,
+    mutationFn: (execId: string) => pauseExecution(execId, projectPath),
   });
 }
 
@@ -283,8 +321,9 @@ export function usePauseExecution() {
  * Resume execution
  */
 export function useResumeExecution() {
+  const projectPath = useWorkflowStore(selectProjectPath);
   return useMutation({
-    mutationFn: resumeExecution,
+    mutationFn: (execId: string) => resumeExecution(execId, projectPath),
   });
 }
 
@@ -292,15 +331,19 @@ export function useResumeExecution() {
  * Stop execution
  */
 export function useStopExecution() {
+  const projectPath = useWorkflowStore(selectProjectPath);
   return useMutation({
-    mutationFn: stopExecution,
+    mutationFn: (execId: string) => stopExecution(execId, projectPath),
   });
 }
 
 // ========== Execution Monitoring Fetch Functions ==========
 
-async function fetchExecutionStateById(execId: string): Promise<{ success: boolean; data: { execId: string; flowId: string; status: string; currentNodeId?: string; startedAt: string; completedAt?: string; elapsedMs: number } }> {
-  const response = await fetch(`${API_BASE}/executions/${execId}`);
+async function fetchExecutionStateById(
+  execId: string,
+  projectPath?: string | null
+): Promise<{ success: boolean; data: { execId: string; flowId: string; status: string; currentNodeId?: string; startedAt: string; completedAt?: string; elapsedMs: number } }> {
+  const response = await fetch(withPath(`${API_BASE}/executions/${execId}`, projectPath), { credentials: 'same-origin' });
   if (!response.ok) {
     throw new Error(`Failed to fetch execution state: ${response.statusText}`);
   }
@@ -314,7 +357,8 @@ async function fetchExecutionLogsById(
     offset?: number;
     level?: string;
     nodeId?: string;
-  }
+  },
+  projectPath?: string | null
 ): Promise<{ success: boolean; data: { execId: string; logs: unknown[]; total: number; limit: number; offset: number; hasMore: boolean } }> {
   const params = new URLSearchParams();
   if (options?.limit) params.append('limit', String(options.limit));
@@ -323,7 +367,11 @@ async function fetchExecutionLogsById(
   if (options?.nodeId) params.append('nodeId', options.nodeId);
 
   const queryString = params.toString();
-  const response = await fetch(`${API_BASE}/executions/${execId}/logs${queryString ? `?${queryString}` : ''}`);
+  const url = withPath(
+    `${API_BASE}/executions/${execId}/logs${queryString ? `?${queryString}` : ''}`,
+    projectPath
+  );
+  const response = await fetch(url, { credentials: 'same-origin' });
   if (!response.ok) {
     throw new Error(`Failed to fetch execution logs: ${response.statusText}`);
   }
@@ -337,9 +385,10 @@ async function fetchExecutionLogsById(
  * Uses useQuery to get execution state, enabled when execId exists
  */
 export function useExecutionState(execId: string | null) {
+  const projectPath = useWorkflowStore(selectProjectPath);
   return useQuery({
-    queryKey: flowKeys.executionState(execId ?? ''),
-    queryFn: () => fetchExecutionStateById(execId!),
+    queryKey: [...flowKeys.executionState(execId ?? ''), projectPath],
+    queryFn: () => fetchExecutionStateById(execId!, projectPath),
     enabled: !!execId,
     staleTime: 5000, // 5 seconds - needs more frequent updates for monitoring
   });
@@ -358,9 +407,10 @@ export function useExecutionLogs(
     nodeId?: string;
   }
 ) {
+  const projectPath = useWorkflowStore(selectProjectPath);
   return useQuery({
-    queryKey: flowKeys.executionLogs(execId ?? '', options),
-    queryFn: () => fetchExecutionLogsById(execId!, options),
+    queryKey: [...flowKeys.executionLogs(execId ?? '', options), projectPath],
+    queryFn: () => fetchExecutionLogsById(execId!, options, projectPath),
     enabled: !!execId,
     staleTime: 10000, // 10 seconds
   });

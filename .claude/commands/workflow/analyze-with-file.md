@@ -65,6 +65,33 @@ Interactive collaborative analysis workflow with **documented discussion process
 
 **Core workflow**: Topic → Explore → Discuss → Document → Refine → Conclude
 
+### Decision Recording Protocol
+
+**⚠️ CRITICAL**: During analysis, the following situations **MUST** trigger immediate recording to discussion.md:
+
+| Trigger | What to Record | Target Section |
+|---------|---------------|----------------|
+| **Direction choice** | What was chosen, why, what alternatives were discarded | `#### Decision Log` |
+| **Key finding** | Finding content, impact scope, confidence level | `#### Key Findings` |
+| **Assumption change** | Old assumption → new understanding, reason for change, impact | `#### Corrected Assumptions` |
+| **User feedback** | User's original input, rationale for adoption/adjustment | `#### User Input` |
+| **Disagreement & trade-off** | Conflicting viewpoints, trade-off basis, final choice | `#### Decision Log` |
+| **Scope adjustment** | Before/after scope, trigger reason for adjustment | `#### Decision Log` |
+
+**Decision Record Format**:
+```markdown
+> **Decision**: [Description of the decision]
+> - **Context**: [What triggered this decision]
+> - **Options considered**: [Alternatives evaluated]
+> - **Chosen**: [Selected approach] — **Reason**: [Rationale]
+> - **Impact**: [Effect on analysis direction/conclusions]
+```
+
+**Recording Principles**:
+- **Immediacy**: Record decisions as they happen, not at the end of a phase
+- **Completeness**: Capture context, options, chosen approach, and reason
+- **Traceability**: Later phases must be able to trace back why a decision was made
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                    INTERACTIVE ANALYSIS WORKFLOW                         │
@@ -164,11 +191,18 @@ Interactive collaborative analysis workflow with **documented discussion process
    - Add user context: focus areas, analysis depth
    - Add initial understanding: dimensions, scope, key questions
    - Create empty sections for discussion timeline
+   - **📌 Record initial decisions**: Document dimension selection rationale, excluded dimensions with reasons, intent behind user preferences
+
+4. **📌 Record Phase 1 Decisions**
+   - Record why these dimensions were selected (keyword match + user confirmation)
+   - Record the rationale behind analysis depth selection
+   - If user adjusted recommended focus, record the adjustment reason
 
 **Success Criteria**:
 - Session folder created with discussion.md initialized
 - Analysis dimensions identified
 - User preferences captured (focus, depth)
+- **Phase 1 decisions recorded** with context and rationale
 
 ### Phase 2: CLI Exploration
 
@@ -353,6 +387,8 @@ CONSTRAINTS: ${perspective.constraints}
 - explorations.json (single) or perspectives.json (multi) created with findings
 - discussion.md updated with Round 1 results
 - All agents and CLI calls completed successfully
+- **📌 Key findings recorded** with evidence references and confidence levels
+- **📌 Exploration decisions recorded** (why chose certain perspectives, tool selection rationale)
 
 ### Phase 3: Interactive Discussion
 
@@ -381,21 +417,30 @@ CONSTRAINTS: ${perspective.constraints}
 
 3. **Process User Response**
 
+   **📌 Recording Checkpoint**: Regardless of which option the user selects, the following MUST be recorded to discussion.md:
+   - User's original choice and expression
+   - Impact of this choice on analysis direction
+   - If direction changed, record a full Decision Record
+
    **Agree, Deepen**:
    - Continue analysis in current direction
    - Use CLI for deeper exploration
+   - **📌 Record**: Which assumptions were confirmed, specific angles for deeper exploration
 
    **Adjust Direction**:
    - AskUserQuestion for adjusted focus (code details / architecture / best practices)
    - Launch new CLI exploration with adjusted scope
+   - **📌 Record Decision**: Trigger reason for direction adjustment, old vs new direction comparison, expected impact
 
    **Specific Questions**:
    - Capture user questions
    - Use CLI or direct analysis to answer
    - Document Q&A in discussion.md
+   - **📌 Record**: Knowledge gaps revealed by the question, new understanding gained from the answer
 
    **Complete**:
    - Exit discussion loop, proceed to Phase 4
+   - **📌 Record**: Why concluding at this round (sufficient information / scope fully focused / user satisfied)
 
 4. **Update discussion.md**
    - Append Round N section with:
@@ -423,6 +468,8 @@ CONSTRAINTS: ${perspective.constraints}
 - discussion.md updated with all discussion rounds
 - Assumptions corrected and documented
 - Exit condition reached (user selects "完成" or max rounds)
+- **📌 All decision points recorded** with Decision Record format
+- **📌 Direction changes documented** with before/after comparison and rationale
 
 ### Phase 4: Synthesis & Conclusion
 
@@ -437,10 +484,12 @@ CONSTRAINTS: ${perspective.constraints}
 
 1. **Consolidate Insights**
    - Extract all findings from discussion timeline
+   - **📌 Compile Decision Trail**: Aggregate all Decision Records from Phases 1-3 into a consolidated decision log
    - **Key conclusions**: Main points with evidence and confidence levels (high/medium/low)
    - **Recommendations**: Action items with rationale and priority (high/medium/low)
    - **Open questions**: Remaining unresolved questions
    - **Follow-up suggestions**: Issue/task creation suggestions
+   - **📌 Decision summary**: How key decisions shaped the final conclusions (link conclusions back to decisions)
    - Write to conclusions.json
 
 2. **Final discussion.md Update**
@@ -453,7 +502,11 @@ CONSTRAINTS: ${perspective.constraints}
      - **What We Established**: Confirmed points
      - **What Was Clarified/Corrected**: Important corrections
      - **Key Insights**: Valuable learnings
-   - Add session statistics: rounds, duration, sources, artifacts
+   - **📌 Add "Decision Trail" section**:
+     - **Critical Decisions**: List of pivotal decisions that shaped the analysis outcome
+     - **Direction Changes**: Timeline of scope/focus adjustments with rationale
+     - **Trade-offs Made**: Key trade-offs and why certain paths were chosen over others
+   - Add session statistics: rounds, duration, sources, artifacts, **decision count**
 
 3. **Post-Completion Options** (AskUserQuestion)
    - **创建Issue**: Launch issue:new with conclusions
@@ -471,12 +524,14 @@ CONSTRAINTS: ${perspective.constraints}
 - `recommendations[]`: {action, rationale, priority}
 - `open_questions[]`: Unresolved questions
 - `follow_up_suggestions[]`: {type, summary}
+- `decision_trail[]`: {round, decision, context, options_considered, chosen, reason, impact}
 
 **Success Criteria**:
 - conclusions.json created with final synthesis
-- discussion.md finalized with conclusions
+- discussion.md finalized with conclusions and decision trail
 - User offered next step options
 - Session complete
+- **📌 Complete decision trail** documented and traceable from initial scoping to final conclusions
 
 ## Configuration
 
@@ -572,12 +627,14 @@ In round 1 we discussed X, then in round 2 user said Y...
 
 ## Best Practices
 
-1. **Clear Topic Definition**: Detailed topics → better dimension identification
+1. **Clear Topic Definition**: Detailed topics lead to better dimension identification
 2. **Agent-First for Complex Tasks**: For code analysis, implementation, or refactoring tasks during discussion, delegate to agents via Task tool (cli-explore-agent, code-developer, universal-executor) or CLI calls (ccw cli). Avoid direct analysis/execution in main process
 3. **Review discussion.md**: Check understanding evolution before conclusions
-4. **Embrace Corrections**: Track wrong→right transformations as learnings
+4. **Embrace Corrections**: Track wrong-to-right transformations as learnings
 5. **Document Evolution**: discussion.md captures full thinking process
 6. **Use Continue Mode**: Resume sessions to build on previous analysis
+7. **Record Decisions Immediately**: Never defer recording - capture decisions as they happen using the Decision Record format. A decision not recorded in-the-moment is a decision lost
+8. **Link Decisions to Outcomes**: When writing conclusions, explicitly reference which decisions led to which outcomes. This creates an auditable trail from initial scoping to final recommendations
 
 ## Templates
 
@@ -587,11 +644,12 @@ In round 1 we discussed X, then in round 2 user said Y...
 - **Header**: Session metadata (ID, topic, started, dimensions)
 - **User Context**: Focus areas, analysis depth
 - **Discussion Timeline**: Round-by-round findings
-  - Round 1: Initial Understanding + Exploration Results
-  - Round 2-N: User feedback, adjusted understanding, corrections, new insights
+  - Round 1: Initial Understanding + Exploration Results + **Initial Decision Log**
+  - Round 2-N: User feedback, adjusted understanding, corrections, new insights, **Decision Log per round**
+- **Decision Trail**: Consolidated critical decisions across all rounds
 - **Conclusions**: Summary, key conclusions, recommendations
 - **Current Understanding (Final)**: Consolidated insights
-- **Session Statistics**: Rounds, duration, sources, artifacts
+- **Session Statistics**: Rounds, duration, sources, artifacts, decision count
 
 Example sections:
 
@@ -600,6 +658,13 @@ Example sections:
 
 #### User Input
 User agrees with current direction, wants deeper code analysis
+
+#### Decision Log
+> **Decision**: Shift focus from high-level architecture to implementation-level code analysis
+> - **Context**: User confirmed architectural understanding is sufficient
+> - **Options considered**: Continue architecture analysis / Deep-dive into code patterns / Focus on testing gaps
+> - **Chosen**: Deep-dive into code patterns — **Reason**: User explicitly requested code-level analysis
+> - **Impact**: Subsequent exploration will target specific modules rather than system overview
 
 #### Updated Understanding
 - Identified session management uses database-backed approach

@@ -17,8 +17,13 @@ describe('QueueCard', () => {
   };
 
   const mockQueue: IssueQueue = {
-    tasks: ['task1', 'task2'],
-    solutions: ['solution1'],
+    tasks: [
+      { item_id: 'task1', issue_id: 'issue-1', solution_id: 'sol-1', status: 'pending', execution_order: 1, execution_group: 'group-1', depends_on: [], semantic_priority: 1 },
+      { item_id: 'task2', issue_id: 'issue-1', solution_id: 'sol-1', status: 'pending', execution_order: 2, execution_group: 'group-1', depends_on: [], semantic_priority: 1 },
+    ],
+    solutions: [
+      { item_id: 'solution1', issue_id: 'issue-1', solution_id: 'sol-1', status: 'pending', execution_order: 1, execution_group: 'group-1', depends_on: [], semantic_priority: 1 },
+    ],
     conflicts: [],
     execution_groups: ['group-1'],
     grouped_items: mockQueueItems,

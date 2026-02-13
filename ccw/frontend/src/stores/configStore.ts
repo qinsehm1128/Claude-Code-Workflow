@@ -202,13 +202,54 @@ export const useConfigStore = create<ConfigStore>()(
       }),
       {
         name: 'ccw-config-store',
-        // Persist all config state
+        version: 1,
+        migrate: (persistedState: any, version: number) => {
+          if (version === 0) {
+            return {
+              ...persistedState,
+              apiEndpoints: persistedState.apiEndpoints || defaultApiEndpoints,
+            };
+          }
+          return persistedState as any;
+        },
         partialize: (state) => ({
           cliTools: state.cliTools,
           defaultCliTool: state.defaultCliTool,
+          apiEndpoints: state.apiEndpoints,
           userPreferences: state.userPreferences,
           featureFlags: state.featureFlags,
         }),
+        onRehydrateStorage: () => (state) => {
+          if (state) {
+            fetch('/api/cli/config')
+              .then((res) => res.json())
+              .then((data) => {
+                const backendTools = data?.config?.tools;
+                if (backendTools && typeof backendTools === 'object') {
+                  const cliTools: Record<string, CliToolConfig> = {};
+                  for (const [key, tool] of Object.entries(backendTools)) {
+                    const t = tool as any;
+                    cliTools[key] = {
+                      enabled: t.enabled ?? false,
+                      primaryModel: t.primaryModel || '',
+                      secondaryModel: t.secondaryModel || '',
+                      tags: t.tags || [],
+                      type: t.type || 'builtin',
+                    };
+                  }
+                  if (Object.keys(cliTools).length > 0) {
+                    state.loadConfig({ cliTools });
+                  }
+                }
+              })
+              .catch((err) => {
+                console.warn(
+                  '[ConfigStore] Backend config sync failed, using local state:',
+                  err
+                );
+              });
+          }
+        },
       }
     ),
     { name: 'ConfigStore' }

@@ -10,7 +10,6 @@ import {
   Globe,
   Sparkles,
   Download,
-  Check,
   Settings,
   Key,
   Zap,

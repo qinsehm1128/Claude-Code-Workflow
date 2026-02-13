@@ -9,6 +9,7 @@
  * - JSON protocol communication
  * - Three commands: embed, search, status
  * - Automatic availability checking
+ * - Stage1 output embedding for V2 pipeline
  */
 
 import { spawn } from 'child_process';
@@ -16,6 +17,9 @@ import { join, dirname } from 'path';
 import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { getCodexLensPython } from '../utils/codexlens-path.js';
+import { getCoreMemoryStore } from './core-memory-store.js';
+import type { Stage1Output } from './core-memory-store.js';
+import { StoragePaths } from '../config/storage-paths.js';
 
 // Get directory of this module
 const __filename = fileURLToPath(import.meta.url);
@@ -256,3 +260,111 @@ export async function getEmbeddingStatus(dbPath: string): Promise<EmbeddingStatu
     };
   }
 }
+
+// ============================================================================
+// Memory V2: Stage1 Output Embedding
+// ============================================================================
+
+/** Result of stage1 embedding operation */
+export interface Stage1EmbedResult {
+  success: boolean;
+  chunksCreated: number;
+  chunksEmbedded: number;
+  error?: string;
+}
+
+/**
+ * Chunk and embed stage1_outputs (raw_memory + rollout_summary) for semantic search.
+ *
+ * Reads all stage1_outputs from the DB, chunks their raw_memory and rollout_summary
+ * content, inserts chunks into memory_chunks with source_type='cli_history' and
+ * metadata indicating the V2 origin, then triggers embedding generation.
+ *
+ * Uses source_id format: "s1:{thread_id}" to differentiate from regular cli_history chunks.
+ *
+ * @param projectPath - Project root path
+ * @param force - Force re-chunking even if chunks exist
+ * @returns Embedding result
+ */
+export async function embedStage1Outputs(
+  projectPath: string,
+  force: boolean = false
+): Promise<Stage1EmbedResult> {
+  try {
+    const store = getCoreMemoryStore(projectPath);
+    const stage1Outputs = store.listStage1Outputs();
+
+    if (stage1Outputs.length === 0) {
+      return { success: true, chunksCreated: 0, chunksEmbedded: 0 };
+    }
+
+    let totalChunksCreated = 0;
+
+    for (const output of stage1Outputs) {
+      const sourceId = `s1:${output.thread_id}`;
+
+      // Check if already chunked
+      const existingChunks = store.getChunks(sourceId);
+      if (existingChunks.length > 0 && !force) continue;
+
+      // Delete old chunks if force
+      if (force && existingChunks.length > 0) {
+        store.deleteChunks(sourceId);
+      }
+
+      // Combine raw_memory and rollout_summary for richer semantic content
+      const combinedContent = [
+        output.rollout_summary ? `## Summary\n${output.rollout_summary}` : '',
+        output.raw_memory ? `## Raw Memory\n${output.raw_memory}` : '',
+      ].filter(Boolean).join('\n\n');
+
+      if (!combinedContent.trim()) continue;
+
+      // Chunk using the store's built-in chunking
+      const chunks = store.chunkContent(combinedContent, sourceId, 'cli_history');
+
+      // Insert chunks with V2 metadata
+      for (let i = 0; i < chunks.length; i++) {
+        store.insertChunk({
+          source_id: sourceId,
+          source_type: 'cli_history',
+          chunk_index: i,
+          content: chunks[i],
+          metadata: JSON.stringify({
+            v2_source: 'stage1_output',
+            thread_id: output.thread_id,
+            generated_at: output.generated_at,
+          }),
+          created_at: new Date().toISOString(),
+        });
+        totalChunksCreated++;
+      }
+    }
+
+    // If we created chunks, generate embeddings
+    let chunksEmbedded = 0;
+    if (totalChunksCreated > 0) {
+      const paths = StoragePaths.project(projectPath);
+      const dbPath = join(paths.root, 'core-memory', 'core_memory.db');
+
+      const embedResult = await generateEmbeddings(dbPath, { force: false });
+      if (embedResult.success) {
+        chunksEmbedded = embedResult.chunks_processed;
+      }
+    }
+
+    return {
+      success: true,
+      chunksCreated: totalChunksCreated,
+      chunksEmbedded,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      chunksCreated: 0,
+      chunksEmbedded: 0,
+      error: (err as Error).message,
+    };
+  }
+}
+

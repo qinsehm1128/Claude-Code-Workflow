@@ -130,7 +130,9 @@ export function QueueActions({
             variant="ghost"
             size="sm"
             className="h-8 w-8 p-0"
-            onClick={() => onActivate(queueId)}
+            onClick={() => {
+              if (queueId) onActivate(queueId);
+            }}
             disabled={isActivating || !queueId}
             title={formatMessage({ id: 'issues.queue.actions.activate' })}
           >

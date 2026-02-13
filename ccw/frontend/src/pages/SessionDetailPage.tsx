@@ -168,7 +168,7 @@ export function SessionDetailPage() {
           </div>
         </div>
         <Badge variant={session.status === 'completed' ? 'success' : 'secondary'}>
-          {formatMessage({ id: statusLabelKeys[session.status] })}
+          {formatMessage({ id: statusLabelKeys[session.status] ?? 'sessions.status.inProgress' })}
         </Badge>
       </div>
 

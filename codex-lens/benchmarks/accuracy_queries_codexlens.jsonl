@@ -1,0 +1,33 @@
+{"query":"class StandaloneLspManager","relevant_paths":["codexlens/lsp/standalone_manager.py"]}
+{"query":"def _open_document","relevant_paths":["codexlens/lsp/standalone_manager.py"]}
+{"query":"def _read_message","relevant_paths":["codexlens/lsp/standalone_manager.py"]}
+{"query":"how does textDocument/didOpen work","relevant_paths":["codexlens/lsp/standalone_manager.py"]}
+{"query":"class LspBridge","relevant_paths":["codexlens/lsp/lsp_bridge.py"]}
+{"query":"def get_document_symbols","relevant_paths":["codexlens/lsp/lsp_bridge.py"]}
+{"query":"class KeepAliveLspBridge","relevant_paths":["codexlens/lsp/keepalive_bridge.py"]}
+{"query":"LSP keepalive bridge","relevant_paths":["codexlens/lsp/keepalive_bridge.py"]}
+{"query":"class LspGraphBuilder","relevant_paths":["codexlens/lsp/lsp_graph_builder.py"]}
+{"query":"def build_from_seeds","relevant_paths":["codexlens/lsp/lsp_graph_builder.py"]}
+{"query":"def _stage2_realtime_lsp_expand","relevant_paths":["codexlens/search/chain_search.py"]}
+{"query":"def _stage3_cluster_prune","relevant_paths":["codexlens/search/chain_search.py"]}
+{"query":"def _cross_encoder_rerank","relevant_paths":["codexlens/search/chain_search.py"]}
+{"query":"def dense_rerank_cascade_search","relevant_paths":["codexlens/search/chain_search.py"]}
+{"query":"def cascade_search","relevant_paths":["codexlens/search/chain_search.py"]}
+{"query":"def _find_nearest_binary_mmap_root","relevant_paths":["codexlens/search/chain_search.py"]}
+{"query":"class BinarySearcher","relevant_paths":["codexlens/search/binary_searcher.py"]}
+{"query":"class GraphExpander","relevant_paths":["codexlens/search/graph_expander.py"]}
+{"query":"def cross_encoder_rerank","relevant_paths":["codexlens/search/ranking.py"]}
+{"query":"def group_similar_results","relevant_paths":["codexlens/search/ranking.py"]}
+{"query":"class ConfigError","relevant_paths":["codexlens/errors.py"]}
+{"query":"def load_settings","relevant_paths":["codexlens/config.py"]}
+{"query":"BINARY_VECTORS_MMAP_NAME","relevant_paths":["codexlens/config.py"]}
+{"query":"STAGED_CLUSTERING_STRATEGY","relevant_paths":["codexlens/config.py","codexlens/env_config.py"]}
+{"query":"def apply_workspace_env","relevant_paths":["codexlens/env_config.py"]}
+{"query":"def generate_env_example","relevant_paths":["codexlens/env_config.py"]}
+{"query":"def get_reranker","relevant_paths":["codexlens/semantic/reranker/factory.py"]}
+{"query":"class APIReranker","relevant_paths":["codexlens/semantic/reranker/api_reranker.py"]}
+{"query":"class RegistryStore","relevant_paths":["codexlens/storage/registry.py"]}
+{"query":"class PathMapper","relevant_paths":["codexlens/storage/path_mapper.py"]}
+{"query":"def lsp_status","relevant_paths":["codexlens/cli/commands.py"]}
+{"query":"graph_neighbors migration","relevant_paths":["codexlens/storage/migrations/migration_007_add_graph_neighbors.py"]}
+{"query":"def get_model_config","relevant_paths":["codexlens/semantic/vector_store.py"]}

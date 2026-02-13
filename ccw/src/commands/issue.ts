@@ -70,13 +70,16 @@ interface TaskTest {
   integration?: string[];       // Integration test requirements
   commands?: string[];          // Test commands to run
   coverage_target?: number;     // Minimum coverage % (optional)
+  manual_checks?: string[];     // Manual verification steps (migrated from acceptance)
+  success_metrics?: string[];   // Success metrics (task-schema convention)
 }
 
-interface TaskAcceptance {
-  criteria: string[];           // Acceptance criteria (testable)
-  verification: string[];       // How to verify each criterion
-  manual_checks?: string[];     // Manual verification steps if needed
+interface TaskConvergence {
+  criteria: string[];           // Convergence criteria (testable)
+  verification?: string | string[];  // How to verify (string or array)
+  definition_of_done?: string;  // Definition of done (optional)
 }
+type TaskAcceptance = TaskConvergence;  // Backward compat alias
 
 interface TaskCommit {
   type: 'feat' | 'fix' | 'refactor' | 'test' | 'docs' | 'chore';
@@ -91,19 +94,26 @@ interface SolutionTask {
   scope: string;
   action: string;
   description?: string;
+
+  // New fields (preferred)
+  files?: { path: string; action?: string; target?: string; change?: string; changes?: string[]; conflict_risk?: string }[];
+  convergence?: TaskConvergence;
+
+  // Legacy fields (backward compat read)
   modification_points?: { file: string; target: string; change: string }[];
+  acceptance?: TaskAcceptance;
 
   // Lifecycle phases (closed-loop)
   implementation: string[];     // Implementation steps
   test: TaskTest;               // Test requirements
   regression: string[];         // Regression check points
-  acceptance: TaskAcceptance;   // Acceptance criteria & verification
   commit: TaskCommit;           // Commit specification
 
   depends_on: string[];
   estimated_minutes?: number;
+  effort?: string;              // Effort estimate (task-schema: "small"|"medium"|"large"|"xlarge")
   status?: string;
-  priority?: number;
+  priority?: string | number;   // String enum or legacy number(1-5)
 }
 
 interface Solution {
@@ -117,6 +127,17 @@ interface Solution {
   is_bound: boolean;
   created_at: string;
   bound_at?: string;
+}
+
+/** Extract file paths from a task (dual-read: new `files` field or legacy `modification_points`) */
+function getTaskFiles(task: SolutionTask): string[] {
+  if (task.files && task.files.length > 0) {
+    return task.files.map(f => f.path).filter(Boolean);
+  }
+  if (task.modification_points) {
+    return task.modification_points.map(mp => mp.file).filter(Boolean);
+  }
+  return [];
 }
 
 // Structured failure detail for debugging
@@ -1290,15 +1311,13 @@ async function solutionAction(issueId: string | undefined, options: IssueOptions
     }
   }
 
-  // Brief mode: extract files_touched from modification_points
+  // Brief mode: extract files_touched from files/modification_points
   if (options.brief) {
     const briefSolutions = targetSolutions.map(sol => {
       const filesTouched = new Set<string>();
       for (const task of sol.tasks) {
-        if (task.modification_points) {
-          for (const mp of task.modification_points) {
-            if (mp.file) filesTouched.add(mp.file);
-          }
+        for (const f of getTaskFiles(task)) {
+          filesTouched.add(f);
         }
       }
       return {
@@ -1374,10 +1393,8 @@ async function solutionsAction(options: IssueOptions): Promise<void> {
     if (boundSolution) {
       const filesTouched = new Set<string>();
       for (const task of boundSolution.tasks) {
-        if (task.modification_points) {
-          for (const mp of task.modification_points) {
-            if (mp.file) filesTouched.add(mp.file);
-          }
+        for (const f of getTaskFiles(task)) {
+          filesTouched.add(f);
         }
       }
 
@@ -2198,8 +2215,8 @@ async function queueAction(subAction: string | undefined, issueId: string | unde
             const solution = findSolution(item.issue_id, item.solution_id);
             if (solution?.tasks) {
               for (const task of solution.tasks) {
-                for (const mp of task.modification_points || []) {
-                  solutionFiles.push(mp.file);
+                for (const f of getTaskFiles(task)) {
+                  solutionFiles.push(f);
                 }
               }
             }
@@ -2377,8 +2394,8 @@ async function queueAction(subAction: string | undefined, issueId: string | unde
     // Collect all files touched by this solution
     const filesTouched = new Set<string>();
     for (const task of solution.tasks || []) {
-      for (const mp of task.modification_points || []) {
-        filesTouched.add(mp.file);
+      for (const f of getTaskFiles(task)) {
+        filesTouched.add(f);
       }
     }
 

@@ -46,14 +46,14 @@ if (fs.existsSync(prepPath)) {
     prepPackage = raw
 
     // Load pre-built tasks
-    const tasksPath = `${projectRoot}/.workflow/.loop/prep-tasks.jsonl`
-    prepTasks = loadPrepTasks(tasksPath)
+    const taskDir = `${projectRoot}/.workflow/.loop/.task`
+    prepTasks = loadPrepTasks(taskDir)
 
     if (prepTasks && prepTasks.length > 0) {
       console.log(`✓ Prep package loaded: ${prepTasks.length} tasks from ${prepPackage.source.tool}`)
       console.log(`  Checks passed: ${checks.passed.join(', ')}`)
     } else {
-      console.warn(`⚠ Prep tasks file empty or invalid, falling back to default INIT`)
+      console.warn(`Warning: Prep tasks directory empty or invalid, falling back to default INIT`)
       prepPackage = null
       prepTasks = null
     }
@@ -103,12 +103,13 @@ function validateLoopPrepPackage(prep, projectRoot) {
     failures.push(`prep-package is ${Math.round(hoursSince)}h old (max 24h), may be stale`)
   }
 
-  // Check 5: prep-tasks.jsonl must exist
-  const tasksPath = `${projectRoot}/.workflow/.loop/prep-tasks.jsonl`
-  if (fs.existsSync(tasksPath)) {
-    passed.push('prep-tasks.jsonl exists')
+  // Check 5: .task/ directory must exist with task files
+  const taskDir = `${projectRoot}/.workflow/.loop/.task`
+  const taskFiles = Glob(`${taskDir}/*.json`)
+  if (fs.existsSync(taskDir) && taskFiles.length > 0) {
+    passed.push(`.task/ exists (${taskFiles.length} files)`)
   } else {
-    failures.push('prep-tasks.jsonl not found')
+    failures.push('.task/ directory not found or empty')
   }
 
   // Check 6: task count > 0
@@ -126,24 +127,24 @@ function validateLoopPrepPackage(prep, projectRoot) {
 }
 
 /**
- * Load pre-built tasks from prep-tasks.jsonl.
+ * Load pre-built tasks from .task/*.json directory.
  * Returns array of task objects or null on failure.
  */
-function loadPrepTasks(tasksPath) {
-  if (!fs.existsSync(tasksPath)) return null
+function loadPrepTasks(taskDir) {
+  if (!fs.existsSync(taskDir)) return null
 
-  const content = Read(tasksPath)
-  const lines = content.trim().split('\n').filter(l => l.trim())
+  const taskFiles = Glob(`${taskDir}/*.json`).sort()
   const tasks = []
 
-  for (const line of lines) {
+  for (const filePath of taskFiles) {
     try {
-      const task = JSON.parse(line)
+      const content = Read(filePath)
+      const task = JSON.parse(content)
       if (task.id && task.description) {
         tasks.push(task)
       }
     } catch (e) {
-      console.warn(`⚠ Skipping invalid task line: ${e.message}`)
+      console.warn(`Warning: Skipping invalid task file ${filePath}: ${e.message}`)
     }
   }
 

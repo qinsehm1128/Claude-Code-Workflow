@@ -105,10 +105,11 @@ function extractString(val: unknown): string {
   return String(val);
 }
 
-/** Extract a secondary description from an object (reason, description, etc.) */
+/** Extract a secondary description from an object (rationale, reason, description, etc.) */
 function extractReason(val: unknown): string | undefined {
   if (!val || typeof val !== 'object') return undefined;
   const obj = val as Record<string, unknown>;
+  if (typeof obj.rationale === 'string') return obj.rationale;
   if (typeof obj.reason === 'string') return obj.reason;
   if (typeof obj.description === 'string') return obj.description;
   return undefined;

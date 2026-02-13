@@ -69,6 +69,7 @@ export type {
 export {
   useIssues,
   useIssueQueue,
+  useIssueQueueById,
   useQueueHistory,
   useCreateIssue,
   useUpdateIssue,
@@ -89,6 +90,14 @@ export type {
   FindingFilters,
   UseIssueDiscoveryReturn,
 } from './useIssues';
+
+// ========== Audit ==========
+export {
+  useCliSessionAudit,
+} from './useAudit';
+export type {
+  UseCliSessionAuditOptions,
+} from './useAudit';
 
 // ========== Skills ==========
 export {
@@ -234,6 +243,13 @@ export type {
   UseCliExecutionReturn,
 } from './useCliExecution';
 
+// ========== CLI Session Core ==========
+export { useCliSessionCore } from './useCliSessionCore';
+export type {
+  UseCliSessionCoreOptions,
+  UseCliSessionCoreReturn,
+} from './useCliSessionCore';
+
 // ========== Workspace Query Keys ==========
 export {
   useWorkspaceQueryKeys,
@@ -270,6 +286,11 @@ export {
   useCancelIndexing,
   useCodexLensWatcher,
   useCodexLensWatcherMutations,
+  useCodexLensLspStatus,
+  useCodexLensLspMutations,
+  useCodexLensRerankerConfig,
+  useUpdateRerankerConfig,
+  useCcwToolsList,
 } from './useCodexLens';
 export type {
   UseCodexLensDashboardOptions,
@@ -307,4 +328,11 @@ export type {
   UseCodexLensWatcherOptions,
   UseCodexLensWatcherReturn,
   UseCodexLensWatcherMutationsReturn,
+  UseCodexLensLspStatusOptions,
+  UseCodexLensLspStatusReturn,
+  UseCodexLensLspMutationsReturn,
+  UseCodexLensRerankerConfigOptions,
+  UseCodexLensRerankerConfigReturn,
+  UseUpdateRerankerConfigReturn,
+  UseCcwToolsListReturn,
 } from './useCodexLens';

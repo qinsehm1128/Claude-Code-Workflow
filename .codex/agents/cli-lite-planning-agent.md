@@ -505,6 +505,8 @@ function parseCLIOutput(cliOutput) {
 ### Context Enrichment
 
 ```javascript
+// NOTE: relevant_files items are structured objects:
+//   {path, relevance, rationale, role, discovery_source?, key_symbols?}
 function buildEnrichedContext(explorationsContext, explorationAngles) {
   const enriched = { relevant_files: [], patterns: [], dependencies: [], integration_points: [], constraints: [] }
 
@@ -519,7 +521,16 @@ function buildEnrichedContext(explorationsContext, explorationAngles) {
     }
   })
 
-  enriched.relevant_files = [...new Set(enriched.relevant_files)]
+  // Deduplicate by path, keep highest relevance entry for each path
+  const fileMap = new Map()
+  enriched.relevant_files.forEach(f => {
+    const path = typeof f === 'string' ? f : f.path
+    const existing = fileMap.get(path)
+    if (!existing || (f.relevance || 0) > (existing.relevance || 0)) {
+      fileMap.set(path, typeof f === 'string' ? { path: f, relevance: 0.5, rationale: 'discovered', role: 'context_only' } : f)
+    }
+  })
+  enriched.relevant_files = [...fileMap.values()]
   return enriched
 }
 ```
@@ -540,7 +551,7 @@ function validateAndEnhanceTasks(rawTasks, enrichedContext) {
     implementation: task.implementation?.length >= 2
       ? task.implementation
       : [`Analyze ${task.file}`, `Implement ${task.title}`, `Add error handling`],
-    reference: task.reference || { pattern: "existing patterns", files: enrichedContext.relevant_files.slice(0, 2), examples: "Follow existing structure" },
+    reference: task.reference || { pattern: "existing patterns", files: enrichedContext.relevant_files.slice(0, 2).map(f => typeof f === 'string' ? f : f.path), examples: "Follow existing structure" },
     acceptance: task.acceptance?.length >= 1
       ? task.acceptance
       : [`${task.title} completed`, `Follows conventions`],
@@ -554,9 +565,11 @@ function inferAction(title) {
   return match ? match[1] : "Implement"
 }
 
+// NOTE: relevant_files items are structured objects with .path property
 function inferFile(task, ctx) {
   const files = ctx?.relevant_files || []
-  return files.find(f => task.title.toLowerCase().includes(f.split('/').pop().split('.')[0].toLowerCase())) || "file-to-be-determined.ts"
+  const getPath = f => typeof f === 'string' ? f : f.path
+  return getPath(files.find(f => task.title.toLowerCase().includes(getPath(f).split('/').pop().split('.')[0].toLowerCase())) || {}) || "file-to-be-determined.ts"
 }
 ```
 
@@ -695,7 +708,7 @@ function validateAndEnhanceTasks(rawTasks, enrichedContext, complexity) {
       implementation: task.implementation?.length >= 2
         ? task.implementation
         : [`Analyze ${task.scope || task.file}`, `Implement ${task.title}`, `Add error handling`],
-      reference: task.reference || { pattern: "existing patterns", files: enrichedContext.relevant_files.slice(0, 2), examples: "Follow existing structure" },
+      reference: task.reference || { pattern: "existing patterns", files: enrichedContext.relevant_files.slice(0, 2).map(f => typeof f === 'string' ? f : f.path), examples: "Follow existing structure" },
       acceptance: task.acceptance?.length >= 1
         ? task.acceptance
         : [`${task.title} completed`, `Follows conventions`],
@@ -747,8 +760,9 @@ try {
   } else throw error
 }
 
+// NOTE: relevant_files items are structured objects with .path property
 function generateBasicPlan(taskDesc, ctx) {
-  const files = ctx?.relevant_files || []
+  const files = (ctx?.relevant_files || []).map(f => typeof f === 'string' ? f : f.path)
   const tasks = [taskDesc].map((t, i) => ({
     id: `T${i + 1}`, title: t, file: files[i] || "tbd", action: "Implement", description: t,
     modification_points: [{ file: files[i] || "tbd", target: "main", change: t }],

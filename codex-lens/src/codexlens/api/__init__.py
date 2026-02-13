@@ -61,6 +61,7 @@ from .hover import get_hover
 from .file_context import file_context
 from .references import find_references
 from .semantic import semantic_search
+from .lsp_lifecycle import lsp_start, lsp_stop, lsp_restart
 
 __all__ = [
     # Dataclasses
@@ -85,4 +86,8 @@ __all__ = [
     "file_context",
     "find_references",
     "semantic_search",
+    # LSP lifecycle
+    "lsp_start",
+    "lsp_stop",
+    "lsp_restart",
 ]

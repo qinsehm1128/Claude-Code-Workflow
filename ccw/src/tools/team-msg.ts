@@ -6,11 +6,13 @@
  * - read:   Read message(s) by ID
  * - list:   List recent messages with optional filters (from/to/type/last N)
  * - status: Summarize team member activity from message history
+ * - delete: Delete a specific message by ID
+ * - clear:  Clear all messages for a team
  */
 
 import { z } from 'zod';
 import type { ToolSchema, ToolResult } from '../types/tool.js';
-import { existsSync, mkdirSync, readFileSync, appendFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, appendFileSync, writeFileSync, rmSync } from 'fs';
 import { join, dirname } from 'path';
 import { getProjectRoot } from '../utils/path-validator.js';
 
@@ -37,7 +39,7 @@ export interface StatusEntry {
 // --- Zod Schema ---
 
 const ParamsSchema = z.object({
-  operation: z.enum(['log', 'read', 'list', 'status']).describe('Operation to perform'),
+  operation: z.enum(['log', 'read', 'list', 'status', 'delete', 'clear']).describe('Operation to perform'),
   team: z.string().describe('Team name (maps to .workflow/.team-msg/{team}/messages.jsonl)'),
 
   // log params
@@ -69,6 +71,8 @@ Operations:
   team_msg(operation="list", team="my-team")
   team_msg(operation="list", team="my-team", from="tester", last=5)
   team_msg(operation="status", team="my-team")
+  team_msg(operation="delete", team="my-team", id="MSG-003")
+  team_msg(operation="clear", team="my-team")
 
 Message types: plan_ready, plan_approved, plan_revision, task_unblocked, impl_complete, impl_progress, test_result, review_result, fix_required, error, shutdown`,
   inputSchema: {
@@ -76,8 +80,8 @@ Message types: plan_ready, plan_approved, plan_revision, task_unblocked, impl_co
     properties: {
       operation: {
         type: 'string',
-        enum: ['log', 'read', 'list', 'status'],
-        description: 'Operation: log | read | list | status',
+        enum: ['log', 'read', 'list', 'status', 'delete', 'clear'],
+        description: 'Operation: log | read | list | status | delete | clear',
       },
       team: {
         type: 'string',
@@ -250,6 +254,37 @@ function opStatus(params: Params): ToolResult {
   };
 }
 
+function opDelete(params: Params): ToolResult {
+  if (!params.id) return { success: false, error: 'delete requires "id"' };
+
+  const messages = readAllMessages(params.team);
+  const idx = messages.findIndex(m => m.id === params.id);
+
+  if (idx === -1) {
+    return { success: false, error: `Message ${params.id} not found in team "${params.team}"` };
+  }
+
+  const removed = messages.splice(idx, 1)[0];
+  const logPath = ensureLogFile(params.team);
+  writeFileSync(logPath, messages.map(m => JSON.stringify(m)).join('\n') + (messages.length > 0 ? '\n' : ''), 'utf-8');
+
+  return { success: true, result: { deleted: removed.id, message: `Deleted ${removed.id}: [${removed.from} → ${removed.to}] ${removed.summary}` } };
+}
+
+function opClear(params: Params): ToolResult {
+  const logPath = getLogPath(params.team);
+  const dir = getLogDir(params.team);
+
+  if (!existsSync(logPath)) {
+    return { success: true, result: { message: `Team "${params.team}" has no messages to clear.` } };
+  }
+
+  const count = readAllMessages(params.team).length;
+  rmSync(dir, { recursive: true, force: true });
+
+  return { success: true, result: { cleared: count, message: `Cleared ${count} messages for team "${params.team}".` } };
+}
+
 // --- Handler ---
 
 export async function handler(params: Record<string, unknown>): Promise<ToolResult> {
@@ -265,6 +300,8 @@ export async function handler(params: Record<string, unknown>): Promise<ToolResu
     case 'read': return opRead(p);
     case 'list': return opList(p);
     case 'status': return opStatus(p);
+    case 'delete': return opDelete(p);
+    case 'clear': return opClear(p);
     default:
       return { success: false, error: `Unknown operation: ${p.operation}` };
   }

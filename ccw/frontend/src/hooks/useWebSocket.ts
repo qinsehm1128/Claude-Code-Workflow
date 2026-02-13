@@ -15,7 +15,7 @@ import {
   type ExecutionLog,
 } from '../types/execution';
 import { SurfaceUpdateSchema } from '../packages/a2ui-runtime/core/A2UITypes';
-import type { ToolCallKind } from '../types/toolCall';
+import type { ToolCallKind, ToolCallExecution } from '../types/toolCall';
 
 // Constants
 const RECONNECT_DELAY_BASE = 1000; // 1 second
@@ -242,7 +242,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
               const currentNodeId = stores.currentExecution?.currentNodeId;
               if (currentNodeId && (unitType === 'stdout' || unitType === 'stderr')) {
                 const toolCalls = stores.getToolCallsForNode?.(currentNodeId);
-                const activeCall = toolCalls?.find(c => c.status === 'executing');
+                const activeCall = toolCalls?.find((c: ToolCallExecution) => c.status === 'executing');
 
                 if (activeCall) {
                   stores.updateToolCall(currentNodeId, activeCall.callId, {

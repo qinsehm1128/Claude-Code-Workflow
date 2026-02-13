@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { QueueCard } from '@/components/issue/queue/QueueCard';
 import { QueueBoard } from '@/components/issue/queue/QueueBoard';
 import { SolutionDrawer } from '@/components/issue/queue/SolutionDrawer';
-import { useIssueQueue, useQueueHistory, useQueueMutations } from '@/hooks';
+import { useIssueQueue, useIssueQueueById, useQueueHistory, useQueueMutations } from '@/hooks';
 import type { QueueItem } from '@/lib/api';
 
 // ========== Loading Skeleton ==========
@@ -74,9 +74,11 @@ function QueueEmptyState() {
 export function QueuePanel() {
   const { formatMessage } = useIntl();
   const [selectedItem, setSelectedItem] = useState<QueueItem | null>(null);
+  const [selectedQueueId, setSelectedQueueId] = useState<string>('');
 
-  const { data: queueData, isLoading, error } = useIssueQueue();
+  const activeQueueQuery = useIssueQueue();
   const { data: historyIndex } = useQueueHistory();
+  const selectedQueueQuery = useIssueQueueById(selectedQueueId);
   const {
     activateQueue,
     deactivateQueue,
@@ -90,8 +92,12 @@ export function QueuePanel() {
     isSplitting,
   } = useQueueMutations();
 
-  // Get queue data with proper type
-  const queue = queueData;
+  const queue = selectedQueueId && selectedQueueQuery.data ? selectedQueueQuery.data : activeQueueQuery.data;
+  const isLoading =
+    activeQueueQuery.isLoading ||
+    (selectedQueueId ? selectedQueueQuery.isLoading && !selectedQueueQuery.data : false);
+  const error = activeQueueQuery.error || selectedQueueQuery.error;
+
   const taskCount = queue?.tasks?.length || 0;
   const solutionCount = queue?.solutions?.length || 0;
   const conflictCount = queue?.conflicts?.length || 0;
@@ -100,13 +106,13 @@ export function QueuePanel() {
   const activeQueueId = historyIndex?.active_queue_id || null;
   const activeQueueIds = historyIndex?.active_queue_ids || [];
   const queueId = queue?.id;
-  const [selectedQueueId, setSelectedQueueId] = useState<string>('');
 
   // Keep selector in sync with active queue id
   useEffect(() => {
+    if (selectedQueueId) return;
     if (activeQueueId) setSelectedQueueId(activeQueueId);
     else if (queueId) setSelectedQueueId(queueId);
-  }, [activeQueueId, queueId]);
+  }, [activeQueueId, queueId, selectedQueueId]);
 
   const handleActivate = async (queueId: string) => {
     try {
@@ -203,7 +209,7 @@ export function QueuePanel() {
                 </SelectTrigger>
                 <SelectContent>
                   {(historyIndex.queues || []).length === 0 ? (
-                    <SelectItem value="" disabled>
+                    <SelectItem value="__none__" disabled>
                       {formatMessage({ id: 'issues.queue.history.empty' })}
                     </SelectItem>
                   ) : (

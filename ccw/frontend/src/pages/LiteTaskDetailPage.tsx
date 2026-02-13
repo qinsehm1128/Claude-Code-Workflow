@@ -15,11 +15,8 @@ import {
   ArrowLeft,
   FileEdit,
   Wrench,
-  Calendar,
-  Loader2,
   XCircle,
   CheckCircle,
-  Clock,
   Code,
   Zap,
   ListTodo,
@@ -31,7 +28,6 @@ import {
   Folder,
   MessageSquare,
   FileText,
-  ChevronDown,
   ChevronRight,
   Ruler,
   Stethoscope,
@@ -41,10 +37,8 @@ import { Flowchart } from '@/components/shared/Flowchart';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import { Tabs, TabsContent } from '@/components/ui/Tabs';
-import { TabsNavigation, type TabItem } from '@/components/ui/TabsNavigation';
+import { TabsNavigation } from '@/components/ui/TabsNavigation';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/Collapsible';
-import type { LiteTask, LiteTaskSession } from '@/lib/api';
 
 // ========================================
 // Type Definitions
@@ -57,168 +51,11 @@ type MultiCliTab = 'tasks' | 'discussion' | 'context';
 
 type TaskTabValue = 'task' | 'context';
 
-// Context Package Structure
-interface ContextPackage {
-  task_description?: string;
-  constraints?: string[];
-  focus_paths?: string[];
-  relevant_files?: Array<string | { path: string; reason?: string }>;
-  dependencies?: string[] | Array<{ name: string; type: string; version: string }>;
-  conflict_risks?: string[] | Array<{ description: string; severity: string }>;
-  session_id?: string;
-  metadata?: {
-    created_at: string;
-    version: string;
-    source: string;
-  };
-}
-
 // Exploration Structure
 interface Exploration {
   name: string;
   path: string;
   content?: string;
-}
-
-interface ExplorationData {
-  manifest?: {
-    task_description: string;
-    complexity: 'low' | 'medium' | 'high';
-    exploration_count: number;
-    created_at: string;
-  };
-  data?: {
-    architecture?: ExplorationAngle;
-    dependencies?: ExplorationAngle;
-    patterns?: ExplorationAngle;
-    'integration-points'?: ExplorationAngle;
-    testing?: ExplorationAngle;
-  };
-}
-
-interface ExplorationAngle {
-  findings: string[];
-  recommendations: string[];
-  patterns: string[];
-  risks: string[];
-}
-
-// Diagnosis Structure
-interface Diagnosis {
-  symptom: string;
-  root_cause: string;
-  issues: Array<{
-    file: string;
-    line: number;
-    severity: 'high' | 'medium' | 'low';
-    message: string;
-  }>;
-  affected_files: string[];
-  fix_hints: string[];
-  recommendations: string[];
-}
-
-// Discussion/Round Structure
-interface DiscussionRound {
-  metadata: {
-    roundId: number;
-    timestamp: string;
-    durationSeconds: number;
-    contributingAgents: Array<{ name: string; id: string }>;
-  };
-  solutions: DiscussionSolution[];
-  _internal: {
-    convergence: {
-      score: number;
-      recommendation: 'proceed' | 'continue' | 'pause';
-      reasoning: string;
-    };
-    cross_verification: {
-      agreements: string[];
-      disagreements: string[];
-      resolution: string;
-    };
-  };
-}
-
-interface ImplementationTask {
-  id: string;
-  title: string;
-  description?: string;
-  status?: string;
-  assignee?: string;
-}
-
-interface Milestone {
-  id: string;
-  name: string;
-  description?: string;
-  target_date?: string;
-}
-
-interface DiscussionSolution {
-  id: string;
-  name: string;
-  summary: string | { en: string; zh: string };
-  feasibility: number;
-  effort: 'low' | 'medium' | 'high';
-  risk: 'low' | 'medium' | 'high';
-  source_cli: string[];
-  implementation_plan: {
-    approach: string;
-    tasks: ImplementationTask[];
-    milestones: Milestone[];
-  };
-}
-
-// Synthesis Structure
-interface Synthesis {
-  convergence: {
-    summary: string | { en: string; zh: string };
-    score: number;
-    recommendation: 'proceed' | 'continue' | 'pause' | 'complete' | 'halt';
-  };
-  cross_verification: {
-    agreements: string[];
-    disagreements: string[];
-    resolution: string;
-  };
-  final_solution: DiscussionSolution;
-  alternative_solutions: DiscussionSolution[];
-}
-
-// ========================================
-// Helper Functions
-// ========================================
-
-/**
- * Get i18n text (handles both string and {en, zh} object)
- */
-function getI18nText(text: string | { en?: string; zh?: string } | undefined, locale: string = 'zh'): string {
-  if (!text) return '';
-  if (typeof text === 'string') return text;
-  return text[locale as keyof typeof text] || text.en || text.zh || '';
-}
-
-/**
- * Get task status badge configuration
- */
-function getTaskStatusBadge(
-  status: LiteTask['status'],
-  formatMessage: (key: { id: string }) => string
-) {
-  switch (status) {
-    case 'completed':
-      return { variant: 'success' as const, label: formatMessage({ id: 'sessionDetail.status.completed' }), icon: CheckCircle };
-    case 'in_progress':
-      return { variant: 'warning' as const, label: formatMessage({ id: 'sessionDetail.status.inProgress' }), icon: Loader2 };
-    case 'blocked':
-      return { variant: 'destructive' as const, label: formatMessage({ id: 'sessionDetail.status.blocked' }), icon: XCircle };
-    case 'failed':
-      return { variant: 'destructive' as const, label: formatMessage({ id: 'fixSession.status.failed' }), icon: XCircle };
-    default:
-      return { variant: 'secondary' as const, label: formatMessage({ id: 'sessionDetail.status.pending' }), icon: Clock };
-  }
 }
 
 // ========================================
@@ -237,7 +74,7 @@ function getTaskStatusBadge(
 export function LiteTaskDetailPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
-  const { formatMessage, locale } = useIntl();
+  const { formatMessage } = useIntl();
 
   // Session type state
   const [sessionType, setSessionType] = React.useState<SessionType>('lite-plan');

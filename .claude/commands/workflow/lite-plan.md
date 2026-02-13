@@ -44,7 +44,8 @@ Intelligent lightweight planning command with dynamic workflow adaptation based 
 | `exploration-{angle}.json` | Per-angle exploration results (1-4 files based on complexity) |
 | `explorations-manifest.json` | Index of all exploration files |
 | `planning-context.md` | Evidence paths + synthesized understanding |
-| `plan.json` | Structured implementation plan (plan-json-schema.json) |
+| `plan.json` | Plan overview with task_ids[] (plan-overview-base-schema.json) |
+| `.task/TASK-*.json` | Independent task files (one per task) |
 
 **Output Directory**: `.workflow/.lite-plan/{task-slug}-{YYYY-MM-DD}/`
 
@@ -52,7 +53,7 @@ Intelligent lightweight planning command with dynamic workflow adaptation based 
 - Low complexity → Direct Claude planning (no agent)
 - Medium/High complexity → `cli-lite-planning-agent` generates `plan.json`
 
-**Schema Reference**: `~/.ccw/workflows/cli-templates/schemas/plan-json-schema.json`
+**Schema Reference**: `~/.ccw/workflows/cli-templates/schemas/plan-overview-base-schema.json`
 
 ## Auto Mode Defaults
 
@@ -89,7 +90,7 @@ Phase 2: Clarification (optional, multi-round)
 
 Phase 3: Planning (NO CODE EXECUTION - planning only)
    └─ Decision (based on Phase 1 complexity):
-      ├─ Low → Load schema: cat ~/.ccw/workflows/cli-templates/schemas/plan-json-schema.json → Direct Claude planning (following schema) → plan.json
+      ├─ Low → Load schema: cat ~/.ccw/workflows/cli-templates/schemas/plan-overview-base-schema.json → Direct Claude planning (following schema) → plan.json
       └─ Medium/High → cli-lite-planning-agent → plan.json (agent internally executes quality check)
 
 Phase 4: Confirmation & Selection
@@ -251,9 +252,13 @@ Execute **${angle}** exploration for task planning context. Analyze codebase fro
 **Required Fields** (all ${angle} focused):
 - project_structure: Modules/architecture relevant to ${angle}
 - relevant_files: Files affected from ${angle} perspective
-  **IMPORTANT**: Use object format with relevance scores for synthesis:
-  \`[{path: "src/file.ts", relevance: 0.85, rationale: "Core ${angle} logic"}]\`
-  Scores: 0.7+ high priority, 0.5-0.7 medium, <0.5 low
+  **MANDATORY**: Every file MUST use structured object format with ALL required fields:
+  \`[{path: "src/file.ts", relevance: 0.85, rationale: "Contains AuthService.login() - entry point for JWT token generation", role: "modify_target", discovery_source: "bash-scan", key_symbols: ["AuthService", "login"]}]\`
+  - **rationale** (required): Specific selection basis tied to ${angle} topic (>10 chars, not generic)
+  - **role** (required): modify_target|dependency|pattern_reference|test_target|type_definition|integration_point|config|context_only
+  - **discovery_source** (recommended): bash-scan|cli-analysis|ace-search|dependency-trace|manual
+  - **key_symbols** (recommended): Key functions/classes/types in the file relevant to the task
+  - Scores: 0.7+ high priority, 0.5-0.7 medium, <0.5 low
 - patterns: ${angle}-related patterns to follow
 - dependencies: Dependencies relevant to ${angle}
 - integration_points: Where to integrate from ${angle} viewpoint (include file:line locations)
@@ -264,7 +269,9 @@ Execute **${angle}** exploration for task planning context. Analyze codebase fro
 ## Success Criteria
 - [ ] Schema obtained via cat explore-json-schema.json
 - [ ] get_modules_by_depth.sh executed
-- [ ] At least 3 relevant files identified with ${angle} rationale
+- [ ] At least 3 relevant files identified with specific rationale + role
+- [ ] Every file has rationale >10 chars (not generic like "Related to ${angle}")
+- [ ] Every file has role classification (modify_target/dependency/etc.)
 - [ ] Patterns are actionable (code examples, not generic advice)
 - [ ] Integration points include file:line locations
 - [ ] Constraints are project-specific to ${angle}
@@ -416,7 +423,11 @@ if (autoYes) {
 // 2. 默认 → agent
 
 const executorAssignments = {}  // { taskId: { executor: 'gemini'|'codex'|'agent', reason: string } }
-plan.tasks.forEach(task => {
+
+// Load tasks from .task/ directory for executor assignment
+const taskFiles = Glob(`${sessionFolder}/.task/TASK-*.json`)
+taskFiles.forEach(taskPath => {
+  const task = JSON.parse(Read(taskPath))
   // Claude 根据上述规则语义分析，为每个 task 分配 executor
   executorAssignments[task.id] = { executor: '...', reason: '...' }
 })
@@ -425,7 +436,7 @@ plan.tasks.forEach(task => {
 **Low Complexity** - Direct planning by Claude:
 ```javascript
 // Step 1: Read schema
-const schema = Bash(`cat ~/.ccw/workflows/cli-templates/schemas/plan-json-schema.json`)
+const schema = Bash(`cat ~/.ccw/workflows/cli-templates/schemas/plan-overview-base-schema.json`)
 
 // Step 2: ⚠️ MANDATORY - Read and review ALL exploration files
 const manifest = JSON.parse(Read(`${sessionFolder}/explorations-manifest.json`))
@@ -434,22 +445,51 @@ manifest.explorations.forEach(exp => {
   console.log(`\n### Exploration: ${exp.angle}\n${explorationData}`)
 })
 
-// Step 3: Generate plan following schema (Claude directly, no agent)
-// ⚠️ Plan MUST incorporate insights from exploration files read in Step 2
+// Step 3: Generate task objects (Claude directly, no agent)
+// ⚠️ Tasks MUST incorporate insights from exploration files read in Step 2
+// Task fields use NEW names: convergence.criteria (not acceptance), files[].change (not modification_points), test (not verification)
+const tasks = [
+  {
+    id: "TASK-001",
+    title: "...",
+    description: "...",
+    depends_on: [],
+    convergence: { criteria: ["..."] },
+    files: [{ path: "...", change: "..." }],
+    implementation: ["..."],
+    test: "..."
+  },
+  // ... more tasks
+]
+
+// Step 4: Write task files to .task/ directory
+const taskDir = `${sessionFolder}/.task`
+Bash(`mkdir -p "${taskDir}"`)
+tasks.forEach(task => {
+  Write(`${taskDir}/${task.id}.json`, JSON.stringify(task, null, 2))
+})
+
+// Step 5: Generate plan overview (NO embedded tasks[])
 const plan = {
   summary: "...",
   approach: "...",
-  tasks: [...],  // Each task: { id, title, scope, ..., depends_on, execution_group, complexity }
+  task_ids: tasks.map(t => t.id),
+  task_count: tasks.length,
+  complexity: "Low",
   estimated_time: "...",
   recommended_execution: "Agent",
-  complexity: "Low",
-  _metadata: { timestamp: getUtc8ISOString(), source: "direct-planning", planning_mode: "direct" }
+  _metadata: {
+    timestamp: getUtc8ISOString(),
+    source: "direct-planning",
+    planning_mode: "direct",
+    plan_type: "feature"
+  }
 }
 
-// Step 4: Write plan to session folder
+// Step 6: Write plan overview to session folder
 Write(`${sessionFolder}/plan.json`, JSON.stringify(plan, null, 2))
 
-// Step 5: MUST continue to Phase 4 (Confirmation) - DO NOT execute code here
+// Step 7: MUST continue to Phase 4 (Confirmation) - DO NOT execute code here
 ```
 
 **Medium/High Complexity** - Invoke cli-lite-planning-agent:
@@ -467,10 +507,11 @@ Generate implementation plan and write plan.json.
 **Session Folder**: ${sessionFolder}
 **Output Files**:
 - ${sessionFolder}/planning-context.md (evidence + understanding)
-- ${sessionFolder}/plan.json (implementation plan)
+- ${sessionFolder}/plan.json (plan overview -- NO embedded tasks[])
+- ${sessionFolder}/.task/TASK-*.json (independent task files, one per task)
 
 ## Output Schema Reference
-Execute: cat ~/.ccw/workflows/cli-templates/schemas/plan-json-schema.json (get schema reference before generating plan)
+Execute: cat ~/.ccw/workflows/cli-templates/schemas/plan-overview-base-schema.json (get schema reference before generating plan)
 
 ## Project Context (MANDATORY - Read Both Files)
 1. Read: .workflow/project-tech.json (technology stack, architecture, key components)
@@ -500,9 +541,16 @@ ${JSON.stringify(clarificationContext) || "None"}
 ${complexity}
 
 ## Requirements
-Generate plan.json following the schema obtained above. Key constraints:
-- tasks: 2-7 structured tasks (**group by feature/module, NOT by file**)
+Generate plan.json and .task/*.json following the schema obtained above. Key constraints:
 - _metadata.exploration_angles: ${JSON.stringify(manifest.explorations.map(e => e.angle))}
+
+**Output Format**: Two-layer structure:
+- plan.json: Overview with task_ids[] referencing .task/ files (NO tasks[] array)
+- .task/TASK-*.json: Independent task files following task-schema.json
+
+plan.json required fields: summary, approach, task_ids, task_count, _metadata (with plan_type: "feature")
+Each task file required fields: id, title, description, depends_on, convergence (with criteria[])
+Task fields use: files[].change (not modification_points), convergence.criteria (not acceptance), test (not verification)
 
 ## Task Grouping Rules
 1. **Group by feature**: All changes for one feature = one task (even if 3-5 files)
@@ -517,10 +565,12 @@ Generate plan.json following the schema obtained above. Key constraints:
 1. Read schema file (cat command above)
 2. Execute CLI planning using Gemini (Qwen fallback)
 3. Read ALL exploration files for comprehensive context
-4. Synthesize findings and generate plan following schema
+4. Synthesize findings and generate tasks + plan overview
 5. **Write**: \`${sessionFolder}/planning-context.md\` (evidence paths + understanding)
-6. **Write**: \`${sessionFolder}/plan.json\`
-7. Return brief completion summary
+6. **Create**: \`${sessionFolder}/.task/\` directory (mkdir -p)
+7. **Write**: \`${sessionFolder}/.task/TASK-001.json\`, \`TASK-002.json\`, etc. (one per task)
+8. **Write**: \`${sessionFolder}/plan.json\` (overview with task_ids[], NO tasks[])
+9. Return brief completion summary
 `
 )
 ```
@@ -535,14 +585,21 @@ Generate plan.json following the schema obtained above. Key constraints:
 ```javascript
 const plan = JSON.parse(Read(`${sessionFolder}/plan.json`))
 
+// Load tasks from .task/ directory
+const tasks = (plan.task_ids || []).map(id => {
+  const taskPath = `${sessionFolder}/.task/${id}.json`
+  return JSON.parse(Read(taskPath))
+})
+const taskList = tasks
+
 console.log(`
 ## Implementation Plan
 
 **Summary**: ${plan.summary}
 **Approach**: ${plan.approach}
 
-**Tasks** (${plan.tasks.length}):
-${plan.tasks.map((t, i) => `${i+1}. ${t.title} (${t.file})`).join('\n')}
+**Tasks** (${taskList.length}):
+${taskList.map((t, i) => `${i+1}. ${t.title} (${t.scope || t.files?.[0]?.path || ''})`).join('\n')}
 
 **Complexity**: ${plan.complexity}
 **Estimated Time**: ${plan.estimated_time}
@@ -575,7 +632,7 @@ if (autoYes) {
   userSelection = AskUserQuestion({
     questions: [
       {
-        question: `Confirm plan? (${plan.tasks.length} tasks, ${plan.complexity})`,
+        question: `Confirm plan? (${taskList.length} tasks, ${plan.complexity})`,
         header: "Confirm",
         multiSelect: false,
         options: [
@@ -632,7 +689,11 @@ manifest.explorations.forEach(exp => {
 const plan = JSON.parse(Read(`${sessionFolder}/plan.json`))
 
 executionContext = {
-  planObject: plan,
+  planObject: plan,  // plan overview (no tasks[])
+  taskFiles: (plan.task_ids || []).map(id => ({
+    id,
+    path: `${sessionFolder}/.task/${id}.json`
+  })),
   explorationsContext: explorations,
   explorationAngles: manifest.explorations.map(e => e.angle),
   explorationManifest: manifest,
@@ -653,7 +714,8 @@ executionContext = {
         path: exp.path
       })),
       explorations_manifest: `${sessionFolder}/explorations-manifest.json`,
-      plan: `${sessionFolder}/plan.json`
+      plan: `${sessionFolder}/plan.json`,
+      task_dir: `${sessionFolder}/.task`
     }
   }
 }
@@ -674,7 +736,12 @@ Skill(skill="workflow:lite-execute", args="--in-memory")
 ├── exploration-{angle3}.json      # Exploration angle 3 (if applicable)
 ├── exploration-{angle4}.json      # Exploration angle 4 (if applicable)
 ├── explorations-manifest.json     # Exploration index
-└── plan.json                      # Implementation plan
+├── planning-context.md            # Evidence paths + understanding
+├── plan.json                      # Plan overview (task_ids[])
+└── .task/                         # Task files directory
+    ├── TASK-001.json
+    ├── TASK-002.json
+    └── ...
 ```
 
 **Example**:
@@ -684,7 +751,12 @@ Skill(skill="workflow:lite-execute", args="--in-memory")
 ├── exploration-auth-patterns.json
 ├── exploration-security.json
 ├── explorations-manifest.json
-└── plan.json
+├── planning-context.md
+├── plan.json
+└── .task/
+    ├── TASK-001.json
+    ├── TASK-002.json
+    └── TASK-003.json
 ```
 
 ## Error Handling

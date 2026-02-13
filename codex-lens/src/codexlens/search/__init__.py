@@ -5,6 +5,7 @@ from .chain_search import (
     ChainSearchResult,
     quick_search,
 )
+from .global_graph_expander import GlobalGraphExpander
 
 # Clustering availability flag (lazy import pattern)
 CLUSTERING_AVAILABLE = False
@@ -46,6 +47,7 @@ __all__ = [
     "SearchStats",
     "ChainSearchResult",
     "quick_search",
+    "GlobalGraphExpander",
     # Clustering
     "CLUSTERING_AVAILABLE",
     "check_clustering_available",

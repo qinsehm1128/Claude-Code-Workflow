@@ -21,7 +21,6 @@ import {
   Loader2,
   RotateCcw,
   Code,
-  Image as ImageIcon,
   Database,
   Mail,
   MailOpen,
@@ -67,15 +66,7 @@ function formatTimeAgo(timestamp: string, formatMessage: (message: { id: string;
   return new Date(timestamp).toLocaleDateString();
 }
 
-function formatDetails(details: unknown): string {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  if (typeof details === 'string') return details;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  if (typeof details === 'object' && details !== null) {
-    return JSON.stringify(details, null, 2);
-  }
-  return String(details);
-}
+// ========== Main Types ==========
 
 function getNotificationIcon(type: Toast['type']) {
   const iconClassName = 'h-4 w-4 shrink-0';
@@ -718,7 +709,6 @@ export interface NotificationPanelProps {
 }
 
 export function NotificationPanel({ isOpen, onClose }: NotificationPanelProps) {
-  const { formatMessage } = useIntl();
 
   // Store state
   const persistentNotifications = useNotificationStore(selectPersistentNotifications);

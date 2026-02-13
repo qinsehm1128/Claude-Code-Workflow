@@ -7,7 +7,6 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@/test/i18n';
 import userEvent from '@testing-library/user-event';
 import { CodexLensManagerPage } from './CodexLensManagerPage';
-import * as api from '@/lib/api';
 
 // Mock api module
 vi.mock('@/lib/api', () => ({

@@ -169,6 +169,9 @@ class ChainSearchEngine:
         self._realtime_lsp_keepalive_lock = threading.RLock()
         self._realtime_lsp_keepalive = None
         self._realtime_lsp_keepalive_key = None
+        # Track which (workspace_root, config_file) pairs have already been warmed up.
+        # This avoids paying the warmup sleep on every query when using keep-alive LSP servers.
+        self._realtime_lsp_warmed_ids: set[tuple[str, str | None]] = set()
 
     def _get_executor(self, max_workers: Optional[int] = None) -> ThreadPoolExecutor:
         """Get or create the shared thread pool executor.
@@ -1290,6 +1293,9 @@ class ChainSearchEngine:
                     query=query,
                 )
 
+            if mode == "static_global_graph":
+                return self._stage2_static_global_graph_expand(coarse_results, index_root=index_root)
+
             return self._stage2_precomputed_graph_expand(coarse_results, index_root=index_root)
 
         except ImportError as exc:
@@ -1339,6 +1345,50 @@ class ChainSearchEngine:
             )
 
         return self._combine_stage2_results(coarse_results, related_results)
+
+    def _stage2_static_global_graph_expand(
+        self,
+        coarse_results: List[SearchResult],
+        *,
+        index_root: Path,
+    ) -> List[SearchResult]:
+        """Stage 2 (static_global_graph): expand using GlobalGraphExpander over global_relationships."""
+        from codexlens.search.global_graph_expander import GlobalGraphExpander
+
+        global_db_path = index_root / GlobalSymbolIndex.DEFAULT_DB_NAME
+        if not global_db_path.exists():
+            self.logger.debug("Global symbol DB not found at %s, skipping static graph expansion", global_db_path)
+            return coarse_results
+
+        project_id = 1
+        try:
+            for p in self.registry.list_projects():
+                if p.index_root.resolve() == index_root.resolve():
+                    project_id = p.id
+                    break
+        except Exception:
+            pass
+
+        global_index = GlobalSymbolIndex(global_db_path, project_id=project_id)
+        global_index.initialize()
+
+        try:
+            expander = GlobalGraphExpander(global_index, config=self._config)
+            related_results = expander.expand(
+                coarse_results,
+                top_n=min(10, len(coarse_results)),
+                max_related=50,
+            )
+
+            if related_results:
+                self.logger.debug(
+                    "Stage 2 (static_global_graph) expanded %d base results to %d related symbols",
+                    len(coarse_results), len(related_results),
+                )
+
+            return self._combine_stage2_results(coarse_results, related_results)
+        finally:
+            global_index.close()
 
     def _stage2_realtime_lsp_expand(
         self,
@@ -1609,16 +1659,18 @@ class ChainSearchEngine:
         if not seed_nodes:
             return coarse_results
 
+        effective_warmup_s = warmup_s
+
         async def expand_graph(bridge: LspBridge):
             # Warm up analysis: open seed docs and wait a bit so references/call hierarchy are populated.
-            if warmup_s > 0:
+            if effective_warmup_s > 0:
                 for seed in seed_nodes[:3]:
                     try:
                         await bridge.get_document_symbols(seed.file_path)
                     except Exception:
                         continue
                 try:
-                    warmup_budget = min(warmup_s, max(0.0, timeout_s * 0.1))
+                    warmup_budget = min(effective_warmup_s, max(0.0, timeout_s * 0.1))
                     await asyncio.sleep(min(warmup_budget, max(0.0, timeout_s - 0.5)))
                 except Exception:
                     pass
@@ -1659,7 +1711,10 @@ class ChainSearchEngine:
                     config_file=str(lsp_config_file) if lsp_config_file else None,
                     timeout=float(timeout_s),
                 )
+                warm_id = (key.workspace_root, key.config_file)
                 with self._realtime_lsp_keepalive_lock:
+                    if warm_id in self._realtime_lsp_warmed_ids:
+                        effective_warmup_s = 0.0
                     keepalive = self._realtime_lsp_keepalive
                     if keepalive is None or self._realtime_lsp_keepalive_key != key:
                         if keepalive is not None:
@@ -1676,6 +1731,8 @@ class ChainSearchEngine:
                         self._realtime_lsp_keepalive_key = key
 
                 graph = keepalive.run(expand_graph, timeout=timeout_s)
+                with self._realtime_lsp_keepalive_lock:
+                    self._realtime_lsp_warmed_ids.add(warm_id)
         except Exception as exc:
             self.logger.debug("Stage 2 (realtime) expansion failed: %r", exc)
             return coarse_results

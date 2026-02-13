@@ -30,8 +30,6 @@ interface ServerCheckboxItem {
   selected: boolean;
 }
 
-type CopyDirection = 'to-codex' | 'from-codex';
-
 // ========== Component ==========
 
 export function CrossCliSyncPanel({ onSuccess, className }: CrossCliSyncPanelProps) {

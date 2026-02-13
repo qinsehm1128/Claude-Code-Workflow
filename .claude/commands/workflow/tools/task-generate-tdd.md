@@ -186,6 +186,7 @@ const userConfig = {
 │   ├── IMPL-1.json
 │   ├── IMPL-2.json
 │   └── ...
+├── plan.json                      # Output: Structured plan overview (TDD variant)
 ├── IMPL_PLAN.md                   # Output: TDD implementation plan
 └── TODO_LIST.md                   # Output: TODO list with TDD phases
 ```
@@ -376,7 +377,7 @@ Based on userConfig.executionMethod, set task-level meta.execution_config:
   - Complex cycles (>5 test cases, >3 files, integration tests) → method: "cli"
   CLI tool: userConfig.preferredCliTool, enable_resume: true
 
-IMPORTANT: Do NOT add command field to implementation_approach steps. Execution routing is controlled by task-level meta.execution_config.method only.
+IMPORTANT: Do NOT add command field to implementation steps. Execution routing is controlled by task-level meta.execution_config.method only.
 
 ## EXPLORATION CONTEXT (from context-package.exploration_results)
 - Load exploration_results from context-package.json
@@ -421,19 +422,18 @@ IMPORTANT: Do NOT add command field to implementation_approach steps. Execution 
 
 ##### 1. TDD Task JSON Files (.task/IMPL-*.json)
 - **Location**: `.workflow/active/{session-id}/.task/`
-- **Schema**: 6-field structure with TDD-specific metadata
-  - `id, title, status, context_package_path, meta, context, flow_control`
+- **Schema**: Unified flat schema (task-schema.json) with TDD-specific metadata
   - `meta.tdd_workflow`: true (REQUIRED)
   - `meta.max_iterations`: 3 (Green phase test-fix cycle limit)
-  - `meta.cli_execution_id`: Unique CLI execution ID (format: `{session_id}-{task_id}`)
-  - `meta.cli_execution`: Strategy object (new|resume|fork|merge_fork)
-  - `context.tdd_cycles`: Array with quantified test cases and coverage
-  - `context.focus_paths`: Absolute or clear relative paths (enhanced with exploration critical_files)
-  - `flow_control.implementation_approach`: Exactly 3 steps with `tdd_phase` field
+  - `cli_execution.id`: Unique CLI execution ID (format: `{session_id}-{task_id}`)
+  - `cli_execution`: Strategy object (new|resume|fork|merge_fork)
+  - `tdd_cycles`: Array with quantified test cases and coverage
+  - `focus_paths`: Absolute or clear relative paths (enhanced with exploration critical_files)
+  - `implementation`: Exactly 3 steps with `tdd_phase` field
     1. Red Phase (`tdd_phase: "red"`): Write failing tests
     2. Green Phase (`tdd_phase: "green"`): Implement to pass tests
     3. Refactor Phase (`tdd_phase: "refactor"`): Improve code quality
-  - `flow_control.pre_analysis`: Include exploration integration_points analysis
+  - `pre_analysis`: Include exploration integration_points analysis
   - **meta.execution_config**: Set per userConfig.executionMethod (agent/cli/hybrid)
 - **Details**: See action-planning-agent.md § TDD Task JSON Generation
 
@@ -455,8 +455,8 @@ IMPORTANT: Do NOT add command field to implementation_approach steps. Execution 
 ### CLI EXECUTION ID REQUIREMENTS (MANDATORY)
 
 Each task JSON MUST include:
-- **meta.cli_execution_id**: Unique ID for CLI execution (format: `{session_id}-{task_id}`)
-- **meta.cli_execution**: Strategy object based on depends_on:
+- **cli_execution.id**: Unique ID for CLI execution (format: `{session_id}-{task_id}`)
+- **cli_execution**: Strategy object based on depends_on:
   - No deps → `{ "strategy": "new" }`
   - 1 dep (single child) → `{ "strategy": "resume", "resume_from": "parent-cli-id" }`
   - 1 dep (multiple children) → `{ "strategy": "fork", "resume_from": "parent-cli-id" }`
@@ -496,7 +496,7 @@ Each task JSON MUST include:
 - [ ] Every acceptance criterion includes measurable coverage percentage
 - [ ] tdd_cycles array contains test_count and test_cases for each cycle
 - [ ] No vague language ("comprehensive", "complete", "thorough")
-- [ ] cli_execution_id and cli_execution strategy assigned to each task
+- [ ] cli_execution.id and cli_execution strategy assigned to each task
 
 ### Agent Execution Summary
 
@@ -513,7 +513,7 @@ Each task JSON MUST include:
 - ✓ Task count ≤18 (hard limit)
 - ✓ Each task has meta.tdd_workflow: true
 - ✓ Each task has exactly 3 implementation steps with tdd_phase field ("red", "green", "refactor")
-- ✓ Each task has meta.cli_execution_id and meta.cli_execution strategy
+- ✓ Each task has cli_execution.id and cli_execution strategy
 - ✓ Green phase includes test-fix cycle logic with max_iterations
 - ✓ focus_paths are absolute or clear relative paths (from exploration critical_files)
 - ✓ Artifact references mapped correctly from context package
@@ -525,7 +525,7 @@ Each task JSON MUST include:
 
 ## SUCCESS CRITERIA
 - All planning documents generated successfully:
-  - Task JSONs valid and saved to .task/ directory with cli_execution_id
+  - Task JSONs valid and saved to .task/ directory with cli_execution.id
   - IMPL_PLAN.md created with complete TDD structure
   - TODO_LIST.md generated matching task JSONs
 - CLI execution strategies assigned based on task dependencies
@@ -533,7 +533,7 @@ Each task JSON MUST include:
 
 ## OUTPUT SUMMARY
 Generate all three documents and report:
-- TDD task JSON files created: N files (IMPL-*.json) with cli_execution_id assigned
+- TDD task JSON files created: N files (IMPL-*.json) with cli_execution.id assigned
 - TDD cycles configured: N cycles with quantified test cases
 - CLI execution strategies: new/resume/fork/merge_fork assigned per dependency graph
 - Artifacts integrated: synthesis-spec/guidance-specification, relevant role analyses
@@ -615,9 +615,9 @@ This section provides quick reference for TDD task JSON structure. For complete 
 - Required metadata:
   - `meta.tdd_workflow: true`
   - `meta.max_iterations: 3`
-  - `meta.cli_execution_id: "{session_id}-{task_id}"`
-  - `meta.cli_execution: { "strategy": "new|resume|fork|merge_fork", ... }`
-- Context: `tdd_cycles` array with quantified test cases and coverage:
+  - `cli_execution.id: "{session_id}-{task_id}"`
+  - `cli_execution: { "strategy": "new|resume|fork|merge_fork", ... }`
+- `tdd_cycles` array with quantified test cases and coverage:
   ```javascript
   tdd_cycles: [
     {
@@ -628,15 +628,16 @@ This section provides quick reference for TDD task JSON structure. For complete 
     }
   ]
   ```
-- Context: `focus_paths` use absolute or clear relative paths
-- Flow control: Exactly 3 steps with `tdd_phase` field ("red", "green", "refactor")
-- Flow control: `pre_analysis` includes exploration integration_points analysis
+- `focus_paths` use absolute or clear relative paths
+- `implementation`: Exactly 3 steps with `tdd_phase` field ("red", "green", "refactor")
+- `pre_analysis`: includes exploration integration_points analysis
 - **meta.execution_config**: Set per `userConfig.executionMethod` (agent/cli/hybrid)
 - See Phase 2 agent prompt for full schema and requirements
 
 ## Output Files Structure
 ```
 .workflow/active/{session-id}/
+├── plan.json                        # Structured plan overview (TDD variant)
 ├── IMPL_PLAN.md                     # Unified plan with TDD Implementation Tasks section
 ├── TODO_LIST.md                     # Progress tracking with internal TDD phase indicators
 ├── .task/
@@ -662,7 +663,7 @@ This section provides quick reference for TDD task JSON structure. For complete 
 ## Validation Rules
 
 ### Task Completeness
-- Every IMPL-N must contain complete TDD workflow in `flow_control.implementation_approach`
+- Every IMPL-N must contain complete TDD workflow in `implementation`
 - Each task must have 3 steps with `tdd_phase`: "red", "green", "refactor"
 - Every task must have `meta.tdd_workflow: true`
 
@@ -678,7 +679,7 @@ This section provides quick reference for TDD task JSON structure. For complete 
 
 ### TDD Workflow Validation
 - `meta.tdd_workflow` must be true
-- `flow_control.implementation_approach` must have exactly 3 steps
+- `implementation` must have exactly 3 steps
 - Each step must have `tdd_phase` field ("red", "green", or "refactor")
 - Green phase step must include test-fix cycle logic
 - `meta.max_iterations` must be present (default: 3)

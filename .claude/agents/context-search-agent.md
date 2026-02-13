@@ -165,12 +165,16 @@ if (file_exists(manifestPath)) {
 }
 
 // Synthesis helper functions (conceptual)
+// NOTE: relevant_files items are now structured objects:
+//   {path, relevance, rationale, role, discovery_source?, key_symbols?}
 function synthesizeCriticalFiles(allRelevantFiles) {
-  // 1. Group by path
+  // 1. Group by path (files are objects with .path property)
   // 2. Count mentions across angles
   // 3. Average relevance scores
-  // 4. Rank by: (mention_count * 0.6) + (avg_relevance * 0.4)
-  // 5. Return top 10-15 with mentioned_by_angles attribution
+  // 4. Merge rationales from different angles (join with "; ")
+  // 5. Collect unique roles and key_symbols across angles
+  // 6. Rank by: (mention_count * 0.6) + (avg_relevance * 0.4)
+  // 7. Return top 10-15 with: path, relevance, rationale, role, mentioned_by_angles, key_symbols
 }
 
 function synthesizeConflictIndicators(explorationData) {
@@ -338,8 +342,35 @@ if (dir_exists(brainstormDir)) {
     synthesis_output: {
       path: `${brainstormDir}/synthesis-specification.md`,
       exists: file_exists(`${brainstormDir}/synthesis-specification.md`),
-      content: Read(`${brainstormDir}/synthesis-specification.md`) || null
-    }
+      content: Read(`${brainstormDir}/synthesis-specification.md`) || null,
+      // New feature-driven artifacts (preferred over legacy synthesis-specification.md)
+      feature_driven: dir_exists(`${brainstormDir}/feature-specs`) ? {
+        feature_index: `${brainstormDir}/feature-specs/feature-index.json`,
+        feature_specs_dir: `${brainstormDir}/feature-specs/`
+      } : undefined
+    },
+    // Feature index (optional - top level, matches action-planning-agent expected access pattern)
+    feature_index: file_exists(`${brainstormDir}/feature-specs/feature-index.json`) ? {
+      path: `${brainstormDir}/feature-specs/feature-index.json`,
+      exists: true,
+      content: Read(`${brainstormDir}/feature-specs/feature-index.json`) || null
+    } : undefined,
+    // Convenience: direct path to feature-index.json (avoids hardcoding in task-generate-agent)
+    feature_index_path: file_exists(`${brainstormDir}/feature-specs/feature-index.json`)
+      ? `${brainstormDir}/feature-specs/feature-index.json`
+      : undefined,
+    // Feature spec files (optional - individual feature specifications)
+    feature_specs: dir_exists(`${brainstormDir}/feature-specs`)
+      ? glob(`${brainstormDir}/feature-specs/F-*-*.md`).map(file => ({
+          path: file,
+          content: Read(file)
+        }))
+      : undefined,
+    // Cross-cutting specs (optional - cross-cutting concern analyses from roles)
+    cross_cutting_specs: glob(`${brainstormDir}/*/analysis-cross-cutting.md`).map(file => ({
+      path: file,
+      content: Read(file)
+    }))
   };
 }
 ```
@@ -461,8 +492,30 @@ Calculate risk level based on:
     "synthesis_output": {
       "path": ".workflow/WFS-xxx/.brainstorming/synthesis-specification.md",
       "exists": true,
-      "content": "# Synthesis Specification\n\n## Cross-Role Integration\n..."
-    }
+      "content": "# Synthesis Specification\n\n## Cross-Role Integration\n...",
+      "feature_driven": {
+        "feature_index": ".workflow/WFS-xxx/.brainstorming/feature-specs/feature-index.json",
+        "feature_specs_dir": ".workflow/WFS-xxx/.brainstorming/feature-specs/"
+      }
+    },
+    "feature_index": {
+      "path": ".workflow/WFS-xxx/.brainstorming/feature-specs/feature-index.json",
+      "exists": true,
+      "content": "{\"version\":\"1.0\",\"features\":[...]}"
+    },
+    "feature_index_path": ".workflow/WFS-xxx/.brainstorming/feature-specs/feature-index.json",
+    "feature_specs": [
+      {
+        "path": ".workflow/WFS-xxx/.brainstorming/feature-specs/F-001-auth.md",
+        "content": "# Feature Spec: F-001 - Auth\n..."
+      }
+    ],
+    "cross_cutting_specs": [
+      {
+        "path": ".workflow/WFS-xxx/.brainstorming/system-architect/analysis-cross-cutting.md",
+        "content": "# Cross-Cutting: Architecture Decisions\n..."
+      }
+    ]
   },
   "conflict_detection": {
     "risk_level": "medium",
@@ -495,7 +548,7 @@ Calculate risk level based on:
       }
     ],
     "aggregated_insights": {
-      "critical_files": [{"path": "src/auth/AuthService.ts", "relevance": 0.95, "mentioned_by_angles": ["architecture"]}],
+      "critical_files": [{"path": "src/auth/AuthService.ts", "relevance": 0.95, "rationale": "Contains login/register/verifyToken - core auth entry points", "role": "modify_target", "mentioned_by_angles": ["architecture"], "key_symbols": ["AuthService", "login", "verifyToken"]}],
       "conflict_indicators": [{"type": "pattern_mismatch", "description": "...", "source_angle": "architecture", "severity": "medium"}],
       "clarification_needs": [{"question": "...", "context": "...", "options": [], "source_angle": "architecture"}],
       "constraints": [{"constraint": "Must follow existing DI pattern", "source_angle": "architecture"}],

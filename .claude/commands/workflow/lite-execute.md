@@ -122,11 +122,15 @@ fileContent = Read(filePath)
 try {
   jsonData = JSON.parse(fileContent)
 
-  // Check if plan.json from lite-plan session
-  if (jsonData.summary && jsonData.approach && jsonData.tasks) {
+  // Check if plan.json from lite-plan session (two-layer format: task_ids[])
+  if (jsonData.summary && jsonData.approach && jsonData.task_ids) {
     planObject = jsonData
     originalUserInput = jsonData.summary
     isPlanJson = true
+
+    // Load tasks from .task/*.json files
+    const planDir = filePath.replace(/[/\\][^/\\]+$/, '')  // parent directory
+    planObject._loadedTasks = loadTaskFiles(planDir, jsonData.task_ids)
   } else {
     // Valid JSON but not plan.json - treat as plain text
     originalUserInput = fileContent
@@ -154,6 +158,23 @@ If `isPlanJson === false`:
 - AskUserQuestion: Select execution method (Agent/Codex/Auto)
 - AskUserQuestion: Select code review tool
 - Proceed to execution with full context
+
+## Helper Functions
+
+```javascript
+// Load task files from .task/ directory (two-layer format)
+function loadTaskFiles(planDir, taskIds) {
+  return taskIds.map(id => {
+    const taskPath = `${planDir}/.task/${id}.json`
+    return JSON.parse(Read(taskPath))
+  })
+}
+
+// Get tasks array from loaded .task/*.json files
+function getTasks(planObject) {
+  return planObject._loadedTasks || []
+}
+```
 
 ## Execution Process
 
@@ -202,7 +223,7 @@ if (executionContext) {
 📋 Execution Strategy (from lite-plan):
    Method: ${executionContext.executionMethod}
    Review: ${executionContext.codeReviewTool}
-   Tasks: ${executionContext.planObject.tasks.length}
+   Tasks: ${getTasks(executionContext.planObject).length}
    Complexity: ${executionContext.planObject.complexity}
 ${executionContext.executorAssignments ? `   Assignments: ${JSON.stringify(executionContext.executorAssignments)}` : ''}
   `)
@@ -277,7 +298,7 @@ function createExecutionCalls(tasks, executionMethod) {
   return calls
 }
 
-executionCalls = createExecutionCalls(planObject.tasks, executionMethod).map(c => ({ ...c, id: `[${c.groupId}]` }))
+executionCalls = createExecutionCalls(getTasks(planObject), executionMethod).map(c => ({ ...c, id: `[${c.groupId}]` }))
 
 TodoWrite({
   todos: executionCalls.map(c => ({
@@ -345,14 +366,14 @@ for (const call of sequential) {
 
 ```javascript
 function buildExecutionPrompt(batch) {
-  // Task template (6 parts: Modification Points → Why → How → Reference → Risks → Done)
+  // Task template (6 parts: Files → Why → How → Reference → Risks → Done)
   const formatTask = (t) => `
 ## ${t.title}
 
 **Scope**: \`${t.scope}\`  |  **Action**: ${t.action}
 
-### Modification Points
-${t.modification_points.map(p => `- **${p.file}** → \`${p.target}\`: ${p.change}`).join('\n')}
+### Files
+${(t.files || []).map(f => `- **${f.path}** → \`${f.target || ''}\`: ${f.change || (f.changes || []).join(', ') || ''}`).join('\n')}
 
 ${t.rationale ? `
 ### Why this approach (Medium/High)
@@ -384,8 +405,8 @@ ${t.risks.map(r => `- ${r.description} → **${r.mitigation}**`).join('\n')}
 ` : ''}
 
 ### Done when
-${t.acceptance.map(c => `- [ ] ${c}`).join('\n')}
-${t.verification?.success_metrics?.length > 0 ? `\n**Success metrics**: ${t.verification.success_metrics.join(', ')}` : ''}`
+${(t.convergence?.criteria || []).map(c => `- [ ] ${c}`).join('\n')}
+${(t.test?.success_metrics || []).length > 0 ? `\n**Success metrics**: ${t.test.success_metrics.join(', ')}` : ''}`
 
   // Build prompt
   const sections = []
@@ -505,11 +526,11 @@ Progress tracked at batch level (not individual task level). Icons: ⚡ (paralle
 
 **Skip Condition**: Only run if `codeReviewTool ≠ "Skip"`
 
-**Review Focus**: Verify implementation against plan acceptance criteria and verification requirements
-- Read plan.json for task acceptance criteria and verification checklist
-- Check each acceptance criterion is fulfilled
-- Verify success metrics from verification field (Medium/High complexity)
-- Run unit/integration tests specified in verification field
+**Review Focus**: Verify implementation against plan convergence criteria and test requirements
+- Read plan.json + .task/*.json for task convergence criteria and test checklist
+- Check each convergence criterion is fulfilled
+- Verify success metrics from test field (Medium/High complexity)
+- Run unit/integration tests specified in test field
 - Validate code quality and identify issues
 - Ensure alignment with planned approach and risk mitigations
 
@@ -522,24 +543,24 @@ Progress tracked at batch level (not individual task level). Icons: ⚡ (paralle
 **Unified Review Template** (All tools use same standard):
 
 **Review Criteria**:
-- **Acceptance Criteria**: Verify each criterion from plan.tasks[].acceptance
-- **Verification Checklist** (Medium/High): Check unit_tests, integration_tests, success_metrics from plan.tasks[].verification
+- **Convergence Criteria**: Verify each criterion from task convergence.criteria
+- **Test Checklist** (Medium/High): Check unit, integration, success_metrics from task test
 - **Code Quality**: Analyze quality, identify issues, suggest improvements
 - **Plan Alignment**: Validate implementation matches planned approach and risk mitigations
 
 **Shared Prompt Template** (used by all CLI tools):
 ```
-PURPOSE: Code review for implemented changes against plan acceptance criteria and verification requirements
-TASK: • Verify plan acceptance criteria fulfillment • Check verification requirements (unit tests, success metrics) • Analyze code quality • Identify issues • Suggest improvements • Validate plan adherence and risk mitigations
+PURPOSE: Code review for implemented changes against plan convergence criteria and test requirements
+TASK: • Verify plan convergence criteria fulfillment • Check test requirements (unit, integration, success_metrics) • Analyze code quality • Identify issues • Suggest improvements • Validate plan adherence and risk mitigations
 MODE: analysis
-CONTEXT: @**/* @{plan.json} [@{exploration.json}] | Memory: Review lite-execute changes against plan requirements including verification checklist
+CONTEXT: @**/* @{plan.json} @{.task/*.json} [@{exploration.json}] | Memory: Review lite-execute changes against plan requirements including test checklist
 EXPECTED: Quality assessment with:
-  - Acceptance criteria verification (all tasks)
-  - Verification checklist validation (Medium/High: unit_tests, integration_tests, success_metrics)
+  - Convergence criteria verification (all tasks from .task/*.json)
+  - Test checklist validation (Medium/High: unit, integration, success_metrics)
   - Issue identification
   - Recommendations
-  Explicitly check each acceptance criterion and verification item from plan.json tasks.
-CONSTRAINTS: Focus on plan acceptance criteria, verification requirements, and plan adherence | analysis=READ-ONLY
+  Explicitly check each convergence criterion and test item from .task/*.json files.
+CONSTRAINTS: Focus on plan convergence criteria, test requirements, and plan adherence | analysis=READ-ONLY
 ```
 
 **Tool-Specific Execution** (Apply shared prompt template above):
@@ -628,7 +649,7 @@ function detectSubFeature(tasks) {
 const category = detectCategory(`${planObject.summary} ${planObject.approach}`)
 const entry = {
   title: planObject.summary.slice(0, 60),
-  sub_feature: detectSubFeature(planObject.tasks),
+  sub_feature: detectSubFeature(getTasks(planObject)),
   date: new Date().toISOString().split('T')[0],
   description: planObject.approach.slice(0, 100),
   status: previousExecutionResults.every(r => r.status === 'completed') ? 'completed' : 'partial',
@@ -673,11 +694,15 @@ Passed from lite-plan via global variable:
   planObject: {
     summary: string,
     approach: string,
-    tasks: [...],
+    task_ids: string[],                          // Task IDs referencing .task/*.json files
+    task_count: number,                          // Number of tasks
+    _loadedTasks: [...],                         // Populated at runtime from .task/*.json files
     estimated_time: string,
     recommended_execution: string,
     complexity: string
   },
+  // Task file paths (populated for two-layer format)
+  taskFiles: [{id: string, path: string}] | null,
   explorationsContext: {...} | null,       // Multi-angle explorations
   explorationAngles: string[],             // List of exploration angles
   explorationManifest: {...} | null,       // Exploration manifest

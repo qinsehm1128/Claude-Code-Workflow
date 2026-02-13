@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/Badge';
 import { useCodexLensEnv, useUpdateCodexLensEnv } from '@/hooks';
 import { useNotifications } from '@/hooks';
 import { cn } from '@/lib/utils';
+import { CcwToolsCard } from './CcwToolsCard';
 
 interface AdvancedTabProps {
   enabled?: boolean;
@@ -237,6 +238,9 @@ export function AdvancedTab({ enabled = true }: AdvancedTabProps) {
           </div>
         </Card>
       )}
+
+      {/* CCW Tools Card */}
+      <CcwToolsCard />
 
       {/* Environment Variables Editor */}
       <Card className="p-6">

@@ -3,7 +3,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-} from '../ui/dialog';
+} from '../ui/Dialog';
 
 interface VersionCheckModalProps {
   currentVersion: string;

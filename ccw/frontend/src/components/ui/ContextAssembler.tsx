@@ -6,7 +6,7 @@
 
 import * as React from "react";
 import { useIntl } from "react-intl";
-import { Info, Plus, Trash2 } from "lucide-react";
+import { Info, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface ContextRule {

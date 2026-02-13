@@ -36,14 +36,6 @@ You are a TDD-specialized code execution agent focused on implementing high-qual
   "meta": {
     "tdd_workflow": true,              // REQUIRED: Enables TDD mode
     "max_iterations": 3,                // Green phase test-fix cycle limit
-    "cli_execution_id": "{session}-{task}",  // CLI session ID for resume
-    "cli_execution": {                  // CLI execution strategy
-      "strategy": "new|resume|fork|merge_fork",
-      "resume_from": "parent-cli-id"    // For resume/fork strategies; array for merge_fork
-      // Note: For merge_fork, resume_from is array: ["id1", "id2", ...]
-    }
-  },
-  "context": {
     "tdd_cycles": [                     // Test cases and coverage targets
       {
         "test_count": 5,
@@ -51,39 +43,41 @@ You are a TDD-specialized code execution agent focused on implementing high-qual
         "implementation_scope": "...",
         "expected_coverage": ">=85%"
       }
-    ],
-    "focus_paths": [...],               // Absolute or clear relative paths
-    "requirements": [...],
-    "acceptance": [...]                 // Test commands for validation
-  },
-  "flow_control": {
-    "pre_analysis": [...],              // Context gathering steps
-    "implementation_approach": [        // Red-Green-Refactor steps
-      {
-        "step": 1,
-        "title": "Red Phase: Write failing tests",
-        "tdd_phase": "red",             // REQUIRED: Phase identifier
-        "description": "Write 5 test cases: [...]",
-        "modification_points": [...],
-        "command": "..."                // Optional CLI command
-      },
-      {
-        "step": 2,
-        "title": "Green Phase: Implement to pass tests",
-        "tdd_phase": "green",           // Triggers test-fix cycle
-        "description": "Implement N functions...",
-        "modification_points": [...],
-        "command": "..."
-      },
-      {
-        "step": 3,
-        "title": "Refactor Phase: Improve code quality",
-        "tdd_phase": "refactor",
-        "description": "Apply N refactorings...",
-        "modification_points": [...]
-      }
     ]
-  }
+  },
+  "cli_execution": {                    // CLI execution strategy
+    "id": "{session}-{task}",           // CLI session ID for resume
+    "strategy": "new|resume|fork|merge_fork",
+    "resume_from": "parent-cli-id"      // For resume/fork strategies; array for merge_fork
+  },
+  "description": "...",                 // Goal + requirements
+  "focus_paths": [...],                 // Absolute or clear relative paths
+  "convergence": {
+    "criteria": [...]                   // Test commands for validation
+  },
+  "pre_analysis": [...],               // Context gathering steps
+  "implementation": [                   // Red-Green-Refactor steps (polymorphic: string or object)
+    {
+      "step": "1",
+      "description": "Red Phase: Write failing tests - Write 5 test cases: [...]",
+      "tdd_phase": "red",              // REQUIRED: Phase identifier
+      "actions": ["Create test files", "Write test cases"],
+      "test_fix_cycle": null
+    },
+    {
+      "step": "2",
+      "description": "Green Phase: Implement to pass tests - Implement N functions...",
+      "tdd_phase": "green",            // Triggers test-fix cycle
+      "actions": ["Implement functions", "Pass tests"],
+      "test_fix_cycle": { "max_iterations": 3 }
+    },
+    {
+      "step": "3",
+      "description": "Refactor Phase: Improve code quality - Apply N refactorings...",
+      "tdd_phase": "refactor",
+      "actions": ["Refactor code", "Verify no regressions"]
+    }
+  ]
 }
 ```
 
@@ -106,16 +100,16 @@ ELSE:
 // Extract TDD configuration
 const tddConfig = {
   maxIterations: taskJson.meta.max_iterations || 3,
-  cliExecutionId: taskJson.meta.cli_execution_id,
-  cliStrategy: taskJson.meta.cli_execution?.strategy,
-  resumeFrom: taskJson.meta.cli_execution?.resume_from,
-  testCycles: taskJson.context.tdd_cycles || [],
-  acceptanceTests: taskJson.context.acceptance || []
+  cliExecutionId: taskJson.cli_execution?.id,
+  cliStrategy: taskJson.cli_execution?.strategy,
+  resumeFrom: taskJson.cli_execution?.resume_from,
+  testCycles: taskJson.meta.tdd_cycles || [],
+  acceptanceTests: taskJson.convergence?.criteria || []
 }
 
-// Identify phases
-const phases = taskJson.flow_control.implementation_approach
-  .filter(step => step.tdd_phase)
+// Identify phases (implementation[] supports polymorphic: string or object)
+const phases = taskJson.implementation
+  .filter(step => typeof step === 'object' && step.tdd_phase)
   .map(step => ({
     step: step.step,
     phase: step.tdd_phase,  // "red", "green", or "refactor"
@@ -127,10 +121,10 @@ const phases = taskJson.flow_control.implementation_approach
 ```
 REQUIRED CHECKS:
 - [ ] meta.tdd_workflow is true
-- [ ] flow_control.implementation_approach has exactly 3 steps
-- [ ] Each step has tdd_phase field ("red", "green", "refactor")
-- [ ] context.acceptance includes test command
-- [ ] Green phase has modification_points or command
+- [ ] implementation[] has exactly 3 object entries with tdd_phase
+- [ ] Each entry has tdd_phase field ("red", "green", "refactor")
+- [ ] convergence.criteria includes test command
+- [ ] Green phase has actions or description
 
 IF validation fails:
   → Report invalid TDD task structure
@@ -165,10 +159,10 @@ STEP 2: Execute Red Phase Implementation
     // Execute directly
     → Create test files in modification_points
     → Write test cases following test_cases enumeration
-    → Use context.shared_context.conventions for test style
+    → Use shared_context.conventions (from plan.json) for test style
 
 STEP 3: Validate Red Phase (Test Must Fail)
-  → Execute test command from context.acceptance
+  → Execute test command from convergence.criteria
   → Parse test output
   IF tests pass:
     ⚠️ WARNING: Tests passing in Red phase - may not test real behavior
@@ -217,7 +211,7 @@ STEP 3: Test-Fix Cycle (CRITICAL TDD FEATURE)
   FOR iteration in 1..meta.max_iterations:
 
     STEP 3.1: Run Test Suite
-      → Execute test command from context.acceptance
+      → Execute test command from convergence.criteria
       → Capture test output (stdout + stderr)
       → Parse test results (pass count, fail count, coverage)
 
@@ -320,7 +314,7 @@ STEP 2: Execute Refactor Implementation
       • Add documentation where needed
 
 STEP 3: Regression Testing (REQUIRED)
-  → Execute test command from context.acceptance
+  → Execute test command from convergence.criteria
   → Verify all tests still pass
   IF tests fail:
     ⚠️ REGRESSION DETECTED: Refactoring broke tests
@@ -357,13 +351,14 @@ Bash(
 ### 4. Context Loading (Inherited from code-developer)
 
 **Standard Context Sources**:
-- Task JSON: `context.requirements`, `context.acceptance`, `context.focus_paths`
+- Task JSON: `description`, `convergence.criteria`, `focus_paths`
 - Context Package: `context_package_path` → brainstorm artifacts, exploration results
-- Tech Stack: `context.shared_context.tech_stack` (skip auto-detection if present)
+- Tech Stack: `meta.shared_context.tech_stack` (skip auto-detection if present)
 
 **TDD-Enhanced Context**:
-- `context.tdd_cycles`: Test case enumeration and coverage targets
+- `meta.tdd_cycles`: Test case enumeration and coverage targets
 - `meta.max_iterations`: Test-fix cycle configuration
+- `implementation[]`: Red-Green-Refactor steps with `tdd_phase` markers
 - Exploration results: `context_package.exploration_results` for critical_files and integration_points
 
 ### 5. Quality Gates (TDD-Enhanced)

@@ -261,7 +261,7 @@ describe('Component Renderer Interface', () => {
   });
 
   it('should support async action handlers', async () => {
-    const asyncAction: ActionHandler = async (actionId, params) => {
+    const asyncAction: ActionHandler = async (_actionId, _params) => {
       await Promise.resolve();
       return;
     };

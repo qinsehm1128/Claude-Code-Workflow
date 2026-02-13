@@ -4,7 +4,7 @@
 // Tests for the issue discovery page with i18n
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor } from '@/test/i18n';
+import { render, screen } from '@/test/i18n';
 import { DiscoveryPage } from './DiscoveryPage';
 import { useWorkflowStore } from '@/stores/workflowStore';
 import type { DiscoverySession } from '@/lib/api';

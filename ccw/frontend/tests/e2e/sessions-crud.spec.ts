@@ -15,7 +15,7 @@ test.describe('[Sessions CRUD] - Session Management Tests', () => {
     const monitoring = setupEnhancedMonitoring(page);
 
     // Navigate to sessions page
-    await page.goto('/react/sessions', { waitUntil: 'domcontentloaded' as const });
+    await page.goto('/sessions', { waitUntil: 'domcontentloaded' as const });
 
     // Look for sessions list container
     const sessionsList = page.getByTestId('sessions-list').or(
@@ -49,7 +49,7 @@ test.describe('[Sessions CRUD] - Session Management Tests', () => {
     const monitoring = setupEnhancedMonitoring(page);
 
     // Navigate to sessions page
-    await page.goto('/react/sessions', { waitUntil: 'domcontentloaded' as const });
+    await page.goto('/sessions', { waitUntil: 'domcontentloaded' as const });
 
     // Look for create session button
     const createButton = page.getByRole('button', { name: /create|new|add session/i }).or(
@@ -103,7 +103,7 @@ test.describe('[Sessions CRUD] - Session Management Tests', () => {
     const monitoring = setupEnhancedMonitoring(page);
 
     // Navigate to sessions page
-    await page.goto('/react/sessions', { waitUntil: 'domcontentloaded' as const });
+    await page.goto('/sessions', { waitUntil: 'domcontentloaded' as const });
 
     // Look for existing session
     const sessionItems = page.getByTestId(/session-item|session-card/).or(
@@ -145,7 +145,7 @@ test.describe('[Sessions CRUD] - Session Management Tests', () => {
     const monitoring = setupEnhancedMonitoring(page);
 
     // Navigate to sessions page
-    await page.goto('/react/sessions', { waitUntil: 'domcontentloaded' as const });
+    await page.goto('/sessions', { waitUntil: 'domcontentloaded' as const });
 
     // Look for existing session
     const sessionItems = page.getByTestId(/session-item|session-card/).or(
@@ -208,7 +208,7 @@ test.describe('[Sessions CRUD] - Session Management Tests', () => {
     const monitoring = setupEnhancedMonitoring(page);
 
     // Navigate to sessions page
-    await page.goto('/react/sessions', { waitUntil: 'domcontentloaded' as const });
+    await page.goto('/sessions', { waitUntil: 'domcontentloaded' as const });
 
     // Look for existing session
     const sessionItems = page.getByTestId(/session-item|session-card/).or(
@@ -255,7 +255,7 @@ test.describe('[Sessions CRUD] - Session Management Tests', () => {
     const monitoring = setupEnhancedMonitoring(page);
 
     // Navigate to sessions page
-    await page.goto('/react/sessions', { waitUntil: 'domcontentloaded' as const });
+    await page.goto('/sessions', { waitUntil: 'domcontentloaded' as const });
 
     // Look for existing session
     const sessionItems = page.getByTestId(/session-item|session-card/).or(
@@ -302,7 +302,7 @@ test.describe('[Sessions CRUD] - Session Management Tests', () => {
     const monitoring = setupEnhancedMonitoring(page);
 
     // Navigate to sessions page
-    await page.goto('/react/sessions', { waitUntil: 'domcontentloaded' as const });
+    await page.goto('/sessions', { waitUntil: 'domcontentloaded' as const });
 
     // Get initial session count
     const sessionItems = page.getByTestId(/session-item|session-card/).or(
@@ -353,7 +353,7 @@ test.describe('[Sessions CRUD] - Session Management Tests', () => {
     });
 
     // Navigate to sessions page to trigger API call
-    await page.goto('/react/sessions', { waitUntil: 'domcontentloaded' as const });
+    await page.goto('/sessions', { waitUntil: 'domcontentloaded' as const });
 
     // Look for error indicator - SessionsPage shows "Failed to load data"
     const errorIndicator = page.getByText(/Failed to load data|failed|加载失败/i).or(
@@ -379,7 +379,7 @@ test.describe('[Sessions CRUD] - Session Management Tests', () => {
     const monitoring = setupEnhancedMonitoring(page);
 
     // Navigate to sessions page
-    await page.goto('/react/sessions', { waitUntil: 'domcontentloaded' as const });
+    await page.goto('/sessions', { waitUntil: 'domcontentloaded' as const });
 
     // Get language switcher
     const languageSwitcher = page.getByRole('combobox', { name: /select language|language/i }).first();
@@ -411,7 +411,7 @@ test.describe('[Sessions CRUD] - Session Management Tests', () => {
     const monitoring = setupEnhancedMonitoring(page);
 
     // Navigate to sessions page
-    await page.goto('/react/sessions', { waitUntil: 'domcontentloaded' as const });
+    await page.goto('/sessions', { waitUntil: 'domcontentloaded' as const });
 
     // Look for existing session
     const sessionItems = page.getByTestId(/session-item|session-card/).or(
@@ -566,7 +566,7 @@ test.describe('[Sessions CRUD] - Session Management Tests', () => {
     });
 
     // Navigate to a non-existent session
-    await page.goto('/react/sessions/nonexistent-session-id', { waitUntil: 'domcontentloaded' as const });
+    await page.goto('/sessions/nonexistent-session-id', { waitUntil: 'domcontentloaded' as const });
 
     // Wait for error to appear
     await page.waitForTimeout(1000);

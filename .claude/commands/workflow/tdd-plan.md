@@ -46,7 +46,7 @@ NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST
 ```
 
 **Enforcement Method**:
-- Phase 5: `implementation_approach` includes test-first steps (Red → Green → Refactor)
+- Phase 5: `implementation` includes test-first steps (Red → Green → Refactor)
 - Green phase: Includes test-fix-cycle configuration (max 3 iterations)
 - Auto-revert: Triggered when max iterations reached without passing tests
 
@@ -56,7 +56,7 @@ NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST
 
 | Checkpoint | Validation Phase | Evidence Required |
 |------------|------------------|-------------------|
-| Test-first structure | Phase 5 | `implementation_approach` has 3 steps |
+| Test-first structure | Phase 5 | `implementation` has 3 steps |
 | Red phase exists | Phase 6 | Step 1: `tdd_phase: "red"` |
 | Green phase with test-fix | Phase 6 | Step 2: `tdd_phase: "green"` + test-fix-cycle |
 | Refactor phase exists | Phase 6 | Step 3: `tdd_phase: "refactor"` |
@@ -283,17 +283,18 @@ Skill(skill="workflow:tools:task-generate-tdd", args="--session [sessionId]")
 **Parse**: Extract feature count, task count (not chain count - tasks now contain internal TDD cycles), CLI execution IDs assigned
 
 **Validate**:
+- plan.json exists (structured plan overview with `_metadata.plan_type: "tdd"`)
 - IMPL_PLAN.md exists (unified plan with TDD Implementation Tasks section)
 - IMPL-*.json files exist (one per feature, or container + subtasks for complex features)
 - TODO_LIST.md exists with internal TDD phase indicators
 - Each IMPL task includes:
   - `meta.tdd_workflow: true`
-  - `meta.cli_execution_id: {session_id}-{task_id}`
-  - `meta.cli_execution: { "strategy": "new|resume|fork|merge_fork", ... }`
-  - `flow_control.implementation_approach` with exactly 3 steps (red/green/refactor)
+  - `cli_execution.id: {session_id}-{task_id}`
+  - `cli_execution: { "strategy": "new|resume|fork|merge_fork", ... }`
+  - `implementation` with exactly 3 steps (red/green/refactor)
   - Green phase includes test-fix-cycle configuration
-  - `context.focus_paths`: absolute or clear relative paths (enhanced with exploration critical_files)
-  - `flow_control.pre_analysis`: includes exploration integration_points analysis
+  - `focus_paths`: absolute or clear relative paths (enhanced with exploration critical_files)
+  - `pre_analysis`: includes exploration integration_points analysis
 - IMPL_PLAN.md contains workflow_type: "tdd" in frontmatter
 - User configuration applied:
   - If executionMethod == "cli" or "hybrid": command field added to steps
@@ -302,7 +303,7 @@ Skill(skill="workflow:tools:task-generate-tdd", args="--session [sessionId]")
 
 **Red Flag Detection** (Non-Blocking Warnings):
 - Task count >18: `⚠️ Task count exceeds hard limit - request re-scope`
-- Missing cli_execution_id: `⚠️ Task lacks CLI execution ID for resume support`
+- Missing cli_execution.id: `⚠️ Task lacks CLI execution ID for resume support`
 - Missing test-fix-cycle: `⚠️ Green phase lacks auto-revert configuration`
 - Generic task names: `⚠️ Vague task names suggest unclear TDD cycles`
 - Missing focus_paths: `⚠️ Task lacks clear file scope for implementation`
@@ -351,12 +352,12 @@ Skill(skill="workflow:tools:task-generate-tdd", args="--session [sessionId]")
 1. Each task contains complete TDD workflow (Red-Green-Refactor internally)
 2. Task structure validation:
    - `meta.tdd_workflow: true` in all IMPL tasks
-   - `meta.cli_execution_id` present (format: {session_id}-{task_id})
-   - `meta.cli_execution` strategy assigned (new/resume/fork/merge_fork)
-   - `flow_control.implementation_approach` has exactly 3 steps
+   - `cli_execution.id` present (format: {session_id}-{task_id})
+   - `cli_execution` strategy assigned (new/resume/fork/merge_fork)
+   - `implementation` has exactly 3 steps
    - Each step has correct `tdd_phase`: "red", "green", "refactor"
-   - `context.focus_paths` are absolute or clear relative paths
-   - `flow_control.pre_analysis` includes exploration integration analysis
+   - `focus_paths` are absolute or clear relative paths
+   - `pre_analysis` includes exploration integration analysis
 3. Dependency validation:
    - Sequential features: IMPL-N depends_on ["IMPL-(N-1)"] if needed
    - Complex features: IMPL-N.M depends_on ["IMPL-N.(M-1)"] for subtasks
@@ -392,7 +393,7 @@ ls -la .workflow/active/[sessionId]/.task/IMPL-*.json
 echo "IMPL tasks: $(ls .workflow/active/[sessionId]/.task/IMPL-*.json 2>/dev/null | wc -l)"
 
 # Sample task structure verification (first task)
-jq '{id, tdd: .meta.tdd_workflow, cli_id: .meta.cli_execution_id, phases: [.flow_control.implementation_approach[].tdd_phase]}' \
+jq '{id, tdd: .meta.tdd_workflow, cli_id: .cli_execution.id, phases: [.implementation[].tdd_phase]}' \
   "$(ls .workflow/active/[sessionId]/.task/IMPL-*.json | head -1)"
 ```
 
@@ -401,8 +402,8 @@ jq '{id, tdd: .meta.tdd_workflow, cli_id: .meta.cli_execution_id, phases: [.flow
 |---------------|---------------------|---------------|
 | File existence | `ls -la` artifacts | All files present |
 | Task count | Count IMPL-*.json | Count matches claims (≤18) |
-| TDD structure | jq sample extraction | Shows red/green/refactor + cli_execution_id |
-| CLI execution IDs | jq extraction | All tasks have cli_execution_id assigned |
+| TDD structure | jq sample extraction | Shows red/green/refactor + cli_execution.id |
+| CLI execution IDs | jq extraction | All tasks have cli_execution.id assigned |
 | Warning log | Check tdd-warnings.log | Logged (may be empty) |
 
 **Return Summary**:
@@ -431,7 +432,7 @@ Plans generated:
 - Task List: .workflow/active/[sessionId]/TODO_LIST.md
   (with internal TDD phase indicators and CLI execution strategies)
 - Task JSONs: .workflow/active/[sessionId]/.task/IMPL-*.json
-  (with cli_execution_id and execution strategies for resume support)
+  (with cli_execution.id and execution strategies for resume support)
 
 TDD Configuration:
 - Each task contains complete Red-Green-Refactor cycle
@@ -579,7 +580,7 @@ Convert user input to TDD-structured format:
 | Missing context-package | File read error | Re-run `/workflow:tools:context-gather` |
 | Invalid task JSON | jq parse error | Report malformed file path |
 | Task count exceeds 18 | Count validation ≥19 | Request re-scope, split into multiple sessions |
-| Missing cli_execution_id | All tasks lack ID | Regenerate tasks with phase 0 user config |
+| Missing cli_execution.id | All tasks lack ID | Regenerate tasks with phase 0 user config |
 | Test-context missing | File not found | Re-run `/workflow:tools:test-context-gather` |
 | Phase timeout | No response | Retry phase, check CLI connectivity |
 | CLI tool not available | Tool not in cli-tools.json | Fall back to alternative preferred tool |

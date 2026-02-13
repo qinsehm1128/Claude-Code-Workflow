@@ -134,7 +134,10 @@ class LspGraphBuilder:
         # Skip if already visited or at max depth
         if node.id in visited:
             return []
-        if depth > self.max_depth:
+        # Depth is 0 for seeds. To limit expansion to N hops from seeds,
+        # we expand nodes with depth < max_depth.
+        if depth >= self.max_depth:
+            visited.add(node.id)
             return []
         if len(graph.nodes) >= self.max_nodes:
             return []

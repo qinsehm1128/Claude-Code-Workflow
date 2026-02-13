@@ -22,6 +22,7 @@ import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/Dropdown';
+import type { DraggableProvidedDragHandleProps, DraggableProvidedDraggableProps } from '@hello-pangea/dnd';
 import type { Issue } from '@/lib/api';
 
 // ========== Types ==========
@@ -35,8 +36,8 @@ export interface IssueCardProps {
   className?: string;
   compact?: boolean;
   showActions?: boolean;
-  draggableProps?: Record<string, unknown>;
-  dragHandleProps?: Record<string, unknown>;
+  draggableProps?: DraggableProvidedDraggableProps;
+  dragHandleProps?: DraggableProvidedDragHandleProps | null;
   innerRef?: React.Ref<HTMLDivElement>;
 }
 

@@ -10,12 +10,9 @@ import {
   Info,
   Code,
   Copy,
-  ChevronRight,
   AlertTriangle,
   Brain,
 } from 'lucide-react';
-import { Button } from '@/components/ui/Button';
-import { Badge } from '@/components/ui/Badge';
 import { cn } from '@/lib/utils';
 import { JsonField } from './JsonField';
 import ReactMarkdown from 'react-markdown';
@@ -94,8 +91,6 @@ const TYPE_CONFIGS: Record<string, TypeConfig> = {
 export function JsonCard({
   data,
   type,
-  timestamp,
-  onCopy,
 }: JsonCardProps) {
   const [isExpanded, setIsExpanded] = useState(true);
 

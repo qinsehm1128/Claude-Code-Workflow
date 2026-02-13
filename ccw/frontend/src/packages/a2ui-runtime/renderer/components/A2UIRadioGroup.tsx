@@ -4,25 +4,18 @@
 // Maps A2UI RadioGroup component to shadcn/ui RadioGroup
 // Used for single-select questions with visible options
 
-import React, { useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/RadioGroup';
 import { Label } from '@/components/ui/Label';
 import type { ComponentRenderer } from '../../core/A2UIComponentRegistry';
 import { resolveLiteralOrBinding, resolveTextContent } from '../A2UIRenderer';
 import type { RadioGroupComponent } from '../../core/A2UITypes';
 
-interface A2UIRadioGroupProps {
-  component: RadioGroupComponent;
-  state: Record<string, unknown>;
-  onAction: (actionId: string, params: Record<string, unknown>) => void | Promise<void>;
-  resolveBinding: (binding: { path: string }) => unknown;
-}
-
 /**
  * A2UI RadioGroup Component Renderer
  * Single selection from visible options with onChange handler
  */
-export const A2UIRadioGroup: ComponentRenderer = ({ component, state, onAction, resolveBinding }) => {
+export const A2UIRadioGroup: ComponentRenderer = ({ component, onAction, resolveBinding }) => {
   const radioGroupComp = component as RadioGroupComponent;
   const { RadioGroup: radioConfig } = radioGroupComp;
 

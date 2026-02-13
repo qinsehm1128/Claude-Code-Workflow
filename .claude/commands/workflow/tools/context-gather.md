@@ -164,9 +164,13 @@ Execute **${angle}** exploration for task planning context. Analyze codebase fro
 **Required Fields** (all ${angle} focused):
 - project_structure: Modules/architecture relevant to ${angle}
 - relevant_files: Files affected from ${angle} perspective
-  **IMPORTANT**: Use object format with relevance scores for synthesis:
-  \`[{path: "src/file.ts", relevance: 0.85, rationale: "Core ${angle} logic"}]\`
-  Scores: 0.7+ high priority, 0.5-0.7 medium, <0.5 low
+  **MANDATORY**: Every file MUST use structured object format with ALL required fields:
+  \`[{path: "src/file.ts", relevance: 0.85, rationale: "Contains AuthService.login() - entry point for JWT token generation", role: "modify_target", discovery_source: "bash-scan", key_symbols: ["AuthService", "login"]}]\`
+  - **rationale** (required): Specific selection basis tied to ${angle} topic (>10 chars, not generic)
+  - **role** (required): modify_target|dependency|pattern_reference|test_target|type_definition|integration_point|config|context_only
+  - **discovery_source** (recommended): bash-scan|cli-analysis|ace-search|dependency-trace|manual
+  - **key_symbols** (recommended): Key functions/classes/types in the file relevant to the task
+  - Scores: 0.7+ high priority, 0.5-0.7 medium, <0.5 low
 - patterns: ${angle}-related patterns to follow
 - dependencies: Dependencies relevant to ${angle}
 - integration_points: Where to integrate from ${angle} viewpoint (include file:line locations)

@@ -58,6 +58,10 @@ class ServerState:
     restart_count: int = 0
     # Queue for producer-consumer pattern - continuous reading puts messages here
     message_queue: asyncio.Queue = field(default_factory=asyncio.Queue)
+    # Track opened documents to avoid redundant didOpen spam (and unnecessary delays).
+    # Key: document URI -> (version, file_mtime)
+    opened_documents: Dict[str, Tuple[int, float]] = field(default_factory=dict)
+    opened_documents_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 class StandaloneLspManager:
@@ -836,28 +840,66 @@ class StandaloneLspManager:
         file_path = self._normalize_file_path(file_path)
         resolved_path = Path(file_path).resolve()
 
+        # Fast path: already opened and unchanged (per-server cache).
         try:
-            content = resolved_path.read_text(encoding="utf-8")
-        except Exception as e:
-            logger.error(f"Failed to read file {file_path}: {e}")
-            return
+            uri = resolved_path.as_uri()
+        except Exception:
+            uri = ""
 
-        # Detect language ID from extension
-        language_id = self.get_language_id(file_path) or "plaintext"
+        try:
+            file_mtime = float(resolved_path.stat().st_mtime)
+        except Exception:
+            file_mtime = 0.0
 
-        logger.debug(f"Opening document: {resolved_path.name} ({len(content)} chars)")
-        await self._send_notification(state, "textDocument/didOpen", {
-            "textDocument": {
-                "uri": resolved_path.as_uri(),
-                "languageId": language_id,
-                "version": 1,
-                "text": content,
-            }
-        })
+        # Serialize open/change notifications per server to avoid races when
+        # multiple concurrent LSP requests target the same file.
+        async with state.opened_documents_lock:
+            existing = state.opened_documents.get(uri) if uri else None
+            if existing is not None and existing[1] == file_mtime:
+                return
 
-        # Give the language server a brief moment to process the file
-        # The message queue handles any server requests automatically
-        await asyncio.sleep(0.5)
+            try:
+                content = resolved_path.read_text(encoding="utf-8")
+            except Exception as e:
+                logger.error(f"Failed to read file {file_path}: {e}")
+                return
+
+            # Detect language ID from extension
+            language_id = self.get_language_id(file_path) or "plaintext"
+
+            # Send didOpen only once per document; subsequent changes use didChange.
+            if existing is None:
+                version = 1
+                logger.debug(f"Opening document: {resolved_path.name} ({len(content)} chars)")
+                await self._send_notification(
+                    state,
+                    "textDocument/didOpen",
+                    {
+                        "textDocument": {
+                            "uri": uri or resolved_path.as_uri(),
+                            "languageId": language_id,
+                            "version": version,
+                            "text": content,
+                        }
+                    },
+                )
+            else:
+                version = int(existing[0]) + 1
+                logger.debug(f"Updating document: {resolved_path.name} ({len(content)} chars)")
+                await self._send_notification(
+                    state,
+                    "textDocument/didChange",
+                    {
+                        "textDocument": {
+                            "uri": uri or resolved_path.as_uri(),
+                            "version": version,
+                        },
+                        "contentChanges": [{"text": content}],
+                    },
+                )
+
+            if uri:
+                state.opened_documents[uri] = (version, file_mtime)
     
     # ========== Public LSP Methods ==========
     

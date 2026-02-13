@@ -8,18 +8,15 @@
   "type": "module",
   "scripts": {
     "dev": "cd frontend && npm run dev",
-    "dev:docs": "cd docs-site && npm run start",
-    "dev:all": "concurrently \"npm run dev\" \"npm run dev:docs\" --names \"FRONTEND,DOCS\" --prefix-colors \"blue,green\"",
-    "build": "cd docs-site && npm run build && cd ../frontend && npm run build",
+    "dev:vite": "cd frontend && npm run dev:vite",
+    "build": "cd frontend && npm run build",
     "build:frontend": "cd frontend && npm run build",
-    "build:docs": "cd docs-site && npm run build",
     "lint": "cd frontend && npm run lint",
     "lint:fix": "cd frontend && npm run lint:fix",
     "test": "cd frontend && npm run test",
     "test:coverage": "cd frontend && npm run test:coverage",
     "test:e2e": "cd frontend && npm run test:e2e",
     "validate": "cd frontend && npm run validate:i18n",
-    "serve": "cd docs-site && npm run serve",
     "preview": "cd frontend && npm run preview"
   },
   "devDependencies": {

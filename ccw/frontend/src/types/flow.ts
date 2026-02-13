@@ -206,7 +206,7 @@ export interface Flow {
   id: string;
   name: string;
   description?: string;
-  version: number;
+  version: string | number;
   created_at: string;
   updated_at: string;
   nodes: FlowNode[];

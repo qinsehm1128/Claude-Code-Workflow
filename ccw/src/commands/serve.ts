@@ -1,18 +1,14 @@
 import { startServer } from '../core/server.js';
 import { launchBrowser } from '../utils/browser-launcher.js';
-import { resolvePath, validatePath } from '../utils/path-resolver.js';
+import { validatePath } from '../utils/path-resolver.js';
 import { startReactFrontend, stopReactFrontend } from '../utils/react-frontend.js';
-import { startDocsSite, stopDocsSite } from '../utils/docs-frontend.js';
 import chalk from 'chalk';
-import type { Server } from 'http';
 
 interface ServeOptions {
   port?: number;
   path?: string;
   host?: string;
   browser?: boolean;
-  frontend?: 'js' | 'react' | 'both';
-  new?: boolean;
 }
 
 /**
@@ -22,11 +18,8 @@ interface ServeOptions {
 export async function serveCommand(options: ServeOptions): Promise<void> {
   const port = Number(options.port) || 3456;
   const host = options.host || '127.0.0.1';
-  // --new flag is shorthand for --frontend react
-  const frontend = options.new ? 'react' : (options.frontend || 'js');
 
-  // Keep Vite dev-server proxy aligned with the dashboard server port for direct access
-  // (e.g. when opening http://localhost:{reactPort} instead of the proxied /react/ path).
+  // Keep Vite dev-server proxy aligned with the dashboard server port.
   process.env.VITE_BACKEND_PORT = port.toString();
 
   // Validate project path
@@ -43,46 +36,25 @@ export async function serveCommand(options: ServeOptions): Promise<void> {
   console.log(chalk.blue.bold('\n  CCW Dashboard Server\n'));
   console.log(chalk.gray(`  Initial project: ${initialPath}`));
   console.log(chalk.gray(`  Host: ${host}`));
-  console.log(chalk.gray(`  Port: ${port}`));
-  console.log(chalk.gray(`  Frontend: ${frontend}\n`));
+  console.log(chalk.gray(`  Port: ${port}\n`));
 
-  // Start React frontend if needed
-  let reactPort: number | undefined;
-  if (frontend === 'react' || frontend === 'both') {
-    reactPort = port + 1;
-    try {
-      await startReactFrontend(reactPort);
-    } catch (error) {
-      console.error(chalk.red(`\n  Failed to start React frontend: ${error}\n`));
-      process.exit(1);
-    }
-  }
-
-  // Start Docusaurus docs site if React frontend is enabled
-  // The docs site is proxied at /docs (via the CCW dashboard server and also via Vite in dev)
-  let docsPort: number | undefined;
-  if (frontend === 'react' || frontend === 'both') {
-    const preferredDocsPort = Number(process.env.CCW_DOCS_PORT) || 3001;
-    try {
-      docsPort = await startDocsSite(preferredDocsPort);
-    } catch (error) {
-      console.log(chalk.yellow(`\n  Warning: Failed to start docs site: ${error}`));
-      console.log(chalk.gray(`  The /docs endpoint will not be available.`));
-      console.log(chalk.gray(`  You can start it manually: cd ccw/docs-site && npm run serve -- --build --port ${preferredDocsPort} --no-open\n`));
-      docsPort = preferredDocsPort;
-    }
+  // Start React frontend
+  const reactPort = port + 1;
+  try {
+    await startReactFrontend(reactPort);
+  } catch (error) {
+    console.error(chalk.red(`\n  Failed to start React frontend: ${error}\n`));
+    process.exit(1);
   }
 
   try {
     // Start server
     console.log(chalk.cyan('  Starting server...'));
-    const server = await startServer({ 
-      port, 
-      host, 
+    const server = await startServer({
+      port,
+      host,
       initialPath,
-      frontend,
-      reactPort,
-      docsPort
+      reactPort
     });
 
     const boundUrl = `http://${host}:${port}`;
@@ -95,41 +67,12 @@ export async function serveCommand(options: ServeOptions): Promise<void> {
 
     console.log(chalk.green(`  Server running at ${boundUrl}`));
 
-    // Display frontend URLs
-    if (frontend === 'both') {
-      console.log(chalk.gray(`  JS Frontend:    ${boundUrl}`));
-      console.log(chalk.gray(`  React Frontend: http://${host}:${reactPort}`));
-      console.log(chalk.gray(`  Docs:           ${browserUrl}/docs/`));
-      console.log(chalk.gray(`  Docs (zh):      ${browserUrl}/docs/zh/`));
-      if (docsPort) {
-        console.log(chalk.gray(`  Docs server:    http://localhost:${docsPort}/docs/`));
-      }
-    } else if (frontend === 'react') {
-      console.log(chalk.gray(`  React Frontend: http://${host}:${reactPort}`));
-      console.log(chalk.gray(`  Docs:           ${browserUrl}/docs/`));
-      console.log(chalk.gray(`  Docs (zh):      ${browserUrl}/docs/zh/`));
-      if (docsPort) {
-        console.log(chalk.gray(`  Docs server:    http://localhost:${docsPort}/docs/`));
-      }
-    }
-
     // Open browser
     if (options.browser !== false) {
       console.log(chalk.cyan('  Opening in browser...'));
       try {
-        // Determine which URL to open based on frontend setting
-        let openUrl = browserUrl;
-        if (frontend === 'react' && reactPort) {
-          // React frontend: access via proxy path /react/
-          openUrl = `http://${host}:${port}/react/`;
-        } else if (frontend === 'both') {
-          // Both frontends: default to JS frontend at root
-          openUrl = browserUrl;
-        }
-
-        // Add path query parameter for workspace switching
         const pathParam = initialPath ? `?path=${encodeURIComponent(initialPath)}` : '';
-        await launchBrowser(openUrl + pathParam);
+        await launchBrowser(browserUrl + pathParam);
         console.log(chalk.green.bold('\n  Dashboard opened in browser!'));
       } catch (err) {
         const error = err as Error;
@@ -144,7 +87,6 @@ export async function serveCommand(options: ServeOptions): Promise<void> {
     process.on('SIGINT', async () => {
       console.log(chalk.yellow('\n  Shutting down server...'));
       await stopReactFrontend();
-      await stopDocsSite();
       server.close(() => {
         console.log(chalk.green('  Server stopped.\n'));
         process.exit(0);
@@ -159,7 +101,6 @@ export async function serveCommand(options: ServeOptions): Promise<void> {
       console.error(chalk.gray(`  Try a different port: ccw serve --port ${port + 1}\n`));
     }
     await stopReactFrontend();
-    await stopDocsSite();
     process.exit(1);
   }
 }

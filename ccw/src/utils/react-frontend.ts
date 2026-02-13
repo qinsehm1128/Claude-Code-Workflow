@@ -78,7 +78,7 @@ export async function startReactFrontend(port: number): Promise<void> {
     env: {
       ...process.env,
       BROWSER: 'none', // Prevent React from auto-opening browser
-      VITE_BASE_URL: '/react/', // Set base URL for React frontend
+      VITE_BASE_URL: '/', // Set base URL for React frontend (root path)
     }
   });
 

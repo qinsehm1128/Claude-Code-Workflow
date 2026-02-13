@@ -15,6 +15,7 @@ import { hookCommand } from './commands/hook.js';
 import { issueCommand } from './commands/issue.js';
 import { workflowCommand } from './commands/workflow.js';
 import { loopCommand } from './commands/loop.js';
+import { teamCommand } from './commands/team.js';
 import { readFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -87,8 +88,6 @@ export function run(argv: string[]): void {
     .option('--port <port>', 'Server port', '3456')
     .option('--host <host>', 'Server host to bind', '127.0.0.1')
     .option('--no-browser', 'Start server without opening browser')
-    .option('--frontend <type>', 'Frontend type: js, react, both', 'both')
-    .option('--new', 'Launch React frontend (shorthand for --frontend react)')
     .action(viewCommand);
 
   // Serve command (alias for view)
@@ -99,8 +98,6 @@ export function run(argv: string[]): void {
     .option('--port <port>', 'Server port', '3456')
     .option('--host <host>', 'Server host to bind', '127.0.0.1')
     .option('--no-browser', 'Start server without opening browser')
-    .option('--frontend <type>', 'Frontend type: js, react, both', 'both')
-    .option('--new', 'Launch React frontend (shorthand for --frontend react)')
     .action(serveCommand);
 
   // Stop command
@@ -317,6 +314,22 @@ export function run(argv: string[]): void {
     .description('Loop management for automated multi-CLI execution')
     .option('--session <name>', 'Specify workflow session')
     .action((subcommand, args, options) => loopCommand(subcommand, args, options));
+
+  // Team command - Team Message Bus CLI interface
+  program
+    .command('team [subcommand] [args...]')
+    .description('Team message bus for Agent Team communication')
+    .option('--team <name>', 'Team name')
+    .option('--from <role>', 'Sender role name')
+    .option('--to <role>', 'Recipient role name')
+    .option('--type <type>', 'Message type')
+    .option('--summary <text>', 'One-line summary')
+    .option('--ref <path>', 'File path reference')
+    .option('--data <json>', 'JSON structured data')
+    .option('--id <id>', 'Message ID (for read)')
+    .option('--last <n>', 'Last N messages (for list)')
+    .option('--json', 'Output as JSON')
+    .action((subcommand, args, options) => teamCommand(subcommand, args, options));
 
   // Workflow command - Workflow installation and management
   program

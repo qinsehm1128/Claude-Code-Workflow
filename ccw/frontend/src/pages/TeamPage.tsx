@@ -31,11 +31,11 @@ export function TeamPage() {
 
   // Data hooks
   const { teams, isLoading: teamsLoading } = useTeams();
-  const { messages, total: messageTotal, isLoading: messagesLoading } = useTeamMessages(
+  const { messages, total: messageTotal } = useTeamMessages(
     selectedTeam,
     messageFilter
   );
-  const { members, totalMessages, isLoading: statusLoading } = useTeamStatus(selectedTeam);
+  const { members, totalMessages } = useTeamStatus(selectedTeam);
 
   // Auto-select first team if none selected
   useEffect(() => {

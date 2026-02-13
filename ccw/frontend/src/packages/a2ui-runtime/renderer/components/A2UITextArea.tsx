@@ -3,24 +3,17 @@
 // ========================================
 // Maps A2UI TextArea component to shadcn/ui Textarea
 
-import React, { useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { Textarea } from '@/components/ui/Textarea';
 import type { ComponentRenderer } from '../../core/A2UIComponentRegistry';
 import { resolveLiteralOrBinding } from '../A2UIRenderer';
 import type { TextAreaComponent } from '../../core/A2UITypes';
 
-interface A2UITextAreaProps {
-  component: TextAreaComponent;
-  state: Record<string, unknown>;
-  onAction: (actionId: string, params: Record<string, unknown>) => void | Promise<void>;
-  resolveBinding: (binding: { path: string }) => unknown;
-}
-
 /**
  * A2UI TextArea Component Renderer
  * Two-way binding via onChange updates to local state
  */
-export const A2UITextArea: ComponentRenderer = ({ component, state, onAction, resolveBinding }) => {
+export const A2UITextArea: ComponentRenderer = ({ component, onAction, resolveBinding }) => {
   const areaComp = component as TextAreaComponent;
   const { TextArea: areaConfig } = areaComp;
 

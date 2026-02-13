@@ -153,7 +153,7 @@
       "allowedDirs": "允许的目录",
       "allowedDirsPlaceholder": "目录1,目录2,目录3",
       "allowedDirsHint": "逗号分隔的允许目录列表",
-      "disableSandbox": "禁用沙箱"
+      "enableSandbox": "启用沙箱（仅允许修改工作空间下的文件）"
     },
     "actions": {
       "enableAll": "全部启用",

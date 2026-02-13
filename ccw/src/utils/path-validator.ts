@@ -14,14 +14,14 @@ import { constants } from 'fs';
 // Environment variable configuration
 const ENV_PROJECT_ROOT = 'CCW_PROJECT_ROOT';
 const ENV_ALLOWED_DIRS = 'CCW_ALLOWED_DIRS';
-const ENV_DISABLE_SANDBOX = 'CCW_DISABLE_SANDBOX';
+const ENV_ENABLE_SANDBOX = 'CCW_ENABLE_SANDBOX';
 
 /**
- * Check if sandbox mode is disabled
- * When disabled, path validation allows access to any directory
+ * Check if sandbox mode is enabled
+ * When enabled, path validation restricts access to allowed directories only
  */
-export function isSandboxDisabled(): boolean {
-  const value = process.env[ENV_DISABLE_SANDBOX];
+export function isSandboxEnabled(): boolean {
+  const value = process.env[ENV_ENABLE_SANDBOX];
   return value === '1' || value?.toLowerCase() === 'true';
 }
 
@@ -110,7 +110,7 @@ export async function validatePath(
     mustExist?: boolean;
   } = {}
 ): Promise<string> {
-  const sandboxDisabled = isSandboxDisabled();
+  const sandboxEnabled = isSandboxEnabled();
   const allowedDirs = options.allowedDirectories || getAllowedDirectories();
 
   // 1. Resolve to absolute path
@@ -119,8 +119,8 @@ export async function validatePath(
     : resolve(getProjectRoot(), filePath);
   const normalizedPath = normalizePath(absolutePath);
 
-  // 2. Initial sandbox check (skip if sandbox is disabled)
-  if (!sandboxDisabled && !isPathWithinAllowedDirectories(normalizedPath, allowedDirs)) {
+  // 2. Initial sandbox check (only if sandbox is enabled)
+  if (sandboxEnabled && !isPathWithinAllowedDirectories(normalizedPath, allowedDirs)) {
     throw new Error(
       `Access denied: path "${normalizedPath}" is outside allowed directories. ` +
       `Allowed: [${allowedDirs.join(', ')}]`
@@ -132,8 +132,8 @@ export async function validatePath(
     const realPath = await realpath(absolutePath);
     const normalizedReal = normalizePath(realPath);
 
-    // Skip sandbox check for symlink target if sandbox is disabled
-    if (!sandboxDisabled && !isPathWithinAllowedDirectories(normalizedReal, allowedDirs)) {
+    // Only check symlink target if sandbox is enabled
+    if (sandboxEnabled && !isPathWithinAllowedDirectories(normalizedReal, allowedDirs)) {
       throw new Error(
         `Access denied: symlink target "${normalizedReal}" is outside allowed directories`
       );
@@ -147,13 +147,13 @@ export async function validatePath(
         throw new Error(`File not found: ${absolutePath}`);
       }
 
-      // Validate parent directory's real path (skip if sandbox is disabled)
+      // Validate parent directory's real path (only if sandbox is enabled)
       const parentDir = resolve(absolutePath, '..');
       try {
         const realParent = await realpath(parentDir);
         const normalizedParent = normalizePath(realParent);
 
-        if (!sandboxDisabled && !isPathWithinAllowedDirectories(normalizedParent, allowedDirs)) {
+        if (sandboxEnabled && !isPathWithinAllowedDirectories(normalizedParent, allowedDirs)) {
           throw new Error(
             `Access denied: parent directory "${normalizedParent}" is outside allowed directories`
           );

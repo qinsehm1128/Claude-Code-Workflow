@@ -8,6 +8,7 @@ import {
   fetchIssues,
   fetchIssueHistory,
   fetchIssueQueue,
+  fetchQueueById,
   fetchQueueHistory,
   createIssue,
   updateIssue,
@@ -24,7 +25,6 @@ import {
   exportDiscoveryFindingsAsIssues,
   type Issue,
   type IssueQueue,
-  type IssuesResponse,
   type QueueHistoryIndex,
   type DiscoverySession,
   type Finding,
@@ -208,6 +208,23 @@ export function useIssueQueue(): UseQueryResult<IssueQueue> {
   });
 }
 
+/**
+ * Hook for fetching a specific queue by ID
+ */
+export function useIssueQueueById(queueId?: string): UseQueryResult<IssueQueue> {
+  const projectPath = useWorkflowStore(selectProjectPath);
+  return useQuery<IssueQueue>({
+    queryKey:
+      projectPath && queueId
+        ? workspaceQueryKeys.issueQueueById(projectPath, queueId)
+        : ['issueQueueById', projectPath ?? 'no-project', queueId ?? 'no-queue'],
+    queryFn: () => fetchQueueById(queueId!, projectPath),
+    staleTime: STALE_TIME,
+    enabled: !!projectPath && !!queueId,
+    retry: 2,
+  });
+}
+
 // ========== Mutations ==========
 
 export interface UseCreateIssueReturn {
@@ -346,6 +363,7 @@ export function useQueueMutations(): UseQueueMutationsReturn {
     mutationFn: (queueId: string) => activateQueue(queueId, projectPath),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.issueQueue(projectPath) });
+      queryClient.invalidateQueries({ queryKey: [...workspaceQueryKeys.issues(projectPath), 'queueById'] });
       queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.issueQueueHistory(projectPath) });
     },
   });
@@ -354,6 +372,7 @@ export function useQueueMutations(): UseQueueMutationsReturn {
     mutationFn: () => deactivateQueue(projectPath),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.issueQueue(projectPath) });
+      queryClient.invalidateQueries({ queryKey: [...workspaceQueryKeys.issues(projectPath), 'queueById'] });
       queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.issueQueueHistory(projectPath) });
     },
   });
@@ -362,6 +381,7 @@ export function useQueueMutations(): UseQueueMutationsReturn {
     mutationFn: (queueId: string) => deleteQueueApi(queueId, projectPath),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.issueQueue(projectPath) });
+      queryClient.invalidateQueries({ queryKey: [...workspaceQueryKeys.issues(projectPath), 'queueById'] });
       queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.issueQueueHistory(projectPath) });
     },
   });
@@ -371,6 +391,7 @@ export function useQueueMutations(): UseQueueMutationsReturn {
       mergeQueuesApi(sourceId, targetId, projectPath),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.issueQueue(projectPath) });
+      queryClient.invalidateQueries({ queryKey: [...workspaceQueryKeys.issues(projectPath), 'queueById'] });
       queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.issueQueueHistory(projectPath) });
     },
   });
@@ -380,6 +401,7 @@ export function useQueueMutations(): UseQueueMutationsReturn {
       splitQueueApi(sourceQueueId, itemIds, projectPath),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.issueQueue(projectPath) });
+      queryClient.invalidateQueries({ queryKey: [...workspaceQueryKeys.issues(projectPath), 'queueById'] });
       queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.issueQueueHistory(projectPath) });
     },
   });
@@ -389,6 +411,7 @@ export function useQueueMutations(): UseQueueMutationsReturn {
       reorderQueueGroupApi(projectPath, { groupId, newOrder }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.issueQueue(projectPath) });
+      queryClient.invalidateQueries({ queryKey: [...workspaceQueryKeys.issues(projectPath), 'queueById'] });
     },
   });
 
@@ -397,6 +420,7 @@ export function useQueueMutations(): UseQueueMutationsReturn {
       moveQueueItemApi(projectPath, { itemId, toGroupId, toIndex }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.issueQueue(projectPath) });
+      queryClient.invalidateQueries({ queryKey: [...workspaceQueryKeys.issues(projectPath), 'queueById'] });
     },
   });
 

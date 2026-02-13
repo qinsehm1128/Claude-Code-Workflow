@@ -3,7 +3,7 @@
 // ========================================
 // Container component for displaying grouped CLI output blocks
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback } from 'react';
 import { useCliStreamStore, type LogBlockData } from '@/stores/cliStreamStore';
 import { LogBlock } from './LogBlock';
 

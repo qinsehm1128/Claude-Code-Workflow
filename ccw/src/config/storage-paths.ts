@@ -375,6 +375,19 @@ export interface ProjectPaths {
   config: string;
   /** CLI config file */
   cliConfig: string;
+  /** Memory V2 paths */
+  memoryV2: {
+    /** Root: <projectRoot>/core-memory/v2/ */
+    root: string;
+    /** Rollout summaries directory */
+    rolloutSummaries: string;
+    /** Concatenated raw memories file */
+    rawMemories: string;
+    /** Final consolidated memory file */
+    memoryMd: string;
+    /** Skills directory */
+    skills: string;
+  };
 }
 
 /**
@@ -434,6 +447,13 @@ export function getProjectPaths(projectPath: string): ProjectPaths {
     dashboardCache: join(projectDir, 'cache', 'dashboard-data.json'),
     config: join(projectDir, 'config'),
     cliConfig: join(projectDir, 'config', 'cli-config.json'),
+    memoryV2: {
+      root: join(projectDir, 'core-memory', 'v2'),
+      rolloutSummaries: join(projectDir, 'core-memory', 'v2', 'rollout_summaries'),
+      rawMemories: join(projectDir, 'core-memory', 'v2', 'raw_memories.md'),
+      memoryMd: join(projectDir, 'core-memory', 'v2', 'MEMORY.md'),
+      skills: join(projectDir, 'core-memory', 'v2', 'skills'),
+    },
   };
 }
 
@@ -456,6 +476,13 @@ export function getProjectPathsById(projectId: string): ProjectPaths {
     dashboardCache: join(projectDir, 'cache', 'dashboard-data.json'),
     config: join(projectDir, 'config'),
     cliConfig: join(projectDir, 'config', 'cli-config.json'),
+    memoryV2: {
+      root: join(projectDir, 'core-memory', 'v2'),
+      rolloutSummaries: join(projectDir, 'core-memory', 'v2', 'rollout_summaries'),
+      rawMemories: join(projectDir, 'core-memory', 'v2', 'raw_memories.md'),
+      memoryMd: join(projectDir, 'core-memory', 'v2', 'MEMORY.md'),
+      skills: join(projectDir, 'core-memory', 'v2', 'skills'),
+    },
   };
 }
 
@@ -682,4 +709,7 @@ export function initializeProjectStorage(projectPath: string): void {
   ensureStorageDir(paths.memory);
   ensureStorageDir(paths.cache);
   ensureStorageDir(paths.config);
+  ensureStorageDir(paths.memoryV2.root);
+  ensureStorageDir(paths.memoryV2.rolloutSummaries);
+  ensureStorageDir(paths.memoryV2.skills);
 }

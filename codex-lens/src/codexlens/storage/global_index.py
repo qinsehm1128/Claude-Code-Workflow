@@ -15,14 +15,14 @@ import threading
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from codexlens.entities import Symbol
+from codexlens.entities import CodeRelationship, Symbol
 from codexlens.errors import StorageError
 
 
 class GlobalSymbolIndex:
     """Project-wide symbol index with incremental updates."""
 
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
     DEFAULT_DB_NAME = "_global_symbols.db"
 
     def __init__(self, db_path: str | Path, project_id: int) -> None:
@@ -303,6 +303,186 @@ class GlobalSymbolIndex:
                 for row in rows
             ]
 
+    # ------------------------------------------------------------------
+    # Relationship CRUD
+    # ------------------------------------------------------------------
+
+    def update_file_relationships(
+        self,
+        file_path: str | Path,
+        relationships: List[CodeRelationship],
+    ) -> None:
+        """Replace all relationships for a file atomically (delete + insert).
+
+        Uses the same delete-then-insert pattern as ``update_file_symbols``.
+        The *target_qualified_name* stored in the DB is built from
+        ``target_file`` (when available) and ``target_symbol`` so that
+        cross-directory lookups work correctly.
+        """
+        file_path_str = str(Path(file_path).resolve())
+
+        with self._lock:
+            conn = self._get_connection()
+            try:
+                conn.execute("BEGIN")
+                conn.execute(
+                    "DELETE FROM global_relationships WHERE project_id=? AND source_file=?",
+                    (self.project_id, file_path_str),
+                )
+
+                if relationships:
+                    rows = [
+                        (
+                            self.project_id,
+                            file_path_str,
+                            rel.source_symbol,
+                            self._build_qualified_name(rel),
+                            rel.relationship_type.value,
+                            rel.source_line,
+                        )
+                        for rel in relationships
+                    ]
+                    conn.executemany(
+                        """
+                        INSERT INTO global_relationships(
+                            project_id, source_file, source_symbol,
+                            target_qualified_name, relationship_type, source_line
+                        )
+                        VALUES(?, ?, ?, ?, ?, ?)
+                        """,
+                        rows,
+                    )
+
+                conn.commit()
+            except sqlite3.DatabaseError as exc:
+                conn.rollback()
+                raise StorageError(
+                    f"Failed to update relationships for {file_path_str}: {exc}",
+                    db_path=str(self.db_path),
+                    operation="update_file_relationships",
+                ) from exc
+
+    def query_by_target(
+        self,
+        target_name: str,
+        limit: int = 50,
+        prefix_mode: bool = True,
+    ) -> List[Tuple[str, str, str, int]]:
+        """Query relationships by target_qualified_name.
+
+        Returns list of ``(source_file, source_symbol, relationship_type, source_line)``.
+        When *prefix_mode* is True the target_name is matched as a prefix;
+        otherwise an exact match is required.
+        """
+        if prefix_mode:
+            pattern = f"{target_name}%"
+        else:
+            pattern = target_name
+
+        with self._lock:
+            conn = self._get_connection()
+            if prefix_mode:
+                rows = conn.execute(
+                    """
+                    SELECT source_file, source_symbol, relationship_type, source_line
+                    FROM global_relationships
+                    WHERE project_id=? AND target_qualified_name LIKE ?
+                    ORDER BY source_file, source_line
+                    LIMIT ?
+                    """,
+                    (self.project_id, pattern, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT source_file, source_symbol, relationship_type, source_line
+                    FROM global_relationships
+                    WHERE project_id=? AND target_qualified_name=?
+                    ORDER BY source_file, source_line
+                    LIMIT ?
+                    """,
+                    (self.project_id, pattern, limit),
+                ).fetchall()
+
+            return [
+                (
+                    row["source_file"],
+                    row["source_symbol"],
+                    row["relationship_type"],
+                    row["source_line"],
+                )
+                for row in rows
+            ]
+
+    def query_relationships_for_symbols(
+        self,
+        symbol_names: List[str],
+        limit: int = 100,
+    ) -> List[sqlite3.Row]:
+        """Query all relationships involving any of *symbol_names*.
+
+        Matches against both ``source_symbol`` and ``target_qualified_name``
+        (the target column is checked with a LIKE ``%name%`` pattern so that
+        qualified names like ``mod.ClassName`` still match ``ClassName``).
+        """
+        if not symbol_names:
+            return []
+
+        with self._lock:
+            conn = self._get_connection()
+            # Build WHERE clause: (source_symbol IN (...)) OR (target LIKE ...)
+            source_placeholders = ",".join("?" for _ in symbol_names)
+            target_clauses = " OR ".join(
+                "target_qualified_name LIKE ?" for _ in symbol_names
+            )
+            target_patterns = [f"%{name}" for name in symbol_names]
+
+            sql = f"""
+                SELECT id, project_id, source_file, source_symbol,
+                       target_qualified_name, relationship_type, source_line
+                FROM global_relationships
+                WHERE project_id=?
+                  AND (
+                      source_symbol IN ({source_placeholders})
+                      OR ({target_clauses})
+                  )
+                ORDER BY source_file, source_line
+                LIMIT ?
+            """
+            params: list = [self.project_id, *symbol_names, *target_patterns, limit]
+            return conn.execute(sql, params).fetchall()
+
+    def delete_file_relationships(self, file_path: str | Path) -> int:
+        """Remove all relationships for a file. Returns number of rows deleted."""
+        file_path_str = str(Path(file_path).resolve())
+        with self._lock:
+            conn = self._get_connection()
+            try:
+                cur = conn.execute(
+                    "DELETE FROM global_relationships WHERE project_id=? AND source_file=?",
+                    (self.project_id, file_path_str),
+                )
+                conn.commit()
+                return int(cur.rowcount or 0)
+            except sqlite3.DatabaseError as exc:
+                conn.rollback()
+                raise StorageError(
+                    f"Failed to delete relationships for {file_path_str}: {exc}",
+                    db_path=str(self.db_path),
+                    operation="delete_file_relationships",
+                ) from exc
+
+    @staticmethod
+    def _build_qualified_name(rel: CodeRelationship) -> str:
+        """Build a qualified name from a CodeRelationship.
+
+        Format: ``<target_file>::<target_symbol>`` when target_file is known,
+        otherwise just ``<target_symbol>``.
+        """
+        if rel.target_file:
+            return f"{rel.target_file}::{rel.target_symbol}"
+        return rel.target_symbol
+
     def _get_existing_index_path(self, file_path_str: str) -> Optional[str]:
         with self._lock:
             conn = self._get_connection()
@@ -328,9 +508,19 @@ class GlobalSymbolIndex:
         conn.execute(f"PRAGMA user_version = {int(version)}")
 
     def _apply_migrations(self, conn: sqlite3.Connection, from_version: int) -> None:
-        # No migrations yet (v1).
-        _ = (conn, from_version)
-        return
+        if from_version < 2:
+            self._migrate_v1_to_v2(conn)
+
+    def _migrate_v1_to_v2(self, conn: sqlite3.Connection) -> None:
+        """Add global_relationships table for v1 -> v2 migration."""
+        try:
+            self._create_relationships_schema(conn)
+        except sqlite3.DatabaseError as exc:
+            raise StorageError(
+                f"Failed to migrate schema from v1 to v2: {exc}",
+                db_path=str(self.db_path),
+                operation="_migrate_v1_to_v2",
+            ) from exc
 
     def _get_connection(self) -> sqlite3.Connection:
         if self._conn is None:
@@ -389,10 +579,40 @@ class GlobalSymbolIndex:
                 ON global_symbols(project_id, index_path)
                 """
             )
+
+            self._create_relationships_schema(conn)
         except sqlite3.DatabaseError as exc:
             raise StorageError(
                 f"Failed to initialize global symbol schema: {exc}",
                 db_path=str(self.db_path),
                 operation="_create_schema",
             ) from exc
+
+    def _create_relationships_schema(self, conn: sqlite3.Connection) -> None:
+        """Create the global_relationships table and indexes (idempotent)."""
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS global_relationships (
+                id INTEGER PRIMARY KEY,
+                project_id INTEGER NOT NULL,
+                source_file TEXT NOT NULL,
+                source_symbol TEXT NOT NULL,
+                target_qualified_name TEXT NOT NULL,
+                relationship_type TEXT NOT NULL,
+                source_line INTEGER NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_global_rel_project_target
+            ON global_relationships(project_id, target_qualified_name)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_global_rel_project_source
+            ON global_relationships(project_id, source_file)
+            """
+        )
 

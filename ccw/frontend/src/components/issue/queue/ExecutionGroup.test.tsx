@@ -127,7 +127,7 @@ describe('ExecutionGroup', () => {
       render(<ExecutionGroup {...defaultProps} type="parallel" />, { locale: 'en' });
 
       // Parallel items should not have numbers in the numbering position
-      const numberElements = document.querySelectorAll('.text-muted-foreground.text-xs');
+      document.querySelectorAll('.text-muted-foreground.text-xs');
       // In parallel mode, the numbering position should be empty
     });
   });

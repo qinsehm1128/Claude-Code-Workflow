@@ -168,7 +168,7 @@ export function useCreateSession(): UseCreateSessionReturn {
 
   const mutation = useMutation({
     mutationFn: createSession,
-    onSuccess: (newSession) => {
+    onSuccess: () => {
       // Invalidate sessions cache to trigger refetch
       queryClient.invalidateQueries({ queryKey: ['workspace'] });
       // Invalidate dashboard stats

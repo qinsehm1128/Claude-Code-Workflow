@@ -3,9 +3,9 @@
 // ========================================
 // Date/time picker with ISO string format support
 
-import React, { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import type { ComponentRenderer } from '../../core/A2UIComponentRegistry';
-import { resolveLiteralOrBinding, resolveTextContent } from '../A2UIRenderer';
+import { resolveTextContent } from '../A2UIRenderer';
 import type { DateTimeInputComponent } from '../../core/A2UITypes';
 
 /**
@@ -30,7 +30,7 @@ function isoToDateTimeLocal(isoString: string): string {
 /**
  * Convert datetime-local input format to ISO string
  */
-function dateTimeLocalToIso(dateTimeLocal: string, includeTime: boolean): string {
+function dateTimeLocalToIso(dateTimeLocal: string, _includeTime: boolean): string {
   if (!dateTimeLocal) return '';
 
   const date = new Date(dateTimeLocal);
@@ -43,7 +43,7 @@ function dateTimeLocalToIso(dateTimeLocal: string, includeTime: boolean): string
  * A2UI DateTimeInput Component Renderer
  * Uses native input[type="datetime-local"] or input[type="date"] based on includeTime
  */
-export const A2UIDateTimeInput: ComponentRenderer = ({ component, state, onAction, resolveBinding }) => {
+export const A2UIDateTimeInput: ComponentRenderer = ({ component, onAction, resolveBinding }) => {
   const dateTimeComp = component as DateTimeInputComponent;
   const { DateTimeInput: config } = dateTimeComp;
   const includeTime = config.includeTime ?? true;

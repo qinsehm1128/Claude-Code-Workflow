@@ -85,15 +85,23 @@ ELSE:
 VALIDATE brainstorm_dir EXISTS
 ```
 
-**Step 1.3: Framework Detection**
+**Step 1.3: Framework Detection & Feature List Extraction**
 ```bash
 framework_file = {brainstorm_dir}/guidance-specification.md
 IF framework_file EXISTS:
   framework_mode = true
   LOAD framework_content
+  # Extract Feature Decomposition table from guidance-specification.md
+  feature_list = EXTRACT_TABLE(framework_content, "Feature Decomposition")
+  # feature_list format: [{id: "F-001", slug: "real-time-sync", description: "...", roles: [...], priority: "High"}, ...]
+  IF feature_list NOT EMPTY:
+    feature_mode = true   # Use feature-point organization for sub-documents
+  ELSE:
+    feature_mode = false  # Fall back to arbitrary-topic organization
 ELSE:
   WARN: "No framework found - will create standalone analysis"
   framework_mode = false
+  feature_mode = false
 ```
 
 **Step 1.4: Update Mode Detection**
@@ -296,6 +304,8 @@ const agentContext = {
   role_config: roleConfig[role_name],
   output_location: `${brainstorm_dir}/${role_name}/`,
   framework_mode: framework_mode,
+  feature_mode: feature_mode,
+  feature_list: feature_mode ? feature_list : null,  // From guidance-spec Feature Decomposition
   framework_path: framework_mode ? `${brainstorm_dir}/guidance-specification.md` : null,
   update_mode: update_mode,
   user_context: user_context,
@@ -308,6 +318,24 @@ const agentContext = {
 
 **Framework-Based Analysis** (when guidance-specification.md exists):
 ```javascript
+// Build feature list injection block (only when feature_mode is true)
+const featureListBlock = feature_mode ? `
+## Feature Point List (from guidance-specification.md Feature Decomposition)
+${feature_list.map(f => `- **${f.id}** (${f.slug}): ${f.description} [Priority: ${f.priority}]`).join('\n')}
+
+**IMPORTANT - Feature-Point Output Organization**:
+- Generate ONE sub-document per feature: analysis-F-{id}-{slug}.md (e.g., analysis-${feature_list[0].id}-${feature_list[0].slug}.md)
+- Generate ONE cross-cutting document: analysis-cross-cutting.md
+- analysis.md is a role overview INDEX only (< 1500 words), NOT a full analysis
+- Each feature sub-document < 2000 words, cross-cutting < 2000 words
+- Total across all files < 15000 words
+` : `
+## Output Organization (fallback: no feature list available)
+- Generate analysis.md as main document (< 3000 words)
+- Optionally split into analysis-{slug}.md sub-documents (max 5, < 2000 words each)
+- Total < 15000 words
+`;
+
 Task(
   subagent_type="conceptual-planning-agent",
   run_in_background=false,
@@ -321,6 +349,7 @@ Execute ${role_name} analysis for existing topic framework
 ASSIGNED_ROLE: ${role_name}
 OUTPUT_LOCATION: ${agentContext.output_location}
 ANALYSIS_MODE: ${framework_mode ? "framework_based" : "standalone"}
+FEATURE_MODE: ${feature_mode}
 UPDATE_MODE: ${update_mode}
 
 ## Flow Control Steps
@@ -351,18 +380,30 @@ UPDATE_MODE: ${update_mode}
    - Output: existing_analysis_content
    ` : ''}
 
+${featureListBlock}
+
 ## Analysis Requirements
 **Primary Reference**: Original user prompt from workflow-session.json is authoritative
 **Framework Source**: Address all discussion points in guidance-specification.md from ${role_name} perspective
 **User Context Integration**: Incorporate interactive Q&A responses into analysis
 **Role Focus**: ${roleConfig[role_name].focus_area}
 **Template Integration**: Apply role template guidelines within framework structure
+${feature_mode ? `**Feature Organization**: Organize analysis by feature points - each feature gets its own sub-document. Cross-cutting concerns (architecture decisions, tech choices, shared patterns spanning multiple features) go into analysis-cross-cutting.md.` : ''}
 
 ## Expected Deliverables
+${feature_mode ? `
+1. **analysis.md** - Role overview index (< 1500 words): role perspective summary, feature point index with @-references to sub-documents, cross-cutting summary
+2. **analysis-cross-cutting.md** - Cross-feature decisions (< 2000 words): architecture decisions, technology choices, shared patterns that span multiple features
+3. **analysis-F-{id}-{slug}.md** - One per feature (< 2000 words each): role-specific analysis, recommendations, considerations for that feature
+4. **Framework Reference**: @../guidance-specification.md (if framework_mode)
+5. **User Context Reference**: @./${role_name}-context.md (if user context exists)
+6. **User Intent Alignment**: Validate against session_context
+` : `
 1. **analysis.md** (main document, optionally with analysis-{slug}.md sub-documents)
 2. **Framework Reference**: @../guidance-specification.md (if framework_mode)
 3. **User Context Reference**: @./${role_name}-context.md (if user context exists)
 4. **User Intent Alignment**: Validate against session_context
+`}
 
 ## Update Requirements (if UPDATE_MODE)
 - **Preserve Structure**: Maintain existing analysis structure
@@ -374,6 +415,9 @@ UPDATE_MODE: ${update_mode}
 - Address each discussion point from guidance-specification.md with ${role_name} expertise
 - Provide actionable recommendations from ${role_name} perspective within analysis files
 - All output files MUST start with "analysis" prefix (no recommendations.md or other naming)
+${feature_mode ? `- Each feature from the feature list has a corresponding analysis-F-{id}-{slug}.md file
+- analysis-cross-cutting.md exists with cross-feature decisions
+- analysis.md serves as index (< 1500 words), NOT a full analysis document` : ''}
 - Reference framework document using @ notation for integration
 - Update workflow-session.json with completion status
 `
@@ -479,6 +523,20 @@ TodoWrite({
 
 ### Directory Layout
 
+**Feature-point mode** (when `feature_list` available):
+```
+.workflow/active/WFS-{session}/.brainstorming/
+├── guidance-specification.md              # Framework with Feature Decomposition
+└── {role-name}/
+    ├── {role-name}-context.md             # Interactive Q&A responses
+    ├── analysis.md                        # Role overview INDEX (< 1500 words)
+    ├── analysis-cross-cutting.md          # Cross-feature decisions (< 2000 words)
+    ├── analysis-F-001-{slug}.md           # Per-feature analysis (< 2000 words)
+    ├── analysis-F-002-{slug}.md           # Per-feature analysis (< 2000 words)
+    └── analysis-F-00N-{slug}.md           # One per feature (max 8)
+```
+
+**Fallback mode** (when `feature_list` NOT available):
 ```
 .workflow/active/WFS-{session}/.brainstorming/
 ├── guidance-specification.md          # Framework (if exists)
@@ -488,7 +546,69 @@ TodoWrite({
     └── analysis-{slug}.md             # Section documents (optional, max 5)
 ```
 
-### Analysis Document Structure (New Generation)
+### Analysis Document Structure - Feature-Point Mode (New Generation)
+
+**analysis.md** (Role Overview Index, < 1500 words):
+```markdown
+# ${roleConfig[role_name].title} Analysis: [Topic from Framework]
+
+## Framework Reference
+**Topic Framework**: @../guidance-specification.md
+**Role Focus**: ${roleConfig[role_name].focus_area}
+**User Context**: @./${role_name}-context.md
+
+## Role Perspective Overview
+[Brief summary of this role's perspective on the overall project]
+
+## Feature Point Index
+| Feature | Sub-document | Key Insight |
+|---------|-------------|-------------|
+| F-001: [name] | @./analysis-F-001-{slug}.md | [One-line summary] |
+| F-002: [name] | @./analysis-F-002-{slug}.md | [One-line summary] |
+
+## Cross-Cutting Summary
+**Full analysis**: @./analysis-cross-cutting.md
+[Brief overview of cross-feature decisions and shared patterns]
+
+---
+*Generated by ${role_name} analysis addressing structured framework*
+```
+
+**analysis-cross-cutting.md** (< 2000 words):
+```markdown
+# Cross-Cutting Analysis: ${roleConfig[role_name].title}
+
+## Architecture Decisions
+[Decisions that span multiple features]
+
+## Technology Choices
+[Shared technology selections and rationale]
+
+## Shared Patterns
+[Common patterns, constraints, and conventions across features]
+
+## ${roleConfig[role_name].title} Recommendations
+[Role-wide strategic recommendations]
+```
+
+**analysis-F-{id}-{slug}.md** (< 2000 words each):
+```markdown
+# Feature ${id}: [Feature Name] - ${roleConfig[role_name].title} Analysis
+
+## Feature Overview
+[Role-specific perspective on this feature's scope and goals]
+
+## Analysis
+[Detailed role-specific analysis for this feature]
+
+## Recommendations
+[Actionable recommendations for this feature from role perspective]
+
+## Dependencies & Risks
+[Cross-feature dependencies and risks from role viewpoint]
+```
+
+### Analysis Document Structure - Fallback Mode (New Generation)
 
 ```markdown
 # ${roleConfig[role_name].title} Analysis: [Topic from Framework]
@@ -581,6 +701,10 @@ ${Object.entries(user_context).map(([q, a]) => `
 - [ ] Output files follow naming convention (analysis*.md only)
 - [ ] Framework reference using @ notation
 - [ ] Session metadata updated
+- [ ] Feature-point organization used when feature_list available (if feature_mode)
+- [ ] analysis.md is index only (< 1500 words) when in feature_mode
+- [ ] analysis-cross-cutting.md exists when in feature_mode
+- [ ] One analysis-F-{id}-{slug}.md per feature when in feature_mode
 
 ### Context Quality
 - [ ] Questions in Chinese with business context

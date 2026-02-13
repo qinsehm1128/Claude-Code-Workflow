@@ -644,29 +644,3 @@ Why is config value None during update?
 | >5 iterations | Review consolidated understanding, escalate to `/workflow:lite-fix` with full context |
 | Gemini unavailable | Fallback to manual hypothesis generation, document without Gemini insights |
 | Understanding too long | Consolidate aggressively, archive old iterations to separate file |
-
-## Comparison with /workflow:debug
-
-| Feature | /workflow:debug | /workflow:debug-with-file |
-|---------|-----------------|---------------------------|
-| NDJSON debug logging | ✅ | ✅ |
-| Hypothesis generation | Manual | Gemini-assisted |
-| Exploration documentation | ❌ | ✅ understanding.md |
-| Understanding evolution | ❌ | ✅ Timeline + corrections |
-| Error correction | ❌ | ✅ Strikethrough + reasoning |
-| Consolidated learning | ❌ | ✅ Current understanding section |
-| Hypothesis history | ❌ | ✅ hypotheses.json |
-| Gemini validation | ❌ | ✅ At key decision points |
-
-## Usage Recommendations (Requires User Confirmation)
-
-**Use `Skill(skill="workflow:debug-with-file", args="\"bug description\"")` when:**
-- Complex bugs requiring multiple investigation rounds
-- Learning from debugging process is valuable
-- Team needs to understand debugging rationale
-- Bug might recur, documentation helps prevention
-
-**Use `Skill(skill="ccw-debug", args="--mode cli \"issue\"")` when:**
-- Simple, quick bugs
-- One-off issues
-- Documentation overhead not needed

@@ -12,6 +12,7 @@ import {
   type CliSessionResumeStrategy
 } from './cli-session-command-builder.js';
 import { getCliSessionPolicy } from './cli-session-policy.js';
+import { appendCliSessionAudit } from './cli-session-audit.js';
 
 export interface CliSession {
   sessionKey: string;
@@ -147,14 +148,41 @@ export class CliSessionManager {
   private projectRoot: string;
   private emitter = new EventEmitter();
   private maxBufferBytes: number;
+  private idleTimeoutMs: number;
+  private reaperTimer: NodeJS.Timeout | null = null;
 
   constructor(projectRoot: string) {
     this.projectRoot = projectRoot;
-    this.maxBufferBytes = getCliSessionPolicy().maxBufferBytes;
+    const policy = getCliSessionPolicy();
+    this.maxBufferBytes = policy.maxBufferBytes;
+    this.idleTimeoutMs = policy.idleTimeoutMs;
+
+    if (this.idleTimeoutMs > 0) {
+      this.reaperTimer = setInterval(() => {
+        const reaped = this.closeIdleSessions(this.idleTimeoutMs);
+        for (const sessionKey of reaped) {
+          appendCliSessionAudit({
+            type: 'session_idle_reaped',
+            timestamp: nowIso(),
+            projectRoot: this.projectRoot,
+            sessionKey,
+          });
+        }
+      }, 60_000);
+      this.reaperTimer.unref?.();
+    }
   }
 
   listSessions(): CliSession[] {
     return Array.from(this.sessions.values()).map(({ pty: _pty, buffer: _buffer, bufferBytes: _bytes, ...rest }) => rest);
+  }
+
+  getProjectRoot(): string {
+    return this.projectRoot;
+  }
+
+  hasSession(sessionKey: string): boolean {
+    return this.sessions.has(sessionKey);
   }
 
   getSession(sessionKey: string): CliSession | null {
@@ -354,14 +382,14 @@ export class CliSessionManager {
     return () => this.emitter.off('output', handler);
   }
 
-  closeIdleSessions(idleTimeoutMs: number): number {
-    if (idleTimeoutMs <= 0) return 0;
+  closeIdleSessions(idleTimeoutMs: number): string[] {
+    if (idleTimeoutMs <= 0) return [];
     const now = Date.now();
-    let closed = 0;
+    const closed: string[] = [];
     for (const s of this.sessions.values()) {
       if (now - s.lastActivityAt >= idleTimeoutMs) {
         this.close(s.sessionKey);
-        closed += 1;
+        closed.push(s.sessionKey);
       }
     }
     return closed;
@@ -377,4 +405,16 @@ export function getCliSessionManager(projectRoot: string = process.cwd()): CliSe
   const created = new CliSessionManager(resolved);
   managersByRoot.set(resolved, created);
   return created;
+}
+
+/**
+ * Find the manager that owns a given sessionKey.
+ * Useful for cross-workspace routing (tmux-like send) where the executor
+ * may not share the same workflowDir/projectRoot as the target session.
+ */
+export function findCliSessionManager(sessionKey: string): CliSessionManager | null {
+  for (const manager of managersByRoot.values()) {
+    if (manager.hasSession(sessionKey)) return manager;
+  }
+  return null;
 }

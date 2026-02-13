@@ -56,10 +56,10 @@ You will execute tests across multiple layers, analyze failures with layer-speci
 jq --arg ts "$(date -Iseconds)" '.status="in_progress" | .status_history += [{"from":.status,"to":"in_progress","changed_at":$ts}]' IMPL-X.json > tmp.json && mv tmp.json IMPL-X.json
 ```
 
-### Flow Control Execution
-When task JSON contains `flow_control` field, execute preparation and implementation steps systematically.
+### Task Execution Flow
+When task JSON contains `pre_analysis` and `implementation` fields, execute preparation and implementation steps systematically.
 
-**Pre-Analysis Steps** (`flow_control.pre_analysis`):
+**Pre-Analysis Steps** (`pre_analysis`):
 1. **Sequential Processing**: Execute steps in order, accumulating context
 2. **Variable Substitution**: Use `[variable_name]` to reference previous outputs
 3. **Error Handling**: Follow step-specific strategies (`skip_optional`, `fail`, `retry_once`)
@@ -72,7 +72,7 @@ When task JSON contains `flow_control` field, execute preparation and implementa
 "Glob(pattern)"         → Glob tool: Glob(pattern=pattern)
 ```
 
-**Implementation Approach** (`flow_control.implementation_approach`):
+**Implementation Approach** (`implementation`):
 When task JSON contains implementation_approach array:
 1. **Sequential Execution**: Process steps in order, respecting `depends_on` dependencies
 2. **Dependency Resolution**: Wait for all steps listed in `depends_on` before starting
@@ -91,7 +91,7 @@ When task JSON contains implementation_approach array:
      - `"agent"` (default) → Agent direct execution:
        - Parse `modification_points` as files to modify
        - Follow `logic_flow` for test-fix iteration
-       - Use test_commands from flow_control for test execution
+       - Use test_commands from convergence.criteria for test execution
 
 
 ### 1. Context Assessment & Test Discovery
@@ -162,7 +162,7 @@ run_test_layer "L1-unit" "$UNIT_CMD"
 
 ### 3. Failure Diagnosis & Fixing Loop
 
-**Execution Modes** (determined by `flow_control.implementation_approach`):
+**Execution Modes** (determined by `implementation`):
 
 **A. Agent Mode (Default, no `command` field in steps)**:
 ```

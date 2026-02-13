@@ -68,14 +68,15 @@ const task = plan.tasks.find(t => t.id === taskId)
 const context = {
   // Base context
   scope: task.scope,
-  modification_points: task.modification_points,
+  files: task.files,                                 // File-level changes (each has .change)
   implementation: task.implementation,
 
-  // Medium/High complexity: WHY + HOW to verify
+  // Medium/High complexity: WHY + HOW to verify (PLANNING section)
+  reference: task.reference,                         // Reference patterns/files
   rationale: task.rationale?.chosen_approach,        // Why this approach
-  verification: task.verification?.success_metrics,  // How to verify success
+  success_metrics: task.test?.success_metrics,       // How to verify success
 
-  // High complexity: risks + code skeleton
+  // High complexity: risks + code skeleton (PLANNING section)
   risks: task.risks?.map(r => r.mitigation),         // Risk mitigations to follow
   code_skeleton: task.code_skeleton,                 // Interface/function signatures
 
@@ -165,8 +166,8 @@ TASK: {task.implementation.join('\n')}
   Key functions: {task.code_skeleton.key_functions.map(f => f.signature)}
 
 # Include verification in EXPECTED
-EXPECTED: {task.acceptance.join(', ')}
-  Success metrics: {task.verification.success_metrics.join(', ')}
+EXPECTED: {task.convergence.criteria.join(', ')}
+  Success metrics: {task.test.success_metrics.join(', ')}
 
 # Include risk mitigations in CONSTRAINTS (High)
 CONSTRAINTS: {constraints}
@@ -268,8 +269,8 @@ find .workflow/active/ -name 'WFS-*' -type d
 
 ## Phase 5: Log {path} | Summary {summary_path}
 [Medium/High] Verification Checklist:
-  - Unit Tests: {task.verification.unit_tests.join(', ')}
-  - Success Metrics: {task.verification.success_metrics.join(', ')}
+  - Unit Tests: {task.test.unit.join(', ')}
+  - Success Metrics: {task.test.success_metrics.join(', ')}
 
 ## Next Steps: {actions}
 ```

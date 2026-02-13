@@ -440,5 +440,22 @@
         }
       }
     }
+  },
+
+  "deprecated": true,
+  "deprecated_message": "Migrated to plan-overview-base-schema.json + task-schema.json (PLANNING 区块).",
+  "migration_guide": {
+    "plan_level": "→ plan-overview-base-schema.json",
+    "task_level": "→ .task/TASK-*.json (task-schema.json)",
+    "field_mapping": {
+      "tasks[].modification_points": "→ files[].change (合并入 files)",
+      "tasks[].reference": "→ reference (直接迁移)",
+      "tasks[].rationale": "→ rationale (直接迁移)",
+      "tasks[].verification": "→ test.manual_checks + test.success_metrics (合并入 test)",
+      "tasks[].risks": "→ risks (直接迁移)",
+      "tasks[].code_skeleton": "→ code_skeleton (直接迁移)",
+      "tasks[].acceptance": "→ convergence.criteria (已删除别名，直接用 convergence)",
+      "tasks[].cli_execution_id": "→ cli_execution.id (已存在)"
+    }
   }
 }

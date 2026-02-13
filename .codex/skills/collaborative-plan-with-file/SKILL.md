@@ -55,11 +55,11 @@ The key innovation is the **Plan Note** architecture — a shared collaborative 
 │                                                                          │
 │  Phase 2: Serial Domain Planning                                         │
 │     ┌──────────────┐                                                     │
-│     │   Domain 1   │→ Explore codebase → Generate tasks.jsonl            │
+│     │   Domain 1   │→ Explore codebase → Generate .task/TASK-*.json      │
 │     │   Section 1  │→ Fill task pool + evidence in plan-note.md          │
 │     └──────┬───────┘                                                     │
 │     ┌──────▼───────┐                                                     │
-│     │   Domain 2   │→ Explore codebase → Generate tasks.jsonl            │
+│     │   Domain 2   │→ Explore codebase → Generate .task/TASK-*.json      │
 │     │   Section 2  │→ Fill task pool + evidence in plan-note.md          │
 │     └──────┬───────┘                                                     │
 │     ┌──────▼───────┐                                                     │
@@ -72,7 +72,7 @@ The key innovation is the **Plan Note** architecture — a shared collaborative 
 │     └─ Update plan-note.md conflict section                              │
 │                                                                          │
 │  Phase 4: Completion (No Merge)                                          │
-│     ├─ Merge domain tasks.jsonl → session tasks.jsonl                    │
+│     ├─ Collect domain .task/*.json → session .task/*.json                │
 │     ├─ Generate plan.md (human-readable)                                 │
 │     └─ Ready for execution                                               │
 │                                                                          │
@@ -81,17 +81,27 @@ The key innovation is the **Plan Note** architecture — a shared collaborative 
 
 ## Output Structure
 
+> **Schema**: `cat ~/.ccw/workflows/cli-templates/schemas/task-schema.json`
+
 ```
 {projectRoot}/.workflow/.planning/CPLAN-{slug}-{date}/
 ├── plan-note.md                  # ⭐ Core: Requirements + Tasks + Conflicts
 ├── requirement-analysis.json     # Phase 1: Sub-domain assignments
 ├── domains/                      # Phase 2: Per-domain plans
 │   ├── {domain-1}/
-│   │   └── tasks.jsonl           # Unified JSONL (one task per line)
+│   │   └── .task/                # Per-domain task JSON files
+│   │       ├── TASK-001.json
+│   │       └── ...
 │   ├── {domain-2}/
-│   │   └── tasks.jsonl
+│   │   └── .task/
+│   │       ├── TASK-101.json
+│   │       └── ...
 │   └── ...
-├── tasks.jsonl                   # ⭐ Merged unified JSONL (all domains)
+├── plan.json                     # Plan overview (plan-overview-base-schema.json)
+├── .task/                        # ⭐ Merged task JSON files (all domains)
+│   ├── TASK-001.json
+│   ├── TASK-101.json
+│   └── ...
 ├── conflicts.json                # Phase 3: Conflict report
 └── plan.md                       # Phase 4: Human-readable summary
 ```
@@ -109,7 +119,7 @@ The key innovation is the **Plan Note** architecture — a shared collaborative 
 
 | Artifact | Purpose |
 |----------|---------|
-| `domains/{domain}/tasks.jsonl` | Unified JSONL per domain (one task per line with convergence) |
+| `domains/{domain}/.task/TASK-*.json` | Task JSON files per domain (one file per task with convergence) |
 | Updated `plan-note.md` | Task pool and evidence sections filled for each domain |
 
 ### Phase 3: Conflict Detection
@@ -123,7 +133,8 @@ The key innovation is the **Plan Note** architecture — a shared collaborative 
 
 | Artifact | Purpose |
 |----------|---------|
-| `tasks.jsonl` | Merged unified JSONL from all domains (consumable by unified-execute) |
+| `.task/TASK-*.json` | Merged task JSON files from all domains (consumable by unified-execute) |
+| `plan.json` | Plan overview following plan-overview-base-schema.json |
 | `plan.md` | Human-readable summary with requirements, tasks, and conflicts |
 
 ---
@@ -294,8 +305,8 @@ For each sub-domain, execute the full planning cycle inline:
 
 ```javascript
 for (const sub of subDomains) {
-  // 1. Create domain directory
-  Bash(`mkdir -p ${sessionFolder}/domains/${sub.focus_area}`)
+  // 1. Create domain directory with .task/ subfolder
+  Bash(`mkdir -p ${sessionFolder}/domains/${sub.focus_area}/.task`)
 
   // 2. Explore codebase for domain-relevant context
   //    Use: mcp__ace-tool__search_context, Grep, Glob, Read
@@ -305,7 +316,7 @@ for (const sub of subDomains) {
   //      - Integration points with other domains
   //      - Architecture constraints
 
-  // 3. Generate unified JSONL tasks (one task per line)
+  // 3. Generate task JSON records (following task-schema.json)
   const domainTasks = [
     // For each task within the assigned ID range:
     {
@@ -339,9 +350,11 @@ for (const sub of subDomains) {
     // ... more tasks
   ]
 
-  // 4. Write domain tasks.jsonl (one task per line)
-  const jsonlContent = domainTasks.map(t => JSON.stringify(t)).join('\n')
-  Write(`${sessionFolder}/domains/${sub.focus_area}/tasks.jsonl`, jsonlContent)
+  // 4. Write individual task JSON files (one per task)
+  domainTasks.forEach(task => {
+    Write(`${sessionFolder}/domains/${sub.focus_area}/.task/${task.id}.json`,
+      JSON.stringify(task, null, 2))
+  })
 
   // 5. Sync summary to plan-note.md
   //    Read current plan-note.md
@@ -399,7 +412,7 @@ After all domains are planned, verify the shared document.
 5. Check for any section format inconsistencies
 
 **Success Criteria**:
-- `domains/{domain}/tasks.jsonl` created for each domain (unified JSONL format)
+- `domains/{domain}/.task/TASK-*.json` created for each domain (one file per task)
 - Each task has convergence (criteria + verification + definition_of_done)
 - `plan-note.md` updated with all task pools and evidence sections
 - Task summaries follow consistent format
@@ -413,7 +426,7 @@ After all domains are planned, verify the shared document.
 
 ### Step 3.1: Parse plan-note.md
 
-Extract all tasks from all "任务池" sections and domain tasks.jsonl files.
+Extract all tasks from all "任务池" sections and domain .task/*.json files.
 
 ```javascript
 // parsePlanNote(markdown)
@@ -422,13 +435,14 @@ Extract all tasks from all "任务池" sections and domain tasks.jsonl files.
 //   - Build sections array: { level, heading, start, content }
 //   - Return: { frontmatter, sections }
 
-// Also load all domain tasks.jsonl for detailed data
+// Also load all domain .task/*.json for detailed data
 // loadDomainTasks(sessionFolder, subDomains):
 //   const allTasks = []
 //   for (const sub of subDomains) {
-//     const jsonl = Read(`${sessionFolder}/domains/${sub.focus_area}/tasks.jsonl`)
-//     jsonl.split('\n').filter(l => l.trim()).forEach(line => {
-//       allTasks.push(JSON.parse(line))
+//     const taskDir = `${sessionFolder}/domains/${sub.focus_area}/.task`
+//     const taskFiles = Glob(`${taskDir}/TASK-*.json`)
+//     taskFiles.forEach(file => {
+//       allTasks.push(JSON.parse(Read(file)))
 //     })
 //   }
 //   return allTasks
@@ -543,26 +557,61 @@ Write(`${sessionFolder}/conflicts.json`, JSON.stringify({
 
 **Objective**: Generate human-readable plan summary and finalize workflow.
 
-### Step 4.1: Merge Domain tasks.jsonl
+### Step 4.1: Collect Domain .task/*.json to Session .task/
 
-Merge all per-domain JSONL files into a single session-level `tasks.jsonl`.
+Copy all per-domain task JSON files into a single session-level `.task/` directory.
 
 ```javascript
-// Collect all domain tasks
-const allDomainTasks = []
+// Create session-level .task/ directory
+Bash(`mkdir -p ${sessionFolder}/.task`)
+
+// Collect all domain task files
 for (const sub of subDomains) {
-  const jsonl = Read(`${sessionFolder}/domains/${sub.focus_area}/tasks.jsonl`)
-  jsonl.split('\n').filter(l => l.trim()).forEach(line => {
-    allDomainTasks.push(JSON.parse(line))
+  const taskDir = `${sessionFolder}/domains/${sub.focus_area}/.task`
+  const taskFiles = Glob(`${taskDir}/TASK-*.json`)
+  taskFiles.forEach(file => {
+    const filename = path.basename(file)
+    // Copy domain task file to session .task/ directory
+    Bash(`cp ${file} ${sessionFolder}/.task/${filename}`)
   })
 }
-
-// Write merged tasks.jsonl at session root
-const mergedJsonl = allDomainTasks.map(t => JSON.stringify(t)).join('\n')
-Write(`${sessionFolder}/tasks.jsonl`, mergedJsonl)
 ```
 
-### Step 4.2: Generate plan.md
+### Step 4.2: Generate plan.json
+
+Generate a plan overview following the plan-overview-base-schema.
+
+```javascript
+// Generate plan.json (plan-overview-base-schema)
+const allTaskFiles = Glob(`${sessionFolder}/.task/TASK-*.json`)
+const taskIds = allTaskFiles.map(f => JSON.parse(Read(f)).id).sort()
+
+// Guard: skip plan.json if no tasks generated
+if (taskIds.length === 0) {
+  console.warn('No tasks generated; skipping plan.json')
+} else {
+
+const planOverview = {
+  summary: `Collaborative plan for: ${taskDescription}`,
+  approach: `Multi-domain planning across ${subDomains.length} sub-domains: ${subDomains.map(s => s.focus_area).join(', ')}`,
+  task_ids: taskIds,
+  task_count: taskIds.length,
+  complexity: complexity,
+  recommended_execution: "Agent",
+  _metadata: {
+    timestamp: getUtc8ISOString(),
+    source: "direct-planning",
+    planning_mode: "direct",
+    plan_type: "collaborative",
+    schema_version: "2.0"
+  }
+}
+Write(`${sessionFolder}/plan.json`, JSON.stringify(planOverview, null, 2))
+
+} // end guard
+```
+
+### Step 4.3: Generate plan.md
 
 Create a human-readable summary from plan-note.md content.
 
@@ -613,7 +662,7 @@ ${allConflicts.length === 0
 ## 执行
 
 \`\`\`bash
-/workflow:unified-execute-with-file PLAN="${sessionFolder}/tasks.jsonl"
+/workflow:unified-execute-with-file PLAN="${sessionFolder}/.task/"
 \`\`\`
 
 **Session artifacts**: \`${sessionFolder}/\`
@@ -621,7 +670,7 @@ ${allConflicts.length === 0
 Write(`${sessionFolder}/plan.md`, planMd)
 ```
 
-### Step 4.3: Display Completion Summary
+### Step 4.4: Display Completion Summary
 
 Present session statistics and next steps.
 
@@ -652,14 +701,14 @@ if (!autoMode) {
 
 | Selection | Action |
 |-----------|--------|
-| Execute Plan | `Skill(skill="workflow:unified-execute-with-file", args="PLAN=\"${sessionFolder}/tasks.jsonl\"")` |
+| Execute Plan | `Skill(skill="workflow:unified-execute-with-file", args="PLAN=\"${sessionFolder}/.task/\"")` |
 | Review Conflicts | Display conflicts.json content for manual resolution |
 | Export | Copy plan.md + plan-note.md to user-specified location |
 | Done | Display artifact paths, end workflow |
 
 **Success Criteria**:
 - `plan.md` generated with complete summary
-- `tasks.jsonl` merged at session root (consumable by unified-execute)
+- `.task/TASK-*.json` collected at session root (consumable by unified-execute)
 - All artifacts present in session directory
 - User informed of completion and next steps
 
@@ -685,11 +734,11 @@ User initiates: TASK="task description"
    ├─ Generate requirement-analysis.json
    │
    ├─ Serial domain planning:
-   │   ├─ Domain 1: explore → tasks.jsonl → fill plan-note.md
-   │   ├─ Domain 2: explore → tasks.jsonl → fill plan-note.md
+   │   ├─ Domain 1: explore → .task/TASK-*.json → fill plan-note.md
+   │   ├─ Domain 2: explore → .task/TASK-*.json → fill plan-note.md
    │   └─ Domain N: ...
    │
-   ├─ Merge domain tasks.jsonl → session tasks.jsonl
+   ├─ Collect domain .task/*.json → session .task/
    │
    ├─ Verify plan-note.md consistency
    ├─ Detect conflicts
@@ -738,7 +787,7 @@ User resumes: TASK="same task"
 1. **Review Plan Note**: Check plan-note.md between domains to verify progress
 2. **Verify Independence**: Ensure sub-domains are truly independent and have minimal overlap
 3. **Check Dependencies**: Cross-domain dependencies should be documented explicitly
-4. **Inspect Details**: Review `domains/{domain}/tasks.jsonl` for specifics when needed
+4. **Inspect Details**: Review `domains/{domain}/.task/TASK-*.json` for specifics when needed
 5. **Consistent Format**: Follow task summary format strictly across all domains
 6. **TASK ID Isolation**: Use pre-assigned non-overlapping ranges to prevent ID conflicts
 

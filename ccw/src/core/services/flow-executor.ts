@@ -19,7 +19,8 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { broadcastToClients } from '../websocket.js';
 import { executeCliTool } from '../../tools/cli-executor-core.js';
-import { getCliSessionManager } from './cli-session-manager.js';
+import { cliSessionMux } from './cli-session-mux.js';
+import { appendCliSessionAudit } from './cli-session-audit.js';
 import type {
   Flow,
   FlowNode,
@@ -255,15 +256,45 @@ export class NodeRunner {
           };
         }
 
-        const manager = getCliSessionManager(process.cwd());
+        const manager = cliSessionMux.findCliSessionManager(targetSessionKey)
+          ?? cliSessionMux.getCliSessionManager(this.context.workingDir || process.cwd());
+        if (!manager.hasSession(targetSessionKey)) {
+          return {
+            success: false,
+            error: `Target session not found: ${targetSessionKey}`
+          };
+        }
         const routed = manager.execute(targetSessionKey, {
           tool,
           prompt: instruction,
           mode,
-          workingDir: this.context.workingDir,
           resumeKey: data.resumeKey,
           resumeStrategy: data.resumeStrategy === 'promptConcat' ? 'promptConcat' : 'nativeResume'
         });
+
+        // Best-effort: record audit event so Observability panel includes orchestrator-routed executions.
+        try {
+          const session = manager.getSession(targetSessionKey);
+          appendCliSessionAudit({
+            type: 'session_execute',
+            timestamp: new Date().toISOString(),
+            projectRoot: manager.getProjectRoot(),
+            sessionKey: targetSessionKey,
+            tool,
+            resumeKey: data.resumeKey,
+            workingDir: session?.workingDir,
+            details: {
+              executionId: routed.executionId,
+              mode,
+              resumeStrategy: data.resumeStrategy ?? 'nativeResume',
+              delivery: 'sendToSession',
+              flowId: this.context.flowId,
+              nodeId: node.id
+            }
+          });
+        } catch {
+          // ignore
+        }
 
         const outputKey = data.outputName || `${node.id}_output`;
         this.context.variables[outputKey] = {

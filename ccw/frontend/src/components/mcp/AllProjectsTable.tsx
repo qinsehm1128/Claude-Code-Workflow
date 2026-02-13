@@ -3,7 +3,7 @@
 // ========================================
 // Table component displaying all recent projects with MCP server statistics
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useIntl } from 'react-intl';
 import { Folder, Clock, Database, ExternalLink } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
@@ -55,8 +55,11 @@ export function AllProjectsTable({
   const { projects, currentProject, isLoading } = useProjectOperations();
 
   // Use provided project paths or default to all projects
-  const targetProjectPaths = propProjectPaths ?? projects;
-  const displayProjects = maxProjects ? targetProjectPaths.slice(0, maxProjects) : targetProjectPaths;
+  // Memoize to stabilize the array reference and prevent useEffect infinite loops
+  const displayProjects = useMemo(() => {
+    const target = propProjectPaths ?? projects;
+    return maxProjects ? target.slice(0, maxProjects) : target;
+  }, [propProjectPaths, projects, maxProjects]);
 
   // Fetch real project server stats on mount
   useEffect(() => {

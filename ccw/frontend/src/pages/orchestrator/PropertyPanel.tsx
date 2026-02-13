@@ -1224,7 +1224,6 @@ function SaveAsTemplateButton({ nodeId, nodeLabel }: { nodeId: string; nodeLabel
   const [name, setName] = useState('');
   const [desc, setDesc] = useState('');
   const [color, setColor] = useState('bg-blue-500');
-  const saveNodeAsTemplate = useFlowStore((s) => s.saveNodeAsTemplate);
   const addCustomTemplate = useFlowStore((s) => s.addCustomTemplate);
   const nodes = useFlowStore((s) => s.nodes);
 

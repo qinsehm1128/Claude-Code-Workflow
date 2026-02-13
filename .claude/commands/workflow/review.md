@@ -186,8 +186,8 @@ After bash validation, the model takes control to:
      for task_file in ${sessionPath}/.task/*.json; do
        cat "$task_file" | jq -r '
          "Task: " + .id + "\n" +
-         "Requirements: " + (.context.requirements | join(", ")) + "\n" +
-         "Acceptance: " + (.context.acceptance | join(", "))
+         "Requirements: " + .description + "\n" +
+         "Acceptance: " + (.convergence.criteria | join(", "))
        '
      done
 

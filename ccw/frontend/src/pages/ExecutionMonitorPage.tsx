@@ -13,14 +13,13 @@ import {
   XCircle,
   BarChart3,
   Calendar,
-  Filter,
   ListTree,
   History,
   List,
   Monitor,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import { TabsNavigation, type TabItem } from '@/components/ui/TabsNavigation';
+import { TabsNavigation } from '@/components/ui/TabsNavigation';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { ExecutionMonitor } from './orchestrator/ExecutionMonitor';

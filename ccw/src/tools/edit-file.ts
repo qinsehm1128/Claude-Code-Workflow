@@ -570,7 +570,9 @@ interface CompactEditResult {
 
 // Handler function
 export async function handler(params: Record<string, unknown>): Promise<ToolResult<CompactEditResult>> {
-  const parsed = ParamsSchema.safeParse(params);
+  // Apply default mode before discriminatedUnion check (Zod doesn't apply defaults on discriminator)
+  const normalizedParams = params.mode === undefined ? { ...params, mode: 'update' } : params;
+  const parsed = ParamsSchema.safeParse(normalizedParams);
   if (!parsed.success) {
     return { success: false, error: `Invalid params: ${parsed.error.message}` };
   }

@@ -15,7 +15,6 @@ import {
   Info,
   FileText,
   Download,
-  ChevronDown,
   ChevronRight,
   ChevronLeft as ChevronLeftIcon,
   ChevronRight as ChevronRightIcon,
@@ -291,7 +290,6 @@ export function ReviewSessionPage() {
   const [sortField, setSortField] = React.useState<SortField>('severity');
   const [sortOrder, setSortOrder] = React.useState<SortOrder>('desc');
   const [selectedFindings, setSelectedFindings] = React.useState<Set<string>>(new Set());
-  const [expandedFindings, setExpandedFindings] = React.useState<Set<string>>(new Set());
   const [selectedFindingId, setSelectedFindingId] = React.useState<string | null>(null);
 
   const handleBack = () => {
@@ -351,18 +349,6 @@ export function ReviewSessionPage() {
 
   const clearSelection = () => {
     setSelectedFindings(new Set());
-  };
-
-  const toggleExpandFinding = (findingId: string) => {
-    setExpandedFindings(prev => {
-      const next = new Set(prev);
-      if (next.has(findingId)) {
-        next.delete(findingId);
-      } else {
-        next.add(findingId);
-      }
-      return next;
-    });
   };
 
   const handleFindingClick = (findingId: string) => {

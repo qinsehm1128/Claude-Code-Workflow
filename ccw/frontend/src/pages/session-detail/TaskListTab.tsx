@@ -7,13 +7,11 @@ import { useState } from 'react';
 import { useIntl } from 'react-intl';
 import {
   ListChecks,
-  Code,
   GitBranch,
   Calendar,
   FileCode,
   Layers,
 } from 'lucide-react';
-import { Badge } from '@/components/ui/Badge';
 import { Card, CardContent } from '@/components/ui/Card';
 import { TaskStatsBar, TaskStatusDropdown } from '@/components/session-detail/tasks';
 import type { SessionMetadata, TaskData } from '@/types/store';
