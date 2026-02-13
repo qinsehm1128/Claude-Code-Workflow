@@ -1,24 +1,24 @@
 ---
-title: "Ccw Help"
+title: "Ccw 帮助"
 description: "CCW 命令帮助系统"
 category: "api"
 locale: "zh"
-order: 2
+order: 3
 ---
 
-# Ccw Help
+# Ccw 帮助
 
-CCW 命令帮助系统。搜索、浏览、推荐命令。触发关键词："ccw-help"、"ccw-issue"。
+CCW 命令帮助系统。可搜索、浏览和推荐命令。触发词："ccw-help"、"ccw-issue"。
 
 ## 概览
 
 | 属性 | 值 |
-|------|-----|
+|----------|-------|
 | **名称** | `ccw-help` |
 | **版本** | 7.0.0 |
 | **工具** | `Read`, `Grep`, `Glob`, `AskUserQuestion` |
 
-## 参考
+## CCW-Help 技能
 
 CCW 命令帮助系统，提供命令搜索、推荐、文档查看功能。
 
@@ -31,83 +31,83 @@ CCW 命令帮助系统，提供命令搜索、推荐、文档查看功能。
 
 ### 模式 1：命令搜索
 
-**触发条件**："搜索命令"、"find command"、"search"
+**触发条件**: "搜索命令", "find command", "search"
 
-**流程**：
-1. 查询 `command.json` 的 commands 数组
+**流程**:
+1. 查询 `command.json` 的 `commands` 数组
 2. 按名称、描述、分类过滤
-3. 展示前 3-5 个相关命令
+3. 展示最相关的 3-5 个命令
 
 ### 模式 2：智能推荐
 
-**触发条件**："下一步"、"what's next"、"推荐"
+**触发条件**: "下一步", "what's next", "推荐"
 
-**流程**：
+**流程**:
 1. 查询 `command.json` 中命令的 `flow.next_steps`
-2. 解释为什么每个推荐适合当前场景
+2. 解释每个推荐为何适合
 
-### 模式 3：文档查看
+### 模式 3：文档
 
-**触发条件**："怎么用"、"how to use"、"详情"
+**触发条件**: "怎么用", "how to use", "详情"
 
-**流程**：
+**流程**:
 1. 在 `command.json` 中定位命令
 2. 通过 `source` 路径读取源文件
-3. 提供场景化示例
+3. 提供与上下文相关的示例
 
-### 模式 4：新手引导
+### 模式 4：新手入门
 
-**触发条件**："新手"、"getting started"、"常用命令"
+**触发条件**: "新手", "getting started", "常用命令"
 
-**流程**：
+**流程**:
 1. 查询 `essential_commands` 数组
-2. 引导到合适的工作流入口
+2. 引导至合适的工作流入口
 
 ### 模式 5：CCW 命令编排
 
-**触发条件**："ccw "、"自动工作流"、"自动选择工作流"、"帮我规划"
+**触发条件**: "ccw ", "自动工作流", "自动选择工作流", "帮我规划"
 
-**流程**：
+**流程**:
 1. 分析用户意图（任务类型、复杂度、清晰度）
 2. 自动选择工作流级别（1-4 或 Issue）
 3. 基于工作流构建命令链
 4. 获取用户确认
-5. 执行命令链并进行 TODO 追踪
+5. 执行命令链并使用 TODO 进行追踪
 
-**支持的工作流**：
-- **Level 1** (Lite-Lite-Lite)：超简快速任务
-- **Level 2** (Rapid/Hotfix)：Bug 修复、简单功能、文档
-- **Level 2.5** (Rapid-to-Issue)：从快速规划到 Issue 工作流的桥梁
-- **Level 3** (Coupled)：复杂功能，包含规划、执行、审查、测试
-- **Level 3 变体**：
-  - TDD 工作流（测试先行开发）
-  - Test-fix 工作流（调试失败的测试）
-  - Review 工作流（代码审查和修复）
+**支持的工作流**:
+- **Level 1** (Lite-Lite-Lite): 超简单的快速任务
+- **Level 2** (Rapid/Hotfix): Bug 修复、简单功能、文档
+- **Level 2.5** (Rapid-to-Issue): 从快速规划到 Issue 工作流的桥梁
+- **Level 3** (Coupled): 包含规划、执行、审查和测试的复杂功能
+- **Level 3 变体**:
+  - TDD 工作流 (测试驱动开发)
+  - Test-fix 工作流 (调试失败的测试)
+  - Review 工作流 (代码审查和修复)
   - UI 设计工作流
-- **Level 4** (Full)：探索性任务，包含头脑风暴
-- **With-File 工作流**：文档化探索，支持多 CLI 协作
-  - `brainstorm-with-file`：多视角创意生成
-  - `debug-with-file`：假设驱动的调试
-  - `analyze-with-file`：协作分析
-- **Issue 工作流**：批量问题发现、规划、排队、执行
+- **Level 4** (Full): 带有头脑风暴的探索性任务
+- **With-File 工作流**: 支持多 CLI 协作的文档化探索
+  - `brainstorm-with-file`: 多视角创意构思
+  - `debug-with-file`: 假设驱动的调试
+  - `analyze-with-file`: 协作分析
+- **Issue 工作流**: 批量问题发现、规划、排队和执行
 
 ### 模式 6：问题报告
 
-**触发条件**："ccw-issue"、"报告 bug"
+**触发条件**: "ccw-issue", "报告 bug"
 
-**流程**：
-1. 使用 AskUserQuestion 收集上下文
-2. 生成结构化问题模板
+**流程**:
+1. 使用 `AskUserQuestion` 收集上下文
+2. 生成结构化的问题模板
 
 ## 数据源
 
 唯一数据源：**[command.json](command.json)**
 
 | 字段 | 用途 |
-|------|------|
-| `commands[]` | 带元数据的扁平命令列表 |
-| `commands[].flow` | 关系（next_steps、prerequisites） |
-| `commands[].essential` | 新手引导的必要标记 |
+|-------|---------|
+| `commands[]` | 带有元数据的扁平命令列表 |
+| `commands[].flow` | 关系 (`next_steps`, `prerequisites`) |
+| `commands[].essential` | 用于新手入门的基本标志 |
 | `agents[]` | Agent 目录 |
 | `essential_commands[]` | 核心命令列表 |
 
@@ -147,16 +147,16 @@ CCW 命令帮助系统，提供命令搜索、推荐、文档查看功能。
 
 ### 更新机制
 
-CCW-Help Skill 支持通过用户确认对话框进行手动更新。
+CCW-Help 技能支持通过用户确认对话框进行手动更新。
 
 #### 如何更新
 
-**方式 1：执行 Skill 时会弹出提示：**
+**方式 1：执行技能时，系统将提示用户：**
 
 ```
-Would you like to update CCW-Help command index?
-- Yes: Run auto-update and regenerate command.json
-- No: Use current index
+您想更新 CCW-Help 命令索引吗？
+- 是：运行自动更新并重新生成 command.json
+- 否：使用当前索引
 ```
 
 **方式 2：手动更新**
@@ -166,19 +166,19 @@ cd D:/Claude_dms3/.claude/skills/ccw-help
 python scripts/auto-update.py
 ```
 
-此命令运行 `analyze_commands.py` 扫描 commands/ 和 agents/ 目录并重新生成 `command.json`。
+此操作会运行 `analyze_commands.py` 来扫描 `commands/` 和 `agents/` 目录，并重新生成 `command.json`。
 
 #### 更新脚本
 
-- **`auto-update.py`**：简单封装，运行 analyze_commands.py
-- **`analyze_commands.py`**：扫描目录并生成命令索引
+- **`auto-update.py`**: 运行 `analyze_commands.py` 的简单包装器
+- **`analyze_commands.py`**: 扫描目录并生成命令索引
 
 ## 统计
 
-- **命令数**：50+
-- **Agents**：16
-- **工作流**：6 个主要级别 + 3 个 with-file 变体
-- **核心命令**：10 个
+- **命令**: 50+
+- **Agents**: 16
+- **工作流**: 6 个主要级别 + 3 个 with-file 变体
+- **核心命令**: 10 个
 
 ## 核心原则
 

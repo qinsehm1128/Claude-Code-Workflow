@@ -1,0 +1,281 @@
+---
+title: "需求文档生成器 (Spec Generator)"
+description: "需求文档生成器 - 通过6个阶段的文档链生成产品简报、PRD、架构和史诗故事"
+category: "api"
+locale: "zh"
+order: 17
+---
+
+# 需求文档生成器 (Spec Generator)
+
+需求文档生成器 - 通过6个阶段的文档链生成产品简报、PRD、架构和史诗故事。触发词："generate spec", "create specification", "spec generator", "workflow:spec"。
+
+## 概览
+
+| 属性 | 值 |
+|----------|-------|
+| **名称** | `spec-generator` |
+| **工具** | `Task`, `AskUserQuestion`, `TaskCreate`, `TaskUpdate`, `TaskList`, `Read`, `Write`, `Edit`, `Bash`, `Glob`, `Grep`, `Skill` |
+
+## 参考
+
+# 需求文档生成器 (Spec Generator)
+
+结构化的需求文档生成器，通过 6 个顺序阶段，结合多 CLI 分析和交互式优化，产出一套完整的规约包（产品简报、PRD、架构、史诗故事）。**仅生成文档** - 执行将交接给现有的工作流 (lite-plan, plan, req-plan)。
+
+## 架构概览
+
+```
+阶段 0: 规约学习 (读取 specs/ + templates/ - 强制性先决条件)
+         |
+阶段 1: 发现           -> spec-config.json + discovery-context.json
+         |
+阶段 2: 产品简报       -> product-brief.md  (多CLI并行分析)
+         |
+阶段 3: 需求 (PRD)  -> requirements/  (_index.md + REQ-*.md + NFR-*.md)
+         |
+阶段 4: 架构        -> architecture/  (_index.md + ADR-*.md, 多CLI审查)
+         |
+阶段 5: 史诗 & 故事     -> epics/  (_index.md + EPIC-*.md)
+         |
+阶段 6: 准备就绪检查     -> readiness-report.md + spec-summary.md
+         |
+         交接给执行工作流
+```
+
+## 核心设计原则
+
+1. **文档链**: 每个阶段都基于前一阶段的输出构建，创建从想法到可执行故事的可追溯规约链
+2. **多视角分析**: CLI 工具 (Gemini/Codex/Claude) 并行提供产品、技术和用户视角
+3. **默认交互**: 每个阶段都提供用户确认点；`-y` 标志启用全自动模式
+4. **可恢复会话**: `spec-config.json` 跟踪已完成的阶段；`-c` 标志从上一个检查点恢复
+5. **模板驱动**: 所有文档都从带有 YAML frontmatter 的标准化模板生成
+6. **纯文档生成**: 不生成或执行代码 - 清晰地交接给现有的执行工作流
+
+---
+
+## 强制性先决条件
+
+> **不要跳过**: 在执行任何操作之前，你**必须**完整阅读以下文档。不阅读规约就继续操作将导致输出不符合质量标准。
+
+### 规约文档 (必读)
+
+| 文档 | 目的 | 优先级 |
+|----------|---------|----------|
+| [specs/document-standards.md](specs/document-standards.md) | 文档格式、frontmatter、命名约定 | **P0 - 执行前必读** |
+| [specs/quality-gates.md](specs/quality-gates.md) | 各阶段质量门禁标准和评分 | **P0 - 执行前必读** |
+
+### 模板文件 (生成前必读)
+
+| 文档 | 目的 |
+|----------|---------|
+| [templates/product-brief.md](templates/product-brief.md) | 产品简报文档模板 |
+| [templates/requirements-prd.md](templates/requirements-prd.md) | PRD 文档模板 |
+| [templates/architecture-doc.md](templates/architecture-doc.md) | 架构文档模板 |
+| [templates/epics-template.md](templates/epics-template.md) | 史诗/故事文档模板 |
+
+---
+
+## 执行流程
+
+```
+输入解析:
+   |- 解析 $ARGUMENTS: 提取想法/主题, 标志 (-y, -c, -m)
+   |- 检测模式: new | continue
+   |- 如果是 continue: 读取 spec-config.json, 从第一个未完成的阶段恢复
+   |- 如果是 new: 进入阶段 1
+
+阶段 1: 发现与种子分析
+   |- Ref: phases/01-discovery.md
+   |- 生成会话 ID: SPEC-{slug}-{YYYY-MM-DD}
+   |- 解析输入 (文本或文件引用)
+   |- Gemini CLI 种子分析 (问题, 用户, 领域, 维度)
+   |- 代码库探索 (条件性，如果检测到项目)
+   |- 用户确认 (交互式, -y 跳过)
+   |- 输出: spec-config.json, discovery-context.json (可选)
+
+阶段 2: 产品简报
+   |- Ref: phases/02-product-brief.md
+   |- 3个并行的 CLI 分析: 产品 (Gemini) + 技术 (Codex) + 用户 (Claude)
+   |- 综合视角: 趋同的主题 + 冲突点
+   |- 交互式优化 (-y 跳过)
+   |- 输出: product-brief.md (来自模板)
+
+阶段 3: 需求 / PRD
+   |- Ref: phases/03-requirements.md
+   |- Gemini CLI: 将目标扩展为功能性 + 非功能性需求
+   |- 为每个需求生成验收标准
+   |- 用户优先级排序: MoSCoW (交互式, -y 自动分配)
+   |- 输出: requirements/ 目录 (_index.md + REQ-*.md + NFR-*.md, 来自模板)
+
+阶段 4: 架构
+   |- Ref: phases/04-architecture.md
+   |- Gemini CLI: 核心组件, 技术栈, ADRs
+   |- 代码库集成映射 (条件性)
+   |- Codex CLI: 架构挑战 + 评审
+   |- 交互式 ADR 决策 (-y 自动接受)
+   |- 输出: architecture/ 目录 (_index.md + ADR-*.md, 来自模板)
+
+阶段 5: 史诗 & 故事
+   |- Ref: phases/05-epics-stories.md
+   |- Gemini CLI: 将需求分组为史诗, MVP 子集标记
+   |- 故事生成: 作为一个...我想要...以便...
+   |- 依赖映射 (Mermaid)
+   |- 交互式验证 (-y 跳过)
+   |- 输出: epics/ 目录 (_index.md + EPIC-*.md, 来自模板)
+
+阶段 6: 准备就绪检查
+   |- Ref: phases/06-readiness-check.md
+   |- 跨文档验证 (完整性, 一致性, 可追溯性)
+   |- 按维度进行质量评分
+   |- 输出: readiness-report.md, spec-summary.md
+   |- 交接选项: lite-plan, req-plan, plan, issue:new, 仅导出, 迭代
+
+完成: 完整的规约包已准备好执行
+
+阶段 6 → 交接桥 (条件性, 基于用户选择):
+   ├─ lite-plan: 提取第一个 MVP 史诗的描述 → 直接文本输入
+   ├─ plan / req-plan: 创建 WFS 会话 + .brainstorming/ 桥接文件
+   │   ├─ guidance-specification.md (从规约输出综合而来)
+   │   ├─ feature-specs/feature-index.json (史诗 → 特性映射)
+   │   └─ feature-specs/F-{num}-{slug}.md (每个史诗一个)
+   ├─ issue:new: 每个史诗创建一个 issue
+   └─ context-search-agent 自动发现 .brainstorming/
+       → context-package.json.brainstorm_artifacts 被填充
+       → action-planning-agent 消费: guidance_spec (P1) → feature_index (P2)
+```
+
+## 目录设置
+
+```javascript
+// 会话 ID 生成
+const slug = topic.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, '-').slice(0, 40);
+const date = new Date().toISOString().slice(0, 10);
+const sessionId = `SPEC-${slug}-${date}`;
+const workDir = `.workflow/.spec/${sessionId}`;
+
+Bash(`mkdir -p "${workDir}"`);
+```
+
+## 输出结构
+
+```
+.workflow/.spec/SPEC-{slug}-{YYYY-MM-DD}/
+├── spec-config.json              # 会话配置 + 阶段状态
+├── discovery-context.json        # 代码库探索结果 (可选)
+├── product-brief.md              # 阶段 2: 产品简报
+├── requirements/                 # 阶段 3: 详细的 PRD (目录)
+│   ├── _index.md                 #   摘要, MoSCoW 表, 可追溯性, 链接
+│   ├── REQ-NNN-{slug}.md         #   单个功能性需求
+│   └── NFR-{type}-NNN-{slug}.md  #   单个非功能性需求
+├── architecture/                 # 阶段 4: 架构决策 (目录)
+│   ├── _index.md                 #   概览, 组件, 技术栈, 链接
+│   └── ADR-NNN-{slug}.md         #   单个架构决策记录 (ADR)
+├── epics/                        # 阶段 5: 史诗/故事分解 (目录)
+│   ├── _index.md                 #   史诗表, 依赖图, MVP 范围
+│   └── EPIC-NNN-{slug}.md        #   包含故事的单个史诗
+├── readiness-report.md           # 阶段 6: 质量报告
+└── spec-summary.md               # 阶段 6: 一页高管摘要
+```
+
+## 状态管理
+
+**spec-config.json** 作为核心状态文件:
+```json
+{
+  "session_id": "SPEC-xxx-2026-02-11",
+  "seed_input": "用户输入文本",
+  "input_type": "text",
+  "timestamp": "ISO8601",
+  "mode": "interactive",
+  "complexity": "moderate",
+  "depth": "standard",
+  "focus_areas": [],
+  "seed_analysis": {
+    "problem_statement": "...",
+    "target_users": [],
+    "domain": "...",
+    "constraints": [],
+    "dimensions": []
+  },
+  "has_codebase": false,
+  "phasesCompleted": [
+    { "phase": 1, "name": "discovery", "output_file": "spec-config.json", "completed_at": "ISO8601" },
+    { "phase": 3, "name": "requirements", "output_dir": "requirements/", "output_index": "requirements/_index.md", "file_count": 8, "completed_at": "ISO8601" }
+  ]
+}
+```
+
+**恢复机制**: `-c|--continue` 标志读取 `spec-config.json.phasesCompleted`, 从第一个未完成的阶段恢复。
+
+## 核心规则
+
+1. **立即开始**: 第一个动作是 TaskCreate 初始化，然后是阶段 0 (规约学习)，然后是阶段 1
+2. **渐进式阶段加载**: 仅在即将执行某个阶段时才读取该阶段的文档
+3. **自动继续**: 所有阶段自主运行；检查 TaskList 以执行下一个待处理阶段
+4. **解析每个输出**: 从每个阶段提取所需数据，作为下一阶段的上下文
+5. **不要停止**: 连续的 6 阶段流水线，直到所有阶段完成或用户退出
+6. **遵守 -y 标志**: 在自动模式下，跳过所有 AskUserQuestion 调用，使用推荐的默认值
+7. **遵守 -c 标志**: 在继续模式下，加载 spec-config.json 并从检查点恢复
+
+## 各阶段参考文档
+
+### 阶段 1: 发现
+| 文档 | 目的 | 何时使用 |
+|----------|---------|-------------|
+| [phases/01-discovery.md](phases/01-discovery.md) | 种子分析和会话设置 | 阶段开始时 |
+| [specs/document-standards.md](specs/document-standards.md) | spec-config.json 的 Frontmatter 格式 | 配置生成时 |
+
+### 阶段 2: 产品简报
+| 文档 | 目的 | 何时使用 |
+|----------|---------|-------------|
+| [phases/02-product-brief.md](phases/02-product-brief.md) | 多 CLI 分析编排 | 阶段开始时 |
+| [templates/product-brief.md](templates/product-brief.md) | 文档模板 | 文档生成时 |
+
+### 阶段 3: 需求
+| 文档 | 目的 | 何时使用 |
+|----------|---------|-------------|
+| [phases/03-requirements.md](phases/03-requirements.md) | PRD 生成工作流 | 阶段开始时 |
+| [templates/requirements-prd.md](templates/requirements-prd.md) | 文档模板 | 文档生成时 |
+
+### 阶段 4: 架构
+| 文档 | 目的 | 何时使用 |
+|----------|---------|-------------|
+| [phases/04-architecture.md](phases/04-architecture.md) | 架构决策工作流 | 阶段开始时 |
+| [templates/architecture-doc.md](templates/architecture-doc.md) | 文档模板 | 文档生成时 |
+
+### 阶段 5: 史诗 & 故事
+| 文档 | 目的 | 何时使用 |
+|----------|---------|-------------|
+| [phases/05-epics-stories.md](phases/05-epics-stories.md) | 史诗/故事分解 | 阶段开始时 |
+| [templates/epics-template.md](templates/epics-template.md) | 文档模板 | 文档生成时 |
+
+### 阶段 6: 准备就绪检查
+| 文档 | 目的 | 何时使用 |
+|----------|---------|-------------|
+| [phases/06-readiness-check.md](phases/06-readiness-check.md) | 跨文档验证 | 阶段开始时 |
+| [specs/quality-gates.md](specs/quality-gates.md) | 质量评分标准 | 验证时 |
+
+### 调试与故障排除
+| 问题 | 解决方案文档 |
+|-------|-------------------|
+| 阶段执行失败 | 参考相关的阶段文档 |
+| 输出不符合预期 | [specs/quality-gates.md](specs/quality-gates.md) |
+| 文档格式问题 | [specs/document-standards.md](specs/document-standards.md) |
+
+## 错误处理
+
+| 阶段 | 错误 | 阻塞? | 操作 |
+|-------|-------|-----------|--------|
+| 阶段 1 | 输入为空 | 是 | 报错并退出 |
+| 阶段 1 | CLI 种子分析失败 | 否 | 使用基本的解析回退方案 |
+| 阶段 2 | 单个 CLI 视角失败 | 否 | 使用可用的视角继续 |
+| 阶段 2 | 所有 CLI 调用失败 | 否 | 从种子分析生成基本简报 |
+| 阶段 3 | Gemini CLI 失败 | 否 | 使用 codex 回退 |
+| 阶段 4 | 架构评审失败 | 否 | 跳过评审，使用初步分析继续 |
+| 阶段 5 | 故事生成失败 | 否 | 生成不含详细故事的史诗 |
+| 阶段 6 | 验证 CLI 失败 | 否 | 使用可用数据生成部分报告 |
+
+### CLI 回退链
+
+Gemini -> Codex -> Claude -> 降级模式 (仅本地分析)

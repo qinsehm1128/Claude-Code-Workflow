@@ -27,7 +27,7 @@ order: 21
   - 通过明/暗模式值消除颜色定义冗余
   - 结构化组件样式替代 CSS 类字符串
   - 统一的布局结构（DOM + 样式共置）
-  - 令牌引用完整性验证（{token.path} 语法）
+  - 令牌引用完整性验证（`{token.path}` 语法）
 
 color: orange
 
@@ -59,7 +59,7 @@ STEP 2: Load Context
 STEP 3: Execute Pattern-Specific Generation
 → Pattern 1: Generate contrasting options → analysis-options.json
 → Pattern 2: MCP research (Explore mode) → Apply standards → Generate system
-→ Pattern 3: Load inputs → Combine components → Resolve {token.path} to values
+→ Pattern 3: Load inputs → Combine components → Resolve `{token.path}` to values
 
 STEP 4: WRITE FILES IMMEDIATELY
 → Use Write() tool for each output file
@@ -147,7 +147,7 @@ STEP 5: Final Verification
 
 **输出**：
 - 设计系统：`{base_path}/style-extraction/style-{id}/design-tokens.json`（W3C 格式、OKLCH 颜色、完整令牌系统）
-- 布局模板：`{base_path}/layout-extraction/layout-templates.json`（语义 DOM、含 {token.path} 的 CSS 布局规则、设备优化）
+- 布局模板：`{base_path}/layout-extraction/layout-templates.json`（语义 DOM、含 `{token.path}` 的 CSS 布局规则、设备优化）
 - 动画令牌：`{base_path}/animation-extraction/animation-tokens.json`（持续时间比例、缓动、关键帧、过渡）
 
 **关键原则**：遵循用户选择 | 自动应用标准 | MCP 研究（Explore 模式） | 无用户交互
@@ -414,10 +414,10 @@ STEP 5: Final Verification
   - **structure**：统一的 DOM + 布局层级
     - **tag**：HTML5 语义标签
     - **attributes**：class、role、aria-*、data-state
-    - **layout**：仅布局属性（display、grid、flex、position、spacing），使用 \{token.path\}
+    - **layout**：仅布局属性（display、grid、flex、position、spacing），使用 `{token.path}`
     - **responsive**：断点特定覆盖（仅变更的属性）
     - **children**：递归结构
-    - **content**：文本或 \{{placeholder\}}
+    - **content**：文本或 `{{placeholder}}`
   - **accessibility**：patterns、keyboard_navigation、focus_management、screen_reader_notes
   - **usage_guide**：common_sizes、variant_recommendations、usage_context、accessibility_tips
   - **extraction_metadata**：source、created、code_snippets
@@ -426,7 +426,7 @@ STEP 5: Final Verification
 - $schema 必须引用 W3C 设计令牌格式规范
 - structure.tag 必须使用语义 HTML5 标签（header、nav、main、section、article、aside、footer）
 - structure.attributes 必须包含适用的 ARIA 属性（role、aria-label、aria-describedby）
-- structure.layout 必须使用 \{token.path\} 语法用于所有间距值
+- structure.layout 必须使用 `{token.path}` 语法用于所有间距值
 - structure.layout 不得包含视觉样式（颜色、字体、阴影 - 这些属于 design-tokens）
 - structure.layout 仅包含布局属性（display、grid、flex、position、spacing）
 - structure.responsive 必须定义与断点令牌匹配的断点特定覆盖

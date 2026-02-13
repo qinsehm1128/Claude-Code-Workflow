@@ -371,7 +371,7 @@ TEST_FOCUS: [Test scenarios]
   - `context.focus_paths`：绝对路径或清晰的相对路径
   - `flow_control.pre_analysis`：包含探索 integration_points 分析
 - IMPL_PLAN.md 在 frontmatter 中包含 workflow_type: "tdd"
-- 任务数 <=18（硬限制合规）
+- 任务数 `<= 18`（硬限制合规）
 
 **红旗检测**（非阻塞警告）：
 - 任务数 >18：`Warning: Task count exceeds hard limit - request re-scope`
@@ -390,7 +390,7 @@ TEST_FOCUS: [Test scenarios]
 1. 每个任务包含完整的 TDD 工作流（内部 Red-Green-Refactor）
 2. 任务结构验证：
    - 所有 IMPL 任务中 `meta.tdd_workflow: true`
-   - `meta.cli_execution_id` 存在（格式：{session_id}-{task_id}）
+   - `meta.cli_execution_id` 存在（格式：`{session_id}-{task_id}`）
    - `meta.cli_execution` 策略已分配（new/resume/fork/merge_fork）
    - `flow_control.implementation_approach` 恰好 3 个步骤
    - 每个步骤有正确的 `tdd_phase`："red"、"green"、"refactor"
@@ -402,7 +402,7 @@ TEST_FOCUS: [Test scenarios]
    - CLI 执行策略根据依赖图正确分配
 4. Agent 分配：所有 IMPL 任务使用 @code-developer
 5. Test-fix 周期：Green 阶段步骤包含带 max_iterations 的 test-fix-cycle 逻辑
-6. 任务数：总任务 <=18（简单+子任务硬限制）
+6. 任务数：总任务 `<= 18`（简单+子任务硬限制）
 7. 用户配置：
    - 执行方法选择反映在任务结构中
    - CLI 工具偏好记录在实现指导中（如果选择了 CLI）
@@ -432,7 +432,7 @@ jq '{id, tdd: .meta.tdd_workflow, cli_id: .meta.cli_execution_id, phases: [.flow
 | 证据类型 | 验证方法 | 通过标准 |
 |---------|---------|---------|
 | 文件存在 | `ls -la` artifacts | 所有文件存在 |
-| 任务数 | 计数 IMPL-*.json | 数量与声明匹配（<=18） |
+| 任务数 | 计数 IMPL-*.json | 数量与声明匹配（`<= 18`） |
 | TDD 结构 | jq 样本提取 | 显示 red/green/refactor + cli_execution_id |
 | CLI 执行 ID | jq 提取 | 所有任务有 cli_execution_id |
 | 警告日志 | 检查 tdd-warnings.log | 已记录（可能为空） |

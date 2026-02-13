@@ -1,0 +1,369 @@
+---
+title: "工作流测试修复 (Workflow Test Fix)"
+description: "统一的测试修复流水线，结合了测试生成（会话、上下文、分析、任务生成）和迭代测试周期执行（自适应策略、渐进式测试）"
+category: "api"
+locale: "zh"
+order: 26
+---
+
+# 工作流测试修复 (Workflow Test Fix)
+
+统一的测试修复流水线，结合了测试生成（会话、上下文、分析、任务生成）和迭代测试周期执行（自适应策略、渐进式测试、CLI后备）。触发词为 "workflow:test-fix-gen", "workflow:test-cycle-execute", "test fix workflow"。
+
+## 概述
+
+| 属性 | 值 |
+|----------|-------|
+| **名称** | `workflow-test-fix` |
+| **工具** | `Skill`, `Task`, `AskUserQuestion`, `TaskCreate`, `TaskUpdate`, `TaskList`, `Read`, `Write`, `Edit`, `Bash`, `Glob`, `Grep` |
+
+## 参考
+
+# 工作流测试修复 (Workflow Test Fix)
+
+统一的测试修复编排器，将**测试规划生成**（阶段1）与**迭代测试周期执行**（阶段2）结合成一个端到端的单一流水线。它创建具有 L0-L3 渐进式测试层的测试会话，生成测试任务，然后通过自适应修复周期执行它们，直到通过率 ≥ 95% 或达到最大迭代次数。
+
+## 架构概览
+
+```
+┌───────────────────────────────────────────────────────────────────────────┐
+│  工作流测试修复编排器 (SKILL.md)                                          │
+│  → 纯协调者：路由入口点，跟踪进度，传递上下文                            │
+│  → 两个阶段：生成（阶段1）+ 执行（阶段2）                                  │
+└──────────────────────────────────┬────────────────────────────────────────┘
+                                   │
+       ┌───────────────────────────┼────────────────────────────┐
+       ↓                                                        ↓
+┌──────────────────────┐                          ┌──────────────────────┐
+│  阶段1：测试生成     │                          │  阶段2：测试周期     │
+│  (test-fix-gen)      │─── testSessionId ───────→│(test-cycle-execute)  │
+│                      │                          │                      │
+│  1. 会话创建         │                          │  1. 发现             │
+│  2. 上下文收集       │                          │  2. 初始执行         │
+│  3. 测试分析         │                          │  3. 修复循环         │
+│  4. 任务生成         │                          │  4. 完成             │
+│  5. 总结             │                          │                      │
+└──────────────────────┘                          └──────────────────────┘
+     sessionId                                       pass_rate >= 95%
+     contextPath                                     或 max iterations
+     IMPL_PLAN.md
+     IMPL-*.json
+
+任务流水线 (在阶段1中生成，在阶段2中执行):
+┌──────────────┐   ┌─────────────────┐   ┌─────────────────┐   ┌──────────────┐
+│  IMPL-001    │──→│  IMPL-001.3     │──→│  IMPL-001.5     │──→│  IMPL-002    │
+│  测试生成    │   │  代码验证       │   │  质量门         │   │  测试 & 修复 │
+│  L1-L3       │   │  L0 + AI 问题   │   │  覆盖率 80%+    │   │  最大 N 次迭代│
+│@code-developer│  │ @test-fix-agent │   │ @test-fix-agent │   │@test-fix-agent│
+└──────────────┘   └─────────────────┘   └─────────────────┘   └──────────────┘
+```
+
+## 关键设计原则
+
+1.  **统一流水线**: 生成和执行是一个连续的工作流 - 无需手动交接。
+2.  **纯粹编排器**: SKILL.md 仅进行协调 - 将所有执行细节委托给阶段文件。
+3.  **自动继续**: 阶段1完成后 → 阶段2自动开始。
+4.  **任务附加/折叠**: 在阶段执行期间附加子任务，完成后折叠。
+5.  **渐进式阶段加载**: 阶段文档**仅**在该阶段执行时读取，而不是预先读取。
+6.  **自适应策略**: 修复循环根据迭代上下文自动选择策略（保守/激进/外科手术式）。
+7.  **质量门**: 通过率 ≥ 95%（考虑关键性）终止修复循环。
+8.  **保留原始命令**: 阶段文件保留完整的原始命令内容和 Skill() 调用。
+
+## 用法
+
+```bash
+# 完整流水线：生成 + 执行
+/workflow:test-fix-gen "测试用户认证 API"
+/workflow:test-fix-gen WFS-user-auth-v2
+
+# 仅执行（从已有生成任务的测试会话恢复）
+/workflow:test-cycle-execute
+/workflow:test-cycle-execute --resume-session="WFS-test-user-auth"
+/workflow:test-cycle-execute --max-iterations=15
+```
+
+## 自动模式
+
+当使用 `--yes` 或 `-y` 时：自动选择第一个活动会话，跳过确认，成功时自动完成。
+
+## 执行流程
+
+```
+入口点检测:
+   ├─ /workflow:test-fix-gen → 完整流水线 (阶段 1 → 阶段 2)
+   └─ /workflow:test-cycle-execute → 仅执行 (阶段 2)
+
+阶段 1: 测试生成 (test-fix-gen)
+   └─ 参考: phases/01-test-fix-gen.md
+      ├─ 步骤 1.1: 检测输入模式 (会话 | 提示)
+      ├─ 步骤 1.2: 创建测试会话 → testSessionId
+      ├─ 步骤 1.3: 收集测试上下文 → contextPath
+      ├─ 步骤 1.4: 测试分析 (Gemini) → TEST_ANALYSIS_RESULTS.md
+      ├─ 步骤 1.5: 生成测试任务 → IMPL_PLAN.md, IMPL-*.json, TODO_LIST.md
+      └─ 输出: testSessionId, 4+ 任务 JSON
+         → 自动继续到阶段 2
+
+阶段 2: 测试周期执行 (test-cycle-execute)
+   └─ 参考: phases/02-test-cycle-execute.md
+      ├─ 步骤 2.1: 发现 (加载会话、任务、迭代状态)
+      ├─ 步骤 2.2: 执行初始任务 (IMPL-001 → 001.3 → 001.5 → 002)
+      ├─ 步骤 2.3: 修复循环 (如果 pass_rate < 95%)
+      │   ├─ 选择策略: 保守/激进/外科手术式
+      │   ├─ 通过 @cli-planning-agent 生成修复任务
+      │   ├─ 通过 @test-fix-agent 执行修复
+      │   └─ 重新测试 → 循环或退出
+      └─ 步骤 2.4: 完成 (总结, 会话归档)
+         └─ 输出: 最终通过率, 总结
+```
+
+**阶段参考文档** (在阶段执行时按需读取):
+
+| 阶段 | 文档 | 目的 |
+|-------|----------|---------|
+| 1 | [phases/01-test-fix-gen.md](phases/01-test-fix-gen.md) | 创建测试会话，收集上下文，分析，生成任务 |
+| 2 | [phases/02-test-cycle-execute.md](phases/02-test-cycle-execute.md) | 执行任务，迭代修复周期，完成 |
+
+## 核心规则
+
+1.  **立即开始**: 第一个动作是 TaskCreate 初始化，第二个动作是阶段 1（或对于仅执行的入口是阶段 2）。
+2.  **无初步分析**: 在开始阶段之前不读取文件或收集上下文。
+3.  **解析每个输出**: 从每个步骤的输出中提取所需数据以供下一步使用。
+4.  **自动继续**: 阶段 1 → 阶段 2 自动进行（对于完整流水线入口）。
+5.  **跟踪进度**: 使用任务附加/折叠模式动态更新 TaskCreate/TaskUpdate。
+6.  **任务附加模型**: 在阶段中**附加**子任务，完成后**折叠**。
+7.  **不要停止**: 连续工作流，直到满足质量门或达到最大迭代次数。
+8.  **渐进式加载**: **仅**在即将执行该阶段时才读取阶段文档。
+9.  **入口点路由**: `/workflow:test-fix-gen` → 阶段 1 + 阶段 2; `/workflow:test-cycle-execute` → 仅阶段 2。
+
+## 输入处理
+
+### test-fix-gen 入口 (完整流水线)
+```
+用户输入 → 检测类型:
+  ├─ 以 "WFS-" 开始 → MODE=session, sourceSessionId=input
+  ├─ 以 ".md" 结束    → MODE=prompt, description=Read(input)
+  └─ 否则          → MODE=prompt, description=input
+```
+
+### test-cycle-execute 入口 (仅阶段 2)
+```
+参数 → 解析标志:
+  ├─ --resume-session="WFS-xxx" → sessionId=WFS-xxx
+  ├─ --max-iterations=N         → maxIterations=N (默认: 10)
+  └─ (无参数)                  → 自动发现活动的测试会话
+```
+
+## 数据流
+
+```
+用户输入 (会话 ID | 描述 | 文件路径)
+    ↓
+[检测模式: 会话 | 提示]
+    ↓
+阶段 1: 测试生成 ─────────────────────────────────────────
+    ↓ 1.1: session:start → testSessionId
+    ↓ 1.2: test-context-gather/context-gather → contextPath
+    ↓ 1.3: test-concept-enhanced → TEST_ANALYSIS_RESULTS.md
+    ↓ 1.4: test-task-generate → IMPL_PLAN.md, IMPL-*.json, TODO_LIST.md
+    ↓ 1.5: 总结下一步
+    ↓
+阶段 2: 测试周期执行 ────────────────────────────────────
+    ↓ 2.1: 加载会话 + 任务 + 迭代状态
+    ↓ 2.2: 执行 IMPL-001 → 001.3 → 001.5 → 002
+    ↓ 2.3: 修复循环 (分析 → 修复 → 重测) 直到 pass_rate >= 95%
+    ↓ 2.4: 完成 → 总结 → 会话归档
+```
+
+## 测试策略概述
+
+渐进式测试层 (L0-L3):
+
+| 层级 | 名称 | 关注点 |
+|-------|------|-------|
+| **L0** | 静态分析 | 编译、导入、类型、AI 代码问题 |
+| **L1** | 单元测试 | 函数/类行为 (正常/异常/边界情况) |
+| **L2** | 集成测试 | 组件交互、API 契约、失败模式 |
+| **L3** | E2E 测试 | 用户旅程、关键路径 (可选) |
+
+**质量阈值**:
+- 代码验证 (IMPL-001.3): 零 CRITICAL 问题，零编译错误
+- 最低覆盖率: 80% 行, 70% 分支
+- 静态分析 (IMPL-001.5): 零关键反模式
+- 通过率门槛: >= 95% (考虑关键性) 或 100%
+- 最大修复迭代次数: 10 (默认, 可调)
+
+## 策略引擎 (阶段 2)
+
+| 策略 | 触发条件 | 行为 |
+|----------|---------|----------|
+| **保守** | 迭代 1-2 (默认) | 单一目标修复，完全验证 |
+| **激进** | 通过率 >80% + 类似失败 | 批量修复相关问题 |
+| **外科手术式** | 检测到回归 (通过率下降 >10%) | 最小化更改，关注回滚 |
+
+选择逻辑和 CLI 后备链 (Gemini → Qwen → Codex) 在阶段 2 中有详细说明。
+
+## Agent 角色
+
+| Agent | 使用于 | 职责 |
+|-------|---------|---------------|
+| **编排器** | 两个阶段 | 路由入口，跟踪进度，传递上下文 |
+| **@code-developer** | 阶段 2 (IMPL-001) | 测试生成 (L1-L3) |
+| **@test-fix-agent** | 阶段 2 | 测试执行，代码修复，关键性分配 |
+| **@cli-planning-agent** | 阶段 2 (修复循环) | CLI 分析，根本原因提取，修复任务生成 |
+
+## TodoWrite 模式
+
+**核心概念**: 带有附加/折叠功能的动态任务跟踪，以实现实时可见性。
+
+> **实现说明**: 阶段文件使用 `TodoWrite` 语法来描述概念上的跟踪模式。在运行时，这些通过允许工具列表中的 `TaskCreate/TaskUpdate/TaskList` 工具实现。将 `TodoWrite` 示例如下映射：
+> - 初始列表创建 → 为每个项目 `TaskCreate`
+> - 状态变更 → `TaskUpdate({ taskId, status })`
+> - 子任务附加 → `TaskCreate` + `TaskUpdate({ addBlockedBy })`
+> - 子任务折叠 → `TaskUpdate({ status: "completed" })` + `TaskUpdate({ status: "deleted" })` 用于折叠的子项
+
+### 完整流水线 (阶段 1 + 阶段 2)
+
+```json
+[
+  {"content": "阶段 1: 测试生成", "status": "in_progress"},
+  {"content": "  → 创建测试会话", "status": "in_progress"},
+  {"content": "  → 收集测试上下文", "status": "pending"},
+  {"content": "  → 测试分析 (Gemini)", "status": "pending"},
+  {"content": "  → 生成测试任务", "status": "pending"},
+  {"content": "阶段 2: 测试周期执行", "status": "pending"}
+]
+```
+
+### 阶段 1 折叠 → 阶段 2 激活
+
+```json
+[
+  {"content": "阶段 1: 测试生成", "status": "completed"},
+  {"content": "阶段 2: 测试周期执行", "status": "in_progress"},
+  {"content": "  → 执行 IMPL-001 [code-developer]", "status": "in_progress"},
+  {"content": "  → 执行 IMPL-001.3 [test-fix-agent]", "status": "pending"},
+  {"content": "  → 执行 IMPL-001.5 [test-fix-agent]", "status": "pending"},
+  {"content": "  → 执行 IMPL-002 [test-fix-agent]", "status": "pending"},
+  {"content": "  → 修复循环", "status": "pending"}
+]
+```
+
+### 修复循环迭代
+
+```json
+[
+  {"content": "阶段 1: 测试生成", "status": "completed"},
+  {"content": "阶段 2: 测试周期执行", "status": "in_progress"},
+  {"content": "  → 初始任务", "status": "completed"},
+  {"content": "  → 迭代 1: 初始测试 (通过率: 70%, 保守策略)", "status": "completed"},
+  {"content": "  → 迭代 2: 修复验证 (通过率: 82%, 保守策略)", "status": "completed"},
+  {"content": "  → 迭代 3: 批量修复 (通过率: 89%, 激进策略)", "status": "in_progress"}
+]
+```
+
+## 会话文件结构
+
+```
+.workflow/active/WFS-test-{session}/
+├── workflow-session.json              # 会话元数据
+├── IMPL_PLAN.md                       # 测试生成和执行策略
+├── TODO_LIST.md                       # 任务清单
+├── .task/
+│   ├── IMPL-001.json                  # 测试理解 & 生成
+│   ├── IMPL-001.3-validation.json     # 代码验证门
+│   ├── IMPL-001.5-review.json         # 测试质量门
+│   ├── IMPL-002.json                  # 测试执行 & 修复周期
+│   └── IMPL-fix-{N}.json              # 生成的修复任务 (阶段 2 修复循环)
+├── .process/
+│   ├── [test-]context-package.json    # 上下文和覆盖率分析
+│   ├── TEST_ANALYSIS_RESULTS.md       # 测试需求 (L0-L3)
+│   ├── iteration-state.json           # 当前迭代 + 策略 + 卡住的测试
+│   ├── test-results.json              # 最新结果 (通过率, 关键性)
+│   ├── test-output.log                # 完整测试输出
+│   ├── fix-history.json               # 所有修复尝试
+│   ├── iteration-{N}-analysis.md      # CLI 分析报告
+│   └── iteration-{N}-cli-output.txt
+└── .summaries/
+    └── iteration-summaries/
+```
+
+## 错误处理
+
+### 阶段 1 (生成)
+
+| 步骤 | 错误条件 | 操作 |
+|------|----------------|--------|
+| 会话创建 | 源会话未找到 (会话模式) | 返回带会话 ID 的错误 |
+| 会话创建 | 没有已完成的 IMPL 任务 (会话模式) | 返回错误，源不完整 |
+| 上下文收集 | 上下文收集失败 | 返回错误，检查源产物 |
+| 分析 | Gemini 分析失败 | 返回错误，检查上下文包 |
+| 任务生成 | 任务生成失败 | 重试一次，然后返回错误 |
+
+### 阶段 2 (执行)
+
+| 场景 | 操作 |
+|----------|--------|
+| 测试执行错误 | 记录日志，带错误上下文重试 |
+| CLI 分析失败 | 后备: Gemini → Qwen → Codex → 手动 |
+| Agent 执行错误 | 保存状态，用简化上下文重试 |
+| 达到最大迭代次数 | 生成失败报告，标记为阻塞 |
+| 检测到回归 | 回滚上次修复，切换到外科手术式策略 |
+| 检测到卡住的测试 | 继续使用替代策略，并记录 |
+
+## 提交策略 (阶段 2)
+
+在关键检查点自动提交:
+1.  **成功迭代后** (通过率增加): `test-cycle: iteration N - strategy (pass: old% → new%)`
+2.  **回滚前** (检测到回归): `test-cycle: rollback iteration N - regression detected`
+
+## 完成条件
+
+| 条件 | 通过率 | 操作 |
+|-----------|-----------|--------|
+| **完全成功** | 100% | 自动完成会话 |
+| **部分成功** | >= 95%, 所有失败项为低关键性 | 自动批准并附审查说明 |
+| **失败** | 最大迭代后 `< 95%` | 失败报告，标记为阻塞 |
+
+## 完成后扩展
+
+完成后，询问用户是否要扩展为 issue (测试/增强/重构/文档)。所选项调用 `/issue:new "{summary} - {dimension}"`。
+
+## 协调器清单
+
+### 阶段 1 (test-fix-gen)
+- [ ] 检测输入类型 (会话 ID / 描述 / 文件路径)
+- [ ] 在任何执行前初始化 TaskCreate
+- [ ] 读取阶段 1 文档，执行所有 5 个内部步骤
+- [ ] 从步骤输出中解析 testSessionId，存储在内存中
+- [ ] 验证所有阶段 1 输出 (4个任务 JSON, IMPL_PLAN.md, TODO_LIST.md)
+- [ ] 折叠阶段 1 任务，自动继续到阶段 2
+
+### 阶段 2 (test-cycle-execute)
+- [ ] 读取阶段 2 文档
+- [ ] 加载会话、任务、迭代状态
+- [ ] 顺序执行初始任务
+- [ ] 从 test-results.json 计算通过率
+- [ ] 如果 `pass_rate < 95%`：进入修复循环
+- [ ] 跟踪迭代次数、卡住的测试、回归
+- [ ] 如果 pass_rate >= 95% 或达到最大迭代次数: 完成
+- [ ] 生成完成总结
+- [ ] 提供完成后扩展选项
+
+## 相关技能
+
+**前置技能**:
+- `/workflow:plan` 或 `/workflow:execute` - 完整实现 (会话模式来源)
+- 无 (提示模式)
+
+**执行期间调用**:
+- `/workflow:session:start` - 阶段 1: 创建测试会话
+- `/workflow:tools:test-context-gather` - 阶段 1 (会话模式)
+- `/workflow:tools:context-gather` - 阶段 1 (提示模式)
+- `/workflow:tools:test-concept-enhanced` - 阶段 1: Gemini 分析
+- `/workflow:tools:test-task-generate` - 阶段 1: 任务生成
+- `/workflow:session:complete` - 阶段 2: 归档会话
+
+**后续技能**:
+- `/workflow:status` - 审查工作流状态
+- `/workflow:review` - 实现后审查
+- `/issue:new` - 创建后续 issue

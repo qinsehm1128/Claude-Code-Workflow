@@ -1,6 +1,6 @@
 ---
 title: "Action Planning Agent"
-description: "纯执行代理，基于提供的需求和控制标志创建实施计划。该代理在不涉及复杂决策逻辑的情况下执行规划任务——从命令层接收上下文和标志，并生成可操作的开发计划。"
+description: "纯执行 Agent，基于提供的需求和控制标志创建实施计划。该 Agent 在不涉及复杂决策逻辑的前提下执行规划任务。"
 category: "api"
 locale: "zh"
 order: 2
@@ -8,15 +8,15 @@ order: 2
 
 # Action Planning Agent
 
-纯执行代理，基于提供的需求和控制标志创建实施计划。该代理在不涉及复杂决策逻辑的情况下执行规划任务——从命令层接收上下文和标志，并生成可操作的开发计划。
+纯执行 Agent，基于提供的需求和控制标志创建实施计划。该 Agent 在不涉及复杂决策逻辑的前提下执行规划任务——从命令层接收上下文和标志，并生成可操作的开发计划。
 
-## 概述
+## 概览
 
 | 属性 | 值 |
 |----------|-------|
 | **名称** | `action-planning-agent` |
 | **颜色** | blue |
-| **工具** | `Glob`, `Grep`, `Read`, `mcp__exa__get_code_context_exa`, `mcp__exa__web_search_exa` |
+| **工具** | `Glob`, `Grep`, `Read`, `mcp__exa__get_code_context_exa`, `mcp__exa__web_search_exa`, `mcp__xxx__yyy` |
 
 ## 核心能力
 
@@ -28,18 +28,19 @@ order: 2
 
 ## 详细参考
 
-## 概述
+## 概览
 
-**代理角色**: 纯执行代理，将用户需求和头脑风暴产物转化为结构化的、可执行的实施计划，包含量化的交付物和可衡量的验收标准。从命令层接收需求和控制标志，在不涉及复杂决策逻辑的情况下执行规划任务。
+**代理角色**: 纯粹的执行代理，将用户需求和头脑风暴产物转化为结构化的、可执行的实施计划，包含量化的交付物和可衡量的验收标准。从命令层接收需求和控制标志，并执行规划任务，不涉及复杂的决策逻辑。
 
 **核心能力**:
-- 从多个来源加载和综合上下文（会话元数据、上下文包、头脑风暴产物）
-- 生成具有 6 字段模式和产物集成的任务 JSON 文件
+- 从多个来源加载和整合上下文（会话元数据、上下文包、头脑风暴产物）
+- 生成具有统一扁平模式 (task-schema.json) 和产物集成的任务 JSON 文件
+- 生成 plan.json (plan-overview-base-schema) 作为机器可读的计划概览
 - 创建包含正确链接的 IMPL_PLAN.md 和 TODO_LIST.md
-- 支持代理模式和 CLI 执行模式工作流
+- 支持代理模式 (agent-mode) 和 CLI 执行模式 (CLI-execute-mode) 的工作流
 - 集成 MCP 工具以增强上下文收集
 
-**核心原则**: 所有任务规格必须量化，包含明确的计数、枚举和可衡量的验收标准，以消除歧义。
+**核心原则**: 所有任务规格都必须通过明确的计数、枚举和可衡量的验收标准进行量化，以消除歧义。
 
 ---
 
@@ -47,7 +48,7 @@ order: 2
 
 ### 1.1 输入处理
 
-**从命令层接收的内容：**
+**从命令层接收的内容:**
 - **会话路径**: 用于自主加载内容的文件路径
   - `session_metadata_path`: 会话配置和用户输入
   - `context_package_path`: 包含头脑风暴产物目录的上下文包
@@ -55,7 +56,7 @@ order: 2
   - `session_id`: 工作流会话标识符 (WFS-[topic])
   - `mcp_capabilities`: 可用的 MCP 工具 (exa_code, exa_web, code_index)
 
-**遗留支持**（向后兼容）：
+**遗留支持** (向后兼容):
 - **pre_analysis 配置**: 包含 action、template、method 字段的多步骤数组格式
 - **控制标志**: DEEP_ANALYSIS_REQUIRED 等
 - **任务需求**: 直接的任务描述
@@ -67,61 +68,69 @@ order: 2
 **逐步执行**:
 
 ```
-0. 加载规划笔记 → 提取阶段级约束 (NEW)
-   Commands: Read('.workflow/active/{session-id}/planning-notes.md')
-   Output: 来自所有工作流阶段的整合约束
-   Structure:
-     - User Intent: 原始 GOAL、KEY_CONSTRAINTS
-     - Context Findings: 关键文件、架构注释、约束
-     - Conflict Decisions: 已解决的冲突、修改后的产物
-     - Consolidated Constraints: 所有约束的编号列表（阶段 1-3）
+0. 加载规划笔记 → 提取阶段级约束 (新)
+   命令: Read('.workflow/active/{session-id}/planning-notes.md')
+   输出: 来自所有工作流阶段的整合约束
+   结构:
+     - 用户意图: 原始目标、关键约束
+     - 上下文发现: 关键文件、架构说明、约束
+     - 冲突决策: 已解决的冲突、修改后的产物
+     - 整合约束: 所有约束的编号列表 (阶段 1-3)
 
-   USAGE: 这是约束的主要来源。所有任务生成必须遵守这些约束。
+   用法: 这是约束的主要来源。所有任务生成都必须遵守这些约束。
 
 1. 加载会话元数据 → 提取用户输入
-   - User description: 原始任务/功能需求
-   - Project scope: 用户指定的边界和目标
-   - Technical constraints: 用户提供的技术需求
+   - 用户描述: 原始任务/功能需求
+   - 项目范围: 用户指定的边界和目标
+   - 技术约束: 用户提供的技术需求
 
 2. 加载上下文包 → 提取结构化上下文
-   Commands: Read({{context_package_path}})
-   Output: 完整的上下文包对象
+   命令: Read({{context_package_path}})
+   输出: 完整的上下文包对象
 
-3. 检查现有计划（如果是恢复操作）
+3. 检查现有计划 (如果是恢复操作)
    - 如果 IMPL_PLAN.md 存在: 读取以保持连续性
-   - 如果任务 JSON 存在: 加载以获取上下文
+   - 如果任务 JSONs 存在: 加载以获取上下文
 
-4. 加载头脑风暴产物（按优先级顺序）
-   a. guidance-specification.md（最高优先级）
+4. 按优先级顺序加载头脑风暴产物
+   a. guidance-specification.md (最高优先级)
       → 整体设计框架和架构决策
-   b. 角色分析（渐进式加载: 按优先级逐步增量加载）
-      → 逐个加载角色分析文件
-      → 原因: 每个 analysis.md 很长；渐进式加载可防止 token 溢出
-   c. 综合输出（如果存在）
-      → 包含澄清说明的集成视图
-   d. 冲突解决（如果 conflict_risk >= medium）
+   b. 功能规格 (通过 feature-index.json 按需加载)
+      → 如果 .brainstorming/feature-specs/feature-index.json 存在:
+        1. 加载 feature-index.json → 获取功能目录 (id, slug, priority, spec_path)
+        2. 仅加载当前任务引用的功能规格 (每个任务 1-2 个)
+        3. 仅在任务涉及共享关注点时加载跨领域规格
+      → 原因: 按需加载将每个任务的上下文从 40K+ 词减少到 3-5K 词
+      → 向后兼容: 如果 feature-index.json 不存在 →
+        回退到角色分析 (按优先级渐进式加载，见 4b-fallback)
+   b-fallback. 角色分析 (遗留，仅当 feature-index.json 不存在时)
+      → 根据需要逐个加载角色分析文件
+      → 渐进式加载可防止 token 溢出
+   c. 综合输出 (如果存在)
+      → 包含澄清的集成视图
+   d. 冲突解决 (如果 conflict_risk ≥ medium)
       → 审查产物中已解决的冲突
 
 5. 可选的 MCP 增强
    → mcp__exa__get_code_context_exa() 获取最佳实践
    → mcp__exa__web_search_exa() 进行外部研究
 
-6. 评估任务复杂度 (simple/medium/complex)
+6. 评估任务复杂度 (简单/中等/复杂)
 ```
 
-**MCP 集成**（当 `mcp_capabilities` 可用时）：
+**MCP 集成** (当 `mcp_capabilities` 可用时):
 
 ```javascript
-// Exa Code Context (mcp_capabilities.exa_code = true)
+// Exa 代码上下文 (mcp_capabilities.exa_code = true)
 mcp__exa__get_code_context_exa(
-  query="TypeScript OAuth2 JWT authentication patterns",
+  query="TypeScript OAuth2 JWT 认证模式",
   tokensNum="dynamic"
 )
 
-// Integration in flow_control.pre_analysis
+// 在 pre_analysis 中集成
 {
   "step": "local_codebase_exploration",
-  "action": "Explore codebase structure",
+  "action": "探索代码库结构",
   "commands": [
     "bash(rg '^(function|class|interface).*[task_keyword]' --type ts -n --max-count 15)",
     "bash(find . -name '*[task_keyword]*' -type f | grep -v node_modules | head -10)"
@@ -130,50 +139,92 @@ mcp__exa__get_code_context_exa(
 }
 ```
 
-**上下文包结构**（字段由 context-search-agent 定义）：
+**上下文包结构** (字段由 context-search-agent 定义):
 
-**始终存在的字段**:
+**始终存在**:
 - `metadata.task_description`: 用户的原始任务描述
 - `metadata.keywords`: 提取的技术关键词
-- `metadata.complexity`: 任务复杂度级别 (simple/medium/complex)
+- `metadata.complexity`: 任务复杂度级别 (简单/中等/复杂)
 - `metadata.session_id`: 工作流会话标识符
-- `project_context.architecture_patterns`: 架构模式 (MVC, Service layer 等)
+- `project_context.architecture_patterns`: 架构模式 (MVC, 服务层等)
 - `project_context.tech_stack`: 语言、框架、库
 - `project_context.coding_conventions`: 命名、错误处理、异步模式
 - `assets.source_code[]`: 相关的现有文件及其路径和元数据
-- `assets.documentation[]`: 参考文档 (CLAUDE.md, API docs)
+- `assets.documentation[]`: 参考文档 (CLAUDE.md, API 文档)
 - `assets.config[]`: 配置文件 (package.json, .env.example)
 - `assets.tests[]`: 测试文件
 - `dependencies.internal[]`: 模块依赖
 - `dependencies.external[]`: 包依赖
-- `conflict_detection.risk_level`: 冲突风险 (low/medium/high)
+- `conflict_detection.risk_level`: 冲突风险 (低/中/高)
 
-**条件存在的字段**（加载前检查是否存在）：
-- `brainstorm_artifacts.guidance_specification`: 整体设计框架（如果存在）
+**条件存在** (加载前检查是否存在):
+- `brainstorm_artifacts.guidance_specification`: 整体设计框架 (如果存在)
   - 检查: `brainstorm_artifacts?.guidance_specification?.exists === true`
   - 内容: 如果 `content` 字段存在则使用，否则从 `path` 加载
-- `brainstorm_artifacts.role_analyses[]`: 角色特定分析（如果数组非空）
-  - 每个角色: `role_analyses[i].files[j]` 包含 `path` 和 `content`
-- `brainstorm_artifacts.synthesis_output`: 综合结果（如果存在）
+- `brainstorm_artifacts.feature_index`: 功能目录索引 (如果是功能模式的头脑风暴)
+  - 检查: `brainstorm_artifacts?.feature_index?.exists === true`
+  - 内容: 包含 `{features[], cross_cutting_specs[]}` 的 JSON - 从 `path` 加载
+  - **存在时**: 使用 feature-index 作为按需加载规格的主要入口点
+- `brainstorm_artifacts.feature_specs[]`: 单个功能规格文件 (来自上下文包)
+  - 每个规格: `feature_specs[i]` 有 `path` 和 `content`
+  - **按需加载**: 仅加载当前任务的功能映射所引用的规格
+  - **注意**: 对于结构化元数据 (`feature_id`, `slug`, `priority`)，请使用 `feature_index.features[]`
+- `brainstorm_artifacts.cross_cutting_specs[]`: 跨领域关注点规格 (来自上下文包)
+  - 每个规格: `cross_cutting_specs[i]` 有 `path` (完整的项目相对路径) 和 `content`
+  - **按需加载**: 仅在任务涉及共享/跨领域关注点时加载
+  - **路径格式注意**: 上下文包使用完整路径 (`.workflow/.../role/file.md`), feature-index.json 使用相对路径 (`role/file.md`)。使用 `endsWith()`进行匹配。
+- `brainstorm_artifacts.role_analyses[]`: 特定角色的分析 (遗留回退，如果数组非空)
+  - 每个角色: `role_analyses[i].files[j]` 有 `path` 和 `content`
+  - **仅在以下情况使用**: `feature_index` 不存在 (向后兼容)
+- `brainstorm_artifacts.synthesis_output`: 综合结果 (如果存在)
   - 检查: `brainstorm_artifacts?.synthesis_output?.exists === true`
   - 内容: 如果 `content` 字段存在则使用，否则从 `path` 加载
-- `conflict_detection.affected_modules[]`: 有潜在冲突的模块（如果风险 >= medium）
+- `conflict_detection.affected_modules[]`: 有潜在冲突的模块 (如果风险 ≥ 中等)
 
 **字段访问示例**:
 ```javascript
-// 始终安全 - 直接字段访问
+// 总是安全的 - 直接字段访问
 const techStack = contextPackage.project_context.tech_stack;
 const riskLevel = contextPackage.conflict_detection.risk_level;
 const existingCode = contextPackage.assets.source_code; // 文件数组
 
-// 条件访问 - 如果可用则使用内容，否则从路径加载
+// 条件性 - 如果内容可用则使用，否则从路径加载
 if (contextPackage.brainstorm_artifacts?.guidance_specification?.exists) {
   const spec = contextPackage.brainstorm_artifacts.guidance_specification;
   const content = spec.content || Read(spec.path);
 }
 
-if (contextPackage.brainstorm_artifacts?.role_analyses?.length > 0) {
-  // 渐进式加载: 按优先级逐步加载角色分析
+// 功能索引驱动的加载 (首选 - 按需加载)
+if (contextPackage.brainstorm_artifacts?.feature_index?.exists) {
+  // 步骤 1: 加载 feature-index.json 以获取目录
+  const featureIndex = JSON.parse(Read(contextPackage.brainstorm_artifacts.feature_index.path));
+
+  // 步骤 2: 仅加载与任务相关的特性规格 (每个任务 1-2 个)
+  const taskFeatureIds = task.artifacts
+    .filter(a => a.type === 'feature_spec')
+    .map(a => a.feature_id);
+  featureIndex.features
+    .filter(f => taskFeatureIds.includes(f.id))
+    .forEach(f => {
+      const specContent = Read(f.spec_path); // 按需：仅此任务需要的内容
+    });
+
+  // 步骤 3: 仅在需要时加载跨领域规格
+  // 注意：feature-index.json 使用相对路径 ("role/file.md"),
+  //       context-package 使用完整路径 (".workflow/.../role/file.md")
+  const crossCuttingFromPackage = contextPackage.brainstorm_artifacts.cross_cutting_specs || [];
+  featureIndex.cross_cutting_specs
+    .filter(cs => task.artifacts.some(a => a.type === 'cross_cutting_spec'))
+    .forEach(cs => {
+      // 由于 feature-index 使用相对路径，因此通过路径后缀匹配
+      const matched = crossCuttingFromPackage.find(pkg => pkg.path.endsWith(cs));
+      if (matched) {
+        const crossCuttingContent = matched.content || Read(matched.path);
+      }
+    });
+
+} else if (contextPackage.brainstorm_artifacts?.role_analyses?.length > 0) {
+  // 回退：遗留的角色分析渐进式加载 (当 feature-index 不存在时)
   contextPackage.brainstorm_artifacts.role_analyses.forEach(role => {
     role.files.forEach(file => {
       const analysis = file.content || Read(file.path); // 逐个加载
@@ -188,84 +239,133 @@ if (contextPackage.brainstorm_artifacts?.role_analyses?.length > 0) {
 
 ```
 1. 综合所有来源的需求
-   - 用户输入（会话元数据）
-   - 头脑风暴产物（指导、角色分析、综合）
-   - 上下文包（项目结构、依赖、模式）
+   - 用户输入 (会话元数据)
+   - 头脑风暴产物 (指导、角色分析、综合)
+   - 上下文包 (项目结构、依赖、模式)
 
-2. 生成任务 JSON 文件
-   - 应用 6 字段模式 (id, title, status, meta, context, flow_control)
-   - 将产物目录集成到 context.artifacts 数组中
+2. 生成任务 JSON 文件 (.task/IMPL-*.json)
+   - 应用统一的扁平模式 (task-schema.json)
+   - 顶层字段: id, title, description, type, scope, depends_on, focus_paths, convergence, files, implementation, pre_analysis, artifacts, inherited, meta, cli_execution
    - 添加量化的需求和可衡量的验收标准
 
-3. 创建 IMPL_PLAN.md
+3. 生成 plan.json (plan-overview-base-schema)
+   - 机器可读的计划概览，包含 task_ids[], shared_context, _metadata
+   - 从上下文包中提取 shared_context (tech_stack, conventions)
+
+4. 创建 IMPL_PLAN.md
    - 加载模板: Read(~/.ccw/workflows/cli-templates/prompts/workflow/impl-plan-template.txt)
    - 遵循模板结构和验证清单
-   - 用综合上下文填充所有 8 个部分
+   - 用整合的上下文填充所有 8 个部分
    - 记录 CCW 工作流阶段进展
    - 更新质量门状态
 
-4. 生成 TODO_LIST.md
-   - 扁平结构 ([ ] 表示待处理, [x] 表示已完成)
-   - 链接到任务 JSON 和摘要
+5. 生成 TODO_LIST.md
+   - 扁平结构 ([ ] 表示待办, [x] 表示已完成)
+   - 链接到任务 JSONs 和摘要
 
-5. 更新会话状态以准备执行
+6. 更新会话状态以准备执行
 ```
-
 ---
 
 ## 2. 输出规格
 
-### 2.1 任务 JSON 模式（6 字段）
+### 2.1 任务 JSON 模式 (统一)
 
-生成单独的 `.task/IMPL-*.json` 文件，具有以下结构：
+生成单独的 `.task/IMPL-*.json` 文件，遵循 `task-schema.json` (`.ccw/workflows/cli-templates/schemas/task-schema.json`)。
 
 #### 顶层字段
 
 ```json
 {
   "id": "IMPL-N",
-  "title": "Descriptive task name",
+  "title": "描述性任务名称",
+  "description": "目标和需求叙述",
   "status": "pending|active|completed|blocked",
+  "type": "feature|bugfix|refactor|test-gen|test-fix|docs",
+  "scope": "src/auth",
+  "action": "Implement|Fix|Refactor",
+  "depends_on": ["IMPL-N"],
+  "focus_paths": ["src/auth", "tests/auth"],
+
+  "convergence": {
+    "criteria": ["实现 3 个功能: 通过 npm test -- auth (退出码 0) 验证"],
+    "verification": "npm test -- auth && ls src/auth/*.ts | wc -l",
+    "definition_of_done": "认证模块功能齐全"
+  },
+
+  "files": [
+    { "path": "src/auth/auth.service.ts", "action": "create", "change": "新的认证服务" },
+    { "path": "src/users/users.service.ts", "action": "modify", "change": "更新 validateUser()" }
+  ],
+  "implementation": ["步骤 1: ...", "步骤 2: ..."],
+  "pre_analysis": [],
+  "artifacts": [],
+  "inherited": { "from": "IMPL-N", "context": ["..."] },
+
   "context_package_path": ".workflow/active/WFS-{session}/.process/context-package.json",
-  "cli_execution_id": "WFS-{session}-IMPL-N",
   "cli_execution": {
+    "id": "WFS-{session}-IMPL-N",
     "strategy": "new|resume|fork|merge_fork",
     "resume_from": "parent-cli-id",
     "merge_from": ["id1", "id2"]
-  }
+  },
+  "meta": { "..." },
+
+  "reference": {},
+  "rationale": {},
+  "risks": [],
+  "test": {}
 }
 ```
 
-**字段说明**:
+**字段描述**:
 - `id`: 任务标识符
-  - 单模块格式: `IMPL-N` (例如 IMPL-001, IMPL-002)
-  - 多模块格式: `IMPL-{prefix}{seq}` (例如 IMPL-A1, IMPL-B1, IMPL-C1)
+  - 单模块格式: `IMPL-N` (例如, IMPL-001, IMPL-002)
+  - 多模块格式: `IMPL-{prefix}{seq}` (例如, IMPL-A1, IMPL-B1, IMPL-C1)
     - 前缀: A, B, C... (按模块检测顺序分配)
     - 序号: 1, 2, 3... (每个模块递增)
-- `title`: 描述性任务名称，概括工作内容
-- `status`: 任务状态 - `pending`（未开始）、`active`（进行中）、`completed`（已完成）、`blocked`（等待依赖）
-- `context_package_path`: 智能上下文包的路径，包含项目结构、依赖和头脑风暴产物目录
-- `cli_execution_id`: 唯一的 CLI 会话 ID（格式: `{session_id}-{task_id}`）
-- `cli_execution`: 基于任务依赖的 CLI 执行策略
+- `title`: 描述性任务名称，总结工作内容
+- `description`: 目标和需求叙述 (散文格式)
+- `status`: 任务状态 - `pending` (未开始), `active` (进行中), `completed` (已完成), `blocked` (等待依赖)
+- `type`: 任务类别，来自 `meta.type` (提升到顶层)
+- `scope`: 目标目录或模块范围
+- `action`: 主要动词 (Implement, Fix, Refactor)
+- `depends_on`: 前置任务 ID
+- `focus_paths`: 目标目录/文件
+- `convergence`: 结构化的完成标准
+  - `criteria`: 可衡量的验收条件
+  - `verification`: 可执行的验证命令
+  - `definition_of_done`: 业务语言的完成定义
+- `files`: 带有结构化元数据的目标文件
+  - `path`: 文件路径
+  - `action`: create/modify/delete
+  - `change`: 变更描述
+- `implementation`: 实现步骤。支持多态项：字符串或带有 `{step, description, tdd_phase, actions, test_fix_cycle}` 的对象
+- `pre_analysis`: 执行前分析步骤
+- `artifacts`: 引用的头脑风暴产物
+- `inherited`: 从父任务继承的上下文
+- `context_package_path`: 智能上下文包的路径
+- `cli_execution`: CLI 执行策略
+  - `id`: 唯一的 CLI 对话 ID (格式: `{session_id}-{task_id}`)
   - `strategy`: 执行模式 (`new`, `resume`, `fork`, `merge_fork`)
-  - `resume_from`: 父任务的 cli_execution_id（用于 resume/fork）
-  - `merge_from`: 父任务的 cli_execution_id 数组（用于 merge_fork）
+  - `resume_from`: 父任务的 cli_execution.id (用于 resume/fork)
+  - `merge_from`: 父任务 cli_execution.id 的数组 (用于 merge_fork)
 
-**CLI 执行策略规则**（必须 - 适用于所有任务）：
+**CLI 执行策略规则** (强制 - 适用于所有任务):
 
 | 依赖模式 | 策略 | CLI 命令模式 |
 |--------------------|----------|---------------------|
-| 无 `depends_on` | `new` | `--id {cli_execution_id}` |
-| 1 个父级，父级有 1 个子级 | `resume` | `--resume {resume_from}` |
-| 1 个父级，父级有 N 个子级 | `fork` | `--resume {resume_from} --id {cli_execution_id}` |
-| N 个父级 | `merge_fork` | `--resume {merge_from.join(',')} --id {cli_execution_id}` |
+| 没有 `depends_on` | `new` | `--id {cli_execution_id}` |
+| 1 个父任务, 父任务有 1 个子任务 | `resume` | `--resume {resume_from}` |
+| 1 个父任务, 父任务有 N 个子任务 | `fork` | `--resume {resume_from} --id {cli_execution_id}` |
+| N 个父任务 | `merge_fork` | `--resume {merge_from.join(',')} --id {cli_execution_id}` |
 
 **策略选择算法**:
 ```javascript
 function computeCliStrategy(task, allTasks) {
-  const deps = task.context?.depends_on || []
+  const deps = task.depends_on || []
   const childCount = allTasks.filter(t =>
-    t.context?.depends_on?.includes(task.id)
+    t.depends_on?.includes(task.id)
   ).length
 
   if (deps.length === 0) {
@@ -273,17 +373,17 @@ function computeCliStrategy(task, allTasks) {
   } else if (deps.length === 1) {
     const parentTask = allTasks.find(t => t.id === deps[0])
     const parentChildCount = allTasks.filter(t =>
-      t.context?.depends_on?.includes(deps[0])
+      t.depends_on?.includes(deps[0])
     ).length
 
     if (parentChildCount === 1) {
-      return { strategy: "resume", resume_from: parentTask.cli_execution_id }
+      return { strategy: "resume", resume_from: parentTask.cli_execution.id }
     } else {
-      return { strategy: "fork", resume_from: parentTask.cli_execution_id }
+      return { strategy: "fork", resume_from: parentTask.cli_execution.id }
     }
   } else {
     const mergeFrom = deps.map(depId =>
-      allTasks.find(t => t.id === depId).cli_execution_id
+      allTasks.find(t => t.id === depId).cli_execution.id
     )
     return { strategy: "merge_fork", merge_from: mergeFrom }
   }
@@ -309,39 +409,39 @@ function computeCliStrategy(task, allTasks) {
 }
 ```
 
-**字段说明**:
-- `type`: 任务类别 - `feature`（新功能）、`bugfix`（修复缺陷）、`refactor`（重构代码）、`test-gen`（生成测试）、`test-fix`（修复失败的测试）、`docs`（文档）
+**字段描述**:
+- `type`: 任务类别 - `feature` (新功能), `bugfix` (修复缺陷), `refactor` (代码重构), `test-gen` (生成测试), `test-fix` (修复失败的测试), `docs` (文档)
 - `agent`: 指定的执行代理
-- `execution_group`: 并行化组 ID（具有相同 ID 的任务可以并发运行）或 `null`（顺序执行的任务）
-- `module`: 多模块项目的模块标识符（例如 `frontend`, `backend`, `shared`）或 `null`（单模块）
-- `execution_config`: CLI 执行设置（必须与 task-generate-agent 的 userConfig 对齐）
-  - `method`: 执行方法 - `agent`（直接）或 `cli`（仅 CLI）。最终任务 JSON 中只有两个值。
-  - `cli_tool`: 首选 CLI 工具 - `codex`, `gemini`, `qwen`, `auto` 或 `null`（仅代理模式）
-  - `enable_resume`: 是否使用 `--resume` 进行 CLI 连续性（默认: true）
-  - `previous_cli_id`: 上一个任务的 CLI 执行 ID，用于恢复（运行时填充）
+- `execution_group`: 并行执行组ID (相同ID的任务可并发运行) 或 `null` 表示顺序任务
+- `module`: 多模块项目的模块标识符 (例如, `frontend`, `backend`, `shared`) 或 `null` 表示单模块
+- `execution_config`: CLI 执行设置 (必须与 task-generate-agent 的 userConfig 对齐)
+  - `method`: 执行方法 - `agent` (直接) 或 `cli` (仅 CLI)。最终任务 JSON 中只有两个值。
+  - `cli_tool`: 首选的 CLI 工具 - `codex`, `gemini`, `qwen`, `auto`, 或 `null` (仅限代理)
+  - `enable_resume`: 是否使用 `--resume` 实现 CLI 连续性 (默认为 true)
+  - `previous_cli_id`: 上一个任务的 CLI 执行 ID，用于恢复 (运行时填充)
 
-**execution_config 对齐规则**（必须）：
+**execution_config 对齐规则** (强制):
 ```
 userConfig.executionMethod → meta.execution_config
 
 "agent" →
   meta.execution_config = { method: "agent", cli_tool: null, enable_resume: false }
-  执行: 代理执行 pre_analysis，然后直接实现 implementation_approach
+  执行: 代理执行 pre_analysis, 然后直接实现 implementation 步骤
 
 "cli" →
   meta.execution_config = { method: "cli", cli_tool: userConfig.preferredCliTool, enable_resume: true }
-  执行: 代理执行 pre_analysis，然后通过 buildCliHandoffPrompt() 将完整上下文交给 CLI
+  执行: 代理执行 pre_analysis, 然后通过 buildCliHandoffPrompt() 将完整上下文传递给 CLI
 
 "hybrid" →
   按任务决策: 根据复杂度为每个任务设置 method 为 "agent" 或 "cli"
-  - 简单任务 (<=3 文件, 简单逻辑) → { method: "agent", cli_tool: null, enable_resume: false }
+  - 简单任务 (≤3 文件, 简单逻辑) → { method: "agent", cli_tool: null, enable_resume: false }
   - 复杂任务 (>3 文件, 复杂逻辑, 重构) → { method: "cli", cli_tool: userConfig.preferredCliTool, enable_resume: true }
-  最终任务 JSON 的 method 始终为 "agent" 或 "cli"，不会是 "hybrid"
+  最终任务 JSON 的 method 总是 "agent" 或 "cli", 绝不是 "hybrid"
 ```
 
-**重要**: implementation_approach 步骤不包含 `command` 字段。执行路由仅由任务级别的 `meta.execution_config.method` 控制。
+**重要**: `implementation` 步骤不包含 `command` 字段。执行路由仅由任务级的 `meta.execution_config.method` 控制。
 
-**测试任务扩展**（适用于 type="test-gen" 或 type="test-fix"）：
+**测试任务扩展** (适用于 type="test-gen" 或 type="test-fix"):
 
 ```json
 {
@@ -355,96 +455,77 @@ userConfig.executionMethod → meta.execution_config
 ```
 
 **测试特定字段**:
-- `test_framework`: 项目现有的测试框架（测试任务必填）
-- `coverage_target`: 目标代码覆盖率百分比（可选）
+- `test_framework`: 项目中现有的测试框架 (测试任务必需)
+- `coverage_target`: 目标代码覆盖率百分比 (可选)
 
-**注意**: 测试修复任务的 CLI 工具使用现在通过任务级别的 `meta.execution_config.method` 控制，而不是通过 `meta.use_codex`。
+**注意**: 测试修复任务的 CLI 工具使用现在通过任务级的 `meta.execution_config.method` 控制，而不是 `meta.use_codex`。
 
-#### Context 对象
+#### 产物映射
+
+所有上下文相关字段 (`description`, `depends_on`, `focus_paths`, `convergence`, `artifacts`, `inherited`) 现在都是任务 JSON 中的 **顶层** 字段。`shared_context` (tech_stack, conventions) 存储在计划级别的 **plan.json** 中，而不是每个任务中。
+
+**量化规则** (应用于顶层字段):
+- `description`: **量化的** 需求叙述 (必须包含明确的计数和枚举列表，例如 "实现 3 个功能: [auth, authz, session]")
+- `convergence.criteria`: **可衡量的** 验收条件 (必须包含验证命令，例如 "通过 ls ... | wc -l = N 验证")
+- `focus_paths`: 目标目录/文件 (具体的路径，不使用通配符)
+
+**产物字段** (`artifacts[]`):
 
 ```json
 {
-  "context": {
-    "requirements": [
-      "Implement 3 features: [authentication, authorization, session management]",
-      "Create 5 files: [auth.service.ts, auth.controller.ts, auth.middleware.ts, auth.types.ts, auth.test.ts]",
-      "Modify 2 existing functions: [validateUser() in users.service.ts lines 45-60, hashPassword() in utils.ts lines 120-135]"
-    ],
-    "focus_paths": ["src/auth", "tests/auth"],
-    "acceptance": [
-      "3 features implemented: verify by npm test -- auth (exit code 0)",
-      "5 files created: verify by ls src/auth/*.ts | wc -l = 5",
-      "Test coverage >=80%: verify by npm test -- --coverage | grep auth"
-    ],
-    "depends_on": ["IMPL-N"],
-    "inherited": {
-      "from": "IMPL-N",
-      "context": ["Authentication system design completed", "JWT strategy defined"]
-    },
-    "shared_context": {
-      "tech_stack": ["Node.js", "TypeScript", "Express"],
-      "auth_strategy": "JWT with refresh tokens",
-      "conventions": ["Follow existing auth patterns in src/auth/legacy/"]
-    },
-    "artifacts": [
-      {
-        "type": "synthesis_specification|topic_framework|individual_role_analysis",
-        "source": "brainstorm_clarification|brainstorm_framework|brainstorm_roles",
-        "path": "{from artifacts_inventory}",
-        "priority": "highest|high|medium|low",
-        "usage": "Architecture decisions and API specifications",
-        "contains": "role_specific_requirements_and_design"
-      }
-    ]
-  }
+  "artifacts": [
+    {
+      "type": "feature_spec|cross_cutting_spec|synthesis_specification|topic_framework|individual_role_analysis",
+      "source": "brainstorm_feature_specs|brainstorm_cross_cutting|brainstorm_clarification|brainstorm_framework|brainstorm_roles",
+      "path": "{来自 feature-index.json 或 artifacts_inventory}",
+      "feature_id": "F-NNN (仅限 feature_spec)",
+      "priority": "highest|high|medium|low",
+      "usage": "功能需求和设计规格"
+    }
+  ]
 }
 ```
 
-**字段说明**:
-- `requirements`: **量化的**实现需求（必须包含明确的计数和枚举列表，例如 "5 files: [list]"）
-- `focus_paths`: 目标目录/文件（不带通配符的具体路径）
-- `acceptance`: **可衡量的**验收标准（必须包含验证命令，例如 "verify by ls ... | wc -l = N"）
-- `depends_on`: 必须在此任务开始之前完成的前置任务 ID
-- `inherited`: 从父任务传递的上下文、模式和依赖
-- `shared_context`: 任务的技术栈、约定和架构策略
-- `artifacts`: 带有详细元数据的头脑风暴输出引用
+**产物映射** (来自上下文包):
+- **功能索引模式** (当 `feature_index` 存在时): 使用 feature-index.json 作为主目录
+- **遗留模式** (回退): 使用上下文包中的 `artifacts_inventory`
 
-**产物映射**（来自上下文包）：
-- 使用上下文包中的 `artifacts_inventory`
-- **优先级级别**:
-  - **最高**: synthesis_specification（包含澄清说明的集成视图）
-  - **高**: topic_framework (guidance-specification.md)
-  - **中**: individual_role_analysis (system-architect, subject-matter-expert 等)
-  - **低**: 辅助文档
+- **产物类型与优先级**:
+  - **`feature_spec`** (最高): 来自 feature-index.json 的功能规格
+    - `{type: "feature_spec", source: "brainstorm_feature_specs", path: "<spec_path>", feature_id: "<F-NNN>", priority: "highest", usage: "<任务特定用途>"}`
+    - 每个任务根据任务范围引用 1-2 个功能规格
+  - **`cross_cutting_spec`** (高): 跨领域关注点规格
+    - `{type: "cross_cutting_spec", source: "brainstorm_cross_cutting", path: "<spec_path>", priority: "high", usage: "<为什么此任务需要它>"}`
+    - 仅在任务涉及共享关注点（如认证、日志、错误处理等）时加载
+  - **`synthesis_specification`** (高): 包含澄清的集成视图
+  - **`topic_framework`** (高): guidance-specification.md
+  - **`individual_role_analysis`** (中): 遗留的角色分析 (system-architect 等)
+  - **低**: 支持性文档
 
-#### Flow Control 对象
+- **任务-功能映射规则** (功能索引模式):
+  1. 读取 feature-index.json 的 `features[]` 数组
+  2. 对于每个任务，通过将任务范围与功能的 `name`/`slug` 匹配，识别 1-2 个主要功能
+  3. 将匹配的功能规格添加为带有 `feature_id` 字段的 `feature_spec` 产物
+  4. 检查匹配功能中的 `cross_cutting_refs`；将引用的跨领域规格添加为 `cross_cutting_spec` 产物
+  5. 结果: 每个任务的 `artifacts[]` 仅包含其所需的规格 (而非所有规格)
 
-**重要**: 下面的 `pre_analysis` 示例仅为**参考模板**。代理必须根据实际任务需求动态选择、适配和扩展步骤。运用**举一反三**的原则——以这些模式为灵感来创建特定于任务的分析步骤。
+#### Pre-Analysis, Implementation & Files 字段
 
-```json
-{
-  "flow_control": {
-    "pre_analysis": [...],
-    "implementation_approach": [...],
-    "target_files": [...]
-  }
-}
-```
+这些字段在任务 JSON 中是 **顶层** 的 (不嵌套在任何包装对象下)。
 
-**测试任务扩展**（适用于 type="test-gen" 或 type="test-fix"）：
+**重要**: 下面的 `pre_analysis` 示例仅为 **参考模板**。代理必须根据实际任务需求动态选择、调整和扩展步骤。应用 **"举一反三"** 的原则 - 使用这些模式作为灵感来创建特定于任务的分析步骤。
+
+**测试任务扩展** (适用于 type="test-gen" 或 type="test-fix"):
 
 ```json
 {
-  "flow_control": {
-    "pre_analysis": [...],
-    "implementation_approach": [...],
-    "target_files": [...],
-    "reusable_test_tools": [
+  "test": {
+    "reusable_tools": [
       "tests/helpers/testUtils.ts",
       "tests/fixtures/mockData.ts",
       "tests/setup/testSetup.ts"
     ],
-    "test_commands": {
+    "commands": {
       "run_tests": "npm test",
       "run_coverage": "npm test -- --coverage",
       "run_specific": "npm test -- {test_file}"
@@ -453,44 +534,76 @@ userConfig.executionMethod → meta.execution_config
 }
 ```
 
-**测试特定字段**:
-- `reusable_test_tools`: 可复用的现有测试工具文件列表（辅助工具、固件、模拟数据）
-- `test_commands`: 来自项目配置的测试执行命令 (package.json, pytest.ini)
+**测试特定字段** (在 `test` 对象中):
+- `reusable_tools`: 要重用的现有测试工具文件列表 (辅助函数, fixtures, mocks)
+- `commands`: 来自项目配置的测试执行命令 (package.json, pytest.ini)
 
 ##### Pre-Analysis 模式
 
 **动态步骤选择指南**:
-- **上下文加载**: 始终包含上下文包和角色分析加载
-- **架构分析**: 对复杂项目添加模块结构分析
+- **上下文加载**: 始终包含上下文包和功能规格加载 (或角色分析回退)
+- **架构分析**: 为复杂项目添加模块结构分析
 - **模式发现**: 根据任务复杂度和可用工具使用 CLI 工具 (gemini/qwen/bash)
-- **技术特定分析**: 对专业任务添加语言/框架特定的搜索
+- **特定技术分析**: 为专门任务添加特定语言/框架的搜索
 - **MCP 集成**: 在可用时利用 MCP 工具增强上下文
 
-**必需步骤**（始终包含）：
+**必需步骤** (始终包含):
 ```json
 [
   {
     "step": "load_context_package",
-    "action": "Load context package for artifact paths and smart context",
+    "action": "加载上下文包以获取产物路径和智能上下文",
     "commands": ["Read({{context_package_path}})"],
     "output_to": "context_package",
     "on_error": "fail"
   },
   {
-    "step": "load_role_analysis_artifacts",
-    "action": "Load role analyses from context-package.json (progressive loading by priority)",
-    "commands": [
-      "Read({{context_package_path}})",
-      "Extract(brainstorm_artifacts.role_analyses[].files[].path)",
-      "Read(extracted paths progressively)"
-    ],
-    "output_to": "role_analysis_artifacts",
+    "step": "load_brainstorm_artifacts",
+    "action": "加载此任务的 artifacts[] 引用的头脑风暴产物",
+    "commands": "<<PLAN-TIME EXPANSION: 替换为具体的 Read() 命令>>",
+    "output_to": "brainstorm_context",
     "on_error": "skip_optional"
   }
 ]
 ```
 
-**可选步骤**（根据任务需要选择和适配）：
+**`load_brainstorm_artifacts` 的计划时扩展规则**:
+
+在生成每个任务 JSON 时，代理必须根据任务的 `artifacts[]` 数组将此模板步骤扩展为具体的 `Read()` 命令。由于代理同时写入 `artifacts[]` 和 `pre_analysis[]`，因此在计划时已知产物路径。
+
+**扩展算法**:
+```javascript
+function expandArtifactLoadStep(taskArtifacts) {
+  const commands = [];
+  // 将每个产物引用扩展为具体的 Read() 命令
+  for (const artifact of taskArtifacts) {
+    commands.push(`Read(${artifact.path})`);
+  }
+  // 回退：如果没有产物，则从上下文包中加载角色分析
+  if (commands.length === 0) {
+    commands.push("Read(brainstorm_artifacts.role_analyses[0].files[0].path)");
+  }
+  return commands;
+}
+```
+
+**示例** - 带有 1 个功能规格 + 1 个跨领域规格的任务:
+```json
+{
+  "step": "load_brainstorm_artifacts",
+  "action": "加载功能规格 F-001 和跨领域架构规格",
+  "commands": [
+    "Read(.brainstorming/feature-specs/F-001-auth.md)",
+    "Read(.brainstorming/system-architect/analysis-cross-cutting.md)"
+  ],
+  "output_to": "brainstorm_context",
+  "on_error": "skip_optional"
+}
+```
+
+**关键**: `pre_analysis.commands[]` 必须只包含 code-developer 可以解析的工具调用格式: `Read(path)`, `bash(cmd)`, `Search(pattern,path)`, `Glob(pattern)`, `mcp__xxx__yyy(args)`。
+
+**可选步骤** (根据任务需求选择和调整):
 
 ```json
 [
@@ -518,7 +631,7 @@ userConfig.executionMethod → meta.execution_config
     "output_to": "analysis_result"
   },
 
-  // 模式: Qwen CLI 分析 (备选/替代)
+  // 模式: Qwen CLI 分析 (回退/替代)
   {
     "step": "qwen_analyze_[aspect]",
     "command": "ccw cli -p '[similar to gemini pattern]' --tool qwen --mode analysis --cd [path]",
@@ -534,16 +647,16 @@ userConfig.executionMethod → meta.execution_config
 ]
 ```
 
-**步骤选择策略**（举一反三原则）：
+**步骤选择策略** (举一反三原则):
 
-上述示例展示的是**模式**，而非固定要求。代理必须：
+以上示例展示的是 **模式**，而非固定的要求。代理必须:
 
-1. **始终包含**（必需）：
-   - `load_context_package` - 所有任务都必需
-   - `load_role_analysis_artifacts` - 对访问头脑风暴见解至关重要
+1. **始终包含** (必需):
+   - `load_context_package` - 对所有任务至关重要
+   - `load_brainstorm_artifacts` - 加载任务 `artifacts[]` 引用的头脑风暴产物；当没有 feature_spec 产物时，回退到角色分析的渐进式加载
 
-2. **渐进式添加分析步骤**：
-   根据需要包含额外的分析步骤以实现全面规划：
+2. **渐进式添加分析步骤**:
+   根据需要添加额外的分析步骤以进行全面规划:
    - **架构分析**: 项目结构 + 架构模式
    - **执行流分析**: 代码追踪 + 质量分析
    - **组件分析**: 组件搜索 + 模式分析
@@ -553,48 +666,48 @@ userConfig.executionMethod → meta.execution_config
 
    默认: 根据规划需求渐进式包含，不受任务类型限制。
 
-3. **工具选择策略**：
-   - **Gemini CLI**: 深度分析（架构、执行流、模式）
-   - **Qwen CLI**: 备选方案或代码质量分析
+3. **工具选择策略**:
+   - **Gemini CLI**: 深度分析 (架构, 执行流, 模式)
+   - **Qwen CLI**: 回退或代码质量分析
    - **Bash/rg/find**: 快速模式匹配和文件发现
    - **MCP 工具**: 语义搜索和外部研究
 
-4. **命令组合模式**：
-   - **单个命令**: `bash([simple_search])`
-   - **多个命令**: `["bash([cmd1])", "bash([cmd2])"]`
+4. **命令组合模式**:
+   - **单命令**: `bash([simple_search])`
+   - **多命令**: `["bash([cmd1])", "bash([cmd2])"]`
    - **CLI 分析**: `ccw cli -p '[prompt]' --tool gemini --mode analysis --cd [path]`
    - **MCP 集成**: `mcp__[tool]__[function]([params])`
 
-**核心原则**: 示例展示的是**结构模式**，而非具体实现。代理必须动态创建适合任务的步骤。
+**核心原则**: 示例展示的是 **结构模式**，而非具体的实现。代理必须动态创建适合任务的步骤。
 
-##### Implementation Approach
+##### Implementation 字段
 
-**执行控制**：
+**执行控制**:
 
-`implementation_approach` 定义了顺序实现步骤。执行路由由**任务级别的 `meta.execution_config.method`** 控制，而非步骤级别的 `command` 字段。
+`implementation` 字段定义了顺序的实现步骤。执行路由由 **任务级的 `meta.execution_config.method`** 控制，而不是由步骤级的 `command` 字段控制。
 
-**两种执行模式**：
+**两种执行模式**:
 
 1. **代理模式** (`meta.execution_config.method = "agent"`):
    - 代理自主解释 `modification_points` 和 `logic_flow`
-   - 具有完整上下文感知的直接代理执行
+   - 具有完全上下文感知的直接代理执行
    - 无外部工具开销
-   - **适用于**: 代理能力足够的标准实现任务
+   - **用于**: 代理能力足够的标准实现任务
 
 2. **CLI 模式** (`meta.execution_config.method = "cli"`):
-   - 代理执行 `pre_analysis`，然后通过 `buildCliHandoffPrompt()` 将完整上下文交给 CLI
+   - 代理执行 `pre_analysis`, 然后通过 `buildCliHandoffPrompt()` 将完整上下文传递给 CLI
    - CLI 工具在 `meta.execution_config.cli_tool` 中指定 (codex/gemini/qwen)
-   - 利用专业 CLI 工具进行复杂推理
-   - **适用于**: 大规模功能、复杂重构或当 userConfig.executionMethod = "cli" 时
+   - 利用专门的 CLI 工具进行复杂推理
+   - **用于**: 大规模功能、复杂重构，或当 userConfig.executionMethod = "cli" 时
 
-**步骤模式**（两种模式相同）：
+**步骤模式** (两种模式相同):
 ```json
 {
   "step": 1,
-  "title": "Step title",
-  "description": "What to implement (may use [variable] placeholders from pre_analysis)",
-  "modification_points": ["Quantified changes: [list with counts]"],
-  "logic_flow": ["Implementation sequence"],
+  "title": "步骤标题",
+  "description": "要实现什么 (可以使用来自 pre_analysis 的 [variable] 占位符)",
+  "modification_points": ["量化的变更: [带计数的列表]"],
+  "logic_flow": ["实现顺序"],
   "depends_on": [0],
   "output": "variable_name"
 }
@@ -602,45 +715,45 @@ userConfig.executionMethod → meta.execution_config
 
 **必填字段**: `step`, `title`, `description`, `modification_points`, `logic_flow`, `depends_on`, `output`
 
-**重要**: 不要向 implementation_approach 步骤添加 `command` 字段。执行路由仅由任务级别的 `meta.execution_config.method` 决定。
+**重要**: 不要在 implementation 步骤中添加 `command` 字段。执行路由仅由任务级的 `meta.execution_config.method` 决定。
 
-**示例**：
+**示例**:
 
 ```json
 [
   {
     "step": 1,
-    "title": "Load and analyze role analyses",
-    "description": "Load role analysis files and extract quantified requirements",
+    "title": "加载并分析角色分析",
+    "description": "加载角色分析文件并提取量化的需求",
     "modification_points": [
-      "Load N role analysis files: [list]",
-      "Extract M requirements from role analyses",
-      "Parse K architecture decisions"
+      "加载 N 个角色分析文件: [列表]",
+      "从角色分析中提取 M 个需求",
+      "解析 K 个架构决策"
     ],
     "logic_flow": [
-      "Read role analyses from artifacts inventory",
-      "Parse architecture decisions",
-      "Extract implementation requirements",
-      "Build consolidated requirements list"
+      "从产物清单中读取角色分析",
+      "解析架构决策",
+      "提取实现需求",
+      "构建整合的需求列表"
     ],
     "depends_on": [],
     "output": "synthesis_requirements"
   },
   {
     "step": 2,
-    "title": "Implement following specification",
-    "description": "Implement features following consolidated role analyses",
+    "title": "按照规格实现",
+    "description": "按照整合的角色分析实现功能",
     "modification_points": [
-      "Create N new files: [list with line counts]",
-      "Modify M functions: [func() in file lines X-Y]",
-      "Implement K core features: [list]"
+      "创建 N 个新文件: [带行数的列表]",
+      "修改 M 个函数: [文件中的 func() 行 X-Y]",
+      "实现 K 个核心功能: [列表]"
     ],
     "logic_flow": [
-      "Apply requirements from [synthesis_requirements]",
-      "Implement features across new files",
-      "Modify existing functions",
-      "Write test cases covering all features",
-      "Validate against acceptance criteria"
+      "应用来自 [synthesis_requirements] 的需求",
+      "在多个新文件中实现功能",
+      "修改现有函数",
+      "编写覆盖所有功能的测试用例",
+      "根据验收标准进行验证"
     ],
     "depends_on": [1],
     "output": "implementation"
@@ -648,245 +761,271 @@ userConfig.executionMethod → meta.execution_config
 ]
 ```
 
-##### Target Files
+##### Files 字段
+
+`files[]` 数组指定了带有结构化元数据的目标文件 (参见上面任务 JSON 模式中的顶层 `files` 字段)。
+
+**格式**:
+- 每个条目: `{ "path": "...", "action": "create|modify|delete", "change": "..." }`
+- 新文件: `action: "create"`
+- 有修改的现有文件: `action: "modify"` 并附带变更描述
+- 要删除的文件: `action: "delete"`
+
+### 2.2 plan.json 结构
+
+在 `.workflow/active/{session_id}/plan.json` 处生成，遵循 `plan-overview-base-schema.json`:
 
 ```json
 {
-  "target_files": [
-    "src/auth/auth.service.ts",
-    "src/auth/auth.controller.ts",
-    "src/auth/auth.middleware.ts",
-    "src/auth/auth.types.ts",
-    "tests/auth/auth.test.ts",
-    "src/users/users.service.ts:validateUser:45-60",
-    "src/utils/utils.ts:hashPassword:120-135"
-  ]
+  "summary": "简要计划描述",
+  "approach": "实现方法叙述",
+  "task_ids": ["IMPL-001", "IMPL-002"],
+  "task_count": 2,
+  "complexity": "Low|Medium|High",
+  "estimated_time": "估算时间字符串",
+  "recommended_execution": "Sequential|Parallel|Phased",
+  "shared_context": {
+    "tech_stack": ["TypeScript", "React", "Node.js"],
+    "conventions": ["ESLint", "Prettier", "Jest"]
+  },
+  "_metadata": {
+    "timestamp": "ISO-8601",
+    "source": "action-planning-agent",
+    "planning_mode": "agent-based",
+    "plan_type": "feature",
+    "schema_version": "2.0"
+  }
 }
 ```
 
-**格式**:
-- 新文件: `file_path`
-- 需要修改的现有文件: `file_path:function_name:line_range`
+**数据来源**:
+- `task_ids`: 从生成的 `.task/IMPL-*.json` 文件中收集
+- `shared_context.tech_stack`: 来自 `contextPackage.project_context.tech_stack`
+- `shared_context.conventions`: 来自 `contextPackage.project_context.coding_conventions`
+- `complexity`: 来自 `analysis_results.complexity` 或任务计数启发式
+- `recommended_execution`: 基于任务依赖图分析
 
-### 2.2 IMPL_PLAN.md 结构
+**生成时机**: 在所有 `.task/IMPL-*.json` 文件生成后，聚合成 plan.json。
 
-**基于模板的生成**：
+### 2.3 IMPL_PLAN.md 结构
+
+**基于模板的生成**:
 
 ```
 1. 加载模板: Read(~/.ccw/workflows/cli-templates/prompts/workflow/impl-plan-template.txt)
-2. 按模板结构填充所有部分
+2. 按照模板结构填充所有部分
 3. 完成模板验证清单
 4. 在 .workflow/active/{session_id}/IMPL_PLAN.md 生成
 ```
 
 **数据来源**:
-- 会话元数据（用户需求、session_id）
-- 上下文包（项目结构、依赖、focus_paths）
-- 分析结果（技术方案、架构决策）
-- 头脑风暴产物（角色分析、指导规格）
+- 会话元数据 (用户需求, session_id)
+- 上下文包 (项目结构, 依赖, focus_paths)
+- 分析结果 (技术方法, 架构决策)
+- 头脑风暴产物 (角色分析, 指导规格)
 
-**多模块格式**（检测到多个模块时）：
+**多模块格式** (当检测到模块时):
 
-当检测到多个模块（frontend/backend 等）时，按模块组织 IMPL_PLAN.md：
+当检测到多个模块 (前端/后端等) 时，按模块组织 IMPL_PLAN.md:
 
 ```markdown
-# Implementation Plan
+# 实现计划
 
-## Module A: Frontend (N tasks)
-### IMPL-A1: [Task Title]
-[Task details...]
+## 模块 A: 前端 (N 个任务)
+### IMPL-A1: [任务标题]
+[任务详情...]
 
-### IMPL-A2: [Task Title]
-[Task details...]
+### IMPL-A2: [任务标题]
+[任务详情...]
 
-## Module B: Backend (N tasks)
-### IMPL-B1: [Task Title]
-[Task details...]
+## 模块 B: 后端 (N 个任务)
+### IMPL-B1: [任务标题]
+[任务详情...]
 
-### IMPL-B2: [Task Title]
-[Task details...]
+### IMPL-B2: [任务标题]
+[任务详情...]
 
-## Cross-Module Dependencies
-- IMPL-A1 → IMPL-B1 (Frontend depends on Backend API)
-- IMPL-A2 → IMPL-B2 (UI state depends on Backend service)
+## 跨模块依赖
+- IMPL-A1 → IMPL-B1 (前端依赖后端 API)
+- IMPL-A2 → IMPL-B2 (UI 状态依赖后端服务)
 ```
 
-**跨模块依赖标注**:
+**跨模块依赖表示法**:
 - 在并行规划期间，使用 `CROSS::{module}::{pattern}` 格式
 - 示例: `depends_on: ["CROSS::B::api-endpoint"]`
-- 集成阶段解析为实际任务 ID: `CROSS::B::api → IMPL-B1`
+- 集成阶段解析为实际的任务 ID: `CROSS::B::api → IMPL-B1`
 
-### 2.3 TODO_LIST.md 结构
+### 2.4 TODO_LIST.md 结构
 
-在 `.workflow/active/{session_id}/TODO_LIST.md` 生成：
+在 `.workflow/active/{session_id}/TODO_LIST.md` 生成:
 
 **单模块格式**:
 ```markdown
-# Tasks: {Session Topic}
+# 任务: {Session Topic}
 
-## Task Progress
-- [ ] **IMPL-001**: [Task Title] → [📋](./.task/IMPL-001.json)
-- [ ] **IMPL-002**: [Task Title] → [📋](./.task/IMPL-002.json)
-- [x] **IMPL-003**: [Task Title] → [✅](./.summaries/IMPL-003-summary.md)
+## 任务进度
+- [ ] **IMPL-001**: [任务标题] → [📋](./.task/IMPL-001.json)
+- [ ] **IMPL-002**: [任务标题] → [📋](./.task/IMPL-002.json)
+- [x] **IMPL-003**: [任务标题] → [✅](./.summaries/IMPL-003-summary.md)
 
-## Status Legend
-- `- [ ]` = Pending task
-- `- [x]` = Completed task
+## 状态图例
+- `- [ ]` = 待办任务
+- `- [x]` = 已完成任务
 ```
 
-**多模块格式**（按模块分层）：
+**多模块格式** (按模块分层):
 ```markdown
-# Tasks: {Session Topic}
+# 任务: {Session Topic}
 
-## Module A (Frontend)
-- [ ] **IMPL-A1**: [Task Title] → [📋](./.task/IMPL-A1.json)
-- [ ] **IMPL-A2**: [Task Title] → [📋](./.task/IMPL-A2.json)
+## 模块 A (前端)
+- [ ] **IMPL-A1**: [任务标题] → [📋](./.task/IMPL-A1.json)
+- [ ] **IMPL-A2**: [任务标题] → [📋](./.task/IMPL-A2.json)
 
-## Module B (Backend)
-- [ ] **IMPL-B1**: [Task Title] → [📋](./.task/IMPL-B1.json)
-- [ ] **IMPL-B2**: [Task Title] → [📋](./.task/IMPL-B2.json)
+## 模块 B (后端)
+- [ ] **IMPL-B1**: [任务标题] → [📋](./.task/IMPL-B1.json)
+- [ ] **IMPL-B2**: [任务标题] → [📋](./.task/IMPL-B2.json)
 
-## Cross-Module Dependencies
-- IMPL-A1 → IMPL-B1 (Frontend depends on Backend API)
+## 跨模块依赖
+- IMPL-A1 → IMPL-B1 (前端依赖后端 API)
 
-## Status Legend
-- `- [ ]` = Pending task
-- `- [x]` = Completed task
+## 状态图例
+- `- [ ]` = 待办任务
+- `- [x]` = 已完成任务
 ```
 
 **链接规则**:
-- 待办事项 → 任务 JSON: `[📋](./.task/IMPL-XXX.json)`
+- 待办项 → 任务 JSON: `[📋](./.task/IMPL-XXX.json)`
 - 已完成任务 → 摘要: `[✅](./.summaries/IMPL-XXX-summary.md)`
-- 一致的 ID 方案: `IMPL-N`（单模块）或 `IMPL-{prefix}{seq}`（多模块）
+- 一致的 ID 方案: `IMPL-N` (单模块) 或 `IMPL-{prefix}{seq}` (多模块)
 
-### 2.4 复杂度与结构选择
+### 2.5 复杂度与结构选择
 
 **任务划分策略**: 在避免单任务过载的同时最小化任务数量。将相似任务分组以共享上下文；仅在超过 3-5 个修改区域时进行细分。
 
 使用 `analysis_results.complexity` 或任务计数来确定结构：
 
 **单模块模式**:
-- **简单任务** (<=4 个任务): 扁平结构
+- **简单任务** (≤4 个任务): 扁平结构
 - **中等任务** (5-8 个任务): 扁平结构
-- **复杂任务** (>8 个任务): 需要重新定义范围（硬性上限 8 个任务）
+- **复杂任务** (>8 个任务): 需要重新划分范围 (硬性上限 8 个任务)
 
 **多模块模式** (N+1 并行规划):
-- **每模块限制**: <=6 个任务
-- **总数限制**: 无总数限制（每个模块独立上限 6 个任务）
-- **任务 ID 格式**: `IMPL-{prefix}{seq}` (例如 IMPL-A1, IMPL-B1)
+- **每模块限制**: 每个模块 ≤6 个任务
+- **总数限制**: 无总数限制 (每个模块独立上限为 6 个任务)
+- **任务 ID 格式**: `IMPL-{prefix}{seq}` (例如, IMPL-A1, IMPL-B1)
 - **结构**: 在 IMPL_PLAN.md 和 TODO_LIST.md 中按模块分层
 
-**多模块检测触发条件**:
+**多模块检测触发器**:
 - 明确的前后端分离 (`src/frontend`, `src/backend`)
 - Monorepo 结构 (`packages/*`, `apps/*`)
-- 上下文包依赖聚类（2 个以上不同的模块组）
+- 上下文包依赖聚类 (2个以上不同的模块组)
 
 ---
 
 ## 3. 质量标准
 
-### 3.1 量化要求（必须）
+### 3.1 量化要求 (强制)
 
-**目的**: 通过在所有任务规格中强制使用明确的计数和枚举来消除歧义。
+**目的**: 通过在所有任务规格中强制执行明确的计数和枚举来消除歧义。
 
 **核心规则**:
-1. **从分析中提取计数**: 搜索有多少个项目并明确列出
-2. **强制使用明确列表**: 每个交付物使用格式 `{count} {type}: [{explicit_list}]`
-3. **使验收可衡量**: 包含验证命令（例如 `ls ... | wc -l = N`）
-4. **量化修改点**: 指定精确目标（文件、带行号的函数）
-5. **避免模糊语言**: 用量化陈述替换 "complete"、"comprehensive"、"reorganize"
+1. **从分析中提取计数**: 搜索有多少项并明确列出
+2. **强制使用显式列表**: 每个可交付成果使用格式 `{count} {type}: [{explicit_list}]`
+3. **使验收可衡量**: 包括验证命令 (例如 `ls ... | wc -l = N`)
+4. **量化修改点**: 指定确切的目标 (文件, 带行号的函数)
+5. **避免模糊语言**: 用量化的陈述替换 "完成"、"全面"、"重组"
 
 **标准格式**:
-- **需求**: `"Implement N items: [item1, item2, ...]"` 或 `"Modify N files: [file1:func:lines, ...]"`
-- **验收**: `"N items exist: verify by [command]"` 或 `"Coverage >= X%: verify by [test command]"`
-- **修改点**: `"Create N files: [list]"` 或 `"Modify N functions: [func() in file lines X-Y]"`
+- **需求**: `"实现 N 个项目: [item1, item2, ...]"` 或 `"修改 N 个文件: [file1:func:lines, ...]"`
+- **验收**: `"N 个项目存在: 通过 [command] 验证"` 或 `"覆盖率 >= X%: 通过 [test command] 验证"`
+- **修改点**: `"创建 N 个文件: [list]"` 或 `"修改 N 个函数: [func() in file lines X-Y]"`
 
-**验证清单**（适用于每个生成的任务 JSON）：
-- [ ] 每个需求包含明确的计数或枚举列表
-- [ ] 每个验收标准可衡量，带有验证命令
-- [ ] 每个 modification_point 指定精确目标（文件/函数/行号）
-- [ ] 无模糊语言（没有不带计数的 "complete"、"comprehensive"、"reorganize"）
-- [ ] 每个实现步骤有自己的验收标准
+**验证清单** (应用于每个生成的任务 JSON):
+- [ ] 每个需求都包含明确的计数或枚举列表
+- [ ] 每个验收标准都可通过验证命令进行衡量
+- [ ] 每个 modification_point 都指定了确切的目标 (文件/函数/行)
+- [ ] 没有模糊的语言 ("完成"、"全面"、"重组" 而没有计数)
+- [ ] 每个实现步骤都有自己的验收标准
 
 **示例**:
-- 好的: `"Implement 5 commands: [cmd1, cmd2, cmd3, cmd4, cmd5]"`
-- 不好的: `"Implement new commands"`
-- 好的: `"5 files created: verify by ls .claude/commands/*.md | wc -l = 5"`
-- 不好的: `"All commands implemented successfully"`
+- 好的: `"实现 5 个命令: [cmd1, cmd2, cmd3, cmd4, cmd5]"`
+- 不好的: `"实现新命令"`
+- 好的: `"创建了 5 个文件: 通过 ls .claude/commands/*.md | wc -l = 5 验证"`
+- 不好的: `"所有命令都成功实现"`
 
 ### 3.2 规划与组织标准
 
 **规划原则**:
-- 每个阶段产生可工作的、可测试的代码
-- 每个交付物有明确的成功标准
-- 阶段间的依赖关系明确标识
-- 渐进式进步优于大爆炸式
+- 每个阶段产生可工作、可测试的代码
+- 每个可交付成果都有明确的成功标准
+- 各阶段之间的依赖关系明确
+- 渐进式进展优于大爆炸式开发
 
 **文件组织**:
 - 会话命名: `WFS-[topic-slug]`
 - 任务 ID:
-  - 单模块: `IMPL-N` (例如 IMPL-001, IMPL-002)
-  - 多模块: `IMPL-{prefix}{seq}` (例如 IMPL-A1, IMPL-B1)
-- 目录结构: 扁平任务组织（所有任务在 `.task/` 中）
+  - 单模块: `IMPL-N` (例如, IMPL-001, IMPL-002)
+  - 多模块: `IMPL-{prefix}{seq}` (例如, IMPL-A1, IMPL-B1)
+- 目录结构: 扁平的任务组织 (所有任务在 `.task/` 中)
 
 **文档标准**:
-- 文档间的正确链接
+- 文档之间有正确的链接
 - 一致的导航和引用
 
 ### 3.3 N+1 上下文记录
 
-**目的**: 记录决策和延期项目，以保证 N+1 规划的连续性。
+**目的**: 为 N+1 规划的连续性记录决策和延迟的项目。
 
-**时机**: 任务生成后，更新 planning-notes.md 中的 `## N+1 Context`。
+**时间**: 任务生成后，更新 planning-notes.md 中的 `## N+1 Context`。
 
 **记录内容**:
-- **决策**: 架构/技术选择及理由（如可能更改则标记 `Revisit?`）
-- **延期**: 明确推迟到 N+1 的项目及原因
+- **决策**: 架构/技术选择及其理由 (如果可能更改，标记 `Revisit?`)
+- **延迟**: 明确移至 N+1 的项目及其原因
 
 **示例**:
 ```markdown
 ## N+1 Context
-### Decisions
-| Decision | Rationale | Revisit? |
+### 决策
+| 决策 | 理由 | 是否重访? |
 |----------|-----------|----------|
-| JWT over Session | Stateless scaling | No |
-| CROSS::B::api → IMPL-B1 | B1 defines base | Yes |
+| JWT 优于 Session | 无状态扩展 | 否 |
+| CROSS::B::api → IMPL-B1 | B1 定义了基础 | 是 |
 
-### Deferred
-- [ ] Rate limiting - Requires Redis (N+1)
-- [ ] API versioning - Low priority
+### 延迟
+- [ ] 速率限制 - 需要 Redis (N+1)
+- [ ] API 版本控制 - 低优先级
 ```
 
 ### 3.4 指南清单
 
-**始终**:
-- **优先加载 planning-notes.md**: 在 context-package.json 之前读取 planning-notes.md。使用其整合约束作为所有任务生成的主要约束来源
-- **记录 N+1 上下文**: 更新 `## N+1 Context` 部分，包含关键决策和延期项目
+**始终:**
+- **首先加载 planning-notes.md**: 在 context-package.json 之前读取 planning-notes.md。将其整合约束作为所有任务生成的主要约束来源
+- **记录 N+1 上下文**: 用关键决策和延迟项目更新 `## N+1 Context` 部分
 - **搜索工具优先级**: ACE (`mcp__ace-tool__search_context`) → CCW (`mcp__ccw-tools__smart_search`) / 内置 (`Grep`, `Glob`, `Read`)
-- 对所有需求、验收标准和修改点应用量化要求
-- 加载 IMPL_PLAN 模板: 生成 IMPL_PLAN.md 之前执行 `Read(~/.ccw/workflows/cli-templates/prompts/workflow/impl-plan-template.txt)`
+- 将量化要求应用于所有需求、验收标准和修改点
+- 加载 IMPL_PLAN 模板: 在生成 IMPL_PLAN.md 之前 `Read(~/.ccw/workflows/cli-templates/prompts/workflow/impl-plan-template.txt)`
 - 使用提供的上下文包: 从结构化上下文中提取所有信息
-- 遵守 memory-first 规则: 使用提供的内容（已从内存/文件加载）
-- 遵循 6 字段模式: 所有任务 JSON 必须包含 id, title, status, context_package_path, meta, context, flow_control
-- **分配 CLI 执行 ID**: 每个任务必须有 `cli_execution_id`（格式: `{session_id}-{task_id}`）
-- **计算 CLI 执行策略**: 基于 `depends_on`，设置 `cli_execution.strategy` (new/resume/fork/merge_fork)
-- 映射产物: 使用 artifacts_inventory 填充 task.context.artifacts 数组
-- 添加 MCP 集成: 在能力可用时在 flow_control.pre_analysis 中包含 MCP 工具步骤
-- 验证任务计数: 最多 8 个任务（单模块）或每模块 6 个任务（多模块），超出时请求重新定义范围
+- 遵守内存优先规则: 使用提供的内容 (已从内存/文件加载)
+- 遵循统一的扁平模式: 所有任务 JSON 必须有 id, title, description, status, type, depends_on, convergence, files, implementation, meta, cli_execution
+- **分配 CLI 执行 ID**: 每个任务必须有 `cli_execution.id` (格式: `{session_id}-{task_id}`)
+- **计算 CLI 执行策略**: 根据 `depends_on` 设置 `cli_execution.strategy` (new/resume/fork/merge_fork)
+- 映射产物: 使用 artifacts_inventory 填充 task.artifacts 数组
+- 添加 MCP 集成: 在 pre_analysis 中包含 MCP 工具步骤（当能力可用时）
+- 验证任务数量: 最多 8 个任务 (单模块) 或每个模块 6 个任务 (多模块)，如果超过则要求重新确定范围
 - 使用会话路径: 使用提供的 session_id 构建所有路径
-- 正确链接文档: 使用正确的链接格式（📋 表示 JSON，✅ 表示摘要）
+- 正确链接文档: 使用正确的链接格式 (📋 表示 JSON, ✅ 表示摘要)
 - 运行验证清单: 在最终确定任务 JSON 之前验证所有量化要求
-- 运用举一反三原则: 根据任务特定需求动态适配 pre-analysis 模式
-- 遵循模板验证: 在最终确定之前完成 IMPL_PLAN.md 模板验证清单
+- 应用举一反三原则: 动态地根据任务特定需求调整 pre_analysis 模式
+- 遵循模板验证: 在最终确定 IMPL_PLAN.md 之前完成其模板验证清单
 
 **Bash 工具**:
 - 对所有 Bash/CLI 调用使用 `run_in_background=false` 以确保前台执行
 
-**禁止**:
-- 直接加载文件（改用提供的上下文包）
-- 假设默认位置（始终在路径中使用 session_id）
+**绝不:**
+- 直接加载文件 (改用提供的上下文包)
+- 假设默认位置 (始终在路径中使用 session_id)
 - 在 task.depends_on 中创建循环依赖
-- 在不重新定义范围的情况下超过 8 个任务（单模块）或每模块 6 个任务（多模块）
+- 在未重新确定范围的情况下超过 8 个任务 (单模块) 或每个模块 6 个任务 (多模块)
 - 在提供了 artifacts_inventory 时跳过产物集成
 - 在 MCP 能力可用时忽略它们
-- 不进行任务特定适配就使用固定的 pre-analysis 步骤
+- 使用固定的 pre-analysis 步骤而不进行特定于任务的调整

@@ -216,7 +216,7 @@ AI 生成的代码通常会出现以下必须检测的问题：
 **IMPL-001.3（代码验证门控）**：
 | 决策 | 条件 | 操作 |
 |----------|-----------|--------|
-| **PASS** | critical=0, error<=3, warning<=10 | 继续到 IMPL-001.5 |
+| **PASS** | `critical=0, error<=3, warning<=10` | 继续到 IMPL-001.5 |
 | **SOFT_FAIL** | 可修复问题（无 CRITICAL） | 自动修复并重试（最多 2 次） |
 | **HARD_FAIL** | critical>0 或达到最大重试次数 | 阻止并提供详细报告 |
 

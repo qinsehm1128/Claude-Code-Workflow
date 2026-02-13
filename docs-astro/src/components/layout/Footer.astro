@@ -1,93 +1,47 @@
 ---
 import { Github, Twitter, MessageCircle, Mail } from 'lucide-react';
 
-interface Props {
-  locale: 'en' | 'zh';
-}
-
-const { locale } = Astro.props;
-
 // Footer link groups
 const footerLinks = {
-  en: {
-    documentation: {
-      title: 'Documentation',
-      links: [
-        { label: 'Getting Started', href: '/en/getting-started/installation' },
-        { label: 'Workflows', href: '/en/workflows/4-level-system' },
-        { label: 'CLI Reference', href: '/en/cli/commands' },
-        { label: 'Dashboard Guide', href: '/en/dashboard/sessions' }
-      ]
-    },
-    community: {
-      title: 'Community',
-      links: [
-        { label: 'GitHub Discussions', href: 'https://github.com/ccw/discussions' },
-        { label: 'Discord', href: 'https://discord.gg/ccw' },
-        { label: 'Twitter', href: 'https://twitter.com/ccw' },
-        { label: 'Blog', href: '/en/blog' }
-      ]
-    },
-    resources: {
-      title: 'Resources',
-      links: [
-        { label: 'FAQ', href: '/en/faq' },
-        { label: 'Examples', href: '/en/examples' },
-        { label: 'Contributing', href: '/en/contributing' },
-        { label: 'Changelog', href: '/en/changelog' }
-      ]
-    },
-    legal: {
-      title: 'Legal',
-      links: [
-        { label: 'Privacy Policy', href: '/en/privacy' },
-        { label: 'Analytics', href: 'https://plausible.io/ccw-docs.example.com' },
-        { label: 'Terms of Service', href: '/en/terms' },
-        { label: 'License', href: '/en/license' }
-      ]
-    }
+  documentation: {
+    title: '文档',
+    links: [
+      { label: '快速开始', href: '/zh/getting-started/installation' },
+      { label: '工作流指南', href: '/zh/workflows/4-level-system' },
+      { label: 'CLI 参考', href: '/zh/cli/commands' },
+      { label: 'Dashboard 指南', href: '/zh/dashboard/sessions' }
+    ]
   },
-  zh: {
-    documentation: {
-      title: '文档',
-      links: [
-        { label: '快速开始', href: '/zh/getting-started/installation' },
-        { label: '工作流指南', href: '/zh/workflows/4-level-system' },
-        { label: 'CLI 参考', href: '/zh/cli/commands' },
-        { label: 'Dashboard 指南', href: '/zh/dashboard/sessions' }
-      ]
-    },
-    community: {
-      title: '社区',
-      links: [
-        { label: 'GitHub Discussions', href: 'https://github.com/ccw/discussions' },
-        { label: 'Discord', href: 'https://discord.gg/ccw' },
-        { label: 'Twitter', href: 'https://twitter.com/ccw' },
-        { label: '博客', href: '/zh/blog' }
-      ]
-    },
-    resources: {
-      title: '资源',
-      links: [
-        { label: '常见问题', href: '/zh/faq' },
-        { label: '示例', href: '/zh/examples' },
-        { label: '贡献指南', href: '/zh/contributing' },
-        { label: '更新日志', href: '/zh/changelog' }
-      ]
-    },
-    legal: {
-      title: '法律',
-      links: [
-        { label: '隐私政策', href: '/zh/privacy' },
-        { label: '访问统计', href: 'https://plausible.io/ccw-docs.example.com' },
-        { label: '服务条款', href: '/zh/terms' },
-        { label: '许可证', href: '/zh/license' }
-      ]
-    }
+  community: {
+    title: '社区',
+    links: [
+      { label: 'GitHub Discussions', href: 'https://github.com/ccw/discussions' },
+      { label: 'Discord', href: 'https://discord.gg/ccw' },
+      { label: 'Twitter', href: 'https://twitter.com/ccw' },
+      { label: '博客', href: '/zh/blog' }
+    ]
+  },
+  resources: {
+    title: '资源',
+    links: [
+      { label: '常见问题', href: '/zh/faq' },
+      { label: '示例', href: '/zh/examples' },
+      { label: '贡献指南', href: '/zh/contributing' },
+      { label: '更新日志', href: '/zh/changelog' }
+    ]
+  },
+  legal: {
+    title: '法律',
+    links: [
+      { label: '隐私政策', href: '/zh/privacy' },
+      { label: '访问统计', href: 'https://plausible.io/ccw-docs.example.com' },
+      { label: '服务条款', href: '/zh/terms' },
+      { label: '许可证', href: '/zh/license' }
+    ]
   }
 };
 
-const links = footerLinks[locale] || footerLinks.en;
+const links = footerLinks;
 
 // Social links
 const socialLinks = [
@@ -196,7 +150,7 @@ const currentYear = new Date().getFullYear();
 
       <!-- Copyright -->
       <p class="text-sm text-muted-foreground">
-        &copy; {currentYear} CCW. {locale === 'en' ? 'All rights reserved.' : '保留所有权利。'}
+        &copy; {currentYear} CCW. 保留所有权利。
       </p>
     </div>
   </div>

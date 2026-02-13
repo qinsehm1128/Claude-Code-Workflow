@@ -1,0 +1,335 @@
+---
+title: "团队生命周期"
+description: "统一的团队技能，覆盖完整的生命周期 - 规范/实现/测试"
+category: "api"
+locale: "zh"
+order: 19
+---
+
+# 团队生命周期
+
+统一的团队技能，覆盖完整的生命周期 - 规范/实现/测试。所有角色都通过 `--role` 参数调用此技能以执行特定角色的逻辑。
+
+## 概述
+
+| 属性 | 值 |
+|----------|-------|
+| **名称** | `team-lifecycle` |
+| **工具** | `TeamCreate(*)`, `TeamDelete(*)`, `SendMessage(*)`, `TaskCreate(*)`, `TaskUpdate(*)`, `TaskList(*)`, `TaskGet(*)`, `Task(*)`, `AskUserQuestion(*)`, `TodoWrite(*)`, `Read(*)`, `Write(*)`, `Edit(*)`, `Bash(*)`, `Glob(*)`, `Grep(*)` |
+
+## 参考
+
+# 团队生命周期
+
+统一的团队技能，涵盖规范、实现、测试和审查。所有团队成员都通过调用此技能并附带 `--role=xxx` 参数来路由到特定角色的执行逻辑。
+
+## 架构概览
+
+```
+┌─────────────────────────────────────────────────┐
+│  Skill(skill="team-lifecycle", args="--role=xxx") │
+└───────────────────┬─────────────────────────────┘
+                    │ 角色路由器
+    ┌───────┬───────┼───────┬───────┬───────┬───────┬───────┐
+    ↓       ↓       ↓       ↓       ↓       ↓       ↓       ↓
+┌─────────┐┌───────┐┌──────┐┌──────────┐┌───────┐┌────────┐┌──────┐┌────────┐
+│coordinator││analyst││writer││discussant││planner││executor││tester││reviewer│
+│ roles/   ││roles/ ││roles/││ roles/   ││roles/ ││ roles/ ││roles/││ roles/ │
+└─────────┘└───────┘└──────┘└──────────┘└───────┘└────────┘└──────┘└────────┘
+```
+
+## 角色路由器
+
+### 输入解析
+
+解析 `$ARGUMENTS` 以提取 `--role`:
+
+```javascript
+const args = "$ARGUMENTS"
+const roleMatch = args.match(/--role[=\s]+(\w+)/)
+
+if (!roleMatch) {
+  throw new Error("缺少 --role 参数。可用角色: coordinator, analyst, writer, discussant, planner, executor, tester, reviewer")
+}
+
+const role = roleMatch[1]
+const teamName = args.match(/--team[=\s]+([\w-]+)/)?.[1] || "lifecycle"
+```
+
+### 角色分发
+
+```javascript
+const VALID_ROLES = {
+  "coordinator": { file: "roles/coordinator.md", prefix: null },
+  "analyst":     { file: "roles/analyst.md",     prefix: "RESEARCH" },
+  "writer":      { file: "roles/writer.md",      prefix: "DRAFT" },
+  "discussant":  { file: "roles/discussant.md",  prefix: "DISCUSS" },
+  "planner":     { file: "roles/planner.md",     prefix: "PLAN" },
+  "executor":    { file: "roles/executor.md",    prefix: "IMPL" },
+  "tester":      { file: "roles/tester.md",      prefix: "TEST" },
+  "reviewer":    { file: "roles/reviewer.md",    prefix: ["REVIEW", "QUALITY"] }
+}
+
+if (!VALID_ROLES[role]) {
+  throw new Error(`未知角色: ${role}。可用角色: ${Object.keys(VALID_ROLES).join(', ')}`)
+}
+
+// 读取并执行特定角色的逻辑
+Read(VALID_ROLES[role].file)
+// → 执行该文件中定义的五阶段流程
+```
+
+### 可用角色
+
+| 角色 | 任务前缀 | 职责 | 角色文件 |
+|------|-------------|----------------|-----------|
+| `coordinator` | N/A | 流水线编排、需求澄清、任务分派 | [roles/coordinator.md](roles/coordinator.md) |
+| `analyst` | RESEARCH-* | 种子分析、代码库探索、上下文收集 | [roles/analyst.md](roles/analyst.md) |
+| `writer` | DRAFT-* | 产品简报 / PRD / 架构 / 史诗故事生成 | [roles/writer.md](roles/writer.md) |
+| `discussant` | DISCUSS-* | 多角度批判、建立共识 | [roles/discussant.md](roles/discussant.md) |
+| `planner` | PLAN-* | 多角度探索、结构化规划 | [roles/planner.md](roles/planner.md) |
+| `executor` | IMPL-* | 遵循计划进行代码实现 | [roles/executor.md](roles/executor.md) |
+| `tester` | TEST-* | 自适应的测试-修复循环、质量门禁 | [roles/tester.md](roles/tester.md) |
+| `reviewer` | `REVIEW-*` + `QUALITY-*` | 代码审查 + 规范质量验证 (根据前缀自动切换) | [roles/reviewer.md](roles/reviewer.md) |
+
+## 共享基础设施
+
+### 消息总线 (所有角色)
+
+每次 `SendMessage` **之前**，必须调用 `mcp__ccw-tools__team_msg` 进行日志记录:
+
+```javascript
+mcp__ccw-tools__team_msg({
+  operation: "log",
+  team: teamName,
+  from: role,
+  to: "coordinator",
+  type: "<type>",
+  summary: "<summary>",
+  ref: "<file_path>"
+})
+```
+
+**各角色的消息类型**:
+
+| 角色 | 类型 |
+|------|-------|
+| coordinator | `plan_approved`, `plan_revision`, `task_unblocked`, `fix_required`, `error`, `shutdown` |
+| analyst | `research_ready`, `research_progress`, `error` |
+| writer | `draft_ready`, `draft_revision`, `impl_progress`, `error` |
+| discussant | `discussion_ready`, `discussion_blocked`, `impl_progress`, `error` |
+| planner | `plan_ready`, `plan_revision`, `impl_progress`, `error` |
+| executor | `impl_complete`, `impl_progress`, `error` |
+| tester | `test_result`, `impl_progress`, `fix_required`, `error` |
+| reviewer | `review_result`, `quality_result`, `fix_required`, `error` |
+
+### CLI 备用方案
+
+当 `mcp__ccw-tools__team_msg` MCP 不可用时:
+
+```javascript
+Bash(`ccw team log --team "${teamName}" --from "${role}" --to "coordinator" --type "<type>" --summary "<summary>" --json`)
+Bash(`ccw team list --team "${teamName}" --last 10 --json`)
+Bash(`ccw team status --team "${teamName}" --json`)
+```
+
+### 任务生命周期 (所有工作角色)
+
+```javascript
+// 每个工作角色遵循的标准任务生命周期
+// 阶段 1: 发现
+const tasks = TaskList()
+const prefixes = Array.isArray(VALID_ROLES[role].prefix) ? VALID_ROLES[role].prefix : [VALID_ROLES[role].prefix]
+const myTasks = tasks.filter(t =>
+  prefixes.some(p => t.subject.startsWith(`${p}-`)) &&
+  t.owner === role &&
+  t.status === 'pending' &&
+  t.blockedBy.length === 0
+)
+if (myTasks.length === 0) return // 空闲
+const task = TaskGet({ taskId: myTasks[0].id })
+TaskUpdate({ taskId: task.id, status: 'in_progress' })
+
+// 阶段 2-4: 特定于角色的逻辑 (参见 roles/{role}.md)
+
+// 阶段 5: 报告 + 循环
+mcp__ccw-tools__team_msg({ operation: "log", team: teamName, from: role, to: "coordinator", type: "...", summary: "..." })
+SendMessage({ type: "message", recipient: "coordinator", content: "...", summary: "..." })
+TaskUpdate({ taskId: task.id, status: 'completed' })
+// 检查下一个任务 → 返回阶段 1
+```
+
+## 三种模式的流水线
+
+```
+仅规范模式:
+  RESEARCH-001 → DISCUSS-001 → DRAFT-001 → DISCUSS-002
+  → DRAFT-002 → DISCUSS-003 → DRAFT-003 → DISCUSS-004
+  → DRAFT-004 → DISCUSS-005 → QUALITY-001 → DISCUSS-006
+
+仅实现模式:
+  PLAN-001 → IMPL-001 → TEST-001 + REVIEW-001
+
+全生命周期模式:
+  [规范流水线] → PLAN-001(blockedBy: DISCUSS-006) → IMPL-001 → TEST-001 + REVIEW-001
+```
+
+## 协调者生成模板
+
+当协调者创建团队成员时:
+
+```javascript
+TeamCreate({ team_name: teamName })
+
+// 分析师 (仅规范 / 全生命周期)
+Task({
+  subagent_type: "general-purpose",
+  team_name: teamName,
+  name: "analyst",
+  prompt: `你是 team "${teamName}" 的 ANALYST。
+当你收到 RESEARCH-* 任务时，调用 Skill(skill="team-lifecycle", args="--role=analyst") 执行。
+当前需求: ${taskDescription}
+约束: ${constraints}
+Session: ${sessionFolder}
+
+## 消息总线（必须）
+每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
+
+工作流程:
+1. TaskList → 找到 RESEARCH-* 任务
+2. Skill(skill="team-lifecycle", args="--role=analyst") 执行
+3. team_msg log + SendMessage 结果给 coordinator
+4. TaskUpdate completed → 检查下一个任务`
+})
+
+// 写作者 (仅规范 / 全生命周期)
+Task({
+  subagent_type: "general-purpose",
+  team_name: teamName,
+  name: "writer",
+  prompt: `你是 team "${teamName}" 的 WRITER。
+当你收到 DRAFT-* 任务时，调用 Skill(skill="team-lifecycle", args="--role=writer") 执行。
+当前需求: ${taskDescription}
+Session: ${sessionFolder}
+
+## 消息总线（必须）
+每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
+
+工作流程:
+1. TaskList → 找到 DRAFT-* 任务
+2. Skill(skill="team-lifecycle", args="--role=writer") 执行
+3. team_msg log + SendMessage 结果给 coordinator
+4. TaskUpdate completed → 检查下一个任务`
+})
+
+// 讨论者 (仅规范 / 全生命周期)
+Task({
+  subagent_type: "general-purpose",
+  team_name: teamName,
+  name: "discussant",
+  prompt: `你是 team "${teamName}" 的 DISCUSSANT。
+当你收到 DISCUSS-* 任务时，调用 Skill(skill="team-lifecycle", args="--role=discussant") 执行。
+当前需求: ${taskDescription}
+Session: ${sessionFolder}
+讨论深度: ${discussionDepth}
+
+## 消息总线（必须）
+每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
+
+工作流程:
+1. TaskList → 找到 DISCUSS-* 任务
+2. Skill(skill="team-lifecycle", args="--role=discussant") 执行
+3. team_msg log + SendMessage 结果给 coordinator
+4. TaskUpdate completed → 检查下一个任务`
+})
+
+// 规划师 (仅实现 / 全生命周期)
+Task({
+  subagent_type: "general-purpose",
+  team_name: teamName,
+  name: "planner",
+  prompt: `你是 team "${teamName}" 的 PLANNER。
+当你收到 PLAN-* 任务时，调用 Skill(skill="team-lifecycle", args="--role=planner") 执行。
+当前需求: ${taskDescription}
+约束: ${constraints}
+
+## 消息总线（必须）
+每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
+
+工作流程:
+1. TaskList → 找到 PLAN-* 任务
+2. Skill(skill="team-lifecycle", args="--role=planner") 执行
+3. team_msg log + SendMessage 结果给 coordinator
+4. TaskUpdate completed → 检查下一个任务`
+})
+
+// 执行者 (仅实现 / 全生命周期)
+Task({
+  subagent_type: "general-purpose",
+  team_name: teamName,
+  name: "executor",
+  prompt: `你是 team "${teamName}" 的 EXECUTOR。
+当你收到 IMPL-* 任务时，调用 Skill(skill="team-lifecycle", args="--role=executor") 执行。
+当前需求: ${taskDescription}
+约束: ${constraints}
+
+## 消息总线（必须）
+每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
+
+工作流程:
+1. TaskList → 找到 IMPL-* 任务
+2. Skill(skill="team-lifecycle", args="--role=executor") 执行
+3. team_msg log + SendMessage 结果给 coordinator
+4. TaskUpdate completed → 检查下一个任务`
+})
+
+// 测试者 (仅实现 / 全生命周期)
+Task({
+  subagent_type: "general-purpose",
+  team_name: teamName,
+  name: "tester",
+  prompt: `你是 team "${teamName}" 的 TESTER。
+当你收到 TEST-* 任务时，调用 Skill(skill="team-lifecycle", args="--role=tester") 执行。
+当前需求: ${taskDescription}
+约束: ${constraints}
+
+## 消息总线（必须）
+每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
+
+工作流程:
+1. TaskList → 找到 TEST-* 任务
+2. Skill(skill="team-lifecycle", args="--role=tester") 执行
+3. team_msg log + SendMessage 结果给 coordinator
+4. TaskUpdate completed → 检查下一个任务`
+})
+
+// 审查者 (所有模式)
+Task({
+  subagent_type: "general-purpose",
+  team_name: teamName,
+  name: "reviewer",
+  prompt: `你是 team "${teamName}" 的 REVIEWER。
+当你收到 REVIEW-* 或 QUALITY-* 任务时，调用 Skill(skill="team-lifecycle", args="--role=reviewer") 执行。
+- REVIEW-* → 代码审查逻辑
+- QUALITY-* → 规格质量检查逻辑
+当前需求: ${taskDescription}
+
+## 消息总线（必须）
+每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
+
+工作流程:
+1. TaskList → 找到 REVIEW-* 或 QUALITY-* 任务
+2. Skill(skill="team-lifecycle", args="--role=reviewer") 执行
+3. team_msg log + SendMessage 结果给 coordinator
+4. TaskUpdate completed → 检查下一个任务`
+})
+```
+
+## 错误处理
+
+| 场景 | 解决方案 |
+|----------|------------|
+| 未知的 --role 值 | 报错并列出可用角色列表 |
+| 缺少 --role 参数 | 报错并提供用法提示 |
+| 找不到角色文件 | 报错并提供预期路径 |
+| 任务前缀冲突 | 记录警告，继续执行 |

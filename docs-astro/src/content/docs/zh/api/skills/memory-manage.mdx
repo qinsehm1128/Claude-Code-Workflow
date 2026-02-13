@@ -1,0 +1,244 @@
+---
+title: "记忆管理 (Memory Manage)"
+description: "统一的记忆管理 - CLAUDE.md 更新和文档生成，带交互式路由。"
+category: "api"
+locale: "zh"
+order: 10
+---
+
+# 记忆管理 (Memory Manage)
+
+统一的记忆管理 - CLAUDE.md 更新和文档生成，带交互式路由。触发词："memory manage", "update claude", "update memory", "generate docs", "更新记忆", "生成文档"。
+
+## 概览
+
+| 属性 | 值 |
+|----------|-------|
+| **名称** | `memory-manage` |
+| **工具** | `Task(*)`, `Bash(*)`, `AskUserQuestion(*)`, `Read(*)` |
+
+## 参考
+
+# 记忆管理技能
+
+项目记忆 (CLAUDE.md) 更新和文档 (API.md/README.md) 生成的统一入口点。通过参数或交互式需求评估路由到专门的子命令。
+
+## 架构概览
+
+```
+┌──────────────────────────────────────────────────────┐
+│  记忆管理 (路由)                                      │
+│  → 解析输入 → 检测模式 → 路由到相应阶段              │
+└───────────────┬──────────────────────────────────────┘
+                │
+        ┌───────┴───────┐
+        ↓               ↓
+  ┌───────────┐   ┌───────────┐
+  │ CLAUDE.md │   │  文档     │
+  │  管理     │   │  生成     │
+  └─────┬─────┘   └─────┬─────┘
+        │               │
+   ┌────┼────┐     ┌────┴────┐
+   ↓    ↓    ↓     ↓         ↓
+ 全量  增量   单模块  全量    增量
+ (Full) (Related) (Single) (Full) (Related)
+```
+
+## 执行流程
+
+### 步骤 1: 解析输入与路由
+
+从用户输入中检测执行模式：
+
+**自动路由规则** (按优先级排序):
+
+| 信号 | 路由 | 示例 |
+|--------|-------|---------|
+| 显式的子命令 token | → 直接分发 | `update-full --tool qwen` |
+| 关键词: full, 全量, all, entire + update/claude | → update-full | "全量更新claude" |
+| 关键词: related, changed, 增量, diff + update/claude | → update-related | "更新变更模块" |
+| 关键词: single, module, 单模块 + 类路径的 token | → update-single | "更新 src/auth 模块" |
+| 关键词: docs, documentation, 文档 + full/all/全量 | → docs-full | "全量生成文档" |
+| 关键词: docs, documentation, 文档 + related/changed/增量 | → docs-related | "增量生成文档" |
+| 模糊或无参数 | → **AskUserQuestion** | `/memory-manage` |
+
+有效的子命令 tokens: `update-full`, `update-related`, `update-single`, `docs-full`, `docs-related`
+
+**直接分发示例**:
+```
+输入 = "update-full --tool qwen"
+  → 子命令 = "update-full", 剩余参数 = "--tool qwen"
+  → 读取 phases/01-update-full.md, 执行
+
+输入 = "update-single src/auth --tool gemini"
+  → 子命令 = "update-single", 剩余参数 = "src/auth --tool gemini"
+  → 读取 phases/03-update-single.md, 执行
+```
+
+**当输入模糊或无参数时**，进入步骤 2。
+
+### 步骤 2: 交互式需求评估
+
+**问题 1 — 确定内容类别**:
+
+```
+AskUserQuestion({
+  questions: [{
+    question: "你要管理哪类内容？",
+    header: "类别",
+    multiSelect: false,
+    options: [
+      {
+        label: "CLAUDE.md (项目记忆)",
+        description: "更新模块指令文件，帮助Claude理解代码库结构和约定"
+      },
+      {
+        label: "项目文档 (API+README)",
+        description: "生成API.md和README.md到.workflow/docs/目录"
+      }
+    ]
+  }]
+})
+```
+
+**问题 2a — CLAUDE.md 管理范围** (如果用户选择了 CLAUDE.md):
+
+```
+AskUserQuestion({
+  questions: [{
+    question: "CLAUDE.md 更新范围？",
+    header: "范围",
+    multiSelect: false,
+    options: [
+      {
+        label: "增量更新 (推荐)",
+        description: "仅更新git变更模块及其父级，日常开发首选"
+      },
+      {
+        label: "全量更新",
+        description: "更新所有模块，3层架构自底向上，适合重大重构后"
+      },
+      {
+        label: "单模块更新",
+        description: "指定一个模块，Explore深度分析后生成说明书式文档"
+      }
+    ]
+  }]
+})
+```
+
+路由映射:
+- "增量更新" → `update-related` → Ref: phases/02-update-related.md
+- "全量更新" → `update-full` → Ref: phases/01-update-full.md
+- "单模块更新" → `update-single` → 继续到问题 3
+
+**问题 2b — 文档生成范围** (如果用户选择了项目文档):
+
+```
+AskUserQuestion({
+  questions: [{
+    question: "文档生成范围？",
+    header: "范围",
+    multiSelect: false,
+    options: [
+      {
+        label: "增量生成 (推荐)",
+        description: "仅为git变更模块生成/更新文档，日常开发首选"
+      },
+      {
+        label: "全量生成",
+        description: "所有模块+项目级文档(ARCHITECTURE.md等)，适合初始化"
+      }
+    ]
+  }]
+})
+```
+
+路由映射:
+- "增量生成" → `docs-related` → Ref: phases/05-docs-related.md
+- "全量生成" → `docs-full` → Ref: phases/04-docs-full.md
+
+**问题 3 — 补充路径** (仅当 `update-single` 需要且无路径参数时):
+
+```
+AskUserQuestion({
+  questions: [{
+    question: "请指定要更新的模块路径：",
+    header: "路径",
+    multiSelect: false,
+    options: [
+      {
+        label: "src",
+        description: "src 目录"
+      },
+      {
+        label: ".",
+        description: "项目根目录"
+      }
+    ]
+  }]
+})
+```
+
+用户可以选择 "Other" 输入自定义路径。
+
+### 步骤 3: 执行选定阶段
+
+根据路由结果，读取并执行相应的阶段：
+
+**阶段参考文档** (在阶段执行时按需读取):
+
+| 模式 | 文档 | 目的 |
+|------|----------|---------|
+| update-full | [phases/01-update-full.md](phases/01-update-full.md) | 全量 CLAUDE.md 更新, 3层架构, 批量 agents |
+| update-related | [phases/02-update-related.md](phases/02-update-related.md) | 基于 Git 变更的 CLAUDE.md 更新, 深度优先 |
+| update-single | [phases/03-update-single.md](phases/03-update-single.md) | 单模块 CLAUDE.md, Explore + 手册风格 |
+| docs-full | [phases/04-docs-full.md](phases/04-docs-full.md) | 全量 API.md + README.md 生成 |
+| docs-related | [phases/05-docs-related.md](phases/05-docs-related.md) | 基于 Git 变更的文档生成, 增量 |
+
+## 共享配置
+
+### 工具回退层级
+
+所有子命令共享相同的回退逻辑：
+
+```
+--tool gemini  →  [gemini, qwen, codex]  // 默认
+--tool qwen    →  [qwen, gemini, codex]
+--tool codex   →  [codex, gemini, qwen]
+```
+
+### 通用参数
+
+| 参数 | 描述 | 默认值 | 使用方 |
+|-----------|-------------|---------|---------|
+| `--tool <gemini\|qwen\|codex>` | 主要的 CLI 工具 | gemini | 所有 |
+| `--path <dir>` | 目标目录 | . | update-full, docs-full |
+| `<path>` (位置参数) | 模块路径 | _(必需)_ | update-single |
+
+### 批处理阈值
+
+| 子命令 | 直接执行 | Agent 批处理 | 批处理大小 |
+|-------------|-----------------|-------------|------------|
+| update-full | `<20` 模块 | `>=20` 模块 | 4/agent |
+| update-related| `<15` 模块 | `>=15` 模块 | 4/agent |
+| update-single | 总是单个 | 不适用 | 1 |
+| docs-full | `<20` 模块 | `>=20` 模块 | 4/agent |
+| docs-related | `<15` 模块 | `>=15` 模块 | 4/agent |
+
+## 核心规则
+
+1. **先路由后执行**: 在任何执行之前确定子命令
+2. **阶段文档即真理**: 所有执行逻辑都存在于阶段文档中，路由只负责分发
+3. **按需读取**: 只读取选定的阶段文档，绝不全部加载
+4. **参数透传**: 将剩余参数原封不动地转发给子命令
+5. **用户确认**: 每个子命令处理自己的计划展示和 y/n 确认
+
+## 错误处理
+
+| 错误 | 解决方案 |
+|-------|------------|
+| 未知子命令 | 回退到交互式流程 |
+| 阶段文档未找到 | 报告文件路径错误并中止 |
+| update-single 缺少路径 | 通过问题 3 提示用户 |
+| 子命令执行失败 | 遵循该阶段文档自身的错误处理逻辑 |

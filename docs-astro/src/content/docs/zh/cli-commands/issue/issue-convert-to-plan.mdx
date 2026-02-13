@@ -346,9 +346,9 @@ const priority = complexityMap[plan.complexity?.toLowerCase()] || 3;
 
 | 错误代码 | 消息 | 解决方案 |
 |------------|---------|------------|
-| **E001** | Source not found: {path} | 检查路径是否存在且可访问 |
+| **E001** | Source not found: `{path}` | 检查路径是否存在且可访问 |
 | **E002** | Unable to detect source format | 验证文件包含有效的计划结构 |
-| **E003** | Issue not found: {id} | 检查 Issue ID 或省略 --issue 创建新的 |
+| **E003** | Issue not found: `{id}` | 检查 Issue ID 或省略 --issue 创建新的 |
 | **E004** | Issue already has bound solution | 使用 --supplement 添加任务 |
 | **E005** | Failed to extract tasks from markdown | 检查 Markdown 结构，尝试更简单的格式 |
 | **E006** | No tasks extracted from source | 来源必须包含至少 1 个任务 |

@@ -1,0 +1,396 @@
+---
+title: "头脑风暴 (Brainstorm)"
+description: "统一的头脑风暴技能，具有双模式操作——自动流水线和单角色分析"
+category: "api"
+locale: "zh"
+order: 2
+---
+
+# 头脑风暴 (Brainstorm)
+
+统一的头脑风暴技能，具有双模式操作——自动流水线和单角色分析。触发词："brainstorm", "头脑风暴"。
+
+## 概览
+
+| 属性 | 值 |
+|----------|-------|
+| **名称** | `brainstorm` |
+| **工具** | `Skill(*)`, `Task(conceptual-planning-agent`, `context-search-agent)`, `AskUserQuestion(*)`, `TodoWrite(*)`, `Read(*)`, `Write(*)`, `Edit(*)`, `Glob(*)`, `Bash(*)` |
+
+## 参考
+
+# 头脑风暴 (Brainstorm)
+
+统一的头脑风暴技能，将交互式框架生成、多角色并行分析和跨角色综合整合到具有两种操作模式的单一入口点。
+
+## 架构概览
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    /brainstorm                                │
+│         统一入口点 + 交互式路由                             │
+└───────────────────────┬─────────────────────────────────────┘
+                        │
+              ┌─────────┴─────────┐
+              ↓                   ↓
+    ┌─────────────────┐  ┌──────────────────┐
+    │   自动模式      │  │ 单角色分析模式   │
+    │  (Auto Mode)    │  │ (Single Role Mode) │
+    └────────┬────────┘  └────────┬─────────┘
+             │                    │
+    ┌────────┼────────┐          │
+    ↓        ↓        ↓          ↓
+ 阶段 2   阶段 3   阶段 4    阶段 3
+  工件     N×角色   综合     1×角色
+ (7步)    并行分析   (8步)     分析
+                             (4步)
+```
+
+**数据流**:
+```
+自动模式:
+  阶段 2 (工件) → guidance-specification.md + selected_roles[]
+    → 阶段 3 (N × 角色分析) → {role}/analysis*.md
+      → 阶段 4 (综合) → feature-specs/ + feature-index.json
+
+单角色模式:
+  阶段 3 (1 × 角色分析) → {role}/analysis*.md
+```
+
+## 核心设计原则
+
+1. **双模式路由**: 通过 AskUserQuestion 进行交互式模式选择，并支持基于参数的自动检测
+2. **渐进式阶段加载**: 阶段文件通过 `Ref:` 标记按需加载，而非一次性全部加载
+3. **任务附加/折叠**: 子任务在阶段执行期间附加，完成后折叠
+4. **会话连续性**: 所有阶段通过 workflow-session.json 共享会话状态
+5. **自动连续执行**: 各阶段之间无需用户干预即可自动链接执行
+
+## 自动模式
+
+当使用 `--yes` 或 `-y` 时：自动选择“自动模式”，跳过交互式路由问题，自动选择推荐的角色，跳过所有澄清问题，使用默认答案。
+
+## 执行流程
+
+### 阶段 1: 模式检测与交互式路由
+   Ref: phases/01-mode-routing.md
+
+解析参数，从标志/参数中检测模式，或通过 AskUserQuestion 询问用户。
+
+**模式检测规则**:
+1. 如果存在 `--yes` 或 `-y` 标志 → **自动模式** (不提问)
+2. 如果第一个参数匹配已知角色名称 → **单角色模式** (不提问)
+3. 如果存在 `--session` 标志但没有角色名称 → **询问用户**
+4. 否则 → **通过 AskUserQuestion 询问用户**
+
+**输出**: `execution_mode` ("auto" | "single-role"), 解析后的参数
+
+---
+
+### 自动模式执行 (execution_mode = "auto")
+
+#### 阶段 2: 交互式框架生成
+   Ref: phases/02-artifacts.md
+
+七个阶段的交互式工作流：上下文收集 → 主题分析 → 角色选择 → 角色问题 → 冲突解决 → 最终检查 → 生成规约。
+
+**输入**: 主题描述, --count N, --yes 标志
+**输出**: guidance-specification.md, workflow-session.json (selected_roles[], session_id)
+
+**TodoWrite**: 附加 7 个子任务 (阶段 0-5)，顺序执行，完成后折叠。
+
+#### 阶段 3: 并行角色分析
+   Ref: phases/03-role-analysis.md
+
+为每个选定的角色并行执行角色分析。
+
+**输入**: 来自阶段 2 的 selected_roles[], session_id, guidance-specification.md
+**输出**: 每个角色的 \{role\}/analysis*.md
+
+**并行执行**: 同时启动 N 个角色分析调用 (一条消息中包含多个 Skill 调用)。每个角色都带有 `--skip-questions` 标志。
+
+对于 ui-designer：如果提供了 `{package}`，则附加 `--style-skill {package}`。
+
+**TodoWrite**: 附加 N 个并行子任务，并发执行，完成后折叠。
+
+#### 阶段 4: 综合集成
+   Ref: phases/04-synthesis.md
+
+八个阶段的跨角色综合：发现 → 文件发现 → 跨角色分析 → 用户交互 → 文档更新 → 特性规约生成 → 特性索引 → 最终定稿。
+
+**输入**: 来自阶段 2 的 session_id, 来自阶段 3 的所有角色分析文件
+**输出**: 更新后的分析、feature-specs/、feature-index.json
+
+**TodoWrite**: 附加综合子任务，顺序执行，完成后折叠。
+
+---
+
+### 单角色模式执行 (execution_mode = "single-role")
+
+#### 阶段 3: 单角色分析
+   Ref: phases/03-role-analysis.md
+
+为一个指定的角色执行分析，可选地进行交互式上下文收集。
+
+**输入**: role_name, --session, --update, --include-questions, --skip-questions, --style-skill
+**输出**: \{role\}/analysis*.md
+
+**TodoWrite**: 附加 4 个子任务 (检测 → 上下文 → Agent → 验证)，顺序执行。
+
+---
+
+**阶段参考文档** (在阶段执行时按需读取):
+
+| 阶段 | 文档 | 目的 | 使用方 |
+|-------|----------|---------|---------|
+| 1 | [phases/01-mode-routing.md](phases/01-mode-routing.md) | 参数解析、模式检测、交互式路由 | 两种模式 |
+| 2 | [phases/02-artifacts.md](phases/02-artifacts.md) | 交互式框架生成 (7个阶段) | 仅自动模式 |
+| 3 | [phases/03-role-analysis.md](phases/03-role-analysis.md) | 特定角色的分析生成 | 两种模式 |
+| 4 | [phases/04-synthesis.md](phases/04-synthesis.md) | 跨角色综合与特性规约 | 仅自动模式 |
+
+## 核心规则
+
+1. **从模式检测开始**: 第一个动作是阶段 1 (解析参数 + 检测模式)
+2. **交互式路由**: 如果无法从参数中确定模式，通过 AskUserQuestion **询问**用户
+3. **无初步分析**: 在阶段 2 之前不分析主题 - `artifacts` 阶段处理所有分析
+4. **解析每个输出**: 在阶段 2 之后从 workflow-session.json 中提取 selected_roles
+5. **通过 TodoList 自动继续**: 检查 TodoList 状态以自动执行下一个待处理阶段
+6. **任务附加模型**: Skill 和 Task 执行器将子任务附加到当前工作流
+7. **⚠️ 关键：不要停止**: 在自动模式下是连续的多阶段工作流。执行完所有附加任务后，立即折叠它们并执行下一阶段
+8. **并行执行**: 自动模式的阶段 3 同时附加多个 agent 任务以进行并发执行
+9. **单角色独立性**: 单角色模式独立运行，不需要 `artifacts` 或 `synthesis`
+
+## 输入处理
+
+### 参数解析
+
+```javascript
+// 从用户输入（参数字符串）中解析
+const args = parseArguments(user_input);
+
+// 标志
+const auto_yes = args.includes('--yes') || args.includes('-y');
+const count = extractFlag(args, '--count', 3);  // 默认 3, 最大 9
+const session_id = extractFlag(args, '--session', null);
+const update_mode = args.includes('--update');
+const include_questions = args.includes('--include-questions');
+const skip_questions = args.includes('--skip-questions');
+const style_skill = extractFlag(args, '--style-skill', null);
+
+// 角色检测
+const VALID_ROLES = [
+  'data-architect', 'product-manager', 'product-owner', 'scrum-master',
+  'subject-matter-expert', 'system-architect', 'test-strategist',
+  'ui-designer', 'ux-expert'
+];
+const first_arg = args[0]; // 第一个非标志参数
+const is_role = VALID_ROLES.includes(first_arg);
+
+// 模式检测
+if (auto_yes) {
+  execution_mode = 'auto';
+  topic = extractTopic(args);
+} else if (is_role) {
+  execution_mode = 'single-role';
+  role_name = first_arg;
+} else {
+  execution_mode = null;  // 询问用户
+  topic = extractTopic(args);
+}
+```
+
+### 使用示例
+
+```bash
+# 自动模式 - 完整流水线
+/brainstorm "构建实时协作平台" --count 3
+/brainstorm -y "目标: 构建平台 范围: 100个用户" --count 5
+/brainstorm "设计支付系统" --style-skill material-design
+
+# 单角色模式 - 独立分析
+/brainstorm system-architect --session WFS-xxx
+/brainstorm ux-expert --include-questions
+/brainstorm ui-designer --session WFS-xxx --update --style-skill material-design
+/brainstorm product-manager --skip-questions
+
+# 模糊不清 - 将会交互式提问
+/brainstorm --session WFS-xxx
+/brainstorm
+```
+
+## 数据流
+
+```
+阶段 1 (模式路由):
+  输入:  用户参数
+  输出: execution_mode, parsed_params
+          ↓
+  ┌───────┴───────┐
+  自动            单角色
+  ↓               ↓
+阶段 2:          阶段 3:
+  输入:  topic, count, auto_yes
+  输出: session_id ─────────────→ 输入: role_name, session_id
+          selected_roles[]                  skip/include questions
+          guidance-specification.md         style_skill
+          ↓                         输出: {role}/analysis*.md
+阶段 3:
+  输入:  selected_roles[], session_id
+          guidance-specification.md
+          style_skill (对于 ui-designer)
+  输出: {role}/analysis*.md (N 个文件)
+          ↓
+阶段 4:
+  输入:  session_id, 所有分析文件
+  输出: 更新后的分析
+          feature-specs/F-{id}-{slug}.md
+          feature-index.json
+```
+
+## TodoWrite 模式
+
+### 自动模式生命周期
+
+```
+初始 → 阶段 1 模式路由 (完成)
+       → 阶段 2 工件 (进行中)
+           → 7 个子任务被附加 (阶段 0-5)
+           → 顺序执行
+           → 子任务被折叠
+       → 阶段 3 并行角色分析 (进行中)
+           → N 个角色子任务同时被附加
+           → 并发执行
+           → 子任务被折叠
+       → 阶段 4 综合 (进行中)
+           → 8 个子任务被附加
+           → 顺序执行
+           → 子任务被折叠
+       → 全部完成
+```
+
+### 单角色模式生命周期
+
+```
+初始 → 阶段 1 模式路由 (完成)
+       → 阶段 3 角色分析 (进行中)
+           → 4 个子任务被附加 (检测 → 上下文 → Agent → 验证)
+           → 顺序执行
+           → 子任务被折叠
+       → 完成
+```
+
+### 初始 TodoWrite (自动模式)
+
+```json
+[
+  {"content": "阶段 1: 模式检测与参数解析", "status": "in_progress", "activeForm": "检测模式中"},
+  {"content": "阶段 2: 交互式框架生成", "status": "pending", "activeForm": "生成框架中"},
+  {"content": "阶段 3: 并行角色分析", "status": "pending", "activeForm": "执行并行分析中"},
+  {"content": "阶段 4: 综合集成", "status": "pending", "activeForm": "执行综合中"}
+]
+```
+
+### 初始 TodoWrite (单角色模式)
+
+```json
+[
+  {"content": "阶段 1: 模式检测与参数解析", "status": "in_progress", "activeForm": "检测模式中"},
+  {"content": "阶段 3: {role_name} 的单角色分析", "status": "pending", "activeForm": "执行角色分析中"}
+]
+```
+
+## 会话管理
+
+**⚡ 首要动作**: 检查 `.workflow/active/` 中是否存在现有会话
+
+**多会话支持**:
+- 不同的 Claude 实例可以有不同的头脑风暴会话
+- 如果找到多个会话，提示用户选择
+- 如果找到单个会话，使用它
+- 如果没有会话存在:
+  - 自动模式: 创建 `WFS-[topic-slug]`
+  - 单角色模式: 如果没有会话则报错 (必须先运行自动模式)
+
+**会话连续性**: 所有阶段通过 `workflow-session.json` 共享会话状态
+
+## 可用角色
+
+| 角色 ID | 标题 | 关注领域 |
+|---------|-------|------------|
+| `data-architect` | 数据架构师 | 数据模型、存储策略、数据流 |
+| `product-manager` | 产品经理 | 产品策略、路线图、优先级排序 |
+| `product-owner` | 产品负责人 | 待办事项管理、用户故事、验收标准 |
+| `scrum-master` | 敏捷教练 | 流程引导、障碍移除 |
+| `subject-matter-expert` | 领域专家 | 领域知识、业务规则、合规性 |
+| `system-architect` | 系统架构师 | 技术架构、可伸缩性、集成 |
+| `test-strategist` | 测试策略师 | 测试策略、质量保证 |
+| `ui-designer` | UI设计师 | 视觉设计、模型、设计系统 |
+| `ux-expert` | UX专家 | 用户研究、信息架构、用户旅程 |
+
+**角色选择**: 自动模式 → 由 `artifacts` (阶段 2) 处理。单角色模式 → 用户直接指定。
+
+## 输出结构
+
+```
+.workflow/active/WFS-{topic}/
+├── workflow-session.json              # 仅会话元数据
+├── .process/
+│   └── context-package.json           # 阶段 0 输出 (自动模式)
+└── .brainstorming/
+    ├── guidance-specification.md      # 框架 (阶段 2, 自动模式)
+    ├── feature-index.json             # 特性索引 (阶段 4, 自动模式)
+    ├── feature-specs/                 # 特性规约 (阶段 4, 自动模式)
+    │   ├── F-001-{slug}.md
+    │   └── F-00N-{slug}.md
+    ├── {role}/
+    │   ├── {role}-context.md          # 交互式问答响应
+    │   ├── analysis.md                # 主/索引文档
+    │   ├── analysis-cross-cutting.md  # 跨特性 (feature_mode)
+    │   └── analysis-F-{id}-{slug}.md  # 按特性 (feature_mode)
+    └── synthesis-specification.md     # 集成 (阶段 4, 自动模式)
+```
+
+## 错误处理
+
+| 错误 | 恢复 | 模式 |
+|-------|----------|------|
+| 无效的角色名称 | 显示有效角色列表，再次询问 | 单角色 |
+| 没有活动会话 | 自动模式: 创建新的。单角色: 报错并提供指导 | 两者 |
+| 角色选择失败 | 默认使用 product-manager | 自动 |
+| Agent 执行失败 | 使用最少依赖进行特定 Agent 的重试 | 两者 |
+| 模板加载问题 | 优雅降级 | 两者 |
+| 综合阶段冲突 | 高亮分歧，不强制解决 | 自动 |
+| 上下文溢出 (>100KB) | 只读取 analysis.md 索引文件 | 自动 |
+
+**上下文溢出保护**:
+- 每个角色的限制: 主文档 < 3000 词, 子文档 < 2000 词, 最多 5 个子文档
+- 综合阶段保护: 如果总大小 > 100KB, 只读取 `analysis.md` (不读取子文档)
+- 恢复: 减少范围 (`--count 2`) → 使用 `--summary-only` → 手动综合
+
+## 协调器清单
+
+**阶段前操作**:
+- [ ] 通过 `Ref:` 标记读取阶段文档
+- [ ] 验证先决条件 (会话存在，所需文件存在)
+- [ ] 在 TodoWrite 中将阶段标记为 `in_progress`
+- [ ] 如果适用，附加子任务
+
+**阶段后操作**:
+- [ ] 验证阶段输出是否存在
+- [ ] 将子任务折叠到阶段摘要
+- [ ] 在 TodoWrite 中将阶段标记为 `completed`
+- [ ] 自动继续到下一个待处理阶段 (自动模式)
+- [ ] 报告完成 (单角色模式)
+
+## 相关命令
+
+**先决条件**:
+- `/workflow:session:start` - 启动一个新的工作流会话 (可选，brainstorm 会创建自己的)
+
+**后续操作** (brainstorm 完成后):
+- `/workflow:plan --session {sessionId}` - 生成实施计划
+- `/workflow:brainstorm:synthesis --session {sessionId}` - 独立运行综合阶段 (如果跳过)
+
+## 参考信息
+
+**模板来源**: `~/.ccw/workflows/cli-templates/planning-roles/`
+**样式技能包**: `.claude/skills/style-{package-name}/`

@@ -8,7 +8,7 @@
     "generate:agents": "node scripts/generate-agent-docs.cjs",
     "generate:workflows": "node scripts/generate-workflow-docs.cjs",
     "generate": "npm run generate:agents && npm run generate:workflows",
-    "prebuild": "npm run generate",
+    "prebuild": "echo \"Skip auto-generate: use curated zh docs\"",
     "build": "astro build && pagefind --site dist --output-path dist/pagefind",
     "preview": "astro preview",
     "astro": "astro",

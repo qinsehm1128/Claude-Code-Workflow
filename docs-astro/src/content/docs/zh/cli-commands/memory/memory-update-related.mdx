@@ -170,7 +170,7 @@ for (let depth of sorted_depths.reverse()) {  // N → 0
 | **触发时机** | 提交后 | 重大变更后 |
 | **批处理** | 4 模块/Agent | 4 模块/Agent |
 | **降级** | gemini→qwen→codex | gemini→qwen→codex |
-| **复杂度阈值** | <=15 个模块 | <=20 个模块 |
+| **复杂度阈值** | `<= 15` 个模块 | `<= 20` 个模块 |
 | **策略** | 仅 single-layer | 深度>=3 使用 multi-layer |
 
 ## 示例

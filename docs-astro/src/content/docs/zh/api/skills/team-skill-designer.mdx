@@ -1,0 +1,300 @@
+---
+title: "团队技能设计器"
+description: "设计并生成具有基于角色路由的统一团队技能"
+category: "api"
+locale: "zh"
+order: 20
+---
+
+# 团队技能设计器
+
+设计并生成具有基于角色路由的统一团队技能。所有团队成员调用 **一个** 技能，SKILL.md 通过 `--role` 参数将执行路由到特定角色的逻辑。触发词："design team skill", "create team skill", "team skill designer"。
+
+## 概述
+
+| 属性 | 值 |
+|----------|-------|
+| **名称** | `team-skill-designer` |
+| **工具** | `Task`, `AskUserQuestion`, `Read`, `Write`, `Bash`, `Glob`, `Grep` |
+
+## 参考
+
+# 团队技能设计器
+
+用于创建统一团队技能的元技能，其中所有团队成员都调用 **一个** 技能，并带有基于角色的路由。生成一个完整的技能包，其中 `SKILL.md` 作为角色路由器，`roles/` 文件夹用于存放每个角色的具体执行细节。
+
+## 架构概览
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  团队技能设计器 (此元技能)                                      │
+│  → 收集需求 → 分析模式 → 生成技能包                            │
+└───────────────┬─────────────────────────────────────────────────┘
+                │
+    ┌───────────┼───────────┬───────────┬───────────┐
+    ↓           ↓           ↓           ↓           ↓
+┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐
+│ 阶段 1  │ │ 阶段 2  │ │ 阶段 3  │ │ 阶段 4  │ │ 阶段 5  │
+│ 需求    │ │ 模式    │ │ 技能    │ │ 集成    │ │ 验证    │
+│ 收集    │ │ 分析    │ │ 生成    │ │ 验证    │ │         │
+└─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘
+     ↓           ↓           ↓           ↓           ↓
+  team-        patterns   SKILL.md +   report    已验证的
+  config.json  .json      roles/*.md   .json     技能包
+```
+
+## 核心创新：统一技能 + 角色路由器
+
+**之前 (命令方法)**:
+```
+.claude/commands/team/
+├── coordinate.md     →  /team:coordinate
+├── plan.md           →  /team:plan
+├── execute.md        →  /team:execute
+├── test.md           →  /team:test
+└── review.md         →  /team:review
+```
+→ 5个独立的命令文件，5个独立的技能路径
+
+**之后 (统一技能方法)**:
+```
+.claude/skills/team-{name}/
+├── SKILL.md          →  Skill(skill="team-{name}", args="--role=xxx")
+├── roles/
+│   ├── coordinator.md
+│   ├── planner.md
+│   ├── executor.md
+│   ├── tester.md
+│   └── reviewer.md
+└── specs/
+    └── team-config.json
+```
+→ 1个技能入口点，`--role` 参数路由到每个角色的执行逻辑
+
+**协调者使用以下方式生成团队成员**:
+```javascript
+Task({
+  prompt: `...调用 Skill(skill="team-{name}", args="--role=planner") 执行规划...`
+})
+```
+
+## 目标输出结构
+
+```
+.claude/skills/team-{name}/
+├── SKILL.md                    # 角色路由器 + 共享基础设施
+│   ├─ Frontmatter
+│   ├─ 架构概览 (角色路由图)
+│   ├─ 角色路由器 (解析 --role → 读取 roles/{role}.md → 执行)
+│   ├─ 共享基础设施 (消息总线, 任务生命周期)
+│   ├─ 协调者生成模板
+│   └─ 错误处理
+├── roles/                      # 特定角色的执行细节
+│   ├── coordinator.md          # 编排逻辑
+│   ├── {role-1}.md             # 第一个工作角色
+│   ├── {role-2}.md             # 第二个工作角色
+│   └── ...
+└── specs/                      # [可选] 团队特定配置
+    └── team-config.json
+```
+
+## 核心设计模式
+
+### 模式 1: 角色路由器 (统一入口点)
+
+SKILL.md 解析 `$ARGUMENTS` 以提取 `--role`:
+```
+输入: Skill(skill="team-{name}", args="--role=planner")
+  ↓ 解析 --role=planner
+  ↓ 读取 roles/planner.md
+  ↓ 执行规划者特定的5阶段逻辑
+```
+
+没有 `--role` → 错误 (角色是必需的，由协调者生成时设置)。
+
+### 模式 2: SKILL.md 中的共享基础设施
+
+SKILL.md 定义 **一次**，所有角色继承:
+- 消息总线模式 (team_msg + CLI 备用方案)
+- 任务生命周期 (TaskList → TaskGet → TaskUpdate)
+- 团队名称和会话目录约定
+- 错误处理和升级规则
+
+### 模式 3: 角色文件 = 完整的执行细节
+
+每个 `roles/{role}.md` 包含:
+- 特定角色的5阶段实现
+- 每个角色的消息类型
+- 每个角色的任务前缀
+- 完整的代码 (没有 `Ref:` 指回 SKILL.md)
+
+### 模式 4: 批量角色生成
+
+阶段 1 一次性收集 **所有** 角色 (不是一次一个):
+- 团队名称 + 所有角色定义一次性完成
+- 协调者总是被生成
+- 工作角色作为一批被收集
+
+### 模式 5: 自包含的规范
+
+设计模式规范包含在本地的 `specs/` 目录中:
+```
+specs/team-design-patterns.md    # 基础设施模式 (8) + 协作索引
+specs/collaboration-patterns.md  # 10个带收敛控制的协作模式
+specs/quality-standards.md       # 质量标准
+```
+
+---
+
+## 强制性先决条件
+
+> **请勿跳过**: 在执行任何操作之前，请阅读这些文档。
+
+### 规范文档 (必须阅读)
+
+| 文档 | 目的 | 时间 |
+|----------|---------|------|
+| [specs/team-design-patterns.md](specs/team-design-patterns.md) | 基础设施模式 (8) + 协作索引 | **必须阅读** |
+| [specs/collaboration-patterns.md](specs/collaboration-patterns.md) | 10个带收敛控制的协作模式 | **必须阅读** |
+| [specs/quality-standards.md](specs/quality-standards.md) | 质量标准 | 生成前必须阅读 |
+
+### 模板文件 (生成前必须阅读)
+
+| 文档 | 目的 |
+|----------|---------|
+| [templates/skill-router-template.md](templates/skill-router-template.md) | 生成的 SKILL.md 模板，带角色路由器 |
+| [templates/role-template.md](templates/role-template.md) | 生成的角色文件模板 |
+
+### 现有参考
+
+| 文档 | 目的 |
+|----------|---------|
+| `.claude/commands/team/coordinate.md` | 协调者生成模式 |
+| `.claude/commands/team/plan.md` | 规划者角色参考 |
+| `.claude/commands/team/execute.md` | 执行者角色参考 |
+| `.claude/commands/team/test.md` | 测试者角色参考 |
+| `.claude/commands/team/review.md` | 审查者角色参考 |
+
+---
+
+## 执行流程
+
+```
+阶段 0: 规范学习 (强制性)
+   -> 阅读: specs/team-design-patterns.md
+   -> 阅读: specs/collaboration-patterns.md
+   -> 阅读: templates/skill-router-template.md + templates/role-template.md
+   -> 阅读: 1-2个现有团队命令以供参考
+   -> 输出: 内化的需求 (内存中)
+
+阶段 1: 需求收集
+   -> 参考: phases/01-requirements-collection.md
+   - 收集团队名称和所有角色定义 (批量)
+   - 对每个角色: 名称、职责、任务前缀、能力
+   - 流水线定义 (任务链顺序)
+   - 输出: team-config.json (团队级别 + 每个角色的配置)
+
+阶段 2: 模式分析
+   -> 参考: phases/02-pattern-analysis.md
+   - 对每个角色: 找到最相似的现有命令
+   - 对每个角色: 选择基础设施 + 协作模式
+   - 对每个角色: 映射5阶段结构
+   - 输出: pattern-analysis.json
+
+阶段 3: 技能包生成
+   -> 参考: phases/03-skill-generation.md
+   - 生成 SKILL.md (角色路由器 + 共享基础设施)
+   - 生成 roles/*.md (每个角色的执行细节)
+   - 生成 specs/team-config.json
+   - 输出: .claude/skills/team-{name}/ 完整的包
+
+阶段 4: 集成验证
+   -> 参考: phases/04-integration-verification.md
+   - 验证角色路由器引用与角色文件匹配
+   - 验证任务前缀在所有角色中是唯一的
+   - 验证消息类型兼容性
+   - 输出: integration-report.json
+
+阶段 5: 验证
+   -> 参考: phases/05-validation.md
+   - 每个角色文件的结构完整性
+   - 每个角色文件的模式合规性
+   - 质量评分和交付
+   - 输出: validation-report.json + 交付的技能包
+```
+
+**阶段参考文档** (按需阅读):
+
+| 阶段 | 文档 | 目的 |
+|-------|----------|---------|
+| 1 | [phases/01-requirements-collection.md](phases/01-requirements-collection.md) | 批量收集团队 + 所有角色定义 |
+| 2 | [phases/02-pattern-analysis.md](phases/02-pattern-analysis.md) | 每个角色的模式匹配和阶段映射 |
+| 3 | [phases/03-skill-generation.md](phases/03-skill-generation.md) | 生成统一的技能包 |
+| 4 | [phases/04-integration-verification.md](phases/04-integration-verification.md) | 验证内部一致性 |
+| 5 | [phases/05-validation.md](phases/05-validation.md) | 质量门禁和交付 |
+
+## 目录设置
+
+```javascript
+const timestamp = new Date().toISOString().slice(0,19).replace(/[-:T]/g, '');
+const workDir = `.workflow/.scratchpad/team-skill-${timestamp}`;
+
+Bash(`mkdir -p "${workDir}"`);
+```
+
+## 输出结构
+
+```
+.workflow/.scratchpad/team-skill-{timestamp}/
+├── team-config.json             # 阶段 1 输出 (团队 + 所有角色)
+├── pattern-analysis.json        # 阶段 2 输出 (每个角色的模式)
+├── integration-report.json      # 阶段 4 输出
+├── validation-report.json       # 阶段 5 输出
+└── preview/                     # 阶段 3 输出 (交付前预览)
+    ├── SKILL.md
+    ├── roles/
+    │   ├── coordinator.md
+    │   └── {role-N}.md
+    └── specs/
+        └── team-config.json
+
+最终交付:
+.claude/skills/team-{name}/
+├── SKILL.md
+├── roles/
+│   ├── coordinator.md
+│   └── ...
+└── specs/
+    └── team-config.json
+```
+
+## 比较: 命令设计器 vs 技能设计器
+
+| 方面 | team-command-designer | team-skill-designer |
+|--------|----------------------|---------------------|
+| 输出 | N 个独立的 .md 命令文件 | 1 个技能包 (SKILL.md + roles/) |
+| 入口点 | N 个技能路径 (/team:xxx) | 1 个技能路径 + --role 参数 |
+| 共享基础设施 | 在每个命令中重复 | 在 SKILL.md 中定义一次 |
+| 角色隔离 | 完全 (独立文件) | 完全 (roles/ 目录) |
+| 协调者生成 | `Skill(skill="team:plan")` | `Skill(skill="team-{name}", args="--role=planner")` |
+| 角色生成 | 一次一个角色 | 批量生成所有角色 |
+| 模板 | command-template.md | skill-router-template.md + role-template.md |
+
+## 错误处理
+
+| 场景 | 解决方案 |
+|----------|------------|
+| 找不到规范 | 回退到内联的模式知识 |
+| 角色名称冲突 | 使用 AskUserQuestion 请求重命名 |
+| 任务前缀冲突 | 建议替代前缀 |
+| 模板变量未解析 | 因特定变量名而失败 |
+| 质量分数 < 60% | 使用额外上下文重新运行阶段 3 |
+
+## 调试
+
+| 问题 | 解决方案 |
+|-------|----------|
+| 生成的 SKILL.md 缺少路由器 | 检查 templates/skill-router-template.md |
+| 角色文件缺少消息总线 | 检查 templates/role-template.md |
+| 集成检查失败 | 查看 phases/04-integration-verification.md |
+| 质量分数低于阈值 | 查看 specs/quality-standards.md |

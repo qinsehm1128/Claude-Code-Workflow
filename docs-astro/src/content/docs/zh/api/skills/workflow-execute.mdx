@@ -1,0 +1,621 @@
+---
+title: "工作流执行"
+description: "协调工作流任务的代理执行，具有自动会话发现、并行任务处理和状态跟踪功能"
+category: "api"
+locale: "zh"
+order: 21
+---
+
+# 工作流执行
+
+协调工作流任务的代理执行，具有自动会话发现、并行任务处理和状态跟踪功能。在 "workflow:execute" 上触发。
+
+## 概述
+
+| 属性 | 值 |
+|----------|-------|
+| **名称** | `workflow-execute` |
+| **工具** | `Skill`, `Task`, `AskUserQuestion`, `TaskCreate`, `TaskUpdate`, `TaskList`, `Read`, `Write`, `Edit`, `Bash`, `Glob`, `Grep` |
+
+## 参考
+
+# 工作流执行
+
+通过系统的任务发现、代理协调和进度跟踪来编排自主的工作流执行。**在没有用户中断的情况下执行整个工作流**（除非存在多个活动会话时需要初始选择），为代理提供完整的上下文，并确保使用全面的 TodoWrite 跟踪来正确执行流程控制。
+
+**恢复模式**：当使用 `--resume-session` 标志调用时，跳过发现阶段，直接进入指定会话的 TodoWrite 生成和代理执行阶段。
+
+## 用法
+
+```bash
+# 交互模式 (带确认)
+/workflow:execute
+/workflow:execute --resume-session="WFS-auth"
+
+# 自动模式 (跳过确认，使用默认值)
+/workflow:execute --yes
+/workflow:execute -y
+/workflow:execute -y --resume-session="WFS-auth"
+
+# 带自动提交 (每个任务完成后提交)
+/workflow:execute --with-commit
+/workflow:execute -y --with-commit
+/workflow:execute -y --with-commit --resume-session="WFS-auth"
+```
+
+## 自动模式默认值
+
+当使用 `--yes` 或 `-y` 标志时：
+- **会话选择**: 自动选择第一个（最新的）活动会话
+- **完成选择**: 自动完成会话 (运行 `/workflow:session:complete --yes`)
+
+当使用 `--with-commit` 标志时：
+- **自动提交**: 每个代理任务完成后，根据摘要文档提交更改
+- **提交原则**: 最小化提交 - 仅提交已完成任务修改的文件
+- **提交消息**: 根据任务摘要生成，格式为: "feat/fix/refactor: \{task-title\} - \{summary\}"
+
+**标志解析**:
+```javascript
+const autoYes = $ARGUMENTS.includes('--yes') || $ARGUMENTS.includes('-y')
+const withCommit = $ARGUMENTS.includes('--with-commit')
+```
+
+## 性能优化策略
+
+**延迟加载**: 任务 JSON 在执行期间**按需**读取，而不是预先加载。TODO_LIST.md + IMPL_PLAN.md 为规划提供元数据。
+
+**加载策略**:
+- **TODO_LIST.md**: 在阶段 3 中读取（任务元数据、状态、用于 TodoWrite 生成的依赖项）
+- **IMPL_PLAN.md**: 在阶段 2 中检查是否存在（正常模式），在阶段 4A 中解析执行策略
+- **任务 JSON**: 延迟加载 - 仅在任务即将执行时读取（阶段 4B）
+
+## 核心规则
+**自主地完成整个工作流，无需用户中断，使用 TodoWrite 进行全面的进度跟踪。**
+**执行所有发现的待处理任务，直到工作流完成或遇到阻塞依赖。**
+**用户选择完成: 当所有任务完成后，询问用户选择审查或完成。**
+**一个代理 = 一个任务 JSON: 每个代理实例只执行一个任务 JSON 文件 - 切勿将多个任务批量处理到单个代理执行中。**
+
+## 核心职责
+- **会话发现**: 识别并选择活动的工作流会话
+- **执行策略解析**: 从 IMPL_PLAN.md 中提取执行模型
+- **TodoWrite 进度跟踪**: 在整个工作流中维护实时执行状态
+- **代理编排**: 用完整的上下文协调专门的代理
+- **状态同步**: 更新任务 JSON 文件和工作流状态
+- **自主完成**: 继续执行直到所有任务完成或达到阻塞状态
+- **会话用户选择完成**: 当所有任务完成后，询问用户选择审查或完成
+
+## 执行理念
+- **进度跟踪**: 在整个工作流执行过程中持续更新 TodoWrite
+- **自主完成**: 无需用户中断即可执行所有任务，直到工作流完成
+
+## 执行过程
+
+```
+正常模式:
+阶段 1: 发现
+   ├─ 计算活动会话数
+   └─ 决策:
+      ├─ count=0 → 错误: 没有活动会话
+      ├─ count=1 → 自动选择会话 → 阶段 2
+      └─ count>1 → AskUserQuestion (最多 4 个选项) → 阶段 2
+
+阶段 2: 规划文档验证
+   ├─ 检查 IMPL_PLAN.md 是否存在
+   ├─ 检查 TODO_LIST.md 是否存在
+   └─ 验证 .task/ 包含 IMPL-*.json 文件
+
+阶段 3: TodoWrite 生成
+   ├─ 将会话状态更新为 "active" (步骤 0)
+   ├─ 解析 TODO_LIST.md 以获取任务状态
+   ├─ 为整个工作流生成 TodoWrite
+   └─ 准备会话上下文路径
+
+阶段 4: 执行策略和任务执行
+   ├─ 步骤 4A: 从 IMPL_PLAN.md 解析执行策略
+   └─ 步骤 4B: 使用延迟加载执行任务
+      └─ 循环:
+         ├─ 从 TodoWrite 获取下一个 in_progress 任务
+         ├─ 延迟加载任务 JSON
+         ├─ 使用任务上下文启动代理
+         ├─ 标记任务已完成 (更新 IMPL-*.json 状态)
+         │  # 快速修复: 为 ccw 仪表板更新任务状态
+         │  # TS=$(date -Iseconds) && jq --arg ts "$TS" '.status="completed" | .status_history=(.status_history // [])+[{"from":"in_progress","to":"completed","changed_at":$ts}]' IMPL-X.json > tmp.json && mv tmp.json IMPL-X.json
+         ├─ [with-commit] 根据摘要提交更改 (最小原则)
+         │  # 从 .summaries/IMPL-X-summary.md 读取摘要
+         │  # 从摘要的 "Files Modified" 部分提取已更改的文件
+         │  # 生成提交消息: "feat/fix/refactor: {task-title} - {summary}"
+         │  # git add <changed-files> && git commit -m "<commit-message>"
+         └─ 前进到下一个任务
+
+阶段 5: 完成
+   ├─ 更新 JSON 文件中的任务状态
+   ├─ 生成摘要
+   └─ AskUserQuestion: 选择下一步
+      ├─ "进入审查" → /workflow:review
+      └─ "完成会话" → /workflow:session:complete
+
+恢复模式 (--resume-session):
+   ├─ 跳过阶段 1 和阶段 2
+   └─ 入口点: 阶段 3 (TodoWrite 生成)
+      ├─ 将会话状态更新为 "active" (如果尚未激活)
+      └─ 继续: 阶段 4 → 阶段 5
+```
+
+## 执行生命周期
+
+### 阶段 1: 发现
+**适用于**: 仅正常模式（在恢复模式下跳过）
+
+**目的**: 在存在多个会话时，查找并选择活动的工作流会话并获得用户确认
+
+**过程**:
+
+#### 步骤 1.1: 计算活动会话数
+```bash
+bash(find .workflow/active/ -name "WFS-*" -type d 2>/dev/null | wc -l)
+```
+
+#### 步骤 1.2: 处理会话选择
+
+**情况 A: 没有会话** (count = 0)
+```
+错误: 未找到活动的工作流会话
+运行 /workflow:plan "任务描述" 来创建一个会话
+```
+
+**情况 B: 单个会话** (count = 1)
+```bash
+bash(find .workflow/active/ -name "WFS-*" -type d 2>/dev/null | head -1 | xargs basename)
+```
+自动选择并继续到阶段 2。
+
+**情况 C: 多个会话** (count > 1)
+
+列出带有元数据的会话并提示用户选择：
+```bash
+bash(for dir in .workflow/active/WFS-*/; do [ -d "$dir" ] || continue; session=$(basename "$dir"); project=$(jq -r '.project // "Unknown"' "${dir}workflow-session.json" 2>/dev/null || echo "Unknown"); total=$(grep -c '^\- \[' "${dir}TODO_LIST.md" 2>/dev/null || echo 0); completed=$(grep -c '^\- \[x\]' "${dir}TODO_LIST.md" 2>/dev/null || echo 0); if [ "$total" -gt 0 ]; then progress=$((completed * 100 / total)); else progress=0; fi; echo "$session | $project | $completed/$total tasks ($progress%)"; done)
+```
+
+**解析 --yes 标志**:
+```javascript
+const autoYes = $ARGUMENTS.includes('--yes') || $ARGUMENTS.includes('-y')
+```
+
+**条件选择**:
+```javascript
+if (autoYes) {
+  // 自动模式: 选择第一个会话 (最新的)
+  const firstSession = sessions[0]
+  console.log(`[--yes] 自动选择会话: ${firstSession.id}`)
+  selectedSessionId = firstSession.id
+  // 继续到阶段 2
+} else {
+  // 交互模式: 使用 AskUserQuestion 显示格式化的选项 (最多显示 4 个选项)
+  // 如果超过 4 个会话，显示最新的 4 个，并提供 "其他" 选项供手动输入
+  const sessions = getActiveSessions()  // 按最后修改时间排序
+  const displaySessions = sessions.slice(0, 4)
+
+  AskUserQuestion({
+    questions: [{
+      question: "检测到多个活动会话。请选择一个:",
+      header: "会话",
+      multiSelect: false,
+      options: displaySessions.map(s => ({
+        label: s.id,
+        description: `${s.project} | ${s.progress}`
+      }))
+      // 注意: 用户可以选择 "其他" 手动输入会话 ID
+    }]
+  })
+}
+```
+
+**输入验证**:
+- 如果用户从选项中选择：使用所选会话 ID
+- 如果用户选择 "其他" 并提供输入：验证会话是否存在
+- 如果验证失败：显示错误并重新提示或建议可用会话
+
+解析用户输入（支持：数字 "1"，完整 ID "WFS-auth-system"，或部分 "auth"），验证选择，然后继续到阶段 2。
+
+#### 步骤 1.3: 加载会话元数据
+```bash
+bash(cat .workflow/active/${sessionId}/workflow-session.json)
+```
+
+**输出**: 在内存中存储会话元数据
+**此时不要读取任务 JSON** - 推迟到执行阶段（延迟加载）
+
+**恢复模式**: 当提供 `--resume-session="session-id"` 标志时，将跳过此整个阶段。
+
+### 阶段 2: 规划文档验证
+**适用于**: 仅正常模式（在恢复模式下跳过）
+
+**目的**: 在执行前验证规划工件是否存在
+
+**过程**:
+1.  **检查 IMPL_PLAN.md**: 验证文件是否存在（将详细解析推迟到阶段 4A）
+2.  **检查 plan.json**: 验证文件是否存在（结构化计划概览，在阶段 4A 中使用）
+3.  **检查 TODO_LIST.md**: 验证文件是否存在（将读取推迟到阶段 3）
+4.  **验证任务目录**: 确保 `.task/` 至少包含一个 IMPL-*.json 文件
+
+**关键优化**: 此处仅进行存在性检查。实际的文件读取发生在后续阶段。
+
+**恢复模式**: 当提供 `--resume-session` 标志时，此阶段将被跳过。恢复模式的入口点是阶段 3。
+
+### 阶段 3: TodoWrite 生成
+**适用于**: 正常模式和恢复模式（恢复模式入口点）
+
+**步骤 0: 将会话状态更新为活动**
+在生成 TodoWrite 之前，将会话状态从 "planning" 更新为 "active"：
+```bash
+# 更新会话状态 (幂等操作 - 如果已经是 active 状态，运行也安全)
+jq '.status = "active" | .execution_started_at = (.execution_started_at // now | todate)' 
+  .workflow/active/${sessionId}/workflow-session.json > tmp.json && 
+  mv tmp.json .workflow/active/${sessionId}/workflow-session.json
+```
+这确保了在执行期间仪表板显示会话为 "ACTIVE"。
+
+**过程**:
+1.  **创建 TodoWrite 列表**: 从 TODO_LIST.md 生成任务列表（而不是从任务 JSON）
+    -   解析 TODO_LOG.md 以提取所有任务及其当前状态
+    -   识别第一个已满足依赖关系的待处理任务
+    -   生成覆盖整个工作流的综合性 TodoWrite
+2.  **准备会话上下文**: 为代理使用注入工作流路径（使用提供的 session-id）
+3.  **验证先决条件**: 确保 IMPL_PLAN.md 和 TODO_LIST.md 存在且有效
+
+**恢复模式行为**:
+- 直接从 `.workflow/active/{session-id}/` 加载现有的 TODO_LIST.md
+- 从 TODO_LIST.md 中提取当前进度
+- 从 TODO_LIST.md 状态生成 TodoWrite
+- 立即进入代理执行（阶段 4）
+
+### 阶段 4: 执行策略选择与任务执行
+**适用于**: 正常模式和恢复模式
+
+**步骤 4A: 解析执行策略 (首选 plan.json，IMPL_PLAN.md 作为备用)**
+
+优先使用 `plan.json` (结构化) 而不是 `IMPL_PLAN.md` (人类可读) 来获取执行策略：
+1.  **如果 plan.json 存在**: 读取 `recommended_execution`、`complexity`、`task_ids[]`、`shared_context`
+2.  **备用 IMPL_PLAN.md**: 读取第 4 节以提取执行模型
+
+提取:
+- **执行模型**: 顺序 | 并行 | 分阶段 | TDD 循环
+- **并行化机会**: 哪些任务可以并行运行
+- **序列化要求**: 哪些任务必须顺序运行
+- **关键路径**: 优先执行顺序
+
+如果两者都没有执行策略，则使用智能备用方案（分析任务结构）。
+
+**步骤 4B: 使用延迟加载执行任务**
+
+**关键优化**: **仅在需要时**读取任务 JSON 以供执行
+
+**执行循环模式**:
+```
+while (TODO_LIST.md 有待处理的任务) {
+  next_task_id = getTodoWriteInProgressTask()
+  task_json = Read(.workflow/active/{session}/.task/{next_task_id}.json)  // 延迟加载
+  executeTaskWithAgent(task_json)
+  updateTodoListMarkCompleted(next_task_id)
+  advanceTodoWriteToNextTask()
+}
+```
+
+**每个任务的执行过程**:
+1.  **识别下一个任务**: 从 TodoWrite 中获取下一个 `in_progress` 的任务 ID
+2.  **按需加载任务 JSON**: **仅**为当前任务读取 `.task/{task-id}.json`
+3.  **验证任务结构**: 确保必需字段存在 (id, title, description, depends_on, convergence)
+4.  **启动代理**: 使用包括流程控制步骤在内的完整上下文调用专门的代理
+5.  **监控进度**: 跟踪代理执行并处理错误，无需用户干预
+6.  **收集结果**: 收集实现结果和输出
+7.  **[with-commit] 自动提交**: 如果启用了 `--with-commit` 标志，则根据摘要提交更改
+    -   从 `.summaries/{task-id}-summary.md` 读取摘要
+    -   从摘要的 "Files Modified" 部分提取已更改的文件
+    -   从 `meta.type` 确定提交类型 (feature→feat, bugfix→fix, refactor→refactor)
+    -   生成提交消息: "\{type\}: \{task-title\} - \{summary-first-line\}"
+    -   仅提交修改过的文件 (最小原则): `git add <files> && git commit -m "<message>"`
+8.  **继续工作流**: 从 TODO_LIST.md 识别下一个待处理任务并重复
+
+**注意**: TODO_LIST.md 的更新由代理（例如 code-developer.md）处理，而不是由编排器处理。
+
+### 阶段 5: 完成
+**适用于**: 正常模式和恢复模式
+
+**过程**:
+1.  **更新任务状态**: 在 JSON 文件中标记已完成的任务
+2.  **生成摘要**: 在 `.summaries/` 中创建任务摘要
+3.  **更新 TodoWrite**: 标记当前任务已完成，前进到下一个
+4.  **同步状态**: 更新会话状态和工作流状态
+5.  **检查工作流是否完成**: 验证所有任务都已完成
+6.  **用户选择**: 当所有任务完成后，询问用户选择下一步：
+
+```javascript
+// 解析 --yes 标志
+const autoYes = $ARGUMENTS.includes('--yes') || $ARGUMENTS.includes('-y')
+
+if (autoYes) {
+  // 自动模式: 自动完成会话
+  console.log(`[--yes] 自动选择: 完成会话`)
+  Skill(skill="workflow:session:complete", args="--yes")
+} else {
+  // 交互模式: 询问用户
+  AskUserQuestion({
+    questions: [{
+      question: "所有任务已完成。您接下来想做什么？",
+      header: "下一步",
+      multiSelect: false,
+      options: [
+        {
+          label: "进入审查",
+          description: "运行专门的审查 (安全/架构/质量/行动项)"
+        },
+        {
+          label: "完成会话",
+          description: "归档会话并更新清单"
+        }
+      ]
+    }]
+  })
+}
+```
+
+**根据用户选择**:
+- **"进入审查"**: 执行 `/workflow:review`
+- **"完成会话"**: 执行 `/workflow:session:complete`
+
+### 完成后扩展
+
+完成后询问用户是否扩展为 issue(test/enhance/refactor/doc)，选中项调用 `/issue:new "{summary} - {dimension}"`
+
+## 执行策略 (IMPL_PLAN 驱动)
+
+### 策略优先级
+
+**IMPL_PLAN 驱动的执行 (推荐)**:
+1.  **读取 IMPL_PLAN.md 执行策略** (第 4 节: 实现策略)
+2.  **遵循明确的指导**:
+    -   执行模型 (顺序/并行/分阶段/TDD)
+    -   并行化机会 (哪些任务可以并行运行)
+    -   序列化要求 (哪些任务必须顺序运行)
+    -   关键路径 (优先执行顺序)
+3.  **仅使用 TODO_LIST.md 进行状态跟踪**
+4.  **IMPL_PLAN 决定 "如何做"**，workflow-execute 实现它
+
+**智能备用方案 (当 IMPL_PLAN 缺少执行细节时)**:
+1.  **分析任务结构**:
+    -   检查任务 JSON 中的 `meta.execution_group`
+    -   分析 `depends_on` 关系
+    -   理解任务复杂性和风险
+2.  **应用智能默认值**:
+    -   无依赖关系 + 相同的 execution_group → 并行
+    -   有依赖关系 → 顺序 (等待依赖项)
+    -   关键/高风险任务 → 顺序
+3.  **保守方法**: 不确定时，倾向于顺序执行
+
+### 执行模型
+
+#### 1. 顺序执行
+**时机**: IMPL_PLAN 指定 "Sequential" 或没有明确的并行化指导
+**模式**: 按 TODO_LIST 顺序逐个执行任务
+**TodoWrite**: 一次只有一个任务标记为 `in_progress`
+
+#### 2. 并行执行
+**时机**: IMPL_PLAN 指定 "Parallel" 并有明确的并行化机会
+**模式**: 通过启动多个代理实例并发执行独立的任务组
+**TodoWrite**: 同时将多个任务（在同一批次中）标记为 `in_progress`
+**代理实例化**: 每个任务启动一个代理实例（遵守“一个代理 = 一个任务 JSON”规则）
+
+#### 3. 分阶段执行
+**时机**: IMPL_PLAN 指定 "Phased" 并有阶段分解
+**模式**: 分阶段执行任务，遵守阶段边界
+**TodoWrite**: 在每个阶段内，遵循顺序或并行规则
+
+#### 4. 智能备用方案
+**时机**: IMPL_PLAN 缺少执行策略细节
+**模式**: 分析任务结构并应用智能默认值
+**TodoWrite**: 根据分析遵循顺序或并行规则
+
+### 任务状态逻辑
+```
+pending + dependencies_met → executable
+completed → skip
+blocked → skip until dependencies clear
+```
+
+## TodoWrite 协调
+
+### TodoWrite 规则 (统一)
+
+**规则 1: 初始创建**
+- **正常模式**: 从发现的待处理任务为整个工作流生成 TodoWrite
+- **恢复模式**: 从现有会话状态和当前进度生成
+
+**规则 2: In-Progress 任务数量 (依赖于执行模型)**
+- **顺序执行**: 一次只标记 **一个** 任务为 `in_progress`
+- **并行批处理执行**: 同时将当前批次中的 **所有** 任务标记为 `in_progress`
+- **执行组指示器**: 为并行任务显示 `[execution_group: group-id]`
+
+**规则 3: 状态更新**
+- **即时更新**: 在每个任务/批次完成后立即更新状态，无需用户干预
+- **状态同步**: 更新后与 JSON 任务文件同步
+- **持续跟踪**: 在整个工作流执行过程中维护 TodoWrite 直到完成
+
+**规则 4: 工作流完成检查**
+- 当所有任务都标记为 `completed` 时，提示用户选择审查或完成会话
+
+### TodoWrite 工具用法
+
+**示例 1: 顺序执行**
+```javascript
+TodoWrite({
+  todos: [
+    {
+      content: "执行 IMPL-1.1: 设计认证模式 [code-developer] [FLOW_CONTROL]",
+      status: "in_progress",  // 一个任务在进行中
+      activeForm: "正在执行 IMPL-1.1: 设计认证模式"
+    },
+    {
+      content: "执行 IMPL-1.2: 实现认证逻辑 [code-developer] [FLOW_CONTROL]",
+      status: "pending",
+      activeForm: "正在执行 IMPL-1.2: 实现认证逻辑"
+    }
+  ]
+});
+```
+
+**示例 2: 并行批处理执行**
+```javascript
+TodoWrite({
+  todos: [
+    {
+      content: "执行 IMPL-1.1: 构建认证 API [code-developer] [execution_group: parallel-auth-api]",
+      status: "in_progress",  // 批处理任务 1
+      activeForm: "正在执行 IMPL-1.1: 构建认证 API"
+    },
+    {
+      content: "执行 IMPL-1.2: 构建用户界面 [code-developer] [execution_group: parallel-ui-comp]",
+      status: "in_progress",  // 批处理任务 2 (并发运行)
+      activeForm: "正在执行 IMPL-1.2: 构建用户界面"
+    },
+    {
+      content: "执行 IMPL-1.3: 设置数据库 [code-developer] [execution_group: parallel-db-schema]",
+      status: "in_progress",  // 批处理任务 3 (并发运行)
+      activeForm: "正在执行 IMPL-1.3: 设置数据库"
+    },
+    {
+      content: "执行 IMPL-2.1: 集成测试 [test-fix-agent] [depends_on: IMPL-1.1, IMPL-1.2, IMPL-1.3]",
+      status: "pending",  // 下一批处理 (等待当前批处理完成)
+      activeForm: "正在执行 IMPL-2.1: 集成测试"
+    }
+  ]
+});
+```
+
+## 代理执行模式
+
+### 流程控制执行
+**[FLOW_CONTROL]** 标记表示任务 JSON 包含用于上下文准备的 `pre_analysis` 步骤。
+
+**注意**: 编排器 **不** 执行流程控制步骤 - 代理自主解释和执行它们。
+
+### 代理提示模板
+**基于路径的调用**: 传递路径和触发标记，让代理自主解析任务 JSON。
+
+```bash
+Task(subagent_type="{meta.agent}",
+     run_in_background=false,
+     prompt="实现任务 {task.id}: {task.title}
+
+     [FLOW_CONTROL]
+
+     **输入**:
+     - 任务 JSON: {session.task_json_path}
+     - 上下文包: {session.context_package_path}
+
+     **输出位置**:
+     - 工作流: {session.workflow_dir}
+     - TODO 列表: {session.todo_list_path}
+     - 摘要: {session.summaries_dir}
+
+     **执行**: 读取任务 JSON → 执行 pre_analysis → 检查 execution_config.method → (CLI: 移交给 CLI 工具 | Agent: 直接实现) → 更新 TODO_LIST.md → 生成摘要",
+     description="实现: {task.id}")
+```
+
+**关键标记**:
+- `Implement` 关键字: 触发技术栈检测和指南加载
+- `[FLOW_CONTROL]`: 触发 pre_analysis 执行
+
+**为什么基于路径**: 代理 (code-developer.md) 自主地:
+- 读取并解析任务 JSON (description, convergence, implementation, execution_config)
+- 执行 pre_analysis 步骤 (阶段 1: 上下文收集)
+- 检查 execution_config.method (阶段 2: 确定模式)
+- CLI 模式: 构建移交提示并通过 ccw cli 使用恢复策略执行
+- Agent 模式: 直接使用 modification_points 和 logic_flow 实现
+- 生成带集成点的结构化摘要
+
+在提示中嵌入任务内容会造成重复，并与代理的解析逻辑冲突。
+
+### 代理分配规则
+```
+指定了 meta.agent → 使用指定的代理
+缺少 meta.agent → 根据 meta.type 推断:
+  - "feature" → @code-developer
+  - "test-gen" → @code-developer
+  - "test-fix" → @test-fix-agent
+  - "review" → @universal-executor
+  - "docs" → @doc-generator
+```
+
+## 工作流文件结构参考
+```
+.workflow/active/WFS-[topic-slug]/
+├── workflow-session.json     # 会话状态和元数据
+├── plan.json                # 结构化计划概览 (机器可读)
+├── IMPL_PLAN.md             # 规划文档和需求 (人类可读)
+├── TODO_LIST.md             # 进度跟踪 (由代理更新)
+├── .task/                   # 任务定义 (仅 JSON)
+│   ├── IMPL-1.json          # 主任务定义
+│   └── IMPL-1.1.json        # 子任务定义
+├── .summaries/              # 任务完成摘要
+│   ├── IMPL-1-summary.md    # 任务完成细节
+│   └── IMPL-1.1-summary.md  # 子任务完成细节
+└── .process/                # 规划工件
+    ├── context-package.json # 智能上下文包
+    └── ANALYSIS_RESULTS.md  # 规划分析结果
+```
+
+## 错误处理与恢复
+
+### 常见错误与恢复
+
+| 错误类型 | 原因 | 恢复策略 | 最大尝试次数 |
+|-----------|-------|------------------|--------------|
+| **发现错误** |
+| 没有活动会话 | `.workflow/active/` 中没有会话 | 创建或恢复会话: `/workflow:plan "project"` | N/A |
+| 多个会话 | `.workflow/active/` 中有多个会话 | 提示用户选择 | N/A |
+| 损坏的会话 | 无效的 JSON 文件 | 重新创建会话结构或验证文件 | N/A |
+| **执行错误** |
+| 代理失败 | 代理崩溃/超时 | 使用简化的上下文重试 | 2 |
+| 流程控制错误 | 命令失败 | 跳过可选的，关键的失败 | 每步 1 次 |
+| 上下文加载错误 | 缺少依赖项 | 从 JSON 重新加载，使用默认值 | 3 |
+| JSON 文件损坏 | 文件系统问题 | 从备份恢复/重新创建 | 1 |
+
+### 错误预防
+- **飞行前检查**: 执行前验证会话完整性
+- **备份策略**: 在主要操作前创建任务快照
+- **原子更新**: 原子地更新 JSON 文件以防损坏
+- **依赖验证**: 检查所有 depends_on 引用是否存在
+- **上下文验证**: 确保所有必需的上下文都可用
+
+## 自动提交模式 (--with-commit)
+
+**行为**: 每个代理任务完成后，根据摘要文档自动提交更改。
+
+**最小原则**: 仅提交已完成任务修改的文件。
+
+**提交消息格式**: `{type}: {task-title} - {summary}`
+
+**类型映射** (来自 `meta.type`):
+- `feature` → `feat` | `bugfix` → `fix` | `refactor` → `refactor`
+- `test-gen` → `test` | `docs` → `docs` | `review` → `chore`
+
+**实现**:
+```bash
+# 1. 从 .summaries/{task-id}-summary.md 读取摘要
+# 2. 从 "Files Modified" 部分提取文件
+# 3. 提交: git add <files> && git commit -m "{type}: {title} - {summary}"
+```
+
+**错误处理**: 无更改/缺少摘要时跳过提交，记录错误，继续工作流。
+
+## 相关技能
+
+**先决技能**:
+- `/workflow:plan` - 生成实现计划和任务 JSON
+
+**执行期间调用**:
+- `/workflow:session:complete` - 所有任务完成后归档会话
+- `/workflow:review` - 实现后审查
+
+**后续技能**:
+- `/issue:new` - 创建后续问题 (test/enhance/refactor/doc)

@@ -342,7 +342,7 @@ Verified: all tests passed
 - **[issue:plan](./issue-plan.md)** - 排队前规划解决方案
 - **ccw issue retry** - 重置失败的解决方案以重试
 - **ccw issue queue dag** - 查看依赖图
-- **ccw issue detail <id>** - 查看解决方案详情
+- **`ccw issue detail <id>`** - 查看解决方案详情
 
 ## 最佳实践
 
@@ -360,6 +360,6 @@ Verified: all tests passed
 | 未指定队列 | 缺少 --queue 参数 | 列出队列并选择一个 |
 | 无就绪解决方案 | 依赖阻塞 | 检查 DAG 中的阻塞问题 |
 | 执行器超时 | 解决方案过于复杂 | 拆分为更小的解决方案 |
-| Worktree 已存在 | 之前未完成的执行 | 使用 --worktree <path> 恢复 |
+| Worktree 已存在 | 之前未完成的执行 | 使用 `--worktree <path>` 恢复 |
 | 部分任务失败 | 任务报告失败 | 检查 ccw issue done --fail 输出 |
 | Git 冲突 | 并行执行器修改了相同文件 | DAG 应该防止此情况 |

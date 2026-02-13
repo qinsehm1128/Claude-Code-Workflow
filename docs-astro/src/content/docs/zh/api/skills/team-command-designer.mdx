@@ -1,0 +1,235 @@
+---
+title: "团队命令设计器"
+description: "设计并生成团队命令"
+category: "api"
+locale: "zh"
+order: 18
+---
+
+# 团队命令设计器
+
+遵循既定模式（8个基础设施模式 + 10个带收敛控制的协作模式），设计并生成团队命令 .md 文件。触发词："design team command", "create team role", "new teammate"。
+
+## 概述
+
+| 属性 | 值 |
+|----------|-------|
+| **名称** | `team-command-designer` |
+| **工具** | `Task`, `AskUserQuestion`, `Read`, `Write`, `Bash`, `Glob`, `Grep` |
+
+## 参考
+
+# 团队命令设计器
+
+遵循从现有团队命令（coordinate, plan, execute, test, review）中提取的既定模式，设计并生成团队命令 .md 文件。支持10种协作模式，以适应不同的团队互动模型。
+
+## 架构概览
+
+```
+阶段 0: 规范学习 (强制性 - 阅读设计模式 + 协作模式)
+         |
+阶段 1: 需求收集    -> role-config.json
+         |
+阶段 2: 模式分析           -> applicable-patterns.json (基础设施 + 协作)
+         |
+阶段 3: 命令生成         -> {team-name}/{role-name}.md
+         |
+阶段 4: 集成验证   -> integration-report.json
+         |
+阶段 5: 验证                 -> validation-report.json
+```
+
+## 核心设计原则
+
+1.  **模式合规性**: 所有生成的命令必须遵循基础设施 + 协作模式。
+2.  **消息总线集成**: 每个命令必须包含 team_msg 日志记录。
+3.  **任务生命周期**: 标准的 TaskList -> TaskGet -> TaskUpdate 流程。
+4.  **复杂度自适应**: 支持直接执行和子代理委托。
+5.  **五阶段执行**: 每个命令遵循五阶段结构。
+6.  **收敛控制**: 每个协作模式都有明确的收敛标准。
+7.  **反馈循环**: 每个模式都有结构化的反馈机制。
+8.  **可组合模式**: 协作模式可以组合用于复杂的工作流。
+
+---
+
+## 强制性先决条件
+
+> **请勿跳过**: 在执行任何操作之前，您**必须**完整阅读以下文档。
+
+### 规范文档 (必须阅读)
+
+| 文档 | 目的 | 时间 |
+|----------|---------|------|
+| [specs/team-design-patterns.md](specs/team-design-patterns.md) | 基础设施模式 (8) + 协作模式索引 | **执行前必读** |
+| [specs/collaboration-patterns.md](specs/collaboration-patterns.md) | 10个带收敛/反馈控制的协作模式 | **执行前必读** |
+| [specs/quality-standards.md](specs/quality-standards.md) | 生成的团队命令的质量标准 | 生成前必读 |
+
+### 模板文件 (生成前必须阅读)
+
+| 文档 | 目的 |
+|----------|---------|
+| [templates/command-template.md](templates/command-template.md) | 包含所有必需部分的团队命令 .md 文件模板 |
+
+### 现有团队命令 (参考)
+
+| 文档 | 目的 |
+|----------|---------|
+| `.claude/commands/team/coordinate.md` | 协调者模式 - 编排、团队生命周期 |
+| `.claude/commands/team/plan.md` | 规划者模式 - 探索、计划生成 |
+| `.claude/commands/team/execute.md` | 执行者模式 - 实现、自我验证 |
+| `.claude/commands/team/test.md` | 测试者模式 - 自适应的测试-修复循环 |
+| `.claude/commands/team/review.md` | 审查者模式 - 多维度审查 |
+| `.claude/commands/team/spec/` | Spec 团队文件夹 - 基于文件夹的团队示例 |
+
+---
+
+## 执行流程
+
+```
+输入解析:
+   解析 $ARGUMENTS 以获取角色名称和能力描述
+
+阶段 0: 规范学习 (强制性)
+   -> 参考: specs/team-design-patterns.md, specs/collaboration-patterns.md, templates/command-template.md
+   - 阅读基础设施模式 (team-design-patterns.md 的 A 部分)
+   - 阅读协作模式规范 (collaboration-patterns.md)
+   - 阅读命令模板
+   - 阅读1-2个与新角色最相似的现有团队命令
+   - 输出: 内化的需求 (内存中)
+
+阶段 1: 需求收集
+   -> 参考: phases/01-requirements-collection.md
+   - 收集团队名称 (文件夹名称) 和角色名称
+   - 收集职责、沟通模式
+   - 确定任务前缀 (例如, PLAN-*, IMPL-*, ANALYZE-*)
+   - 选择适用的工具和能力
+   - 输出: role-config.json (包括 team_name, skill_path, output_folder)
+
+阶段 2: 模式分析
+   -> 参考: phases/02-pattern-analysis.md, specs/team-design-patterns.md
+   - 识别哪个现有命令最相似
+   - 选择适用的设计模式
+   - 确定所需的消息类型
+   - 将阶段结构映射到角色职责
+   - 输出: applicable-patterns.json
+
+阶段 3: 命令生成
+   -> 参考: phases/03-command-generation.md, templates/command-template.md
+   - 应用带有角色特定内容的模板
+   - 生成 YAML front matter
+   - 生成消息总线部分
+   - 生成五阶段执行过程
+   - 生成实现代码
+   - 生成错误处理表
+   - 输出: {team-name}/{role-name}.md
+
+阶段 4: 集成验证
+   -> 参考: phases/04-integration-verification.md
+   - 验证与 coordinate.md 生成模式的一致性
+   - 检查消息类型兼容性
+   - 验证任务前缀的唯一性
+   - 确保 allowed-tools 足够
+   - 输出: integration-report.json
+
+阶段 5: 验证
+   -> 参考: phases/05-validation.md, specs/quality-standards.md
+   - 检查所有必需部分是否存在
+   - 验证消息总线合规性
+   - 验证任务生命周期模式
+   - 根据质量标准评分
+   - 输出: validation-report.json + 最终的 {team-name}/{role-name}.md
+```
+
+## 目录设置
+
+```javascript
+const timestamp = new Date().toISOString().slice(0,19).replace(/[-:T]/g, '');
+const workDir = `.workflow/.scratchpad/team-cmd-${timestamp}`;
+
+Bash(`mkdir -p "${workDir}"`);
+```
+
+## 输出结构
+
+```
+.workflow/.scratchpad/team-cmd-{timestamp}/
+├── role-config.json              # 阶段 1 输出 (包括 team_name)
+├── applicable-patterns.json      # 阶段 2 输出
+├── integration-report.json       # 阶段 4 输出
+├── validation-report.json        # 阶段 5 输出
+└── {role-name}.md                # 最终生成的命令
+
+最终交付 (基于文件夹):
+.claude/commands/team/{team-name}/
+├── {role-name}.md                # 例如, coordinator.md, analyst.md
+├── ...                           # 同一团队中的其他角色
+└── (每个团队 = 一个文件夹)
+
+技能路径映射:
+  .claude/commands/team/{team-name}/{role-name}.md  →  /team:{team-name}:{role-name}
+  示例: .claude/commands/team/spec/analyst.md    →  /team:spec:analyst
+```
+
+---
+
+## 各阶段参考文档
+
+### 阶段 0: 规范学习
+
+| 文档 | 目的 | 何时使用 |
+|----------|---------|-------------|
+| [specs/team-design-patterns.md](specs/team-design-patterns.md) | 团队命令设计模式 | 理解所有必需的模式 **必须阅读** |
+| [templates/command-template.md](templates/command-template.md) | 命令文件模板 | 理解输出结构 **必须阅读** |
+
+### 阶段 1: 需求收集
+
+| 文档 | 目的 | 何时使用 |
+|----------|---------|-------------|
+| [phases/01-requirements-collection.md](phases/01-requirements-collection.md) | 收集过程指南 | 执行需求收集 |
+| [specs/team-design-patterns.md](specs/team-design-patterns.md) | 模式参考 | 验证角色是否适合团队架构 |
+
+### 阶段 2: 模式分析
+
+| 文档 | 目的 | 何时使用 |
+|----------|---------|-------------|
+| [phases/02-pattern-analysis.md](phases/02-pattern-analysis.md) | 分析过程指南 | 执行模式匹配 |
+| [specs/team-design-patterns.md](specs/team-design-patterns.md) | 完整模式目录 | 选择适用的模式 |
+
+### 阶段 3: 命令生成
+
+| 文档 | 目的 | 何时使用 |
+|----------|---------|-------------|
+| [phases/03-command-generation.md](phases/03-command-generation.md) | 生成过程指南 | 执行命令文件生成 |
+| [templates/command-template.md](templates/command-template.md) | 命令模板 | 应用带有角色内容的模板 |
+
+### 阶段 4: 集成验证
+
+| 文档 | 目的 | 何时使用 |
+|----------|---------|-------------|
+| [phases/04-integration-verification.md](phases/04-integration-verification.md) | 验证过程指南 | 执行集成检查 |
+
+### 阶段 5: 验证
+
+| 文档 | 目的 | 何时使用 |
+|----------|---------|-------------|
+| [phases/05-validation.md](phases/05-validation.md) | 验证过程指南 | 执行质量检查 |
+| [specs/quality-standards.md](specs/quality-standards.md) | 质量标准 | 对生成的命令进行评分 |
+
+### 调试与故障排除
+
+| 问题 | 解决方案文档 |
+|-------|------------------|
+| 生成的命令缺少消息总线 | [specs/team-design-patterns.md](specs/team-design-patterns.md) - 模式 1 |
+| 任务生命周期非标准 | [specs/team-design-patterns.md](specs/team-design-patterns.md) - 模式 3 |
+| 集成检查失败 | [phases/04-integration-verification.md](phases/04-integration-verification.md) |
+| 质量分数低于阈值 | [specs/quality-standards.md](specs/quality-standards.md) |
+
+### 参考与背景
+
+| 文档 | 目的 | 注释 |
+|----------|---------|-------|
+| `.claude/commands/team/coordinate.md` | 协调者参考 | 生成模式、任务链创建 |
+| `.claude/commands/team/plan.md` | 规划者参考 | 探索、计划生成模式 |
+| `.claude/commands/team/execute.md` | 执行者参考 | 实现、委托模式 |
+| `.claude/commands/team/test.md` | 测试者参考 | 自适应修复循环模式 |
+| `.claude/commands/team/review.md` | 审查者参考 | 多维度审查模式 |

@@ -1,0 +1,395 @@
+---
+title: "工作流计划 (Workflow Plan)"
+description: "统一的规划技能 - 四阶段规划工作流、计划验证和交互式重新规划"
+category: "api"
+locale: "zh"
+order: 24
+---
+
+# 工作流计划 (Workflow Plan)
+
+统一的规划技能 - 四阶段规划工作流、计划验证和交互式重新规划。触发词为 "workflow:plan", "workflow:plan-verify", "workflow:replan"。
+
+## 概述
+
+| 属性 | 值 |
+|----------|-------|
+| **名称** | `workflow-plan` |
+| **工具** | `Skill`, `Task`, `AskUserQuestion`, `TodoWrite`, `Read`, `Write`, `Edit`, `Bash`, `Glob`, `Grep` |
+
+## 参考
+
+# 工作流计划 (Workflow Plan)
+
+统一的规划技能，结合了四阶段规划工作流、计划质量验证和交互式重新规划。它会生成 IMPL_PLAN.md、任务 JSON、验证报告，并通过会话级产物更新来管理计划的生命周期。
+
+## 架构概览
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  工作流计划编排器 (SKILL.md)                                      │
+│  → 按模式路由: plan | verify | replan                           │
+│  → 纯协调者: 执行阶段、解析输出、传递上下文                        │
+└──────────────────────────────┬───────────────────────────────────┘
+                                │
+        ┌───────────────────────┼───────────────────────┐
+        ↓                       ↓                       ↓
+  ┌───────────┐          ┌───────────┐           ┌───────────┐
+  │ 计划模式  │          │  验证模式 │           │  重规划   │
+  │ (默认)    │          │  阶段 5   │           │   模式    │
+  │ 阶段 1-4  │          └───────────┘           │  阶段 6   │
+  └─────┬─────┘                                  └───────────┘
+        │
+    ┌───┼───┬───┐
+    ↓   ↓   ↓   ↓
+  ┌───┐┌───┐┌───┐┌───┐
+  │ 1 ││ 2 ││ 3 ││ 4 │
+  │Ses││Ctx││Con││Gen│
+  └───┘└───┘└───┘└─┬─┘
+                    ↓
+              ┌───────────┐
+              │   确认    │─── 验证 ──→ 阶段 5
+              │ (选择)    │─── 执行 ─→ Skill("workflow-execute")
+              └───────────┘─── 审查 ──→ /workflow:status
+```
+
+## 关键设计原则
+
+1.  **纯粹编排器**: SKILL.md 只负责路由和协调；执行细节存在于阶段文件中。
+2.  **渐进式阶段加载**: 仅在即将执行某个阶段时才读取该阶段的文档。
+3.  **多模式路由**: 单个技能通过模式检测处理 plan/verify/replan。
+4.  **任务附加模型**: 子命令任务被附加、顺序执行，然后折叠。
+5.  **自动继续**: 每个阶段完成后，自动执行下一个待处理阶段。
+6.  **累积状态**: planning-notes.md 在各阶段间传递上下文，用于 N+1 决策。
+
+## 自动模式
+
+当使用 `--yes` 或 `-y` 时：自动继续所有阶段 (跳过确认)，使用推荐的冲突解决方案，并在重新规划时使用安全默认值。
+
+## 模式检测
+
+```javascript
+const args = $ARGUMENTS
+const mode = detectMode(args)
+
+function detectMode(args) {
+  // 技能触发词决定模式
+  if (skillName === 'workflow:plan-verify') return 'verify'
+  if (skillName === 'workflow:replan') return 'replan'
+  return 'plan'  // 默认: workflow:plan
+}
+```
+
+## 执行流程
+
+### 计划模式 (默认)
+
+```
+输入解析:
+   └─ 将用户输入转换为结构化格式 (GOAL/SCOPE/CONTEXT)
+
+阶段 1: 会话发现
+   └─ 参考: phases/01-session-discovery.md
+      └─ 输出: sessionId (WFS-xxx), planning-notes.md
+
+阶段 2: 上下文收集
+   └─ 参考: phases/02-context-gathering.md
+      ├─ 附加的任务: 分析结构 → 识别集成点 → 生成包
+      └─ 输出: contextPath + conflictRisk
+
+阶段 3: 冲突解决 (条件性: conflictRisk ≥ medium)
+   └─ 决策 (检查 conflictRisk):
+      ├─ conflictRisk ≥ medium → 参考: phases/03-conflict-resolution.md
+      │   ├─ 附加的任务: 检测冲突 →呈现给用户 → 应用策略
+      │   └─ 输出: 修改后的头脑风暴产物
+      └─ conflictRisk < medium → 跳到阶段 4
+
+阶段 4: 任务生成
+   └─ 参考: phases/04-task-generation.md
+      └─ 输出: IMPL_PLAN.md, 任务 JSON, TODO_LIST.md
+
+计划确认 (用户决策门):
+   └─ 决策 (用户选择):
+      ├─ "验证计划质量" (推荐) → 路由到阶段 5 (plan-verify)
+      ├─ "开始执行" → Skill(skill="workflow-execute")
+      └─ "仅审查状态" → 路由到 /workflow:status
+```
+
+### 验证模式
+
+```
+阶段 5: 计划验证
+   └─ 参考: phases/05-plan-verify.md
+      └─ 输出: 带有质量门建议的 PLAN_VERIFICATION.md
+```
+
+### 重规划模式
+
+```
+阶段 6: 交互式重规划
+   └─ 参考: phases/06-replan.md
+      └─ 输出: 更新后的 IMPL_PLAN.md, 任务 JSON, TODO_LIST.md
+```
+
+**阶段参考文档** (在阶段执行时按需读取):
+
+| 阶段 | 文档 | 目的 | 模式 |
+|-------|----------|---------|------|
+| 1 | [phases/01-session-discovery.md](phases/01-session-discovery.md) | 创建或发现工作流会话 | plan |
+| 2 | [phases/02-context-gathering.md](phases/02-context-gathering.md) | 收集项目上下文并分析代码库 | plan |
+| 3 | [phases/03-conflict-resolution.md](phases/03-conflict-resolution.md) | 检测并解决冲突 (条件性) | plan |
+| 4 | [phases/04-task-generation.md](phases/04-task-generation.md) | 生成实施计划和任务 JSON | plan |
+| 5 | [phases/05-plan-verify.md](phases/05-plan-verify.md) | 带有质量门的只读验证 | verify |
+| 6 | [phases/06-replan.md](phases/06-replan.md) | 具有边界澄清的交互式重新规划 | replan |
+
+## 核心规则
+
+1.  **立即开始**: 第一个动作是模式检测 + TodoWrite 初始化，第二个动作是阶段执行。
+2.  **无初步分析**: 在阶段 1 之前不读取文件、分析结构或收集上下文。
+3.  **解析每个输出**: 从每个阶段的输出中提取所需数据以供下一阶段使用。
+4.  **通过 TodoList 自动继续**: 检查 TodoList 状态以自动执行下一个待处理阶段。
+5.  **跟踪进度**: 使用任务附加/折叠模式动态更新 TodoWrite。
+6.  **任务附加模型**: Skill 执行将子任务**附加**到当前工作流。编排器**执行**这些附加的任务，然后在完成后将它们**折叠**。
+7.  **渐进式阶段加载**: **仅**在即将执行某个阶段时才读取该阶段的文档。
+8.  **不要停止**: 连续的多阶段工作流。执行完所有附加任务后，立即折叠它们并执行下一阶段。
+
+## 输入处理
+
+**将用户输入转换为结构化格式**:
+
+1.  **简单文本** → 结构化:
+    ```
+    用户: "构建认证系统"
+
+    结构化:
+    GOAL: 构建认证系统
+    SCOPE: 核心认证功能
+    CONTEXT: 新建实施
+    ```
+
+2.  **详细文本** → 提取组件:
+    ```
+    用户: "添加 JWT 认证，支持邮箱/密码登录和令牌刷新"
+
+    结构化:
+    GOAL: 实现基于 JWT 的认证
+    SCOPE: 邮箱/密码登录、令牌生成、令牌刷新端点
+    CONTEXT: 基于 JWT 令牌的安全性，刷新令牌轮换
+    ```
+
+3.  **文件引用** (例如 `requirements.md`) → 读取并结构化:
+    -   读取文件内容
+    -   提取目标、范围、需求
+    -   格式化为结构化描述
+
+## 数据流
+
+### 计划模式
+
+```
+用户输入 (任务描述)
+    ↓
+[转换为结构化格式]
+    ↓ 结构化描述:
+    ↓   GOAL: [目标]
+    ↓   SCOPE: [边界]
+    ↓   CONTEXT: [背景]
+    ↓
+阶段 1: session:start --auto "结构化描述"
+    ↓ 输出: sessionId
+    ↓ 写入: planning-notes.md (用户意图部分)
+    ↓
+阶段 2: context-gather --session sessionId "结构化描述"
+    ↓ 输入: sessionId + 结构化描述
+    ↓ 输出: contextPath (context-package.json) + conflictRisk
+    ↓ 更新: planning-notes.md (上下文发现 + 综合约束)
+    ↓
+阶段 3: conflict-resolution [条件性: conflictRisk ≥ medium]
+    ↓ 输入: sessionId + contextPath + conflictRisk
+    ↓ 输出: 修改后的头脑风暴产物
+    ↓ 更新: planning-notes.md (冲突决策 + 综合约束)
+    ↓ 如果 conflictRisk 为 none/low 则跳过 → 直接进入阶段 4
+    ↓
+阶段 4: task-generate-agent --session sessionId
+    ↓ 输入: sessionId + planning-notes.md + context-package.json + 头脑风暴产物
+    ↓ 输出: IMPL_PLAN.md, 任务 JSON, TODO_LIST.md
+    ↓
+计划确认 (用户决策门):
+    ├─ "验证计划质量" (推荐) → 路由到阶段 5
+    ├─ "开始执行" → Skill(skill="workflow-execute")
+    └─ "仅审查状态" → 路由到 /workflow:status
+```
+
+**会话内存流**: 每个阶段接收会话 ID，从而可以访问：
+-   之前的任务摘要
+-   现有的上下文和分析
+-   头脑风暴产物 (可能由阶段 3 修改)
+-   会话特定配置
+
+### 验证模式
+
+```
+输入: --session sessionId (或自动检测)
+    ↓
+阶段 5: 加载产物 → Agent 驱动的验证 → 生成报告
+    ↓ 输出: 带有质量门的 PLAN_VERIFICATION.md
+```
+
+### 重规划模式
+
+```
+输入: [--session sessionId] [task-id] "需求"
+    ↓
+阶段 6: 模式检测 → 澄清 → 影响分析 → 备份 → 应用 → 验证
+    ↓ 输出: 更新的产物 + 变更摘要
+```
+
+## TodoWrite 模式
+
+**核心概念**: 动态任务附加和折叠，以实时了解工作流执行情况。
+
+### 关键原则
+
+1.  **任务附加** (阶段执行时):
+    -   子任务被**附加**到编排器的 TodoWrite
+    -   **阶段 2, 3**: 附加多个子任务
+    -   **阶段 1, 4**: 单个任务 (原子性)
+    -   第一个附加的任务标记为 `in_progress`，其他为 `pending`
+    -   编排器顺序**执行**这些附加的任务
+
+2.  **任务折叠** (子任务完成后):
+    -   **适用于阶段 2, 3**: 从 TodoWrite 中移除详细的子任务
+    -   **折叠**为高级阶段摘要
+    -   **阶段 1, 4**: 无需折叠 (单个任务，只需标记为已完成)
+    -   保持清晰的编排器级视图
+
+3.  **持续执行**: 完成后，自动进入下一个待处理阶段
+
+**生命周期**: 初始待处理 → 阶段执行 (任务附加) → 子任务执行 → 阶段完成 (阶段2/3任务折叠，阶段1/4标记完成) → 下一阶段 → 重复
+
+### 阶段 2 (任务附加):
+```json
+[
+  {"content": "阶段 1: 会话发现", "status": "completed"},
+  {"content": "阶段 2: 上下文收集", "status": "in_progress"},
+  {"content": "  → 分析代码库结构", "status": "in_progress"},
+  {"content": "  → 识别集成点", "status": "pending"},
+  {"content": "  → 生成上下文包", "status": "pending"},
+  {"content": "阶段 4: 任务生成", "status": "pending"}
+]
+```
+
+### 阶段 2 (折叠后):
+```json
+[
+  {"content": "阶段 1: 会话发现", "status": "completed"},
+  {"content": "阶段 2: 上下文收集", "status": "completed"},
+  {"content": "阶段 4: 任务生成", "status": "pending"}
+]
+```
+
+### 阶段 3 (任务附加, 条件性):
+```json
+[
+  {"content": "阶段 1: 会话发现", "status": "completed"},
+  {"content": "阶段 2: 上下文收集", "status": "completed"},
+  {"content": "阶段 3: 冲突解决", "status": "in_progress"},
+  {"content": "  → 通过 CLI 分析检测冲突", "status": "in_progress"},
+  {"content": "  → 向用户呈现冲突", "status": "pending"},
+  {"content": "  → 应用解决方案", "status": "pending"},
+  {"content": "阶段 4: 任务生成", "status": "pending"}
+]
+```
+
+**注意**: 有关详细的 TodoWrite 更新示例，请参阅各个阶段的描述。
+
+## 阶段后更新
+
+每个阶段完成后，更新 planning-notes.md:
+
+-   **阶段 1 之后**: 用用户意图 (GOAL, KEY_CONSTRAINTS) 初始化
+-   **阶段 2 之后**: 添加上下文发现 (CRITICAL_FILES, ARCHITECTURE, CONFLICT_RISK, CONSTRAINTS)
+-   **阶段 3 之后**: 如果执行了，添加冲突决策 (RESOLVED, MODIFIED_ARTIFACTS, CONSTRAINTS)
+-   **内存状态检查**: 在重负载阶段 (阶段 2-3) 后，评估上下文窗口使用情况；如果很高 (>120K tokens)，触发 `compact`
+
+有关详细的更新代码，请参阅阶段文件。
+
+## 错误处理
+
+-   **解析失败**: 如果输出解析失败，重试命令一次，然后报告错误
+-   **验证失败**: 如果验证失败，报告哪个文件/数据缺失
+-   **命令失败**: 保持阶段为 `in_progress`，向用户报告错误，不进入下一阶段
+-   **未找到会话** (verify/replan): 报告错误并提供可用会话列表
+-   **未找到任务** (replan): 报告错误并提供可用任务列表
+
+## 协调器清单
+
+### 计划模式
+-   **阶段前**: 将用户输入转换为结构化格式 (GOAL/SCOPE/CONTEXT)
+-   在任何命令之前初始化 TodoWrite (阶段 3 在阶段 2 后动态添加)
+-   立即用结构化描述执行阶段 1
+-   从阶段 1 输出中解析会话 ID，并存储在内存中
+-   将 session ID 和结构化描述传递给阶段 2 命令
+-   从阶段 2 输出中解析上下文路径，并存储在内存中
+-   **从 context-package.json 中提取 conflictRisk**: 决定是否执行阶段 3
+-   **如果 conflictRisk ≥ medium**: 启动带有 sessionId 和 contextPath 的阶段 3 冲突解决
+-   等待阶段 3 执行完成 (如果执行)，验证 conflict-resolution.json 已创建
+-   **如果 conflictRisk 为 none/low**: 跳过阶段 3，直接进入阶段 4
+-   将 session ID 传递给阶段 4 命令
+-   验证所有阶段 4 的输出
+-   **计划确认门**: 向用户提供选择 (验证 → 阶段 5 / 执行 / 审查状态)
+-   **如果用户选择验证**: 读取 phases/05-plan-verify.md, 在进程中执行阶段 5
+-   **如果用户选择执行**: Skill(skill="workflow-execute")
+-   **如果用户选择审查**: 路由到 /workflow:status
+-   **自动模式 (--yes)**: 自动选择 "验证计划质量", 如果 PROCEED 则自动继续执行
+-   每个阶段后更新 TodoWrite
+-   每个阶段后，根据 TodoList 状态自动继续到下一阶段
+
+### 验证模式
+-   检测/验证会话 (来自 --session 标志或自动检测)
+-   用单个验证任务初始化 TodoWrite
+-   执行阶段 5 验证代理
+-   呈现质量门结果和下一步选项
+
+### 重规划模式
+-   解析标志 (--session, --interactive, task-id)
+-   检测操作模式 (任务 vs 会话)
+-   用特定于重规划的任务初始化 TodoWrite
+-   执行阶段 6 的所有子阶段 (澄清 → 影响 → 备份 → 应用 → 验证)
+
+## 结构模板参考
+
+**最小结构**:
+```
+GOAL: [要实现的目标]
+SCOPE: [包含的内容]
+CONTEXT: [相关信息]
+```
+
+**详细结构** (可选, 当有更多上下文时):
+```
+GOAL: [主要目标]
+SCOPE: [包含的特性/组件]
+CONTEXT: [现有系统、约束、依赖]
+REQUIREMENTS: [具体技术要求]
+CONSTRAINTS: [限制或边界]
+```
+
+## 相关技能
+
+**前置技能**:
+-   `/workflow:brainstorm:artifacts` - 可选: 在规划前生成基于角色的分析
+-   `/workflow:brainstorm:synthesis` - 可选: 通过澄清来优化头脑风暴分析
+
+**由计划模式调用** (4个阶段):
+-   `/workflow:session:start` - 阶段 1: 创建或发现工作流会话
+-   `/workflow:tools:context-gather` - 阶段 2: 收集项目上下文并分析代码库
+-   `/workflow:tools:conflict-resolution` - 阶段 3: 检测并解决冲突 (条件性)
+-   `/compact` - 阶段 3: 内存优化 (如果上下文接近限制)
+-   `/workflow:tools:task-generate-agent` - 阶段 4: 生成任务 JSON 文件
+
+**后续技能**:
+-   `/workflow:plan-verify` - 验证计划质量 (也可通过验证模式调用)
+-   `/workflow:status` - 审查任务分解和当前进度
+-   `Skill(skill="workflow-execute")` - 开始实施生成的任务 (skill: workflow-execute)
+-   `/workflow:replan` - 修改计划 (也可通过重规划模式调用)

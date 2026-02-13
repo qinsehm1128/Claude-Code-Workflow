@@ -39,17 +39,16 @@ export default defineConfig({
     }),
     sitemap({
       i18n: {
-        defaultLocale: 'en',
+        defaultLocale: 'zh',
         locales: {
-          en: 'en',
           zh: 'zh',
         },
       },
     }),
   ],
   i18n: {
-    defaultLocale: 'en',
-    locales: ['en', 'zh'],
+    defaultLocale: 'zh',
+    locales: ['zh'],
     routing: {
       prefixDefaultLocale: true,
     },
