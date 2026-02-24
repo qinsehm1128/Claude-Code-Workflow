@@ -32,6 +32,7 @@ class TestSemanticSearchFunctionSignature:
             "structural_weight",
             "keyword_weight",
             "fusion_strategy",
+            "staged_stage2_mode",
             "kind_filter",
             "limit",
             "include_match_reason",
@@ -49,6 +50,7 @@ class TestSemanticSearchFunctionSignature:
         assert sig.parameters["structural_weight"].default == 0.3
         assert sig.parameters["keyword_weight"].default == 0.2
         assert sig.parameters["fusion_strategy"].default == "rrf"
+        assert sig.parameters["staged_stage2_mode"].default is None
         assert sig.parameters["kind_filter"].default is None
         assert sig.parameters["limit"].default == 20
         assert sig.parameters["include_match_reason"].default is False

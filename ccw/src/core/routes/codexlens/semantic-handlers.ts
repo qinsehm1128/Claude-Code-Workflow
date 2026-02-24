@@ -1187,6 +1187,7 @@ except Exception as e:
         path: projectPath,
         mode = 'fusion',
         fusion_strategy = 'rrf',
+        staged_stage2_mode,
         vector_weight = 0.5,
         structural_weight = 0.3,
         keyword_weight = 0.2,
@@ -1198,6 +1199,7 @@ except Exception as e:
         path?: unknown;
         mode?: unknown;
         fusion_strategy?: unknown;
+        staged_stage2_mode?: unknown;
         vector_weight?: unknown;
         structural_weight?: unknown;
         keyword_weight?: unknown;
@@ -1215,6 +1217,23 @@ except Exception as e:
       const resolvedMode = typeof mode === 'string' && ['fusion', 'vector', 'structural'].includes(mode) ? mode : 'fusion';
       const resolvedStrategy = typeof fusion_strategy === 'string' &&
         ['rrf', 'staged', 'binary', 'hybrid', 'dense_rerank'].includes(fusion_strategy) ? fusion_strategy : 'rrf';
+      let resolvedStage2Mode: 'precomputed' | 'realtime' | 'static_global_graph' | undefined;
+      if (resolvedStrategy === 'staged' && typeof staged_stage2_mode === 'string') {
+        const stage2 = staged_stage2_mode.trim().toLowerCase();
+        if (stage2.length > 0) {
+          if (stage2 === 'live') {
+            resolvedStage2Mode = 'realtime';
+          } else if (stage2 === 'precomputed' || stage2 === 'realtime' || stage2 === 'static_global_graph') {
+            resolvedStage2Mode = stage2;
+          } else {
+            return {
+              success: false,
+              error: `Invalid staged_stage2_mode: ${stage2}. Must be one of: precomputed, realtime, static_global_graph`,
+              status: 400,
+            };
+          }
+        }
+      }
       const resolvedVectorWeight = typeof vector_weight === 'number' ? vector_weight : 0.5;
       const resolvedStructuralWeight = typeof structural_weight === 'number' ? structural_weight : 0.3;
       const resolvedKeywordWeight = typeof keyword_weight === 'number' ? keyword_weight : 0.2;
@@ -1233,6 +1252,10 @@ except Exception as e:
         limit: resolvedLimit,
         include_match_reason: resolvedIncludeReason,
       };
+
+      if (resolvedStage2Mode) {
+        apiArgs.staged_stage2_mode = resolvedStage2Mode;
+      }
 
       if (Array.isArray(kind_filter) && kind_filter.length > 0) {
         apiArgs.kind_filter = kind_filter;

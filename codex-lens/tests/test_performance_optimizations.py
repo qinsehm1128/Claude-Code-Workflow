@@ -559,6 +559,227 @@ class TestPerformanceBenchmarks:
             f"(baseline={baseline_time:.3f}s, graph={graph_time:.3f}s)"
         )
 
+    def test_stage2_expansion_precomputed_vs_static_global_graph_benchmark(self, tmp_path):
+        """Benchmark Stage-2 expansion: precomputed graph_neighbors vs static global graph.
+
+        This test is informational (prints timings) and asserts only correctness
+        and that both expanders return some related results.
+        """
+        from codexlens.entities import CodeRelationship, RelationshipType, SearchResult, Symbol
+        from codexlens.search.graph_expander import GraphExpander
+        from codexlens.search.global_graph_expander import GlobalGraphExpander
+        from codexlens.storage.dir_index import DirIndexStore
+        from codexlens.storage.global_index import GlobalSymbolIndex
+        from codexlens.storage.index_tree import _compute_graph_neighbors
+        from codexlens.storage.path_mapper import PathMapper
+
+        # Source + index roots
+        source_dir = tmp_path / "proj" / "src"
+        source_dir.mkdir(parents=True, exist_ok=True)
+        mapper = PathMapper(index_root=tmp_path / "indexes")
+
+        index_db_path = mapper.source_to_index_db(source_dir)
+        index_db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        store = DirIndexStore(index_db_path)
+        store.initialize()
+
+        file_count = 30
+        per_file_symbols = 2
+        file_paths = []
+        per_file_symbols_list = []
+        per_file_relationships_list = []
+
+        for i in range(file_count):
+            file_path = source_dir / f"m{i}.py"
+            file_paths.append(file_path)
+            file_path.write_text("pass\n", encoding="utf-8")
+
+            symbols = [
+                Symbol(
+                    name=f"func_{i}_{j}",
+                    kind="function",
+                    range=(j + 1, j + 1),
+                    file=str(file_path.resolve()),
+                )
+                for j in range(per_file_symbols)
+            ]
+            per_file_symbols_list.append(symbols)
+
+            relationships: list[CodeRelationship] = []
+            # Intra-file edge: func_i_0 -> func_i_1
+            relationships.append(
+                CodeRelationship(
+                    source_symbol=f"func_{i}_0",
+                    target_symbol=f"func_{i}_1",
+                    relationship_type=RelationshipType.CALL,
+                    source_file=str(file_path.resolve()),
+                    target_file=str(file_path.resolve()),
+                    source_line=1,
+                )
+            )
+            # Cross-file edge: func_i_0 -> func_(i+1)_0 (name-unique across dir)
+            j = (i + 1) % file_count
+            relationships.append(
+                CodeRelationship(
+                    source_symbol=f"func_{i}_0",
+                    target_symbol=f"func_{j}_0",
+                    relationship_type=RelationshipType.CALL,
+                    source_file=str(file_path.resolve()),
+                    target_file=str((source_dir / f"m{j}.py").resolve()),
+                    source_line=1,
+                )
+            )
+            per_file_relationships_list.append(relationships)
+
+            store.add_file(
+                name=file_path.name,
+                full_path=file_path,
+                content="pass\n",
+                language="python",
+                symbols=symbols,
+                relationships=relationships,
+            )
+
+        # Precompute graph_neighbors for GraphExpander (precomputed Stage-2 build)
+        start = time.perf_counter()
+        _compute_graph_neighbors(store)
+        graph_build_ms = (time.perf_counter() - start) * 1000.0
+        store.close()
+
+        # Build global symbol index + relationships for GlobalGraphExpander
+        global_db_path = index_db_path.parent / GlobalSymbolIndex.DEFAULT_DB_NAME
+        global_index = GlobalSymbolIndex(global_db_path, project_id=1)
+        global_index.initialize()
+        try:
+            index_path_str = str(index_db_path.resolve())
+            start = time.perf_counter()
+            for file_path, symbols in zip(file_paths, per_file_symbols_list):
+                file_path_str = str(file_path.resolve())
+                global_index.update_file_symbols(
+                    file_path_str,
+                    symbols,
+                    index_path=index_path_str,
+                )
+            global_symbols_ms = (time.perf_counter() - start) * 1000.0
+
+            start = time.perf_counter()
+            for file_path, relationships in zip(file_paths, per_file_relationships_list):
+                file_path_str = str(file_path.resolve())
+                global_index.update_file_relationships(file_path_str, relationships)
+            global_relationships_ms = (time.perf_counter() - start) * 1000.0
+
+            base_results = [
+                SearchResult(
+                    path=str(file_paths[i].resolve()),
+                    score=1.0,
+                    excerpt=None,
+                    content=None,
+                    start_line=1,
+                    end_line=1,
+                    symbol_name=f"func_{i}_0",
+                    symbol_kind="function",
+                )
+                for i in range(min(10, file_count))
+            ]
+
+            pre_expander = GraphExpander(mapper)
+            static_expander = GlobalGraphExpander(global_index)
+
+            start = time.perf_counter()
+            pre_related = pre_expander.expand(
+                base_results,
+                depth=2,
+                max_expand=10,
+                max_related=50,
+            )
+            pre_ms = (time.perf_counter() - start) * 1000.0
+
+            start = time.perf_counter()
+            static_related = static_expander.expand(
+                base_results,
+                top_n=10,
+                max_related=50,
+            )
+            static_ms = (time.perf_counter() - start) * 1000.0
+
+            assert pre_related, "Expected precomputed graph expansion to return related results"
+            assert static_related, "Expected static global graph expansion to return related results"
+
+            print("\nStage-2 build benchmark (30 files, 2 symbols/file):")
+            print(f"  graph_neighbors precompute:   {graph_build_ms:.2f}ms")
+            print(f"  global_symbols write:         {global_symbols_ms:.2f}ms")
+            print(f"  global_relationships write:   {global_relationships_ms:.2f}ms")
+
+            print("\nStage-2 expansion benchmark (30 files, 2 symbols/file):")
+            print(f"  precomputed (graph_neighbors): {pre_ms:.2f}ms, related={len(pre_related)}")
+            print(f"  static_global_graph:           {static_ms:.2f}ms, related={len(static_related)}")
+        finally:
+            global_index.close()
+
+    def test_relationship_extraction_astgrep_vs_treesitter_benchmark(self, tmp_path):
+        """Informational benchmark: relationship extraction via ast-grep vs tree-sitter.
+
+        Skips when optional parser dependencies are unavailable.
+        """
+        import textwrap
+
+        from codexlens.config import Config
+        from codexlens.parsers.astgrep_processor import is_astgrep_processor_available
+        from codexlens.parsers.treesitter_parser import TreeSitterSymbolParser
+
+        if not is_astgrep_processor_available():
+            pytest.skip("ast-grep processor unavailable (optional dependency)")
+
+        code = textwrap.dedent(
+            """
+            import os
+            from typing import List
+
+            class Base:
+                pass
+
+            class Child(Base):
+                def method(self) -> List[str]:
+                    return [os.path.join("a", "b")]
+            """
+        ).lstrip()
+
+        file_path = tmp_path / "sample.py"
+        file_path.write_text(code, encoding="utf-8")
+
+        cfg_ts = Config(data_dir=tmp_path / "cfg_ts")
+        cfg_ts.use_astgrep = False
+        ts_parser = TreeSitterSymbolParser("python", file_path, config=cfg_ts)
+        if not ts_parser.is_available():
+            pytest.skip("tree-sitter python binding unavailable")
+
+        cfg_ag = Config(data_dir=tmp_path / "cfg_ag")
+        cfg_ag.use_astgrep = True
+        ag_parser = TreeSitterSymbolParser("python", file_path, config=cfg_ag)
+        if getattr(ag_parser, "_astgrep_processor", None) is None:
+            pytest.skip("ast-grep processor failed to initialize")
+
+        def _bench(parser: TreeSitterSymbolParser) -> tuple[float, int]:
+            durations = []
+            rel_counts = []
+            for _ in range(3):
+                start = time.perf_counter()
+                indexed = parser.parse(code, file_path)
+                durations.append(time.perf_counter() - start)
+                rel_counts.append(0 if indexed is None else len(indexed.relationships))
+            return min(durations) * 1000.0, max(rel_counts)
+
+        ts_ms, ts_rels = _bench(ts_parser)
+        ag_ms, ag_rels = _bench(ag_parser)
+
+        assert ts_rels > 0, "Expected relationships extracted via tree-sitter"
+        assert ag_rels > 0, "Expected relationships extracted via ast-grep"
+
+        print("\nRelationship extraction benchmark (python, 1 file):")
+        print(f"  tree-sitter: {ts_ms:.2f}ms, rels={ts_rels}")
+        print(f"  ast-grep:    {ag_ms:.2f}ms, rels={ag_rels}")
+
     def test_cross_encoder_reranking_latency_under_200ms(self):
         """Cross-encoder rerank step completes under 200ms (excluding model load)."""
         from codexlens.entities import SearchResult

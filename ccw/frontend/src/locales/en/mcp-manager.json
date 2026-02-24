@@ -164,10 +164,27 @@
       "uninstall": "Uninstall",
       "uninstalling": "Uninstalling...",
       "uninstallConfirm": "Are you sure you want to uninstall CCW MCP?",
+      "uninstallScopeConfirm": "Are you sure you want to remove CCW MCP from {scope}?",
       "saveConfig": "Save Configuration",
       "saving": "Saving..."
     },
+    "scope": {
+      "global": "Global",
+      "project": "Project",
+      "addScope": "Install to other scope",
+      "installToProject": "Also install to project",
+      "installToGlobal": "Also install to global",
+      "uninstallFrom": "Uninstall by scope",
+      "uninstallGlobal": "Remove from global",
+      "uninstallProject": "Remove from project"
+    },
     "codexNote": "Requires: npm install -g claude-code-workflow"
+  },
+  "conflict": {
+    "badge": "Conflict",
+    "title": "Scope Conflict",
+    "description": "This server exists in both project and global scopes. The {scope} version is used at runtime.",
+    "resolution": "Consider removing this server from one of the scopes."
   },
   "recommended": {
     "title": "Recommended Servers",

@@ -3,11 +3,11 @@
 // ========================================
 // TanStack Query hooks for team execution visualization
 
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchTeams, fetchTeamMessages, fetchTeamStatus } from '@/lib/api';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { fetchTeams, fetchTeamMessages, fetchTeamStatus, archiveTeam, unarchiveTeam, deleteTeam } from '@/lib/api';
 import { useTeamStore } from '@/stores/teamStore';
 import type {
-  TeamSummary,
+  TeamSummaryExtended,
   TeamMessage,
   TeamMember,
   TeamMessageFilter,
@@ -20,30 +20,33 @@ import type {
 export const teamKeys = {
   all: ['teams'] as const,
   lists: () => [...teamKeys.all, 'list'] as const,
+  listByLocation: (location: string) => [...teamKeys.lists(), location] as const,
   messages: (team: string, filter?: TeamMessageFilter) =>
     [...teamKeys.all, 'messages', team, filter] as const,
   status: (team: string) => [...teamKeys.all, 'status', team] as const,
 };
 
 /**
- * Hook: list all teams
+ * Hook: list all teams with location filter
  */
-export function useTeams() {
+export function useTeams(location?: string) {
   const autoRefresh = useTeamStore((s) => s.autoRefresh);
+  const effectiveLocation = location || 'active';
 
   const query = useQuery({
-    queryKey: teamKeys.lists(),
+    queryKey: teamKeys.listByLocation(effectiveLocation),
     queryFn: async (): Promise<TeamsListResponse> => {
-      const data = await fetchTeams();
-      return { teams: data.teams ?? [] };
+      const data = await fetchTeams(effectiveLocation);
+      return { teams: (data.teams ?? []) as TeamSummaryExtended[] };
     },
     staleTime: 10_000,
     refetchInterval: autoRefresh ? 10_000 : false,
   });
 
   return {
-    teams: (query.data?.teams ?? []) as TeamSummary[],
+    teams: (query.data?.teams ?? []) as TeamSummaryExtended[],
     isLoading: query.isLoading,
+    isFetching: query.isFetching,
     error: query.error,
     refetch: query.refetch,
   };
@@ -124,4 +127,66 @@ export function useTeamStatus(teamName: string | null) {
 export function useInvalidateTeamData() {
   const queryClient = useQueryClient();
   return () => queryClient.invalidateQueries({ queryKey: teamKeys.all });
+}
+
+// ========== Mutation Hooks ==========
+
+/**
+ * Hook: archive a team
+ */
+export function useArchiveTeam() {
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: archiveTeam,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: teamKeys.all });
+    },
+  });
+
+  return {
+    archiveTeam: mutation.mutateAsync,
+    isArchiving: mutation.isPending,
+    error: mutation.error,
+  };
+}
+
+/**
+ * Hook: unarchive a team
+ */
+export function useUnarchiveTeam() {
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: unarchiveTeam,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: teamKeys.all });
+    },
+  });
+
+  return {
+    unarchiveTeam: mutation.mutateAsync,
+    isUnarchiving: mutation.isPending,
+    error: mutation.error,
+  };
+}
+
+/**
+ * Hook: delete a team
+ */
+export function useDeleteTeam() {
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: deleteTeam,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: teamKeys.all });
+    },
+  });
+
+  return {
+    deleteTeam: mutation.mutateAsync,
+    isDeleting: mutation.isPending,
+    error: mutation.error,
+  };
 }

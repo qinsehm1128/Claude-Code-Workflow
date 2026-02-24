@@ -210,7 +210,7 @@ export function QueueItemExecutor({ item, className }: QueueItemExecutorProps) {
       const flowForStore: Flow = {
         ...flowDto,
         version: Number.isFinite(parsedVersion) ? parsedVersion : 1,
-      } as Flow;
+      } as unknown as Flow;
       useFlowStore.getState().setCurrentFlow(flowForStore);
 
       // Execute the flow

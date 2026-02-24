@@ -166,8 +166,10 @@ export function buildCommand(params: {
     commit?: string;
     title?: string;
   };
+  /** Effort level for claude (low, medium, high) */
+  effort?: string;
 }): { command: string; args: string[]; useStdin: boolean; outputFormat?: 'text' | 'json-lines' } {
-  const { tool, prompt, mode = 'analysis', model, dir, include, nativeResume, settingsFile, reviewOptions } = params;
+  const { tool, prompt, mode = 'analysis', model, dir, include, nativeResume, settingsFile, reviewOptions, effort } = params;
 
   debugLog('BUILD_CMD', `Building command for tool: ${tool}`, {
     mode,
@@ -330,6 +332,10 @@ export function buildCommand(params: {
       }
       if (model) {
         args.push('--model', model);
+      }
+      // Effort level: claude --effort <low|medium|high>
+      if (effort) {
+        args.push('--effort', effort);
       }
       // Permission modes: write/auto → bypassPermissions, analysis → default
       if (mode === 'write' || mode === 'auto') {

@@ -12,9 +12,76 @@
 
 import { z } from 'zod';
 import type { ToolSchema, ToolResult } from '../types/tool.js';
-import { existsSync, mkdirSync, readFileSync, appendFileSync, writeFileSync, rmSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, appendFileSync, writeFileSync, rmSync, statSync } from 'fs';
 import { join, dirname } from 'path';
 import { getProjectRoot } from '../utils/path-validator.js';
+
+// --- Team Metadata ---
+
+export interface TeamMeta {
+  status: 'active' | 'completed' | 'archived';
+  created_at: string;
+  updated_at: string;
+  archived_at?: string;
+  pipeline_mode?: string;
+  session_id?: string;  // Links to .workflow/.team/{session-id}/ artifacts directory
+}
+
+export function getMetaPath(team: string): string {
+  return join(getLogDir(team), 'meta.json');
+}
+
+export function readTeamMeta(team: string): TeamMeta | null {
+  const metaPath = getMetaPath(team);
+  if (!existsSync(metaPath)) return null;
+  try {
+    return JSON.parse(readFileSync(metaPath, 'utf-8')) as TeamMeta;
+  } catch {
+    return null;
+  }
+}
+
+export function writeTeamMeta(team: string, meta: TeamMeta): void {
+  const dir = getLogDir(team);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  writeFileSync(getMetaPath(team), JSON.stringify(meta, null, 2), 'utf-8');
+}
+
+/**
+ * Infer team status when no meta.json exists.
+ * If last message is 'shutdown' → 'completed', otherwise 'active'.
+ */
+export function inferTeamStatus(team: string): TeamMeta['status'] {
+  const messages = readAllMessages(team);
+  if (messages.length === 0) return 'active';
+  const lastMsg = messages[messages.length - 1];
+  return lastMsg.type === 'shutdown' ? 'completed' : 'active';
+}
+
+/**
+ * Get effective team meta: reads meta.json or infers from messages.
+ */
+export function getEffectiveTeamMeta(team: string): TeamMeta {
+  const meta = readTeamMeta(team);
+  if (meta) return meta;
+
+  // Infer from messages and directory stat
+  const status = inferTeamStatus(team);
+  const dir = getLogDir(team);
+  let created_at = new Date().toISOString();
+  try {
+    const stat = statSync(dir);
+    created_at = stat.birthtime.toISOString();
+  } catch { /* use now as fallback */ }
+
+  const messages = readAllMessages(team);
+  const lastMsg = messages[messages.length - 1];
+  const updated_at = lastMsg?.ts || created_at;
+
+  return { status, created_at, updated_at };
+}
 
 // --- Types ---
 
@@ -40,7 +107,7 @@ export interface StatusEntry {
 
 const ParamsSchema = z.object({
   operation: z.enum(['log', 'read', 'list', 'status', 'delete', 'clear']).describe('Operation to perform'),
-  team: z.string().describe('Team name (maps to .workflow/.team-msg/{team}/messages.jsonl)'),
+  team: z.string().describe('Session ID (new: .workflow/.team/{session-id}/.msg/) or team name (legacy: .workflow/.team-msg/{team}/)'),
 
   // log params
   from: z.string().optional().describe('[log/list] Sender role name'),
@@ -55,6 +122,9 @@ const ParamsSchema = z.object({
 
   // list params
   last: z.number().min(1).max(100).optional().describe('[list] Return last N messages (default: 20)'),
+
+  // session_id for artifact discovery
+  session_id: z.string().optional().describe('[log] Session ID for artifact discovery (links team to .workflow/.team/{session-id}/)'),
 });
 
 type Params = z.infer<typeof ParamsSchema>;
@@ -65,14 +135,21 @@ export const schema: ToolSchema = {
   name: 'team_msg',
   description: `Team message bus - persistent JSONL log for Agent Team communication.
 
+Directory Structure (NEW):
+  .workflow/.team/{session-id}/.msg/messages.jsonl
+
+Directory Structure (LEGACY):
+  .workflow/.team-msg/{team-name}/messages.jsonl
+
 Operations:
-  team_msg(operation="log", team="my-team", from="planner", to="coordinator", type="plan_ready", summary="Plan ready: 3 tasks", ref=".workflow/.team-plan/my-team/plan.json")
-  team_msg(operation="read", team="my-team", id="MSG-003")
-  team_msg(operation="list", team="my-team")
-  team_msg(operation="list", team="my-team", from="tester", last=5)
-  team_msg(operation="status", team="my-team")
-  team_msg(operation="delete", team="my-team", id="MSG-003")
-  team_msg(operation="clear", team="my-team")
+  team_msg(operation="log", team="TLS-my-team-2026-02-15", from="planner", to="coordinator", type="plan_ready", summary="Plan ready: 3 tasks", ref=".workflow/.team-plan/my-team/plan.json")
+  team_msg(operation="log", team="TLS-my-team-2026-02-15", from="coordinator", to="implementer", type="task_unblocked", summary="Task ready")
+  team_msg(operation="read", team="TLS-my-team-2026-02-15", id="MSG-003")
+  team_msg(operation="list", team="TLS-my-team-2026-02-15")
+  team_msg(operation="list", team="TLS-my-team-2026-02-15", from="tester", last=5)
+  team_msg(operation="status", team="TLS-my-team-2026-02-15")
+  team_msg(operation="delete", team="TLS-my-team-2026-02-15", id="MSG-003")
+  team_msg(operation="clear", team="TLS-my-team-2026-02-15")
 
 Message types: plan_ready, plan_approved, plan_revision, task_unblocked, impl_complete, impl_progress, test_result, review_result, fix_required, error, shutdown`,
   inputSchema: {
@@ -95,6 +172,7 @@ Message types: plan_ready, plan_approved, plan_revision, task_unblocked, impl_co
       data: { type: 'object', description: '[log] Optional structured data' },
       id: { type: 'string', description: '[read] Message ID (e.g. MSG-003)' },
       last: { type: 'number', description: '[list] Last N messages (default 20)', minimum: 1, maximum: 100 },
+      session_id: { type: 'string', description: '[log] Session ID for artifact discovery' },
     },
     required: ['operation', 'team'],
   },
@@ -102,9 +180,26 @@ Message types: plan_ready, plan_approved, plan_revision, task_unblocked, impl_co
 
 // --- Helpers ---
 
-export function getLogDir(team: string): string {
+/**
+ * Get the log directory for a session.
+ * New structure: .workflow/.team/{session-id}/.msg/
+ */
+export function getLogDir(sessionId: string): string {
   const root = getProjectRoot();
-  return join(root, '.workflow', '.team-msg', team);
+  return join(root, '.workflow', '.team', sessionId, '.msg');
+}
+
+/**
+ * Legacy support: Check both new (.team/{id}/.msg) and old (.team-msg/{id}) locations
+ */
+export function getLogDirWithFallback(sessionId: string): string {
+  const newPath = getLogDir(sessionId);
+  if (existsSync(newPath)) {
+    return newPath;
+  }
+  // Fallback to old location for backward compatibility
+  const root = getProjectRoot();
+  return join(root, '.workflow', '.team-msg', sessionId);
 }
 
 function getLogPath(team: string): string {
@@ -174,6 +269,14 @@ function opLog(params: Params): ToolResult {
   if (params.data) msg.data = params.data;
 
   appendFileSync(logPath, JSON.stringify(msg) + '\n', 'utf-8');
+
+  // Update meta with session_id if provided
+  if (params.session_id) {
+    const meta = getEffectiveTeamMeta(params.team);
+    meta.session_id = params.session_id;
+    meta.updated_at = nowISO();
+    writeTeamMeta(params.team, meta);
+  }
 
   return { success: true, result: { id, message: `Logged ${id}: [${msg.from} → ${msg.to}] ${msg.summary}` } };
 }

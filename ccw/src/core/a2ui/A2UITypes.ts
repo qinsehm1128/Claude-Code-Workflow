@@ -71,6 +71,7 @@ export type QuestionAnswer = z.infer<typeof QuestionAnswerSchema>;
 export const SimpleOptionSchema = z.object({
   label: z.string(),
   description: z.string().optional(),
+  isDefault: z.boolean().optional(),
 });
 
 export type SimpleOption = z.infer<typeof SimpleOptionSchema>;
@@ -114,6 +115,7 @@ export const AskQuestionResultSchema = z.object({
   answers: z.array(QuestionAnswerSchema),
   timestamp: z.string(),
   error: z.string().optional(),
+  autoSelected: z.boolean().optional(),
 });
 
 export type AskQuestionResult = z.infer<typeof AskQuestionResultSchema>;

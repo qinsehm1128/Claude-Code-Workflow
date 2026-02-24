@@ -429,6 +429,8 @@ const ParamsSchema = z.object({
   base: z.string().optional(), // Review changes against base branch
   commit: z.string().optional(), // Review changes from specific commit
   title: z.string().optional(), // Optional title for review summary
+  // Claude-specific options
+  effort: z.enum(['low', 'medium', 'high']).optional(), // Effort level for claude
   // Rules env vars (PROTO, TMPL) - will be passed to subprocess environment
   rulesEnv: z.object({
     PROTO: z.string().optional(),
@@ -458,7 +460,7 @@ async function executeCliTool(
     throw new Error(`Invalid params: ${parsed.error.message}`);
   }
 
-  const { tool, prompt, mode, format, model, cd, includeDirs, resume, id: customId, noNative, category, parentExecutionId, outputFormat, uncommitted, base, commit, title, rulesEnv } = parsed.data;
+  const { tool, prompt, mode, format, model, cd, includeDirs, resume, id: customId, noNative, category, parentExecutionId, outputFormat, uncommitted, base, commit, title, effort, rulesEnv } = parsed.data;
 
   // Validate and determine working directory early (needed for conversation lookup)
   let workingDir: string;
@@ -881,6 +883,7 @@ async function executeCliTool(
 
   // Load and validate settings file for Claude tool (builtin only)
   let settingsFilePath: string | undefined;
+  let effectiveEffort = effort;
   if (tool === 'claude') {
     const toolConfig = getToolConfig(workingDir, tool);
     if (toolConfig.settingsFile) {
@@ -896,6 +899,11 @@ async function executeCliTool(
         errorLog('SETTINGS_FILE', `Failed to resolve Claude settings file`, { configured: toolConfig.settingsFile, error: (err as Error).message });
       }
     }
+    // Use default effort from config if not explicitly provided, fallback to 'high'
+    if (!effectiveEffort) {
+      effectiveEffort = (toolConfig.effort as typeof effectiveEffort) || 'high';
+      debugLog('EFFORT', `Using effort level`, { effort: effectiveEffort, source: toolConfig.effort ? 'config' : 'default' });
+    }
   }
 
   // Build command
@@ -908,7 +916,8 @@ async function executeCliTool(
     include: includeDirs,
     nativeResume: nativeResumeConfig,
     settingsFile: settingsFilePath,
-    reviewOptions: mode === 'review' ? { uncommitted, base, commit, title } : undefined
+    reviewOptions: mode === 'review' ? { uncommitted, base, commit, title } : undefined,
+    effort: effectiveEffort
   });
 
   // Use auto-detected format (from buildCommand) if available, otherwise use passed outputFormat

@@ -31,6 +31,7 @@ interface FlowchartNodeData extends Record<string, unknown> {
   type: 'pre-analysis' | 'implementation' | 'section';
   dependsOn?: string[];
   status?: 'pending' | 'in_progress' | 'completed' | 'blocked' | 'skipped';
+  showStepStatus?: boolean;
 }
 
 // Status icon component
@@ -53,8 +54,9 @@ const StatusIcon: React.FC<{ status?: string; className?: string }> = ({ status,
 const CustomNode: React.FC<{ data: FlowchartNodeData }> = ({ data }) => {
   const isPreAnalysis = data.type === 'pre-analysis';
   const isSection = data.type === 'section';
-  const isCompleted = data.status === 'completed';
-  const isInProgress = data.status === 'in_progress';
+  const showStatus = data.showStepStatus !== false;
+  const isCompleted = showStatus && data.status === 'completed';
+  const isInProgress = showStatus && data.status === 'in_progress';
 
   if (isSection) {
     return (
@@ -100,14 +102,14 @@ const CustomNode: React.FC<{ data: FlowchartNodeData }> = ({ data }) => {
         <span
           className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${stepBgClass}`}
         >
-          {isCompleted ? <CheckCircle className="h-4 w-4" /> : data.step}
+          {isCompleted && showStatus ? <CheckCircle className="h-4 w-4" /> : data.step}
         </span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className={`text-sm font-semibold ${isCompleted ? 'text-green-700 dark:text-green-400' : 'text-foreground'}`}>
               {data.label}
             </span>
-            {data.status && data.status !== 'pending' && (
+            {showStatus && data.status && data.status !== 'pending' && (
               <StatusIcon status={data.status} className="h-3.5 w-3.5" />
             )}
           </div>
@@ -140,12 +142,13 @@ const nodeTypes: NodeTypes = {
 export interface FlowchartProps {
   flowControl: FlowControl;
   className?: string;
+  showStepStatus?: boolean;
 }
 
 /**
  * Flowchart component for visualizing implementation approach
  */
-export function Flowchart({ flowControl, className = '' }: FlowchartProps) {
+export function Flowchart({ flowControl, className = '', showStepStatus = true }: FlowchartProps) {
   const preAnalysis = flowControl.pre_analysis || [];
   const implSteps = flowControl.implementation_approach || [];
 
@@ -184,6 +187,7 @@ export function Flowchart({ flowControl, className = '' }: FlowchartProps) {
           step: `P${idx + 1}`,
           output: step.output_to,
           type: 'pre-analysis' as const,
+          showStepStatus,
         },
       });
 
@@ -307,6 +311,7 @@ export function Flowchart({ flowControl, className = '' }: FlowchartProps) {
           type: 'implementation' as const,
           dependsOn,
           status: stepStatus,
+          showStepStatus,
         },
       });
 
@@ -410,10 +415,12 @@ export function Flowchart({ flowControl, className = '' }: FlowchartProps) {
           nodeColor={(node) => {
             const data = node.data as FlowchartNodeData;
             if (data.type === 'section') return '#9ca3af';
-            // Status-based colors
-            if (data.status === 'completed') return '#22c55e'; // green-500
-            if (data.status === 'in_progress') return '#f59e0b'; // amber-500
-            if (data.status === 'blocked') return '#ef4444'; // red-500
+            // Status-based colors (only when status tracking is enabled)
+            if (data.showStepStatus !== false) {
+              if (data.status === 'completed') return '#22c55e'; // green-500
+              if (data.status === 'in_progress') return '#f59e0b'; // amber-500
+              if (data.status === 'blocked') return '#ef4444'; // red-500
+            }
             if (data.type === 'pre-analysis') return '#f59e0b';
             return '#3b82f6';
           }}

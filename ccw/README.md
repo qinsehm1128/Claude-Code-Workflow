@@ -1,9 +1,16 @@
 # CCW - Claude Code Workflow CLI
-NEW LINE
 
 [![Version](https://img.shields.io/badge/version-v6.3.19-blue.svg)](https://github.com/catlog22/Claude-Code-Workflow/releases)
 
 A powerful command-line tool for managing Claude Code Workflow with native CodexLens code intelligence, multi-model CLI orchestration, and interactive dashboard.
+
+## What's New in v6.3
+
+### Hook System Integration
+- **Soft Enforcement Stop Hook**: Never blocks - injects continuation messages for active workflows/modes
+- **Mode System**: Keyword-based mode activation with exclusive mode conflict detection
+- **Checkpoint/Recovery**: Automatic state preservation before context compaction
+- **PreCompact Hook**: Creates checkpoints with mutex to prevent concurrent operations
 
 ## Installation
 
@@ -76,6 +83,44 @@ ccw view -o report.html
 - **Severity Distribution**: Critical/High/Medium/Low finding counts
 - **Dimension Analysis**: Findings by review dimension (Security, Architecture, Quality, etc.)
 - **Tabbed Interface**: Switch between Workflow and Reviews tabs
+
+### Hook System
+- **Soft Enforcement Stop Hook**: Never blocks stops - injects continuation messages instead
+- **Mode System**: Keyword-based mode activation (`autopilot`, `ultrawork`, `swarm`, etc.)
+- **Checkpoint/Recovery**: Automatic state preservation before context compaction
+- **PreCompact Hook**: Creates checkpoints with mutex to prevent concurrent operations
+- **Exclusive Mode Detection**: Prevents conflicting modes from running concurrently
+
+## Quick Start with Hooks
+
+```bash
+# Configure hooks in .claude/settings.json
+{
+  "hooks": {
+    "PreCompact": [
+      {
+        "name": "Create Checkpoint",
+        "command": "ccw hook precompact --stdin",
+        "enabled": true
+      }
+    ],
+    "Stop": [
+      {
+        "name": "Soft Enforcement Stop",
+        "command": "ccw hook stop --stdin",
+        "enabled": true
+      }
+    ]
+  }
+}
+
+# Use mode keywords in prompts
+"use autopilot to implement the feature"
+"run ultrawork on this task"
+"cancelomc"  # Stops active modes
+```
+
+See [docs/hooks-integration.md](docs/hooks-integration.md) for full documentation.
 
 ## Dashboard Data Sources
 

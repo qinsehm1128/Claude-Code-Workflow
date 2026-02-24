@@ -103,8 +103,201 @@ interface UpdateClaudeMdResult {
 }
 
 // ========================================
+// Explorer API Types (matching frontend)
+// ========================================
+
+interface FileSystemNode {
+  name: string;
+  path: string;
+  type: 'file' | 'directory';
+  children?: FileSystemNode[];
+  hasClaudeMd?: boolean;
+  size?: number;
+  modifiedTime?: string;
+  extension?: string;
+  language?: string;
+}
+
+interface FileTreeResponse {
+  rootNodes: FileSystemNode[];
+  fileCount: number;
+  directoryCount: number;
+  totalSize: number;
+  buildTime: number;
+}
+
+interface RootDirectory {
+  path: string;
+  name: string;
+  isWorkspace: boolean;
+  isGitRoot: boolean;
+}
+
+// ========================================
 // Helper Functions
 // ========================================
+
+/**
+ * Build recursive file tree
+ * @param {string} dirPath - Directory path to build tree from
+ * @param {number} maxDepth - Maximum depth (0 = unlimited)
+ * @param {boolean} includeHidden - Include hidden files
+ * @param {number} currentDepth - Current recursion depth
+ * @returns {Promise<{ node: FileSystemNode, fileCount: number, directoryCount: number, totalSize: number }>}
+ */
+async function buildFileTree(
+  dirPath: string,
+  maxDepth: number = 6,
+  includeHidden: boolean = false,
+  currentDepth: number = 0
+): Promise<{ node: FileSystemNode | null; fileCount: number; directoryCount: number; totalSize: number }> {
+  const result = { node: null as FileSystemNode | null, fileCount: 0, directoryCount: 0, totalSize: 0 };
+
+  try {
+    // Normalize path
+    let normalizedPath = dirPath.replace(/\\/g, '/');
+    if (normalizedPath.match(/^\/[a-zA-Z]\//)) {
+      normalizedPath = normalizedPath.charAt(1).toUpperCase() + ':' + normalizedPath.slice(2);
+    }
+
+    if (!existsSync(normalizedPath) || !statSync(normalizedPath).isDirectory()) {
+      return result;
+    }
+
+    const dirName = normalizedPath.split('/').pop() || normalizedPath;
+    const node: FileSystemNode = {
+      name: dirName,
+      path: normalizedPath,
+      type: 'directory',
+      children: []
+    };
+
+    // Check for CLAUDE.md
+    const claudeMdPath = join(normalizedPath, 'CLAUDE.md');
+    node.hasClaudeMd = existsSync(claudeMdPath);
+
+    // Parse .gitignore patterns
+    const gitignorePath = join(normalizedPath, '.gitignore');
+    const gitignorePatterns = parseGitignore(gitignorePath);
+
+    // Read directory entries
+    const entries = readdirSync(normalizedPath, { withFileTypes: true });
+
+    for (const entry of entries) {
+      const isDirectory = entry.isDirectory();
+
+      // Check if should be ignored (pass includeHidden as showAll to skip all filtering)
+      if (shouldIgnore(entry.name, gitignorePatterns, isDirectory, includeHidden)) {
+        continue;
+      }
+
+      const entryPath = join(normalizedPath, entry.name);
+
+      if (isDirectory) {
+        // Recursively build tree for directories
+        if (maxDepth === 0 || currentDepth < maxDepth - 1) {
+          const childResult = await buildFileTree(entryPath, maxDepth, includeHidden, currentDepth + 1);
+          if (childResult.node) {
+            node.children!.push(childResult.node);
+            result.fileCount += childResult.fileCount;
+            result.directoryCount += childResult.directoryCount + 1;
+            result.totalSize += childResult.totalSize;
+          }
+        } else {
+          // At max depth, just add directory without children
+          const childNode: FileSystemNode = {
+            name: entry.name,
+            path: entryPath.replace(/\\/g, '/'),
+            type: 'directory'
+          };
+          const childClaudeMdPath = join(entryPath, 'CLAUDE.md');
+          childNode.hasClaudeMd = existsSync(childClaudeMdPath);
+          node.children!.push(childNode);
+          result.directoryCount += 1;
+        }
+      } else {
+        // Add file node
+        const stats = statSync(entryPath);
+        const ext = entry.name.includes('.') ? entry.name.split('.').pop()?.toLowerCase() : '';
+        const language = ext && Object.prototype.hasOwnProperty.call(EXT_TO_LANGUAGE, `.${ext}`)
+          ? EXT_TO_LANGUAGE[`.${ext}` as keyof typeof EXT_TO_LANGUAGE]
+          : undefined;
+
+        const fileNode: FileSystemNode = {
+          name: entry.name,
+          path: entryPath.replace(/\\/g, '/'),
+          type: 'file',
+          size: stats.size,
+          modifiedTime: stats.mtime.toISOString(),
+          extension: ext,
+          language
+        };
+        node.children!.push(fileNode);
+        result.fileCount += 1;
+        result.totalSize += stats.size;
+      }
+    }
+
+    // Sort: directories first, then alphabetically
+    node.children!.sort((a, b) => {
+      if (a.type === 'directory' && b.type !== 'directory') return -1;
+      if (a.type !== 'directory' && b.type === 'directory') return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    result.node = node;
+    return result;
+  } catch (error: unknown) {
+    console.error('Error building file tree:', error);
+    return result;
+  }
+}
+
+/**
+ * Get available root directories
+ * @param {string} workspacePath - Current workspace path
+ * @returns {Promise<RootDirectory[]>}
+ */
+async function getRootDirectories(workspacePath: string): Promise<RootDirectory[]> {
+  const roots: RootDirectory[] = [];
+
+  // Add workspace root
+  let normalizedWorkspace = workspacePath.replace(/\\/g, '/');
+  if (normalizedWorkspace.match(/^\/[a-zA-Z]\//)) {
+    normalizedWorkspace = normalizedWorkspace.charAt(1).toUpperCase() + ':' + normalizedWorkspace.slice(2);
+  }
+
+  const workspaceName = normalizedWorkspace.split('/').pop() || 'Workspace';
+  const isGitRoot = existsSync(join(normalizedWorkspace, '.git'));
+
+  roots.push({
+    path: normalizedWorkspace,
+    name: workspaceName,
+    isWorkspace: true,
+    isGitRoot
+  });
+
+  // On Windows, also add drive roots
+  if (process.platform === 'win32') {
+    // Get the drive letter from workspace path
+    const driveMatch = normalizedWorkspace.match(/^([A-Z]):/);
+    if (driveMatch) {
+      const driveLetter = driveMatch[1];
+      // Add drive root if not already the workspace
+      const driveRoot = `${driveLetter}:/`;
+      if (driveRoot !== normalizedWorkspace) {
+        roots.push({
+          path: driveRoot,
+          name: `${driveLetter}: Drive`,
+          isWorkspace: false,
+          isGitRoot: false
+        });
+      }
+    }
+  }
+
+  return roots;
+}
 
 /**
  * Parse .gitignore file and return patterns
@@ -130,17 +323,21 @@ function parseGitignore(gitignorePath: string): string[] {
  * @param {string} name - File or directory name
  * @param {string[]} patterns - Gitignore patterns
  * @param {boolean} isDirectory - Whether the entry is a directory
+ * @param {boolean} showAll - When true, skip hardcoded excludes and hidden file filtering (only apply gitignore)
  * @returns {boolean}
  */
-function shouldIgnore(name: string, patterns: string[], isDirectory: boolean): boolean {
-  // Always exclude certain directories
-  if (isDirectory && EXPLORER_EXCLUDE_DIRS.includes(name)) {
-    return true;
-  }
+function shouldIgnore(name: string, patterns: string[], isDirectory: boolean, showAll: boolean = false): boolean {
+  // When showAll is true, only apply gitignore patterns (skip hardcoded excludes and hidden files)
+  if (!showAll) {
+    // Always exclude certain directories
+    if (isDirectory && EXPLORER_EXCLUDE_DIRS.includes(name)) {
+      return true;
+    }
 
-  // Skip hidden files/directories (starting with .)
-  if (name.startsWith('.') && name !== '.claude' && name !== '.workflow') {
-    return true;
+    // Skip hidden files/directories (starting with .)
+    if (name.startsWith('.')) {
+      return true;
+    }
   }
 
   for (const pattern of patterns) {
@@ -419,6 +616,168 @@ async function triggerUpdateClaudeMd(targetPath: string, tool: string, strategy:
  */
 export async function handleFilesRoutes(ctx: RouteContext): Promise<boolean> {
   const { pathname, url, req, res, initialPath, handlePostRequest } = ctx;
+
+  // ========================================
+  // Explorer API Routes (/api/explorer/*)
+  // ========================================
+
+  // API: Get file tree (Explorer view)
+  if (pathname === '/api/explorer/tree') {
+    const rootPath = url.searchParams.get('rootPath') || initialPath;
+    const maxDepth = parseInt(url.searchParams.get('maxDepth') || '6', 10);
+    const includeHidden = url.searchParams.get('includeHidden') === 'true';
+
+    console.log(`[Explorer] Tree request - rootPath: ${rootPath}, includeHidden: ${includeHidden}`);
+
+    const startTime = Date.now();
+
+    try {
+      const validatedPath = await validateAllowedPath(rootPath, { mustExist: true, allowedDirectories: [initialPath] });
+      const treeResult = await buildFileTree(validatedPath, maxDepth, includeHidden);
+
+      const response: FileTreeResponse = {
+        rootNodes: treeResult.node ? [treeResult.node] : [],
+        fileCount: treeResult.fileCount,
+        directoryCount: treeResult.directoryCount,
+        totalSize: treeResult.totalSize,
+        buildTime: Date.now() - startTime
+      };
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(response));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const status = message.includes('Access denied') ? 403 : 400;
+      console.error(`[Explorer] Tree path validation failed: ${message}`);
+      res.writeHead(status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        rootNodes: [],
+        fileCount: 0,
+        directoryCount: 0,
+        totalSize: 0,
+        buildTime: 0,
+        error: status === 403 ? 'Access denied' : 'Invalid path'
+      }));
+    }
+    return true;
+  }
+
+  // API: Get root directories (Explorer view)
+  if (pathname === '/api/explorer/roots') {
+    try {
+      const roots = await getRootDirectories(initialPath);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(roots));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[Explorer] Failed to get roots: ${message}`);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Failed to get root directories' }));
+    }
+    return true;
+  }
+
+  // API: Get file content (Explorer view)
+  if (pathname === '/api/explorer/file') {
+    const filePath = url.searchParams.get('path');
+    if (!filePath) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'File path is required' }));
+      return true;
+    }
+
+    try {
+      const validatedFile = await validateAllowedPath(filePath, { mustExist: true, allowedDirectories: [initialPath] });
+      const fileData = await getFileContent(validatedFile);
+
+      if (fileData.error) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(fileData));
+      } else {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(fileData));
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const status = message.includes('Access denied') ? 403 : 400;
+      console.error(`[Explorer] File path validation failed: ${message}`);
+      res.writeHead(status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: status === 403 ? 'Access denied' : 'Invalid path' }));
+    }
+    return true;
+  }
+
+  // API: Search files (Explorer view)
+  if (pathname === '/api/explorer/search' && req.method === 'POST') {
+    handlePostRequest(req, res, async (body) => {
+      if (typeof body !== 'object' || body === null) {
+        return { error: 'Invalid request body', status: 400 };
+      }
+
+      const { query, rootPath, maxResults = 50 } = body as { query?: unknown; rootPath?: unknown; maxResults?: unknown };
+
+      if (typeof query !== 'string' || query.trim().length === 0) {
+        return { error: 'query is required', status: 400 };
+      }
+
+      try {
+        const validatedPath = await validateAllowedPath(
+          typeof rootPath === 'string' ? rootPath : initialPath,
+          { mustExist: true, allowedDirectories: [initialPath] }
+        );
+
+        // Simple file search - walk directory tree and match by name
+        const results: Array<{ path: string; name: string; type: 'file' | 'directory' }> = [];
+        const searchQuery = query.toLowerCase();
+
+        const searchDir = (dirPath: string, depth: number = 0) => {
+          if (depth > 10 || results.length >= (typeof maxResults === 'number' ? maxResults : 50)) return;
+
+          try {
+            const entries = readdirSync(dirPath, { withFileTypes: true });
+            const gitignorePath = join(dirPath, '.gitignore');
+            const gitignorePatterns = parseGitignore(gitignorePath);
+
+            for (const entry of entries) {
+              if (results.length >= (typeof maxResults === 'number' ? maxResults : 50)) break;
+
+              if (shouldIgnore(entry.name, gitignorePatterns, entry.isDirectory())) continue;
+
+              const entryPath = join(dirPath, entry.name);
+
+              if (entry.name.toLowerCase().includes(searchQuery)) {
+                results.push({
+                  path: entryPath.replace(/\\/g, '/'),
+                  name: entry.name,
+                  type: entry.isDirectory() ? 'directory' : 'file'
+                });
+              }
+
+              if (entry.isDirectory()) {
+                searchDir(entryPath, depth + 1);
+              }
+            }
+          } catch {
+            // Skip directories we can't read
+          }
+        };
+
+        searchDir(validatedPath);
+
+        return { results, total: results.length };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const status = message.includes('Access denied') ? 403 : 400;
+        console.error(`[Explorer] Search path validation failed: ${message}`);
+        return { error: status === 403 ? 'Access denied' : 'Invalid path', status };
+      }
+    });
+    return true;
+  }
+
+  // ========================================
+  // Legacy Files API Routes (/api/files/*)
+  // ========================================
 
   // API: List directory files with .gitignore filtering (Explorer view)
   if (pathname === '/api/files') {

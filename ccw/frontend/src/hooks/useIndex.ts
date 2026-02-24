@@ -11,13 +11,7 @@ import {
   type IndexRebuildRequest,
 } from '../lib/api';
 import { useWorkflowStore, selectProjectPath } from '@/stores/workflowStore';
-
-// ========== Query Keys ==========
-
-export const indexKeys = {
-  all: ['index'] as const,
-  status: () => [...indexKeys.all, 'status'] as const,
-};
+import { workspaceQueryKeys } from '@/lib/queryKeys';
 
 // ========== Stale Time ==========
 
@@ -57,7 +51,7 @@ export function useIndexStatus(options: UseIndexStatusOptions = {}): UseIndexSta
   const queryEnabled = enabled && !!projectPath;
 
   const query = useQuery({
-    queryKey: indexKeys.status(),
+    queryKey: workspaceQueryKeys.indexStatus(projectPath),
     queryFn: () => fetchIndexStatus(projectPath),
     staleTime,
     enabled: queryEnabled,
@@ -70,7 +64,7 @@ export function useIndexStatus(options: UseIndexStatusOptions = {}): UseIndexSta
   };
 
   const invalidate = async () => {
-    await queryClient.invalidateQueries({ queryKey: indexKeys.all });
+    await queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.index(projectPath) });
   };
 
   return {
@@ -105,12 +99,13 @@ export interface UseRebuildIndexReturn {
  */
 export function useRebuildIndex(): UseRebuildIndexReturn {
   const queryClient = useQueryClient();
+  const projectPath = useWorkflowStore(selectProjectPath);
 
   const mutation = useMutation({
     mutationFn: rebuildIndex,
     onSuccess: (updatedStatus) => {
       // Update the status query cache
-      queryClient.setQueryData(indexKeys.status(), updatedStatus);
+      queryClient.setQueryData(workspaceQueryKeys.indexStatus(projectPath), updatedStatus);
     },
   });
 

@@ -26,6 +26,12 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // Ensure a single React instance in Vitest (avoid invalid hook call from nested node_modules)
+      react: path.resolve(__dirname, '../../node_modules/react'),
+      'react-dom': path.resolve(__dirname, '../../node_modules/react-dom'),
+      'react/jsx-runtime': path.resolve(__dirname, '../../node_modules/react/jsx-runtime.js'),
+      'react/jsx-dev-runtime': path.resolve(__dirname, '../../node_modules/react/jsx-dev-runtime.js'),
+      'react-dom/client': path.resolve(__dirname, '../../node_modules/react-dom/client.js'),
     },
     extensions: ['.ts', '.tsx', '.js', '.jsx', '.json'],
   },

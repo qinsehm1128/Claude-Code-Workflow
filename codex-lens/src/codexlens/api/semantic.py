@@ -24,6 +24,7 @@ def semantic_search(
     structural_weight: float = 0.3,
     keyword_weight: float = 0.2,
     fusion_strategy: str = "rrf",
+    staged_stage2_mode: Optional[str] = None,
     kind_filter: Optional[List[str]] = None,
     limit: int = 20,
     include_match_reason: bool = False,
@@ -50,6 +51,10 @@ def semantic_search(
             - binary: Binary rerank cascade -> binary_cascade_search
             - hybrid: Binary rerank cascade (backward compat) -> binary_rerank_cascade_search
             - dense_rerank: Dense rerank cascade -> dense_rerank_cascade_search
+        staged_stage2_mode: Optional override for staged Stage-2 expansion mode
+            - precomputed: GraphExpander over per-dir graph_neighbors (default)
+            - realtime: Live LSP expansion (requires LSP availability)
+            - static_global_graph: GlobalGraphExpander over global_relationships
         kind_filter: Symbol type filter (e.g., ["function", "class"])
         limit: Max return count (default 20)
         include_match_reason: Generate match reason (heuristic, not LLM)
@@ -97,14 +102,18 @@ def semantic_search(
     # Load config
     config = Config.load()
 
-    # Get or create registry and mapper
-    try:
-        registry = RegistryStore.default()
-        mapper = PathMapper(registry)
-    except Exception as exc:
-        logger.error("Failed to initialize search infrastructure: %s", exc)
-        return []
+    # Optional per-call override for staged cascade Stage-2 mode.
+    if staged_stage2_mode:
+        stage2 = str(staged_stage2_mode).strip().lower()
+        if stage2 in {"live"}:
+            stage2 = "realtime"
+        valid_stage2 = {"precomputed", "realtime", "static_global_graph"}
+        if stage2 in valid_stage2:
+            config.staged_stage2_mode = stage2
+        else:
+            logger.debug("Ignoring invalid staged_stage2_mode: %r", staged_stage2_mode)
 
+    # Get or create registry and mapper
     # Build search options based on mode
     search_options = _build_search_options(
         mode=mode,
@@ -116,15 +125,17 @@ def semantic_search(
 
     # Execute search based on fusion_strategy
     try:
-        with ChainSearchEngine(registry, mapper, config=config) as engine:
-            chain_result = _execute_search(
-                engine=engine,
-                query=query,
-                source_path=project_path,
-                fusion_strategy=fusion_strategy,
-                options=search_options,
-                limit=limit,
-            )
+        with RegistryStore() as registry:
+            mapper = PathMapper()
+            with ChainSearchEngine(registry, mapper, config=config) as engine:
+                chain_result = _execute_search(
+                    engine=engine,
+                    query=query,
+                    source_path=project_path,
+                    fusion_strategy=fusion_strategy,
+                    options=search_options,
+                    limit=limit,
+                )
     except Exception as exc:
         logger.error("Search execution failed: %s", exc)
         return []

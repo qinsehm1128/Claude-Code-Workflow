@@ -16,7 +16,10 @@ import {
   Folder,
   User,
   Globe,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
+import { useAppStore, selectIsImmersiveMode } from '@/stores/appStore';
 import {
   useRules,
   useCreateRule,
@@ -63,6 +66,10 @@ export function RulesManagerPage() {
   const [locationFilter, setLocationFilter] = React.useState<LocationFilter>('all');
   const [searchQuery, setSearchQuery] = React.useState('');
   const [categoryFilter, setCategoryFilter] = React.useState<string[]>([]);
+
+  // Immersive mode state
+  const isImmersiveMode = useAppStore(selectIsImmersiveMode);
+  const toggleImmersiveMode = useAppStore((s) => s.toggleImmersiveMode);
 
   // Dialog state
   const [createDialogOpen, setCreateDialogOpen] = React.useState(false);
@@ -193,7 +200,7 @@ export function RulesManagerPage() {
     categoryFilter.length > 0 || searchQuery.length > 0;
 
   return (
-    <div className="space-y-6">
+    <div className={cn("space-y-6", isImmersiveMode && "h-screen overflow-hidden")}>
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -203,6 +210,18 @@ export function RulesManagerPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={toggleImmersiveMode}
+            className={cn(
+              'p-2 rounded-md transition-colors',
+              isImmersiveMode
+                ? 'bg-primary/10 text-primary'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+            )}
+            title={isImmersiveMode ? 'Exit Fullscreen' : 'Fullscreen'}
+          >
+            {isImmersiveMode ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+          </button>
           <Button
             variant="outline"
             size="sm"

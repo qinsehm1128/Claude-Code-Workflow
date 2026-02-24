@@ -38,6 +38,8 @@ const ParamsSchema = z.object({
   force: z.boolean().optional().default(false),
   // V2 extract parameters
   max_sessions: z.number().optional(),
+  // Tags filter parameter
+  tags: z.array(z.string()).optional(),
   // V2 jobs parameters
   kind: z.string().optional(),
   status_filter: z.enum(['pending', 'running', 'done', 'error']).optional(),
@@ -60,6 +62,7 @@ interface CoreMemoryCompact {
   preview: string;  // Truncated content/summary preview
   archived: boolean;
   updated_at: string;
+  tags: string[];
 }
 
 interface ListResult {
@@ -182,9 +185,13 @@ const PREVIEW_MAX_LENGTH = 100;
  * List all memories with compact output
  */
 function executeList(params: Params): ListResult {
-  const { limit, path } = params;
+  const { limit, path, tags } = params;
   const store = getCoreMemoryStore(getProjectPath(path));
-  const memories = store.getMemories({ limit }) as CoreMemory[];
+
+  // Use tag filter if tags provided, otherwise get all
+  const memories = tags && tags.length > 0
+    ? store.getMemoriesByTags(tags, { limit }) as CoreMemory[]
+    : store.getMemories({ limit }) as CoreMemory[];
 
   // Convert to compact format with truncated preview
   const compactMemories: CoreMemoryCompact[] = memories.map((m) => {
@@ -198,6 +205,7 @@ function executeList(params: Params): ListResult {
       preview,
       archived: m.archived,
       updated_at: m.updated_at,
+      tags: (m as any).tags || [],
     };
   });
 
@@ -584,6 +592,7 @@ export const schema: ToolSchema = {
 
 Usage:
   core_memory(operation="list")                              # List all memories
+  core_memory(operation="list", tags=["auth","api"])          # List memories with specific tags
   core_memory(operation="import", text="important context")  # Import text as new memory
   core_memory(operation="export", id="CMEM-xxx")             # Export memory as plain text
   core_memory(operation="summary", id="CMEM-xxx")            # Generate AI summary
@@ -673,6 +682,11 @@ Memory IDs use format: CMEM-YYYYMMDD-HHMMSS`,
         type: 'string',
         enum: ['pending', 'running', 'done', 'error'],
         description: 'Filter jobs by status (for jobs operation)',
+      },
+      tags: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Filter memories by tags (AND logic - must contain ALL specified tags). Used with list operation.',
       },
     },
     required: ['operation'],

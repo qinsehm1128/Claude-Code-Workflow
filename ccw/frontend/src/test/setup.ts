@@ -60,3 +60,16 @@ Element.prototype.scrollIntoView = vi.fn();
 Element.prototype.hasPointerCapture = vi.fn(() => false);
 Element.prototype.setPointerCapture = vi.fn();
 Element.prototype.releasePointerCapture = vi.fn();
+
+// Mock ResizeObserver for components that use it (e.g., recharts, allotment)
+class ResizeObserverMock {
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+}
+
+Object.defineProperty(global, 'ResizeObserver', {
+  writable: true,
+  configurable: true,
+  value: ResizeObserverMock,
+});

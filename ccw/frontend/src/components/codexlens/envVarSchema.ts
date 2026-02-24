@@ -2,7 +2,7 @@
 // CodexLens Environment Variable Schema
 // ========================================
 // TypeScript port of ENV_VAR_GROUPS from codexlens-manager.js
-// Defines the 5 structured groups: embedding, reranker, concurrency, cascade, chunking
+// Defines structured groups for CodexLens configuration
 
 import type { EnvVarGroupsSchema } from '@/types/codexlens';
 
@@ -117,8 +117,8 @@ export const envVarGroupsSchema: EnvVarGroupsSchema = {
         key: 'CODEXLENS_RERANKER_BACKEND',
         labelKey: 'codexlens.envField.backend',
         type: 'select',
-        options: ['local', 'api'],
-        default: 'local',
+        options: ['onnx', 'api', 'litellm', 'legacy'],
+        default: 'onnx',
         settingsPath: 'reranker.backend',
       },
       CODEXLENS_RERANKER_MODEL: {
@@ -174,7 +174,7 @@ export const envVarGroupsSchema: EnvVarGroupsSchema = {
         options: ['true', 'false'],
         default: 'false',
         settingsPath: 'reranker.pool_enabled',
-        showWhen: (env) => env['CODEXLENS_RERANKER_BACKEND'] === 'api',
+        showWhen: (env) => env['CODEXLENS_RERANKER_BACKEND'] === 'api' || env['CODEXLENS_RERANKER_BACKEND'] === 'litellm',
       },
       CODEXLENS_RERANKER_STRATEGY: {
         key: 'CODEXLENS_RERANKER_STRATEGY',
@@ -184,7 +184,7 @@ export const envVarGroupsSchema: EnvVarGroupsSchema = {
         default: 'latency_aware',
         settingsPath: 'reranker.strategy',
         showWhen: (env) =>
-          env['CODEXLENS_RERANKER_BACKEND'] === 'api' &&
+          (env['CODEXLENS_RERANKER_BACKEND'] === 'api' || env['CODEXLENS_RERANKER_BACKEND'] === 'litellm') &&
           env['CODEXLENS_RERANKER_POOL_ENABLED'] === 'true',
       },
       CODEXLENS_RERANKER_COOLDOWN: {
@@ -197,7 +197,7 @@ export const envVarGroupsSchema: EnvVarGroupsSchema = {
         min: 0,
         max: 300,
         showWhen: (env) =>
-          env['CODEXLENS_RERANKER_BACKEND'] === 'api' &&
+          (env['CODEXLENS_RERANKER_BACKEND'] === 'api' || env['CODEXLENS_RERANKER_BACKEND'] === 'litellm') &&
           env['CODEXLENS_RERANKER_POOL_ENABLED'] === 'true',
       },
     },
@@ -280,7 +280,7 @@ export const envVarGroupsSchema: EnvVarGroupsSchema = {
         key: 'CODEXLENS_CASCADE_STRATEGY',
         labelKey: 'codexlens.envField.searchStrategy',
         type: 'select',
-        options: ['binary', 'hybrid', 'binary_rerank', 'dense_rerank'],
+        options: ['binary', 'hybrid', 'binary_rerank', 'dense_rerank', 'staged'],
         default: 'dense_rerank',
         settingsPath: 'cascade.strategy',
       },
@@ -303,6 +303,73 @@ export const envVarGroupsSchema: EnvVarGroupsSchema = {
         settingsPath: 'cascade.fine_k',
         min: 1,
         max: 100,
+      },
+      CODEXLENS_STAGED_STAGE2_MODE: {
+        key: 'CODEXLENS_STAGED_STAGE2_MODE',
+        labelKey: 'codexlens.envField.stagedStage2Mode',
+        type: 'select',
+        options: ['precomputed', 'realtime', 'static_global_graph'],
+        default: 'precomputed',
+        settingsPath: 'staged.stage2_mode',
+        showWhen: (env) => env['CODEXLENS_CASCADE_STRATEGY'] === 'staged',
+      },
+      CODEXLENS_STAGED_CLUSTERING_STRATEGY: {
+        key: 'CODEXLENS_STAGED_CLUSTERING_STRATEGY',
+        labelKey: 'codexlens.envField.stagedClusteringStrategy',
+        type: 'select',
+        options: ['auto', 'hdbscan', 'dbscan', 'frequency', 'noop', 'score', 'dir_rr', 'path'],
+        default: 'auto',
+        settingsPath: 'staged.clustering_strategy',
+        showWhen: (env) => env['CODEXLENS_CASCADE_STRATEGY'] === 'staged',
+      },
+      CODEXLENS_STAGED_CLUSTERING_MIN_SIZE: {
+        key: 'CODEXLENS_STAGED_CLUSTERING_MIN_SIZE',
+        labelKey: 'codexlens.envField.stagedClusteringMinSize',
+        type: 'number',
+        placeholder: '3',
+        default: '3',
+        settingsPath: 'staged.clustering_min_size',
+        min: 1,
+        max: 50,
+        showWhen: (env) => env['CODEXLENS_CASCADE_STRATEGY'] === 'staged',
+      },
+      CODEXLENS_ENABLE_STAGED_RERANK: {
+        key: 'CODEXLENS_ENABLE_STAGED_RERANK',
+        labelKey: 'codexlens.envField.enableStagedRerank',
+        type: 'checkbox',
+        default: 'true',
+        settingsPath: 'staged.enable_rerank',
+        showWhen: (env) => env['CODEXLENS_CASCADE_STRATEGY'] === 'staged',
+      },
+    },
+  },
+  indexing: {
+    id: 'indexing',
+    labelKey: 'codexlens.envGroup.indexing',
+    icon: 'git-branch',
+    vars: {
+      CODEXLENS_USE_ASTGREP: {
+        key: 'CODEXLENS_USE_ASTGREP',
+        labelKey: 'codexlens.envField.useAstGrep',
+        type: 'checkbox',
+        default: 'false',
+        settingsPath: 'parsing.use_astgrep',
+      },
+      CODEXLENS_STATIC_GRAPH_ENABLED: {
+        key: 'CODEXLENS_STATIC_GRAPH_ENABLED',
+        labelKey: 'codexlens.envField.staticGraphEnabled',
+        type: 'checkbox',
+        default: 'false',
+        settingsPath: 'indexing.static_graph_enabled',
+      },
+      CODEXLENS_STATIC_GRAPH_RELATIONSHIP_TYPES: {
+        key: 'CODEXLENS_STATIC_GRAPH_RELATIONSHIP_TYPES',
+        labelKey: 'codexlens.envField.staticGraphRelationshipTypes',
+        type: 'text',
+        placeholder: 'imports,inherits,calls',
+        default: 'imports,inherits',
+        settingsPath: 'indexing.static_graph_relationship_types',
+        showWhen: (env) => env['CODEXLENS_STATIC_GRAPH_ENABLED'] === 'true',
       },
     },
   },

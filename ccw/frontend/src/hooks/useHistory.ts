@@ -13,13 +13,7 @@ import {
   type HistoryResponse,
 } from '../lib/api';
 import { useWorkflowStore, selectProjectPath } from '@/stores/workflowStore';
-
-// Query key factory
-export const historyKeys = {
-  all: ['history'] as const,
-  lists: () => [...historyKeys.all, 'list'] as const,
-  list: (filter?: HistoryFilter) => [...historyKeys.lists(), filter] as const,
-};
+import { workspaceQueryKeys } from '@/lib/queryKeys';
 
 export interface HistoryFilter {
   search?: string;
@@ -75,7 +69,7 @@ export function useHistory(options: UseHistoryOptions = {}): UseHistoryReturn {
   const queryEnabled = enabled && !!projectPath;
 
   const query = useQuery({
-    queryKey: historyKeys.list(filter),
+    queryKey: workspaceQueryKeys.cliHistoryList(projectPath),
     queryFn: () => fetchHistory(projectPath),
     staleTime,
     enabled: queryEnabled,
@@ -113,7 +107,7 @@ export function useHistory(options: UseHistoryOptions = {}): UseHistoryReturn {
   const deleteSingleMutation = useMutation({
     mutationFn: deleteExecution,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: historyKeys.all });
+      queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.cliHistory(projectPath) });
     },
   });
 
@@ -121,7 +115,7 @@ export function useHistory(options: UseHistoryOptions = {}): UseHistoryReturn {
   const deleteByToolMutation = useMutation({
     mutationFn: deleteExecutionsByTool,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: historyKeys.all });
+      queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.cliHistory(projectPath) });
     },
   });
 
@@ -129,7 +123,7 @@ export function useHistory(options: UseHistoryOptions = {}): UseHistoryReturn {
   const deleteAllMutation = useMutation({
     mutationFn: deleteAllHistory,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: historyKeys.all });
+      queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.cliHistory(projectPath) });
     },
   });
 

@@ -25,11 +25,11 @@ The `--type` parameter classifies sessions for CCW dashboard organization:
 
 | Type | Description | Default For |
 |------|-------------|-------------|
-| `workflow` | Standard implementation (default) | `/workflow:plan` |
-| `review` | Code review sessions | `/workflow:review-module-cycle` |
-| `tdd` | TDD-based development | `/workflow:tdd-plan` |
-| `test` | Test generation/fix sessions | `/workflow:test-fix-gen` |
-| `docs` | Documentation sessions | `/memory:docs` |
+| `workflow` | Standard implementation (default) | `workflow-plan` skill |
+| `review` | Code review sessions | `review-cycle` skill |
+| `tdd` | TDD-based development | `workflow-tdd` skill |
+| `test` | Test generation/fix sessions | `workflow-test-fix` skill |
+| `docs` | Documentation sessions | `memory-manage` skill |
 
 **Validation**: If `--type` is provided with invalid value, return error:
 ```

@@ -1,0 +1,28 @@
+{
+  "version": "1.0.0",
+  "updated_at": "2026-02-23T15:30:00Z",
+  "skills": [
+    {
+      "id": "code-review-helper",
+      "name": "Code Review Helper",
+      "description": "Assists with code review by analyzing patterns and suggesting improvements",
+      "version": "1.2.0",
+      "author": "CCW Team",
+      "category": "Code Quality",
+      "tags": ["review", "quality", "analysis", "best-practices"],
+      "downloadUrl": "https://raw.githubusercontent.com/catlog22/skill-hub/main/skills/code-review-helper/skill.tar.gz",
+      "readmeUrl": "https://raw.githubusercontent.com/catlog22/skill-hub/main/skills/code-review-helper/README.md"
+    },
+    {
+      "id": "test-skill",
+      "name": "Test Skill",
+      "description": "A test skill to verify the Skill Hub functionality",
+      "version": "1.0.0",
+      "author": "CCW Team",
+      "category": "Development",
+      "tags": ["test", "demo", "utility"],
+      "downloadUrl": "https://raw.githubusercontent.com/catlog22/skill-hub/main/skills/test-skill/skill.tar.gz",
+      "readmeUrl": "https://raw.githubusercontent.com/catlog22/skill-hub/main/skills/test-skill/README.md"
+    }
+  ]
+}

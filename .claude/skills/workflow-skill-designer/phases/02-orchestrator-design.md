@@ -267,10 +267,11 @@ Extract from source orchestrator or generate from config:
 function generateOrchestratorSections(config, sourceContent) {
   const sections = [];
 
-  // Auto Mode (if feature enabled)
+  // Interactive Preference Collection + Auto Mode (if feature enabled)
   if (config.features.hasAutoMode) {
-    sections.push(extractOrGenerate(sourceContent, 'Auto Mode',
-      '## Auto Mode\n\nWhen `--yes` or `-y`: Auto-continue all phases, use recommended defaults.\n'));
+    sections.push(generateInteractivePreferenceCollection(config));
+    sections.push(extractOrGenerate(sourceContent, 'Auto Mode Defaults',
+      '## Auto Mode Defaults\n\nWhen `workflowPreferences.autoYes === true`: Auto-continue all phases, use recommended defaults.\n'));
   }
 
   // Core Rules
@@ -334,7 +335,69 @@ function generateDefaultErrorHandling() {
 }
 ```
 
-## Step 2.8: Assemble SKILL.md
+## Step 2.8: Generate Interactive Preference Collection
+
+When the skill has configurable behaviors (auto mode, force options, etc.), generate the AskUserQuestion-based preference collection section for SKILL.md:
+
+```javascript
+function generateInteractivePreferenceCollection(config) {
+  if (!config.features.hasAutoMode && !config.preferenceQuestions?.length) {
+    return '';
+  }
+
+  let section = '## Interactive Preference Collection\n\n';
+  section += 'Collect workflow preferences via AskUserQuestion before dispatching to phases:\n\n';
+  section += '```javascript\n';
+  section += 'const prefResponse = AskUserQuestion({\n';
+  section += '  questions: [\n';
+
+  // Always include auto mode question if feature enabled
+  if (config.features.hasAutoMode) {
+    section += '    {\n';
+    section += '      question: "是否跳过所有确认步骤（自动模式）？",\n';
+    section += '      header: "Auto Mode",\n';
+    section += '      multiSelect: false,\n';
+    section += '      options: [\n';
+    section += '        { label: "Interactive (Recommended)", description: "交互模式，包含确认步骤" },\n';
+    section += '        { label: "Auto", description: "跳过所有确认，自动执行" }\n';
+    section += '      ]\n';
+    section += '    },\n';
+  }
+
+  // Add custom preference questions
+  for (const pq of (config.preferenceQuestions || [])) {
+    section += `    {\n`;
+    section += `      question: "${pq.question}",\n`;
+    section += `      header: "${pq.header}",\n`;
+    section += `      multiSelect: false,\n`;
+    section += `      options: [\n`;
+    for (const opt of pq.options) {
+      section += `        { label: "${opt.label}", description: "${opt.description}" },\n`;
+    }
+    section += `      ]\n`;
+    section += `    },\n`;
+  }
+
+  section += '  ]\n';
+  section += '})\n\n';
+  section += '// Derive workflowPreferences from user selection\n';
+  section += 'workflowPreferences = {\n';
+  if (config.features.hasAutoMode) {
+    section += '  autoYes: prefResponse.autoMode === "Auto",\n';
+  }
+  for (const pq of (config.preferenceQuestions || [])) {
+    section += `  ${pq.key}: prefResponse.${pq.header.toLowerCase().replace(/\\s+/g, '')} === "${pq.activeValue}",\n`;
+  }
+  section += '}\n';
+  section += '```\n\n';
+  section += '**workflowPreferences** is passed to phase execution as context variable.\n';
+  section += 'Phases reference as `workflowPreferences.autoYes`, `workflowPreferences.{key}`, etc.\n';
+
+  return section;
+}
+```
+
+## Step 2.9: Assemble SKILL.md
 
 ```javascript
 function assembleSkillMd(config, sourceContent) {

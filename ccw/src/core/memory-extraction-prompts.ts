@@ -3,7 +3,7 @@
  *
  * Provides system and user prompt templates for extracting structured memory
  * from CLI session transcripts. The LLM output must conform to a JSON schema
- * with raw_memory and rollout_summary fields.
+ * with raw_memory, rollout_summary, and tags fields.
  *
  * Design spec section 4.4: Prompt structure with outcome triage rules.
  */
@@ -12,19 +12,28 @@
  * System prompt for the extraction LLM call.
  *
  * Instructs the model to:
- * - Produce a JSON object with raw_memory and rollout_summary
+ * - Produce a JSON object with raw_memory, rollout_summary, and tags
  * - Follow structure markers in raw_memory (# summary, Memory context, etc.)
  * - Apply outcome triage rules for categorizing task results
  * - Keep rollout_summary concise (1-2 sentences)
+ * - Generate 3-8 lowercase tags capturing topic, action, and technology
  */
 export const EXTRACTION_SYSTEM_PROMPT = `You are a memory extraction agent. Your job is to read a CLI session transcript and produce structured memory output.
 
-You MUST respond with a valid JSON object containing exactly two fields:
+You MUST respond with a valid JSON object containing exactly three fields:
 
 {
   "raw_memory": "<structured memory text>",
-  "rollout_summary": "<1-2 sentence summary>"
+  "rollout_summary": "<1-2 sentence summary>",
+  "tags": ["<tag1>", "<tag2>", ...]
 }
+
+## tags format
+
+An array of 3-8 short lowercase tags (1-3 words each) capturing:
+- Main topic or domain (e.g., "authentication", "database migration")
+- Action type (e.g., "bug fix", "refactoring", "new feature")
+- Key technology (e.g., "react", "typescript", "sqlite")
 
 ## raw_memory format
 
@@ -87,5 +96,5 @@ Session ID: ${sessionId}
 ${transcript}
 --- END TRANSCRIPT ---
 
-Respond with a JSON object containing "raw_memory" and "rollout_summary" fields.`;
+Respond with a JSON object containing "raw_memory", "rollout_summary", and "tags" fields.`;
 }

@@ -1,0 +1,42 @@
+# Python INHERITS patterns for ast-grep
+# Extracts class inheritance relationships (single and multiple inheritance)
+
+# Pattern metadata
+id: python-inherits
+language: python
+description: Extract class inheritance relationships from Python code
+
+# Single inheritance pattern
+# Matches: class Child(Parent):
+patterns:
+  - id: single_inheritance
+    pattern: "class $CLASS_NAME($BASE) $$$BODY"
+    message: "Found single inheritance"
+    severity: hint
+
+  # Multiple inheritance pattern
+  # Matches: class Child(Parent1, Parent2, Parent3):
+  - id: multiple_inheritance
+    pattern: "class $CLASS_NAME($BASE, $$$MORE_BASES) $$$BODY"
+    message: "Found multiple inheritance"
+    severity: hint
+
+  # Generic inheritance with any number of bases
+  # Matches: class Child(...): with any number of parent classes
+  - id: class_with_bases
+    pattern: "class $NAME($$$BASES) $$$BODY"
+    message: "Found class with base classes"
+    severity: hint
+
+# Metavariables used:
+#   $CLASS_NAME - The name of the child class
+#   $BASE       - First base class (for single inheritance)
+#   $BASES      - All base classes combined
+#   $MORE_BASES - Additional base classes after the first (for multiple inheritance)
+#   $$$BODY     - Class body (statements, can be multiple)
+
+# Examples matched:
+#   class Dog(Animal):              -> single_inheritance
+#   class C(A, B):                  -> multiple_inheritance  
+#   class D(BaseMixin, logging.Log) -> class_with_bases
+#   class E(A, B, C, D):            -> multiple_inheritance

@@ -1,6 +1,6 @@
 {
-  "title": "Orchestrator",
-  "description": "Manage and execute workflow flows",
+  "title": "Workflow Template Editor",
+  "description": "Create and edit workflow templates",
   "flow": {
     "title": "Flow",
     "flows": "Flows",
@@ -28,6 +28,15 @@
     "paused": "Paused",
     "completed": "Completed",
     "failed": "Failed"
+  },
+  "controlPanel": {
+    "progress": "{completed}/{total} steps",
+    "noPlan": "No orchestration plan found",
+    "completedMessage": "Orchestration completed successfully",
+    "failedMessage": "Orchestration stopped",
+    "cancelled": "Cancelled",
+    "retry": "Retry",
+    "skip": "Skip"
   },
   "node": {
     "title": "Node",
@@ -89,6 +98,9 @@
     "couldNotDuplicate": "Could not duplicate the flow",
     "flowExported": "Flow exported as JSON file",
     "noFlowToExport": "Create or load a flow first",
+    "saveBeforeExecute": "Please save the flow first",
+    "flowSent": "Flow Sent",
+    "sentToTerminal": "\"{name}\" sent to terminal for execution",
     "executionFailed": "Execution Failed",
     "couldNotExecute": "Could not start flow execution"
   },
@@ -143,8 +155,7 @@
     "export": "Export Flow",
     "templates": "Templates",
     "importTemplate": "Import Template",
-    "runWorkflow": "Run Workflow",
-    "monitor": "Monitor",
+    "sendToTerminal": "Send to Terminal",
     "savedFlows": "Saved Flows ({count})",
     "loading": "Loading...",
     "noSavedFlows": "No saved flows",

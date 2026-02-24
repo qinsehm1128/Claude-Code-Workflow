@@ -7,6 +7,7 @@ tree-sitter-javascript>=0.25
 tree-sitter-typescript>=0.23
 pathspec>=0.11
 watchdog>=3.0
+ast-grep-py>=0.40.0
 
 [clustering]
 hdbscan>=0.8.1
@@ -56,11 +57,3 @@ numpy>=1.24
 fastembed>=0.2
 hnswlib>=0.8.0
 onnxruntime-gpu>=1.15.0
-
-[splade]
-transformers>=4.36
-optimum[onnxruntime]>=1.16
-
-[splade-gpu]
-transformers>=4.36
-optimum[onnxruntime-gpu]>=1.16

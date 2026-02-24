@@ -44,6 +44,14 @@ export function TaskListTab({ session, onTaskClick }: TaskListTabProps) {
   const { formatMessage } = useIntl();
 
   const tasks = session.tasks || [];
+
+  // Detect if session tasks support status tracking (new format has explicit status/status_history in raw data)
+  const hasStatusTracking = tasks.some((t) => {
+    const raw = (t as unknown as Record<string, unknown>)._raw as Record<string, unknown> | undefined;
+    const source = (raw?._raw as Record<string, unknown>) || raw;
+    return source ? (source.status !== undefined || source.status_history !== undefined) : false;
+  });
+
   const completed = tasks.filter((t) => t.status === 'completed').length;
   const inProgress = tasks.filter((t) => t.status === 'in_progress').length;
   const pending = tasks.filter((t) => t.status === 'pending').length;
@@ -165,18 +173,20 @@ export function TaskListTab({ session, onTaskClick }: TaskListTabProps) {
 
   return (
     <div className="space-y-4">
-      {/* Stats Bar with Bulk Actions */}
-      <TaskStatsBar
-        completed={completed}
-        inProgress={inProgress}
-        pending={pending}
-        onMarkAllPending={handleMarkAllPending}
-        onMarkAllInProgress={handleMarkAllInProgress}
-        onMarkAllCompleted={handleMarkAllCompleted}
-        isLoadingPending={isLoadingPending}
-        isLoadingInProgress={isLoadingInProgress}
-        isLoadingCompleted={isLoadingCompleted}
-      />
+      {/* Stats Bar with Bulk Actions (only for tasks with status tracking) */}
+      {hasStatusTracking && (
+        <TaskStatsBar
+          completed={completed}
+          inProgress={inProgress}
+          pending={pending}
+          onMarkAllPending={handleMarkAllPending}
+          onMarkAllInProgress={handleMarkAllInProgress}
+          onMarkAllCompleted={handleMarkAllCompleted}
+          isLoadingPending={isLoadingPending}
+          isLoadingInProgress={isLoadingInProgress}
+          isLoadingCompleted={isLoadingCompleted}
+        />
+      )}
 
       {/* Tasks List */}
       {localTasks.length === 0 ? (
@@ -211,7 +221,7 @@ export function TaskListTab({ session, onTaskClick }: TaskListTabProps) {
 
             return (
               <Card
-                key={task.task_id || index}
+                key={`${task.task_id}-${index}`}
                 className={`hover:shadow-sm transition-shadow ${onTaskClick ? 'cursor-pointer hover:shadow-md' : ''}`}
                 onClick={() => onTaskClick?.(task as TaskData)}
               >
@@ -236,12 +246,14 @@ export function TaskListTab({ session, onTaskClick }: TaskListTabProps) {
 
                     {/* Right: Status and Meta info */}
                     <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                      {/* Row 1: Status dropdown */}
-                      <TaskStatusDropdown
-                        currentStatus={task.status as TaskStatus}
-                        onStatusChange={(newStatus) => handleTaskStatusChange(task.task_id, newStatus)}
-                        size="sm"
-                      />
+                      {/* Row 1: Status dropdown (only for tasks with status tracking) */}
+                      {hasStatusTracking && (
+                        <TaskStatusDropdown
+                          currentStatus={task.status as TaskStatus}
+                          onStatusChange={(newStatus) => handleTaskStatusChange(task.task_id, newStatus)}
+                          size="sm"
+                        />
+                      )}
 
                       {/* Row 2: Meta info */}
                       <div className="flex items-center gap-3 flex-wrap justify-end text-xs text-muted-foreground">

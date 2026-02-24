@@ -963,3 +963,231 @@ function getVersion(): string {
     return '1.0.0';
   }
 }
+
+// ========================================
+// Skill Hub Installation Functions
+// ========================================
+
+/**
+ * Options for skill-hub installation
+ */
+interface SkillHubInstallOptions {
+  skillId?: string;
+  cliType?: 'claude' | 'codex';
+  list?: boolean;
+}
+
+/**
+ * Skill hub index entry
+ */
+interface SkillHubEntry {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  author: string;
+  category: string;
+  downloadUrl: string;
+}
+
+/**
+ * Get skill-hub directory path
+ */
+function getSkillHubDir(): string {
+  return join(homedir(), '.ccw', 'skill-hub');
+}
+
+/**
+ * Get local skills directory
+ */
+function getLocalSkillsDir(): string {
+  return join(getSkillHubDir(), 'local');
+}
+
+/**
+ * Parse skill frontmatter from SKILL.md content
+ */
+function parseSkillFrontmatter(content: string): {
+  name: string;
+  description: string;
+  version: string;
+} {
+  const result = { name: '', description: '', version: '1.0.0' };
+
+  if (content.startsWith('---')) {
+    const endIndex = content.indexOf('---', 3);
+    if (endIndex > 0) {
+      const frontmatter = content.substring(3, endIndex).trim();
+      const lines = frontmatter.split('\n');
+
+      for (const line of lines) {
+        const colonIndex = line.indexOf(':');
+        if (colonIndex > 0) {
+          const key = line.substring(0, colonIndex).trim().toLowerCase();
+          const value = line.substring(colonIndex + 1).trim().replace(/^["']|["']$/g, '');
+
+          if (key === 'name') result.name = value;
+          if (key === 'description') result.description = value;
+          if (key === 'version') result.version = value;
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * List available skills from local skill-hub
+ */
+function listLocalSkillHubSkills(): Array<{ id: string; name: string; description: string; version: string; path: string }> {
+  const result: Array<{ id: string; name: string; description: string; version: string; path: string }> = [];
+  const localDir = getLocalSkillsDir();
+
+  if (!existsSync(localDir)) {
+    return result;
+  }
+
+  try {
+    const entries = readdirSync(localDir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+
+      const skillDir = join(localDir, entry.name);
+      const skillMdPath = join(skillDir, 'SKILL.md');
+
+      if (!existsSync(skillMdPath)) continue;
+
+      try {
+        const content = readFileSync(skillMdPath, 'utf8');
+        const parsed = parseSkillFrontmatter(content);
+
+        result.push({
+          id: `local-${entry.name}`,
+          name: parsed.name || entry.name,
+          description: parsed.description || '',
+          version: parsed.version || '1.0.0',
+          path: skillDir,
+        });
+      } catch {
+        // Skip invalid skills
+      }
+    }
+  } catch (error) {
+    console.error('Failed to list local skills:', error);
+  }
+
+  return result;
+}
+
+/**
+ * Install a skill from skill-hub to CLI skills directory
+ */
+async function installSkillFromHub(
+  skillId: string,
+  cliType: 'claude' | 'codex'
+): Promise<{ success: boolean; message: string }> {
+  // Only support local skills for now
+  if (!skillId.startsWith('local-')) {
+    return {
+      success: false,
+      message: 'Only local skills are supported in CLI. Use the web dashboard for remote skills.',
+    };
+  }
+
+  const skillName = skillId.replace('local-', '');
+  const localDir = getLocalSkillsDir();
+  const skillDir = join(localDir, skillName);
+
+  if (!existsSync(skillDir)) {
+    return { success: false, message: `Skill '${skillName}' not found in local skill-hub` };
+  }
+
+  // Get target directory
+  const cliDir = cliType === 'codex' ? '.codex' : '.claude';
+  const targetDir = join(homedir(), cliDir, 'skills', skillName);
+
+  // Check if already exists
+  if (existsSync(targetDir)) {
+    return { success: false, message: `Skill '${skillName}' already installed to ${cliType}` };
+  }
+
+  // Create target parent directory
+  const targetParent = join(homedir(), cliDir, 'skills');
+  if (!existsSync(targetParent)) {
+    mkdirSync(targetParent, { recursive: true });
+  }
+
+  // Copy skill directory
+  try {
+    cpSync(skillDir, targetDir, { recursive: true });
+    return { success: true, message: `Skill '${skillName}' installed to ${cliType}` };
+  } catch (error) {
+    return { success: false, message: `Failed to install: ${(error as Error).message}` };
+  }
+}
+
+/**
+ * Skill Hub installation command
+ */
+export async function installSkillHubCommand(options: SkillHubInstallOptions): Promise<void> {
+  const version = getVersion();
+  showHeader(version);
+
+  // List mode
+  if (options.list) {
+    const skills = listLocalSkillHubSkills();
+
+    if (skills.length === 0) {
+      info('No local skills found in skill-hub');
+      info(`Add skills to: ${getLocalSkillsDir()}`);
+      return;
+    }
+
+    info(`Found ${skills.length} local skills in skill-hub:`);
+    console.log('');
+
+    for (const skill of skills) {
+      console.log(chalk.cyan(`  ${skill.id}`));
+      console.log(chalk.gray(`    Name: ${skill.name}`));
+      console.log(chalk.gray(`    Version: ${skill.version}`));
+      if (skill.description) {
+        console.log(chalk.gray(`    Description: ${skill.description}`));
+      }
+      console.log('');
+    }
+
+    info('To install a skill:');
+    console.log(chalk.gray('  ccw install --skill-hub local-skill-name --cli claude'));
+    return;
+  }
+
+  // Install mode
+  if (options.skillId) {
+    const cliType = options.cliType || 'claude';
+
+    const spinner = createSpinner(`Installing skill '${options.skillId}' to ${cliType}...`).start();
+
+    const result = await installSkillFromHub(options.skillId, cliType as 'claude' | 'codex');
+
+    if (result.success) {
+      spinner.succeed(result.message);
+    } else {
+      spinner.fail(result.message);
+    }
+    return;
+  }
+
+  // No options - show help
+  info('Skill Hub Installation');
+  console.log('');
+  console.log(chalk.gray('Usage:'));
+  console.log(chalk.cyan('  ccw install --skill-hub --list') + chalk.gray('              List available local skills'));
+  console.log(chalk.cyan('  ccw install --skill-hub <id> --cli <type>') + chalk.gray('  Install a skill'));
+  console.log('');
+  console.log(chalk.gray('Options:'));
+  console.log(chalk.gray('  --skill-hub, --skill    Skill ID to install'));
+  console.log(chalk.gray('  --cli                   Target CLI (claude or codex, default: claude)'));
+  console.log(chalk.gray('  --list                  List available skills'));
+}

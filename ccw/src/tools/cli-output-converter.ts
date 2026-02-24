@@ -788,17 +788,22 @@ export class JsonLinesParser implements IOutputParser {
 
     // Default: treat as stdout/stderr based on fallback
     if (json.content || json.message || json.text) {
+      const rawContent = json.content || json.message || json.text;
+      // Safely convert to string: content may be an array (e.g. Claude API content blocks) or object
+      const contentStr = typeof rawContent === 'string'
+        ? rawContent
+        : JSON.stringify(rawContent);
       this.debugLog('mapJsonToIR_fallback_stdout', {
         type: json.type,
         fallbackType: fallbackStreamType,
         hasContent: !!json.content,
         hasMessage: !!json.message,
         hasText: !!json.text,
-        contentPreview: (json.content || json.message || json.text || '').substring(0, 100)
+        contentPreview: contentStr.substring(0, 100)
       });
       return {
         type: fallbackStreamType,
-        content: json.content || json.message || json.text,
+        content: contentStr,
         timestamp
       };
     }

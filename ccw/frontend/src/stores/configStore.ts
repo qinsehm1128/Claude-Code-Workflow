@@ -11,6 +11,7 @@ import type {
   CliToolConfig,
   ApiEndpoints,
   UserPreferences,
+  A2UIPreferences,
 } from '../types/store';
 
 // Default CLI tools configuration
@@ -75,12 +76,25 @@ const defaultUserPreferences: UserPreferences = {
   defaultSortDirection: 'desc',
 };
 
+// Default A2UI preferences
+const defaultA2uiPreferences: A2UIPreferences = {
+  dialogStyle: 'modal',
+  smartModeEnabled: true,
+  autoSelectionDuration: 30,
+  autoSelectionSoundEnabled: false,
+  pauseOnInteraction: true,
+  showA2UIButtonInToolbar: true,
+  drawerSide: 'right',
+  drawerSize: 'md',
+};
+
 // Initial state
 const initialState: ConfigState = {
   cliTools: defaultCliTools,
   defaultCliTool: 'gemini',
   apiEndpoints: defaultApiEndpoints,
   userPreferences: defaultUserPreferences,
+  a2uiPreferences: defaultA2uiPreferences,
   featureFlags: {
     orchestratorEnabled: true,
     darkModeEnabled: true,
@@ -156,6 +170,16 @@ export const useConfigStore = create<ConfigStore>()(
 
         resetUserPreferences: () => {
           set({ userPreferences: defaultUserPreferences }, false, 'resetUserPreferences');
+        },
+
+        // ========== A2UI Preferences Actions ==========
+
+        setA2uiPreferences: (prefs: A2UIPreferences) => {
+          set({ a2uiPreferences: prefs }, false, 'setA2uiPreferences');
+        },
+
+        resetA2uiPreferences: () => {
+          set({ a2uiPreferences: defaultA2uiPreferences }, false, 'resetA2uiPreferences');
         },
 
         // ========== Feature Flags Actions ==========
@@ -235,6 +259,10 @@ export const useConfigStore = create<ConfigStore>()(
                       secondaryModel: t.secondaryModel || '',
                       tags: t.tags || [],
                       type: t.type || 'builtin',
+                      // Load additional fields from backend (fixes cross-browser config sync)
+                      envFile: t.envFile,
+                      settingsFile: t.settingsFile,
+                      availableModels: t.availableModels,
                     };
                   }
                   if (Object.keys(cliTools).length > 0) {

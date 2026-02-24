@@ -509,8 +509,8 @@ CONSTRAINTS: ${perspective.constraints}
    - Add session statistics: rounds, duration, sources, artifacts, **decision count**
 
 3. **Post-Completion Options** (AskUserQuestion)
-   - **创建Issue**: Launch issue:new with conclusions
-   - **生成任务**: Launch workflow:lite-plan for implementation
+   - **创建Issue**: Launch issue-discover with conclusions
+   - **生成任务**: Launch workflow-lite-plan for implementation
    - **导出报告**: Generate standalone analysis report
    - **完成**: No further action
 
@@ -686,30 +686,7 @@ User agrees with current direction, wants deeper code analysis
 - Quick information gathering without multi-round iteration
 - Follow-up analysis building on existing session
 
-**Use `Skill(skill="workflow:analyze-with-file", args="\"topic\"")` when:**
-- Exploring a complex topic collaboratively
-- Need documented discussion trail
-- Decision-making requires multiple perspectives
-- Want to iterate on understanding with user input
-- Building shared understanding before implementation
-
-**Use `Skill(skill="workflow:debug-with-file", args="\"bug description\"")` when:**
-- Diagnosing specific bugs
-- Need hypothesis-driven investigation
-- Focus on evidence and verification
-
-**Use `Skill(skill="workflow:brainstorm-with-file", args="\"topic or question\"")` when:**
-- Generating new ideas or solutions
-- Need creative exploration
-- Want divergent thinking before convergence
-
-**Use `Skill(skill="workflow:collaborative-plan-with-file", args="\"task description\"")` when:**
-- Complex planning requiring multiple perspectives
-- Large scope needing parallel sub-domain analysis
-- Want shared collaborative planning document
-- Need structured task breakdown with agent coordination
-
-**Use `Skill(skill="workflow:lite-plan", args="\"task description\"")` when:**
+**Use `Skill(skill="workflow-lite-plan", args="\"task description\"")` when:**
 - Ready to implement (past analysis phase)
 - Need simple task breakdown
 - Focus on quick execution planning

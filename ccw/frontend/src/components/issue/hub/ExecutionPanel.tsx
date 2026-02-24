@@ -18,7 +18,6 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import {
   useQueueExecutionStore,
-  selectExecutionStats,
   useTerminalPanelStore,
 } from '@/stores';
 import type { QueueExecution } from '@/stores/queueExecutionStore';
@@ -47,7 +46,16 @@ function ExecutionEmptyState() {
 
 function ExecutionStatsCards() {
   const { formatMessage } = useIntl();
-  const stats = useQueueExecutionStore(selectExecutionStats);
+  const executions = useQueueExecutionStore((s) => s.executions);
+  const stats = useMemo(() => {
+    const all = Object.values(executions);
+    return {
+      running: all.filter((e) => e.status === 'running').length,
+      completed: all.filter((e) => e.status === 'completed').length,
+      failed: all.filter((e) => e.status === 'failed').length,
+      total: all.length,
+    };
+  }, [executions]);
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

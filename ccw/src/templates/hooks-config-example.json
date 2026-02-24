@@ -5,11 +5,15 @@
     "session-start": [
       {
         "name": "Progressive Disclosure",
-        "description": "Injects progressive disclosure index at session start",
+        "description": "Injects progressive disclosure index at session start with recovery detection",
         "enabled": true,
         "handler": "internal:context",
         "timeout": 5000,
-        "failMode": "silent"
+        "failMode": "silent",
+        "notes": [
+          "Checks for recovery checkpoints and injects recovery message if found",
+          "Uses RecoveryHandler.checkRecovery() for session recovery"
+        ]
       }
     ],
     "session-end": [
@@ -21,6 +25,61 @@
         "timeout": 30000,
         "async": true,
         "failMode": "log"
+      },
+      {
+        "name": "Mode State Cleanup",
+        "description": "Deactivates all active modes for the session",
+        "enabled": true,
+        "command": "ccw hook session-end --stdin",
+        "timeout": 5000,
+        "failMode": "silent"
+      }
+    ],
+    "Stop": [
+      {
+        "name": "Stop Handler",
+        "description": "Handles Stop hook events with Soft Enforcement - injects continuation messages for active workflows/modes",
+        "enabled": true,
+        "command": "ccw hook stop --stdin",
+        "timeout": 5000,
+        "failMode": "silent",
+        "notes": [
+          "Priority order: context-limit > user-abort > active-workflow > active-mode",
+          "ALWAYS returns continue: true (never blocks stops)",
+          "Injects continuation message instead of blocking",
+          "Deadlock prevention: context-limit stops are always allowed",
+          "Uses ModeRegistryService to check active modes"
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "name": "Checkpoint Creation",
+        "description": "Creates checkpoint before context compaction to preserve session state",
+        "enabled": true,
+        "command": "ccw hook pre-compact --stdin",
+        "timeout": 10000,
+        "failMode": "silent",
+        "notes": [
+          "Creates checkpoint with mode states, workflow state, and memory context",
+          "Uses mutex to prevent concurrent compaction for same directory",
+          "Returns systemMessage with checkpoint summary for context injection"
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "name": "Keyword Detection",
+        "description": "Detects mode keywords in prompts and activates corresponding modes",
+        "enabled": true,
+        "command": "ccw hook keyword --stdin",
+        "timeout": 5000,
+        "failMode": "silent",
+        "notes": [
+          "Supported keywords: autopilot, ralph, ultrawork, swarm, pipeline, team, ultrapilot, ultraqa",
+          "Maps keywords to execution modes using ModeRegistryService",
+          "Injects systemMessage on mode activation"
+        ]
       }
     ],
     "file-modified": [
@@ -55,6 +114,10 @@
     "handler": "Use 'internal:context' for built-in context generation, or 'command' for external commands",
     "failMode": "Options: 'silent' (ignore errors), 'log' (log errors), 'fail' (abort on error)",
     "variables": "Available: $SESSION_ID, $FILE_PATH, $PROJECT_PATH, $CLUSTER_ID",
-    "async": "Async hooks run in background and don't block the main flow"
+    "async": "Async hooks run in background and don't block the main flow",
+    "Stop hook": "The Stop hook uses Soft Enforcement - it never blocks but may inject continuation messages",
+    "PreCompact hook": "Creates checkpoint before compaction; uses mutex to prevent concurrent operations",
+    "UserPromptSubmit hook": "Detects mode keywords and activates corresponding execution modes",
+    "session-end hook": "Cleans up mode states using ModeRegistryService.deactivateMode()"
   }
 }

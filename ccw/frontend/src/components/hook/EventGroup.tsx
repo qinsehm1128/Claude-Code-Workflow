@@ -13,6 +13,13 @@ import {
   CheckCircle,
   StopCircle,
   Play,
+  Bell,
+  Rocket,
+  Flag,
+  Package,
+  LogOut,
+  XCircle,
+  Lock,
 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -44,6 +51,20 @@ function getEventIcon(eventType: HookTriggerType) {
       return CheckCircle;
     case 'Stop':
       return StopCircle;
+    case 'Notification':
+      return Bell;
+    case 'SubagentStart':
+      return Rocket;
+    case 'SubagentStop':
+      return Flag;
+    case 'PreCompact':
+      return Package;
+    case 'SessionEnd':
+      return LogOut;
+    case 'PostToolUseFailure':
+      return XCircle;
+    case 'PermissionRequest':
+      return Lock;
     default:
       return Play;
   }
@@ -61,6 +82,20 @@ function getEventColor(eventType: HookTriggerType): string {
       return 'text-green-500 bg-green-500/10';
     case 'Stop':
       return 'text-red-500 bg-red-500/10';
+    case 'Notification':
+      return 'text-sky-500 bg-sky-500/10';
+    case 'SubagentStart':
+      return 'text-indigo-500 bg-indigo-500/10';
+    case 'SubagentStop':
+      return 'text-teal-500 bg-teal-500/10';
+    case 'PreCompact':
+      return 'text-orange-500 bg-orange-500/10';
+    case 'SessionEnd':
+      return 'text-pink-500 bg-pink-500/10';
+    case 'PostToolUseFailure':
+      return 'text-rose-500 bg-rose-500/10';
+    case 'PermissionRequest':
+      return 'text-yellow-500 bg-yellow-500/10';
     default:
       return 'text-gray-500 bg-gray-500/10';
   }

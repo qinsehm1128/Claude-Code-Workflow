@@ -356,12 +356,13 @@ export class UvManager {
 
   /**
    * Install packages from a local project with optional extras
-   * Uses `uv pip install -e` for editable installs
+   * Uses `uv pip install` for standard installs, or `-e` for editable installs
    * @param projectPath - Path to the project directory (must contain pyproject.toml or setup.py)
    * @param extras - Optional array of extras to install (e.g., ['semantic', 'dev'])
+   * @param editable - Whether to install in editable mode (default: false for stability)
    * @returns Installation result
    */
-  async installFromProject(projectPath: string, extras?: string[]): Promise<UvInstallResult> {
+  async installFromProject(projectPath: string, extras?: string[], editable = false): Promise<UvInstallResult> {
     const startTime = Date.now();
 
     // Ensure UV is available
@@ -383,9 +384,11 @@ export class UvManager {
     }
 
     return new Promise((resolve) => {
-      const args = ['pip', 'install', '-e', installSpec, '--python', this.getVenvPython()];
+      const args = editable
+        ? ['pip', 'install', '-e', installSpec, '--python', this.getVenvPython()]
+        : ['pip', 'install', installSpec, '--python', this.getVenvPython()];
 
-      console.log(`[UV] Installing from project: ${installSpec}`);
+      console.log(`[UV] Installing from project: ${installSpec} (editable: ${editable})`);
 
       const child = spawn(uvPath, args, {
         stdio: ['ignore', 'pipe', 'pipe'],

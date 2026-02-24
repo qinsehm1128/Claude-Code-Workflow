@@ -11,7 +11,7 @@ Perform READ-ONLY verification analysis between IMPL_PLAN.md, task JSONs, and br
 ## Entry Points
 
 - **From Plan Mode**: After Phase 4 completes, user selects "Verify Plan Quality"
-- **From Verify Mode**: Directly triggered via `/workflow:plan-verify`
+- **From Verify Mode**: Directly triggered via `workflow-plan` skill (plan-verify phase)
 
 ## User Input
 
@@ -332,15 +332,16 @@ console.log(`Report: ${process_dir}/PLAN_VERIFICATION.md\n${recommendation} | C:
 ### Step 5.6: Next Step Selection
 
 ```javascript
-const autoYes = $ARGUMENTS.includes('--yes') || $ARGUMENTS.includes('-y')
+// Reference workflowPreferences (set by SKILL.md via AskUserQuestion)
+const autoYes = workflowPreferences.autoYes
 const canExecute = recommendation !== 'BLOCK_EXECUTION'
 
 // Auto mode
 if (autoYes) {
   if (canExecute) {
-    Skill(skill="workflow-execute", args="--yes --resume-session=\"${session_id}\"")
+    Skill(skill="workflow-execute", args="--resume-session=\"${session_id}\"")
   } else {
-    console.log(`[--yes] BLOCK_EXECUTION - Fix ${critical_count} critical issues first.`)
+    console.log(`[Auto] BLOCK_EXECUTION - Fix ${critical_count} critical issues first.`)
   }
   return
 }
@@ -371,7 +372,9 @@ const selection = AskUserQuestion({
 if (selection.includes("Execute")) {
   Skill(skill="workflow-execute", args="--resume-session=\"${session_id}\"")
 } else if (selection === "Re-verify") {
-  Skill(skill="workflow:plan-verify", args="--session ${session_id}")
+  // Direct phase re-execution: re-read and execute this phase
+  Read("phases/05-plan-verify.md")
+  // Re-execute with current session context
 }
 ```
 

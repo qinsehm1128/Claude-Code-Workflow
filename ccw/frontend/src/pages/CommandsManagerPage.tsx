@@ -16,7 +16,10 @@ import {
   Folder,
   User,
   AlertCircle,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
+import { useAppStore, selectIsImmersiveMode } from '@/stores/appStore';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -39,6 +42,10 @@ export function CommandsManagerPage() {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['cli', 'workflow']));
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Immersive mode state
+  const isImmersiveMode = useAppStore(selectIsImmersiveMode);
+  const toggleImmersiveMode = useAppStore((s) => s.toggleImmersiveMode);
 
   const {
     commands,
@@ -96,7 +103,7 @@ export function CommandsManagerPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className={cn("space-y-6", isImmersiveMode && "h-screen overflow-hidden")}>
       {/* Page Header */}
       <div className="flex flex-col gap-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -109,10 +116,24 @@ export function CommandsManagerPage() {
               {formatMessage({ id: 'commands.description' })}
             </p>
           </div>
-          <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
-            <RefreshCw className={cn('w-4 h-4 mr-2', isFetching && 'animate-spin')} />
-            {formatMessage({ id: 'common.actions.refresh' })}
-          </Button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={toggleImmersiveMode}
+              className={cn(
+                'p-2 rounded-md transition-colors',
+                isImmersiveMode
+                  ? 'bg-primary/10 text-primary'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+              )}
+              title={isImmersiveMode ? 'Exit Fullscreen' : 'Fullscreen'}
+            >
+              {isImmersiveMode ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            </button>
+            <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
+              <RefreshCw className={cn('w-4 h-4 mr-2', isFetching && 'animate-spin')} />
+              {formatMessage({ id: 'common.actions.refresh' })}
+            </Button>
+          </div>
         </div>
 
         {/* Error alert */}

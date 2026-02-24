@@ -21,6 +21,7 @@ import { broadcastToClients } from '../websocket.js';
 import { executeCliTool } from '../../tools/cli-executor-core.js';
 import { cliSessionMux } from './cli-session-mux.js';
 import { appendCliSessionAudit } from './cli-session-audit.js';
+import { assembleInstruction, type InstructionType } from './cli-instruction-assembler.js';
 import type {
   Flow,
   FlowNode,
@@ -264,12 +265,30 @@ export class NodeRunner {
             error: `Target session not found: ${targetSessionKey}`
           };
         }
+
+        // Resolve instructionType and skillName for native CLI sessions
+        let instructionType = data.instructionType;
+        let skillName = data.skillName;
+        if (!instructionType) {
+          if (skillName) {
+            instructionType = 'skill';
+          } else if (data.slashCommand) {
+            // Backward compat: map slashCommand to skill
+            instructionType = 'skill';
+            skillName = data.slashCommand;
+          } else {
+            instructionType = 'prompt';
+          }
+        }
+
         const routed = manager.execute(targetSessionKey, {
           tool,
           prompt: instruction,
           mode,
           resumeKey: data.resumeKey,
-          resumeStrategy: data.resumeStrategy === 'promptConcat' ? 'promptConcat' : 'nativeResume'
+          resumeStrategy: data.resumeStrategy === 'promptConcat' ? 'promptConcat' : 'nativeResume',
+          instructionType: instructionType as InstructionType,
+          skillName,
         });
 
         // Best-effort: record audit event so Observability panel includes orchestrator-routed executions.

@@ -18,6 +18,7 @@
 
 import type { RouteContext } from './types.js';
 import { getCliSessionManager } from '../services/cli-session-manager.js';
+import type { InstructionType } from '../services/cli-instruction-assembler.js';
 import path from 'path';
 import { getCliSessionPolicy } from '../services/cli-session-policy.js';
 import { RateLimiter } from '../services/rate-limiter.js';
@@ -91,7 +92,8 @@ export async function handleCliSessionsRoutes(ctx: RouteContext): Promise<boolea
         preferredShell,
         tool,
         model,
-        resumeKey
+        resumeKey,
+        launchMode
       } = (body || {}) as any;
 
       if (tool && typeof tool === 'string') {
@@ -115,7 +117,8 @@ export async function handleCliSessionsRoutes(ctx: RouteContext): Promise<boolea
         preferredShell: preferredShell === 'pwsh' ? 'pwsh' : 'bash',
         tool: typeof tool === 'string' ? tool.trim() : undefined,
         model,
-        resumeKey
+        resumeKey,
+        launchMode: launchMode === 'yolo' ? 'yolo' : 'default',
       });
 
       appendCliSessionAudit({
@@ -353,7 +356,9 @@ export async function handleCliSessionsRoutes(ctx: RouteContext): Promise<boolea
         workingDir,
         category,
         resumeKey,
-        resumeStrategy
+        resumeStrategy,
+        instructionType,
+        skillName
       } = (body || {}) as any;
 
       if (!tool || typeof tool !== 'string') {
@@ -380,7 +385,9 @@ export async function handleCliSessionsRoutes(ctx: RouteContext): Promise<boolea
         workingDir,
         category,
         resumeKey,
-        resumeStrategy: resumeStrategy === 'promptConcat' ? 'promptConcat' : 'nativeResume'
+        resumeStrategy: resumeStrategy === 'promptConcat' ? 'promptConcat' : 'nativeResume',
+        instructionType: typeof instructionType === 'string' ? instructionType as InstructionType : undefined,
+        skillName: typeof skillName === 'string' ? skillName : undefined,
       });
 
       appendCliSessionAudit({
@@ -441,6 +448,60 @@ export async function handleCliSessionsRoutes(ctx: RouteContext): Promise<boolea
     });
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ success: true }));
+    return true;
+  }
+
+  // POST /api/cli-sessions/:sessionKey/pause
+  const pauseMatch = pathname.match(/^\/api\/cli-sessions\/([^/]+)\/pause$/);
+  if (pauseMatch && req.method === 'POST') {
+    const sessionKey = decodeURIComponent(pauseMatch[1]);
+    try {
+      manager.pauseSession(sessionKey);
+      appendCliSessionAudit({
+        type: 'session_paused',
+        timestamp: new Date().toISOString(),
+        projectRoot,
+        sessionKey,
+        ...clientInfo(req),
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true }));
+    } catch (err) {
+      const message = (err as Error).message;
+      if (message.includes('not found')) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+      } else {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+      }
+      res.end(JSON.stringify({ error: message }));
+    }
+    return true;
+  }
+
+  // POST /api/cli-sessions/:sessionKey/resume
+  const resumeMatch = pathname.match(/^\/api\/cli-sessions\/([^/]+)\/resume$/);
+  if (resumeMatch && req.method === 'POST') {
+    const sessionKey = decodeURIComponent(resumeMatch[1]);
+    try {
+      manager.resumeSession(sessionKey);
+      appendCliSessionAudit({
+        type: 'session_resumed',
+        timestamp: new Date().toISOString(),
+        projectRoot,
+        sessionKey,
+        ...clientInfo(req),
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true }));
+    } catch (err) {
+      const message = (err as Error).message;
+      if (message.includes('not found')) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+      } else {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+      }
+      res.end(JSON.stringify({ error: message }));
+    }
     return true;
   }
 

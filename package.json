@@ -3,7 +3,7 @@
   "version": "6.3.54",
   "description": "JSON-driven multi-agent development framework with intelligent CLI orchestration (Gemini/Qwen/Codex), context-first architecture, and automated workflow execution",
   "type": "module",
-  "main": "ccw/src/index.js",
+  "main": "ccw/dist/index.js",
   "bin": {
     "ccw": "ccw/bin/ccw.js",
     "ccw-mcp": "ccw/bin/ccw-mcp.js"
@@ -18,7 +18,7 @@
     "test": "node --experimental-strip-types --test ccw/tests/*.test.js",
     "test:visual": "node --experimental-strip-types --test ccw/tests/visual/**/*.visual.test.ts",
     "test:e2e": "node --experimental-strip-types --test ccw/tests/e2e/*.e2e.test.ts",
-    "prepublishOnly": "npm run build && echo 'Ready to publish @dyw/claude-code-workflow'",
+    "prepublishOnly": "npm run build && node ccw/scripts/prepublish-clean.mjs && echo 'Ready to publish @dyw/claude-code-workflow'",
     "frontend": "npm run dev --workspace=ccw/frontend",
     "frontend:build": "npm run build --workspace=ccw/frontend",
     "docs": "npm run start --workspace=ccw/docs-site",
@@ -29,7 +29,7 @@
     "ws:install": "npm install",
     "ws:all": "concurrently \"npm run frontend\" \"npm run docs\" --names \"FRONTEND,DOCS\" --prefix-colors \"blue,green\"",
     "ws:build-all": "npm run build && npm run frontend:build && npm run docs:build",
-    "postinstall": "npm rebuild better-sqlite3 || echo [CCW] better-sqlite3 rebuild skipped"
+    "postinstall": "(npm rebuild better-sqlite3 || echo [CCW] better-sqlite3 rebuild skipped) && (npm rebuild node-pty || echo [CCW] node-pty rebuild skipped)"
   },
   "keywords": [
     "claude",
@@ -67,12 +67,10 @@
   "files": [
     "ccw/bin/",
     "ccw/dist/",
-    "ccw/src/",
     "ccw/scripts/",
     ".claude/agents/",
     ".claude/commands/",
     ".claude/output-styles/",
-    "~/.ccw/workflows/",
     ".claude/scripts/",
     ".claude/prompt-templates/",
     ".claude/python_script/",

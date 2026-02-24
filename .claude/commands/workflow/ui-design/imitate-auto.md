@@ -708,7 +708,7 @@ TodoWrite({todos: [
   3. `/workflow:ui-design:animation-extract` (Phase 2.3 - animation tokens)
   4. `/workflow:ui-design:layout-extract` (Phase 2.5 - structure templates)
   5. `/workflow:ui-design:generate` (Phase 3 - pure assembly)
-  6. `/workflow:ui-design:update` (Phase 4, if --session)
+  6. `/workflow:ui-design:generate` (Phase 4, if --session)
 
 ## Completion Output
 

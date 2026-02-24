@@ -15,6 +15,7 @@ import {
 import { useCliStreamStore, type CliExecutionState, type CliOutputLine } from '@/stores/cliStreamStore';
 import { MonitorBody } from '@/components/shared/CliStreamMonitor/MonitorBody';
 import { MessageRenderer } from '@/components/shared/CliStreamMonitor/MessageRenderer';
+import { useActiveCliExecutions } from '@/hooks/useActiveCliExecutions';
 
 // ========== Types ==========
 
@@ -32,7 +33,7 @@ function EmptyTabState() {
   const { formatMessage } = useIntl();
 
   return (
-    <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-4">
+    <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-4">
       <Terminal className="h-12 w-12 opacity-30" />
       <div className="text-center">
         <p className="text-sm font-medium">
@@ -56,13 +57,32 @@ function ExecutionNotFoundState({ executionId }: { executionId: string }) {
   const { formatMessage } = useIntl();
 
   return (
-    <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-4">
+    <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-4">
       <Terminal className="h-12 w-12 opacity-30" />
       <div className="text-center">
         <p className="text-sm font-medium">
           {formatMessage({ id: 'cliViewer.executionNotFound', defaultMessage: 'Execution not found' })}
         </p>
         <p className="text-xs mt-1 font-mono opacity-50">{executionId}</p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * FIX-002: Loading state while syncing executions from server
+ * Shown after page refresh while execution data is being recovered
+ */
+function ExecutionLoadingState() {
+  const { formatMessage } = useIntl();
+
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-4">
+      <Loader2 className="h-8 w-8 animate-spin opacity-50" />
+      <div className="text-center">
+        <p className="text-sm">
+          {formatMessage({ id: 'cliViewer.syncingExecution', defaultMessage: 'Syncing execution data...' })}
+        </p>
       </div>
     </div>
   );
@@ -113,7 +133,7 @@ function CliOutputDisplay({ execution, executionId }: { execution: CliExecutionS
 
   if (!execution.output || execution.output.length === 0) {
     return (
-      <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-4">
+      <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-4">
         <Terminal className="h-12 w-12 opacity-30" />
         <div className="text-center">
           <p className="text-sm">
@@ -157,10 +177,14 @@ function CliOutputDisplay({ execution, executionId }: { execution: CliExecutionS
 export function ContentArea({ paneId, className }: ContentAreaProps) {
   // Get active tab using the selector
   const activeTab = useViewerStore((state) => selectActiveTab(state, paneId));
-  
+
   // Get execution data from cliStreamStore
   const executions = useCliStreamStore((state) => state.executions);
-  
+
+  // FIX-002: Get loading state from useActiveCliExecutions
+  // This helps distinguish between "not found" and "still loading"
+  const { isLoading: isSyncing } = useActiveCliExecutions(true);
+
   const execution = useMemo(() => {
     if (!activeTab?.executionId) return null;
     return executions[activeTab.executionId] || null;
@@ -173,19 +197,24 @@ export function ContentArea({ paneId, className }: ContentAreaProps) {
       return <EmptyTabState />;
     }
 
-    // No execution data found
+    // FIX-002: Show loading state while syncing if execution not yet available
+    if (!execution && isSyncing) {
+      return <ExecutionLoadingState />;
+    }
+
+    // No execution data found (after sync completed)
     if (!execution) {
       return <ExecutionNotFoundState executionId={activeTab.executionId} />;
     }
 
     // Show CLI output
     return <CliOutputDisplay execution={execution} executionId={activeTab.executionId} />;
-  }, [activeTab, execution]);
+  }, [activeTab, execution, isSyncing]);
 
   return (
     <div
       className={cn(
-        'flex-1 overflow-hidden',
+        'flex-1 min-h-0 flex flex-col overflow-hidden',
         'bg-background',
         className
       )}

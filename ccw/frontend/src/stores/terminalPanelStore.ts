@@ -28,6 +28,8 @@ export interface TerminalPanelActions {
   openTerminal: (sessionKey: string) => void;
   /** Close the terminal panel (keeps terminal order intact) */
   closePanel: () => void;
+  /** Toggle panel open/closed; when opening, restores last active or shows queue */
+  togglePanel: () => void;
   /** Switch active terminal without opening/closing */
   setActiveTerminal: (sessionKey: string) => void;
   /** Switch panel view between 'terminal' and 'queue' */
@@ -78,6 +80,24 @@ export const useTerminalPanelStore = create<TerminalPanelStore>()(
 
       closePanel: () => {
         set({ isPanelOpen: false }, false, 'closePanel');
+      },
+
+      togglePanel: () => {
+        const { isPanelOpen, activeTerminalId, terminalOrder } = get();
+        if (isPanelOpen) {
+          set({ isPanelOpen: false }, false, 'togglePanel/close');
+        } else {
+          const nextActive = activeTerminalId ?? terminalOrder[0] ?? null;
+          set(
+            {
+              isPanelOpen: true,
+              activeTerminalId: nextActive,
+              panelView: nextActive ? 'terminal' : 'queue',
+            },
+            false,
+            'togglePanel/open'
+          );
+        }
       },
 
       // ========== Terminal Selection ==========

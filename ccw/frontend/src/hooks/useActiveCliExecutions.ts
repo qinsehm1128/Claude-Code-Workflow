@@ -104,16 +104,13 @@ export function useActiveCliExecutions(
   enabled: boolean,
   refetchInterval: number = 5000
 ) {
-  const upsertExecution = useCliStreamStore(state => state.upsertExecution);
-  const removeExecution = useCliStreamStore(state => state.removeExecution);
-  const executions = useCliStreamStore(state => state.executions);
-  const setCurrentExecution = useCliStreamStore(state => state.setCurrentExecution);
-  const isExecutionClosedByUser = useCliStreamStore(state => state.isExecutionClosedByUser);
-  const cleanupUserClosedExecutions = useCliStreamStore(state => state.cleanupUserClosedExecutions);
-
   return useQuery({
     queryKey: ACTIVE_CLI_EXECUTIONS_QUERY_KEY,
     queryFn: async () => {
+      // Access store state at execution time to avoid stale closures
+      const store = useCliStreamStore.getState();
+      const currentExecutions = store.executions;
+
       const response = await fetch('/api/cli/active');
       if (!response.ok) {
         throw new Error(`Failed to fetch active executions: ${response.statusText}`);
@@ -124,16 +121,16 @@ export function useActiveCliExecutions(
       const serverIds = new Set(data.executions.map(e => e.id));
 
       // Clean up userClosedExecutions - remove those no longer on server
-      cleanupUserClosedExecutions(serverIds);
+      store.cleanupUserClosedExecutions(serverIds);
 
       // Remove executions that are no longer on server and were closed by user
-      for (const [id, exec] of Object.entries(executions)) {
-        if (isExecutionClosedByUser(id)) {
+      for (const [id, exec] of Object.entries(currentExecutions)) {
+        if (store.isExecutionClosedByUser(id)) {
           // User closed this execution, remove from local state
-          removeExecution(id);
+          store.removeExecution(id);
         } else if (exec.status !== 'running' && !serverIds.has(id) && exec.recovered) {
           // Not running, not on server, and was recovered (not user-created)
-          removeExecution(id);
+          store.removeExecution(id);
         }
       }
 
@@ -143,11 +140,11 @@ export function useActiveCliExecutions(
 
       for (const exec of data.executions) {
         // Skip if user closed this execution
-        if (isExecutionClosedByUser(exec.id)) {
+        if (store.isExecutionClosedByUser(exec.id)) {
           continue;
         }
 
-        const existing = executions[exec.id];
+        const existing = currentExecutions[exec.id];
         const historicalOutput = parseHistoricalOutput(exec.output || '', exec.startTime);
 
         if (!existing) {
@@ -187,7 +184,7 @@ export function useActiveCliExecutions(
           ];
         }
 
-        upsertExecution(exec.id, {
+        store.upsertExecution(exec.id, {
           tool: exec.tool || 'cli',
           mode: exec.mode || 'analysis',
           status: exec.status || 'running',
@@ -200,9 +197,9 @@ export function useActiveCliExecutions(
 
       // Set current execution to first running execution if none selected
       if (hasNewExecution) {
-        const runningExec = data.executions.find(e => e.status === 'running' && !isExecutionClosedByUser(e.id));
-        if (runningExec && !executions[runningExec.id]) {
-          setCurrentExecution(runningExec.id);
+        const runningExec = data.executions.find(e => e.status === 'running' && !store.isExecutionClosedByUser(e.id));
+        if (runningExec && !currentExecutions[runningExec.id]) {
+          store.setCurrentExecution(runningExec.id);
         }
       }
 

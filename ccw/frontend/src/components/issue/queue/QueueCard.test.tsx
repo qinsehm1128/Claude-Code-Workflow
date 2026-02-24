@@ -49,15 +49,16 @@ describe('QueueCard', () => {
   describe('with en locale', () => {
     it('should render queue name', () => {
       render(<QueueCard {...defaultProps} />, { locale: 'en' });
-      expect(screen.getByText(/Queue/i)).toBeInTheDocument();
+      // Use getAllByText since "Queue" may appear multiple times
+      expect(screen.getAllByText(/Queue/i).length).toBeGreaterThanOrEqual(1);
     });
 
     it('should render stats', () => {
       render(<QueueCard {...defaultProps} />, { locale: 'en' });
       expect(screen.getAllByText(/Items/i).length).toBeGreaterThan(0);
-      expect(screen.getByText(/3/i)).toBeInTheDocument(); // total items: 2 tasks + 1 solution
+      // Use getAllByText and check length since "3" might appear in multiple places
+      expect(screen.getAllByText(/3/).length).toBeGreaterThanOrEqual(1); // total items: 2 tasks + 1 solution
       expect(screen.getAllByText(/Groups/i).length).toBeGreaterThan(0);
-      // Note: "1" appears multiple times, so we just check the total items count (3) exists
     });
 
     it('should render execution groups', () => {
@@ -67,14 +68,15 @@ describe('QueueCard', () => {
 
     it('should show active badge when isActive', () => {
       render(<QueueCard {...defaultProps} isActive={true} />, { locale: 'en' });
-      expect(screen.getByText(/Active/i)).toBeInTheDocument();
+      // Use getAllByText since "Active" may appear multiple times
+      expect(screen.getAllByText(/Active/i).length).toBeGreaterThanOrEqual(1);
     });
   });
 
   describe('with zh locale', () => {
     it('should render translated queue name', () => {
       render(<QueueCard {...defaultProps} />, { locale: 'zh' });
-      expect(screen.getByText(/队列/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/队列/i).length).toBeGreaterThanOrEqual(1);
     });
 
     it('should render translated stats', () => {
@@ -90,7 +92,7 @@ describe('QueueCard', () => {
 
     it('should show translated active badge when isActive', () => {
       render(<QueueCard {...defaultProps} isActive={true} />, { locale: 'zh' });
-      expect(screen.getByText(/活跃/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/活跃/i).length).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -109,7 +111,7 @@ describe('QueueCard', () => {
         { locale: 'en' }
       );
 
-      expect(screen.getByText(/2 conflicts/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/2 conflicts/i).length).toBeGreaterThanOrEqual(1);
     });
 
     it('should show translated conflicts warning in Chinese', () => {
@@ -126,7 +128,7 @@ describe('QueueCard', () => {
         { locale: 'zh' }
       );
 
-      expect(screen.getByText(/1 冲突/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/1 冲突/i).length).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -148,7 +150,7 @@ describe('QueueCard', () => {
         { locale: 'en' }
       );
 
-      expect(screen.getByText(/No items in queue/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/No items in queue/i).length).toBeGreaterThanOrEqual(1);
     });
 
     it('should show translated empty state in Chinese', () => {
@@ -168,7 +170,7 @@ describe('QueueCard', () => {
         { locale: 'zh' }
       );
 
-      expect(screen.getByText(/队列中无项目/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/队列中无项目/i).length).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -181,8 +183,8 @@ describe('QueueCard', () => {
 
     it('should have accessible title', () => {
       render(<QueueCard {...defaultProps} />, { locale: 'en' });
-      const title = screen.getByText(/Queue/i);
-      expect(title).toBeInTheDocument();
+      // Use getAllByText since title may appear multiple times
+      expect(screen.getAllByText(/Queue/i).length).toBeGreaterThanOrEqual(1);
     });
   });
 

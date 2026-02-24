@@ -30,6 +30,7 @@ export interface CliToolConfig {
   envFile?: string | null;
   type?: 'builtin' | 'cli-wrapper' | 'api-endpoint';  // Tool type for frontend routing
   settingsFile?: string | null;  // Claude CLI settings file path
+  effort?: string | null;  // Effort level for Claude CLI (low, medium, high)
 }
 
 export interface CliConfig {
@@ -160,7 +161,8 @@ export function getFullConfigResponse(baseDir: string): {
       tags: tool.tags,
       envFile: tool.envFile,
       type: tool.type,  // Preserve type field for frontend routing
-      settingsFile: tool.settingsFile  // Preserve settingsFile for Claude CLI
+      settingsFile: tool.settingsFile,  // Preserve settingsFile for Claude CLI
+      effort: tool.effort  // Preserve effort level for Claude CLI
     };
   }
 

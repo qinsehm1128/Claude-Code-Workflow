@@ -5,29 +5,9 @@
 // Integrates with viewerStore for state management
 // Includes WebSocket integration and execution recovery
 
-import { useEffect, useCallback, useMemo, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useIntl } from 'react-intl';
-import {
-  Terminal,
-  LayoutGrid,
-  Columns,
-  Rows,
-  Square,
-  ChevronDown,
-  RotateCcw,
-} from 'lucide-react';
-import { Button } from '@/components/ui/Button';
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-} from '@/components/ui/Dropdown';
-import { cn } from '@/lib/utils';
-import { LayoutContainer } from '@/components/cli-viewer';
+import { LayoutContainer, CliViewerToolbar } from '@/components/cli-viewer';
 import {
   useViewerStore,
   useViewerLayout,
@@ -42,14 +22,6 @@ import { useActiveCliExecutions, useInvalidateActiveCliExecutions } from '@/hook
 // ========================================
 // Types
 // ========================================
-
-export type LayoutType = 'single' | 'split-h' | 'split-v' | 'grid-2x2';
-
-interface LayoutOption {
-  id: LayoutType;
-  icon: React.ElementType;
-  labelKey: string;
-}
 
 // CLI WebSocket message types (matching CliStreamMonitorLegacy)
 interface CliStreamStartedPayload {
@@ -86,14 +58,7 @@ interface CliStreamErrorPayload {
 // Constants
 // ========================================
 
-const LAYOUT_OPTIONS: LayoutOption[] = [
-  { id: 'single', icon: Square, labelKey: 'cliViewer.layout.single' },
-  { id: 'split-h', icon: Columns, labelKey: 'cliViewer.layout.splitH' },
-  { id: 'split-v', icon: Rows, labelKey: 'cliViewer.layout.splitV' },
-  { id: 'grid-2x2', icon: LayoutGrid, labelKey: 'cliViewer.layout.grid' },
-];
-
-const DEFAULT_LAYOUT: LayoutType = 'split-h';
+const DEFAULT_LAYOUT = 'split-h' as const;
 
 // ========================================
 // Helper Functions
@@ -109,41 +74,6 @@ function formatDuration(ms: number): string {
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
   return `${hours}h ${remainingMinutes}m`;
-}
-
-/**
- * Detect layout type from AllotmentLayout structure
- */
-function detectLayoutType(layout: AllotmentLayout): LayoutType {
-  const childCount = layout.children.length;
-
-  // Empty or single pane
-  if (childCount === 0 || childCount === 1) {
-    return 'single';
-  }
-
-  // Two panes at root level
-  if (childCount === 2) {
-    const hasNestedGroups = layout.children.some(
-      (child) => typeof child !== 'string'
-    );
-
-    // If no nested groups, it's a simple split
-    if (!hasNestedGroups) {
-      return layout.direction === 'horizontal' ? 'split-h' : 'split-v';
-    }
-
-    // Check for grid layout (2x2)
-    const allNested = layout.children.every(
-      (child) => typeof child !== 'string'
-    );
-    if (allNested) {
-      return 'grid-2x2';
-    }
-  }
-
-  // Default to current direction
-  return layout.direction === 'horizontal' ? 'split-h' : 'split-v';
 }
 
 /**
@@ -169,14 +99,16 @@ function countPanes(layout: AllotmentLayout): number {
 // ========================================
 
 export function CliViewerPage() {
-  const { formatMessage } = useIntl();
   const [searchParams, setSearchParams] = useSearchParams();
+
+  // Fullscreen state
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Store hooks
   const layout = useViewerLayout();
   const panes = useViewerPanes();
   const focusedPaneId = useFocusedPaneId();
-  const { initializeDefaultLayout, addTab, reset } = useViewerStore();
+  const { initializeDefaultLayout, addTab } = useViewerStore();
 
   // CLI Stream Store hooks
   const executions = useCliStreamStore((state) => state.executions);
@@ -188,23 +120,8 @@ export function CliViewerPage() {
   const lastMessage = useNotificationStore(selectWsLastMessage);
 
   // Active execution sync from server
-  const { isLoading: _isSyncing } = useActiveCliExecutions(true); // Always sync when page is open
+  useActiveCliExecutions(true);
   const invalidateActive = useInvalidateActiveCliExecutions();
-
-  // Detect current layout type from store
-  const currentLayoutType = useMemo(() => detectLayoutType(layout), [layout]);
-
-  // Count active sessions (tabs across all panes)
-  const activeSessionCount = useMemo(() => {
-    return Object.values(panes).reduce((count, pane) => count + pane.tabs.length, 0);
-  }, [panes]);
-
-  // Get execution count for display
-  const executionCount = useMemo(() => Object.keys(executions).length, [executions]);
-  const runningCount = useMemo(
-    () => Object.values(executions).filter(e => e.status === 'running').length,
-    [executions]
-  );
 
   // Handle WebSocket messages for CLI stream (same logic as CliStreamMonitorLegacy)
   useEffect(() => {
@@ -297,30 +214,34 @@ export function CliViewerPage() {
   }, [lastMessage, invalidateActive]);
 
   // Auto-add new executions as tabs, distributing across available panes
-  // Uses round-robin distribution to spread executions across panes side-by-side
   const addedExecutionsRef = useRef<Set<string>>(new Set());
+
+  // FIX-001: Initialize addedExecutionsRef with existing tab executionIds on mount
+  // This prevents duplicate tabs from being added after page refresh
   useEffect(() => {
-    // Get all pane IDs from the current layout
+    // Extract executionIds from all existing tabs in all panes
+    const existingExecutionIds = Object.values(panes).flatMap((pane) =>
+      pane.tabs.map((tab) => tab.executionId)
+    );
+    existingExecutionIds.forEach((id) => addedExecutionsRef.current.add(id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty deps - only run once on mount
+
+  useEffect(() => {
     const paneIds = Object.keys(panes);
     if (paneIds.length === 0) return;
 
-    // Get addTab from store directly to avoid dependency on reactive function
-    // This prevents infinite loop when addTab updates store state
     const storeAddTab = useViewerStore.getState().addTab;
-
-    // Get new executions that haven't been added yet
     const newExecutionIds = Object.keys(executions).filter(
       (id) => !addedExecutionsRef.current.has(id)
     );
 
     if (newExecutionIds.length === 0) return;
 
-    // Distribute new executions across panes round-robin
     newExecutionIds.forEach((executionId, index) => {
       addedExecutionsRef.current.add(executionId);
       const exec = executions[executionId];
       const toolShort = exec.tool.split('-')[0];
-      // Round-robin pane selection
       const targetPaneId = paneIds[index % paneIds.length];
       storeAddTab(targetPaneId, executionId, `${toolShort} (${exec.mode})`);
     });
@@ -338,10 +259,7 @@ export function CliViewerPage() {
   useEffect(() => {
     const executionId = searchParams.get('executionId');
     if (executionId && focusedPaneId) {
-      // Add tab to focused pane
       addTab(focusedPaneId, executionId, `Execution ${executionId.slice(0, 8)}`);
-
-      // Clear the URL param after processing
       setSearchParams((prev) => {
         const newParams = new URLSearchParams(prev);
         newParams.delete('executionId');
@@ -350,104 +268,20 @@ export function CliViewerPage() {
     }
   }, [searchParams, focusedPaneId, addTab, setSearchParams]);
 
-  // Handle layout change
-  const handleLayoutChange = useCallback(
-    (layoutType: LayoutType) => {
-      initializeDefaultLayout(layoutType);
-    },
-    [initializeDefaultLayout]
-  );
-
-  // Handle reset
-  const handleReset = useCallback(() => {
-    reset();
-    initializeDefaultLayout(DEFAULT_LAYOUT);
-  }, [reset, initializeDefaultLayout]);
-
-  // Get current layout option for display
-  const currentLayoutOption =
-    LAYOUT_OPTIONS.find((l) => l.id === currentLayoutType) || LAYOUT_OPTIONS[1];
-  const CurrentLayoutIcon = currentLayoutOption.icon;
+  // Toggle fullscreen handler
+  const handleToggleFullscreen = () => {
+    setIsFullscreen((prev) => !prev);
+  };
 
   return (
-    <div className="h-full flex flex-col -m-4 md:-m-6">
+    <div className="h-full flex flex-col">
       {/* ======================================== */}
       {/* Toolbar */}
       {/* ======================================== */}
-      <div className="flex items-center justify-between gap-3 p-3 bg-card border-b border-border">
-        {/* Page Title */}
-        <div className="flex items-center gap-2 min-w-0">
-          <Terminal className="w-5 h-5 text-primary flex-shrink-0" />
-          <div className="flex flex-col min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-foreground">
-                {formatMessage({ id: 'cliViewer.page.title' })}
-              </span>
-              {runningCount > 0 && (
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-600 dark:text-green-400 text-xs font-medium">
-                  <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                  {runningCount} active
-                </span>
-              )}
-            </div>
-            <span className="text-xs text-muted-foreground">
-              {formatMessage(
-                { id: 'cliViewer.page.subtitle' },
-                { count: activeSessionCount }
-              )}
-              {executionCount > 0 && ` · ${executionCount} executions`}
-            </span>
-          </div>
-        </div>
-
-        {/* Actions */}
-        <div className="flex items-center gap-2">
-          {/* Reset Button */}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleReset}
-            title={formatMessage({ id: 'cliViewer.toolbar.clearAll' })}
-          >
-            <RotateCcw className="w-4 h-4" />
-          </Button>
-
-          {/* Layout Selector */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-2">
-                <CurrentLayoutIcon className="w-4 h-4" />
-                <span className="hidden sm:inline">
-                  {formatMessage({ id: currentLayoutOption.labelKey })}
-                </span>
-                <ChevronDown className="w-4 h-4 opacity-50" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>
-                {formatMessage({ id: 'cliViewer.layout.title' })}
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {LAYOUT_OPTIONS.map((option) => {
-                const Icon = option.icon;
-                return (
-                  <DropdownMenuItem
-                    key={option.id}
-                    onClick={() => handleLayoutChange(option.id)}
-                    className={cn(
-                      'gap-2',
-                      currentLayoutType === option.id && 'bg-accent'
-                    )}
-                  >
-                    <Icon className="w-4 h-4" />
-                    {formatMessage({ id: option.labelKey })}
-                  </DropdownMenuItem>
-                );
-              })}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
+      <CliViewerToolbar
+        isFullscreen={isFullscreen}
+        onToggleFullscreen={handleToggleFullscreen}
+      />
 
       {/* ======================================== */}
       {/* Layout Container */}

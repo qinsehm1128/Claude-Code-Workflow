@@ -15,6 +15,7 @@ export interface CliSessionMeta {
   resumeKey?: string;
   createdAt: string;
   updatedAt: string;
+  isPaused: boolean;
 }
 
 export interface CliSessionOutputChunk {
@@ -30,6 +31,7 @@ interface CliSessionState {
   setSessions: (sessions: CliSessionMeta[]) => void;
   upsertSession: (session: CliSessionMeta) => void;
   removeSession: (sessionKey: string) => void;
+  updateSessionPausedState: (sessionKey: string, isPaused: boolean) => void;
 
   setBuffer: (sessionKey: string, buffer: string) => void;
   appendOutput: (sessionKey: string, data: string, timestamp?: number) => void;
@@ -85,6 +87,18 @@ export const useCliSessionStore = create<CliSessionState>()(
           delete nextChunks[sessionKey];
           delete nextBytes[sessionKey];
           return { sessions: nextSessions, outputChunks: nextChunks, outputBytes: nextBytes };
+        }),
+
+      updateSessionPausedState: (sessionKey, isPaused) =>
+        set((state) => {
+          const session = state.sessions[sessionKey];
+          if (!session) return state;
+          return {
+            sessions: {
+              ...state.sessions,
+              [sessionKey]: { ...session, isPaused, updatedAt: new Date().toISOString() },
+            },
+          };
         }),
 
       setBuffer: (sessionKey, buffer) =>

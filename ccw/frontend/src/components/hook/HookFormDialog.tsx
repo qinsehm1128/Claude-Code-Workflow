@@ -152,6 +152,13 @@ export function HookFormDialog({
     { value: 'PreToolUse', label: 'cliHooks.trigger.PreToolUse' },
     { value: 'PostToolUse', label: 'cliHooks.trigger.PostToolUse' },
     { value: 'Stop', label: 'cliHooks.trigger.Stop' },
+    { value: 'Notification', label: 'cliHooks.trigger.Notification' },
+    { value: 'SubagentStart', label: 'cliHooks.trigger.SubagentStart' },
+    { value: 'SubagentStop', label: 'cliHooks.trigger.SubagentStop' },
+    { value: 'PreCompact', label: 'cliHooks.trigger.PreCompact' },
+    { value: 'SessionEnd', label: 'cliHooks.trigger.SessionEnd' },
+    { value: 'PostToolUseFailure', label: 'cliHooks.trigger.PostToolUseFailure' },
+    { value: 'PermissionRequest', label: 'cliHooks.trigger.PermissionRequest' },
   ];
 
   return (

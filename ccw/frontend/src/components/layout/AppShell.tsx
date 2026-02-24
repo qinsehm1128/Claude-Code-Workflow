@@ -2,6 +2,7 @@
 // AppShell Component
 // ========================================
 // Root layout component combining Header, Sidebar, and MainContent
+// Supports immersive mode to hide chrome for fullscreen experiences
 
 import { useState, useCallback, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
@@ -16,6 +17,7 @@ import { AskQuestionDialog, A2UIPopupCard } from '@/components/a2ui';
 import { BackgroundImage } from '@/components/shared/BackgroundImage';
 import { useNotificationStore, selectCurrentQuestion, selectCurrentPopupCard } from '@/stores';
 import { useWorkflowStore } from '@/stores/workflowStore';
+import { useAppStore, selectIsImmersiveMode } from '@/stores/appStore';
 import { useWebSocketNotifications, useWebSocket } from '@/hooks';
 
 export interface AppShellProps {
@@ -39,6 +41,9 @@ export function AppShell({
   const switchWorkspace = useWorkflowStore((state) => state.switchWorkspace);
   const projectPath = useWorkflowStore((state) => state.projectPath);
   const location = useLocation();
+
+  // Immersive mode (fullscreen) - hide chrome
+  const isImmersiveMode = useAppStore(selectIsImmersiveMode);
 
   // Workspace initialization logic (URL > localStorage)
   const [isWorkspaceInitialized, setWorkspaceInitialized] = useState(false);
@@ -157,32 +162,36 @@ export function AppShell({
   }, [setCurrentPopupCard]);
 
   return (
-    <div className="flex flex-col min-h-screen bg-background">
+    <div className={cn("flex flex-col min-h-screen bg-background", isImmersiveMode && "h-screen overflow-hidden")}>
       {/* Background image layer (z-index: -3 to -2) */}
       <BackgroundImage />
 
-      {/* Header - fixed at top */}
-      <Header
-        onRefresh={onRefresh}
-        isRefreshing={isRefreshing}
-        onCliMonitorClick={handleCliMonitorClick}
-      />
+      {/* Header - fixed at top (hidden in immersive mode) */}
+      {!isImmersiveMode && (
+        <Header
+          onRefresh={onRefresh}
+          isRefreshing={isRefreshing}
+          onCliMonitorClick={handleCliMonitorClick}
+        />
+      )}
 
       {/* Main layout - sidebar + content */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar - collapsed by default */}
-        <Sidebar
-          collapsed={sidebarCollapsed}
-          onCollapsedChange={handleCollapsedChange}
-          mobileOpen={mobileOpen}
-          onMobileClose={handleMobileClose}
-        />
+      <div className={cn("flex flex-1 overflow-hidden", isImmersiveMode && "h-full")}>
+        {/* Sidebar - collapsed by default (hidden in immersive mode) */}
+        {!isImmersiveMode && (
+          <Sidebar
+            collapsed={sidebarCollapsed}
+            onCollapsedChange={handleCollapsedChange}
+            mobileOpen={mobileOpen}
+            onMobileClose={handleMobileClose}
+          />
+        )}
 
         {/* Main content area */}
         <MainContent
           className={cn(
             'app-shell-content transition-all duration-300',
-            sidebarCollapsed ? 'md:ml-16' : 'md:ml-64'
+            isImmersiveMode ? 'ml-0' : sidebarCollapsed ? 'md:ml-16' : 'md:ml-64'
           )}
         >
           {children}

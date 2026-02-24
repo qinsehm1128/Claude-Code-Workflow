@@ -227,6 +227,7 @@
     "turns": "回合",
     "perTurnView": "分回合视图",
     "concatenatedView": "连接视图",
+    "nativeView": "原生视图",
     "userPrompt": "用户提示词",
     "assistantResponse": "助手响应",
     "errors": "错误",

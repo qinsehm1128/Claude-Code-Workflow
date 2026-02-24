@@ -236,6 +236,9 @@ const initialState = {
   themeSlots: [DEFAULT_SLOT] as ThemeSlot[],
   activeSlotId: 'default' as ThemeSlotId,
   deletedSlotBuffer: null as ThemeSlot | null,
+
+  // Immersive fullscreen mode (hides app shell chrome)
+  isImmersiveMode: false,
 };
 
 export const useAppStore = create<AppStore>()(
@@ -670,6 +673,16 @@ export const useAppStore = create<AppStore>()(
           }
           get().setBackgroundConfig(updated);
         },
+
+        // ========== Immersive Mode Actions ==========
+
+        setImmersiveMode: (enabled: boolean) => {
+          set({ isImmersiveMode: enabled }, false, 'setImmersiveMode');
+        },
+
+        toggleImmersiveMode: () => {
+          set((state) => ({ isImmersiveMode: !state.isImmersiveMode }), false, 'toggleImmersiveMode');
+        },
       }),
       {
         name: 'ccw-app-store',
@@ -807,3 +820,4 @@ export const selectError = (state: AppStore) => state.error;
 export const selectThemeSlots = (state: AppStore) => state.themeSlots;
 export const selectActiveSlotId = (state: AppStore) => state.activeSlotId;
 export const selectDeletedSlotBuffer = (state: AppStore) => state.deletedSlotBuffer;
+export const selectIsImmersiveMode = (state: AppStore) => state.isImmersiveMode;

@@ -114,6 +114,7 @@
     }
   },
   "terminal": {
+    "launch": "Launch Session",
     "session": {
       "select": "Select session",
       "none": "No sessions",
@@ -447,5 +448,34 @@
     "autoStart": {
       "label": "Auto-run when moved to In Progress"
     }
+  },
+  "issueDialog": {
+    "titleLabel": "Title",
+    "titlePlaceholder": "Enter issue title...",
+    "descriptionLabel": "Description",
+    "descriptionPlaceholder": "Describe the issue or requirement in detail...",
+    "typeLabel": "Select Type",
+    "typeBug": "Bug",
+    "typeBugDesc": "Feature not working or error",
+    "typeFeature": "Feature",
+    "typeFeatureDesc": "New feature request",
+    "typeImprovement": "Improvement",
+    "typeImprovementDesc": "Enhancement to existing feature",
+    "typeOther": "Other",
+    "typeOtherDesc": "Other type of issue",
+    "priorityLabel": "Select Priority",
+    "priorityLow": "Low",
+    "priorityMedium": "Medium",
+    "priorityHigh": "High",
+    "priorityUrgent": "Urgent",
+    "summaryTitle": "Title",
+    "summaryDescription": "Description",
+    "summaryType": "Type",
+    "summaryPriority": "Priority",
+    "cancel": "Cancel",
+    "previous": "Previous",
+    "next": "Next",
+    "submit": "Submit",
+    "submitting": "Submitting..."
   }
 }

@@ -337,6 +337,30 @@
       "installFailed": "ccw-litellm 安装失败",
       "uninstallSuccess": "ccw-litellm 卸载成功",
       "uninstallFailed": "ccw-litellm 卸载失败"
+    },
+    "install": {
+      "title": "安装 CCW-LiteLLM",
+      "description": "将 ccw-litellm 安装到 CodexLens Python 虚拟环境中以支持嵌入功能。",
+      "checklist": "将要安装的内容",
+      "codexlensVenv": "CodexLens 虚拟环境",
+      "codexlensVenvDesc": "确保 CodexLens Python 虚拟环境就绪",
+      "litellmPackage": "ccw-litellm 包",
+      "litellmPackageDesc": "基于 LiteLLM 的嵌入客户端，支持多提供商",
+      "embeddingSupport": "嵌入支持",
+      "embeddingSupportDesc": "启用 LiteLLM 嵌入后端用于语义搜索",
+      "location": "安装位置",
+      "locationPath": "~/.codexlens/venv",
+      "timeEstimate": "安装可能需要 1-3 分钟，取决于网络速度。",
+      "installNow": "立即安装",
+      "installing": "安装中...",
+      "stage": {
+        "checkingVenv": "正在检查 CodexLens 虚拟环境...",
+        "detectingPackage": "正在检测 ccw-litellm 包来源...",
+        "installingDeps": "正在安装依赖项...",
+        "installingPackage": "正在安装 ccw-litellm 包...",
+        "verifying": "正在验证安装...",
+        "complete": "安装完成！"
+      }
     }
   },
   "common": {

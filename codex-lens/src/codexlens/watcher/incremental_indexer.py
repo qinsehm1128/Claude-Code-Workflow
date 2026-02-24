@@ -89,7 +89,18 @@ class IncrementalIndexer:
                     project_info = self.registry.get_project(source_root)
                     if project_info:
                         project_id = project_info.id
-                self._global_index = GlobalSymbolIndex(global_db_path, project_id=project_id)
+                try:
+                    self._global_index = GlobalSymbolIndex(global_db_path, project_id=project_id)
+                    # Ensure schema exists (best-effort). The DB should already be initialized
+                    # by `codexlens index init`, but watcher/index-update should be robust.
+                    self._global_index.initialize()
+                except Exception as exc:
+                    logger.debug(
+                        "Failed to initialize global symbol index at %s: %s",
+                        global_db_path,
+                        exc,
+                    )
+                    self._global_index = None
 
         return self._global_index
     
@@ -262,6 +273,34 @@ class IncrementalIndexer:
                 # Update merkle root
                 store.update_merkle_root()
 
+                # Update global relationships for static graph expansion (best-effort).
+                if getattr(self.config, "static_graph_enabled", False):
+                    try:
+                        source_root = self.mapper.get_project_root(path) or dir_path
+                        index_root = self.mapper.source_to_index_dir(source_root)
+                        global_index = self._get_global_index(index_root, source_root=source_root)
+                        if global_index is not None:
+                            allowed_types = set(
+                                getattr(
+                                    self.config,
+                                    "static_graph_relationship_types",
+                                    ["imports", "inherits"],
+                                )
+                                or []
+                            )
+                            filtered_rels = [
+                                r
+                                for r in (indexed_file.relationships or [])
+                                if r.relationship_type.value in allowed_types
+                            ]
+                            global_index.update_file_relationships(path, filtered_rels)
+                    except Exception as exc:
+                        logger.debug(
+                            "Failed to update global relationships for %s: %s",
+                            path,
+                            exc,
+                        )
+
                 logger.debug("Indexed file: %s (%d symbols)", path, len(indexed_file.symbols))
 
                 return FileIndexResult(
@@ -329,6 +368,21 @@ class IncrementalIndexer:
             try:
                 store.remove_file(str(path))
                 store.update_merkle_root()
+
+                # Best-effort cleanup of static graph relationships (keeps global DB consistent).
+                if getattr(self.config, "static_graph_enabled", False):
+                    try:
+                        source_root = self.mapper.get_project_root(path) or dir_path
+                        index_root = self.mapper.source_to_index_dir(source_root)
+                        global_index = self._get_global_index(index_root, source_root=source_root)
+                        if global_index is not None:
+                            global_index.delete_file_relationships(path)
+                    except Exception as exc:
+                        logger.debug(
+                            "Failed to delete global relationships for %s: %s",
+                            path,
+                            exc,
+                        )
                 logger.debug("Removed file from index: %s", path)
                 return True
 

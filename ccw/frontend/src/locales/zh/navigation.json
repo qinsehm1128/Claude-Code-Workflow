@@ -35,7 +35,9 @@
     "rules": "规则",
     "explorer": "文件浏览器",
     "graph": "图浏览器",
-    "teams": "团队执行"
+    "teams": "团队执行",
+    "terminalDashboard": "终端仪表板",
+    "skillHub": "技能中心"
   },
   "sidebar": {
     "collapse": "收起",
@@ -93,5 +95,11 @@
     "tokens": "令牌数",
     "duration": "耗时",
     "model": "模型"
+  },
+  "toolbar": {
+    "a2ui": {
+      "button": "A2UI",
+      "quickAction": "A2UI 快速操作"
+    }
   }
 }

@@ -1,337 +1,128 @@
 ---
 name: review-cycle
-description: Unified multi-dimensional code review with automated fix orchestration. Supports session-based (git changes) and module-based (path patterns) review modes with 7-dimension parallel analysis, iterative deep-dive, and automated fix pipeline. Triggers on "workflow:review-cycle", "workflow:review-session-cycle", "workflow:review-module-cycle", "workflow:review-cycle-fix".
+description: Unified multi-dimensional code review with automated fix orchestration. Routes to session-based (git changes), module-based (path patterns), or fix mode. Triggers on "workflow:review-cycle", "workflow:review-session-cycle", "workflow:review-module-cycle", "workflow:review-cycle-fix".
 allowed-tools: Task, AskUserQuestion, TaskCreate, TaskUpdate, TaskList, Read, Write, Edit, Bash, Glob, Grep, Skill
 ---
 
 # Review Cycle
 
-Unified multi-dimensional code review orchestrator with dual-mode (session/module) file discovery, 7-dimension parallel analysis, iterative deep-dive on critical findings, and optional automated fix pipeline with intelligent batching and parallel planning.
+Unified code review orchestrator with mode-based routing. Detects input type and dispatches to the appropriate execution phase.
 
 ## Architecture Overview
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│  Review Cycle Orchestrator (SKILL.md)                                │
-│  → Pure coordinator: mode detection, phase dispatch, state tracking  │
-└───────────────────────────────┬──────────────────────────────────────┘
-                                │
-  ┌─────────────────────────────┼─────────────────────────────────┐
-  │           Review Pipeline (Phase 1-5)                          │
-  │                                                                │
-  │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐
-  │  │ Phase 1 │→ │ Phase 2 │→ │ Phase 3 │→ │ Phase 4 │→ │ Phase 5 │
-  │  │Discovery│  │Parallel │  │Aggregate│  │Deep-Dive│  │Complete │
-  │  │  Init   │  │ Review  │  │         │  │(cond.)  │  │         │
-  │  └─────────┘  └─────────┘  └─────────┘  └─────────┘  └─────────┘
-  │   session|      7 agents     severity     N agents     finalize
-  │   module        ×cli-explore  calc        ×cli-explore  state
-  │                                  ↕ loop
-  └────────────────────────────────────────────────────────────────┘
-                                │
-                          (optional --fix)
-                                │
-  ┌─────────────────────────────┼─────────────────────────────────┐
-  │           Fix Pipeline (Phase 6-9)                             │
-  │                                                                │
-  │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐
-  │  │ Phase 6 │→ │ Phase 7 │→ │ Phase 8 │→ │ Phase 9 │
-  │  │Discovery│  │Parallel │  │Execution│  │Complete │
-  │  │Batching │  │Planning │  │Orchestr.│  │         │
-  │  └─────────┘  └─────────┘  └─────────┘  └─────────┘
-  │   grouping     N agents     M agents     aggregate
-  │   + batch      ×cli-plan    ×cli-exec    + summary
-  └────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│  Review Cycle Orchestrator (SKILL.md)                     │
+│  → Parse input → Detect mode → Read phase doc → Execute   │
+└───────────────────────────┬──────────────────────────────┘
+                            │
+          ┌─────────────────┼─────────────────┐
+          ↓                 ↓                 ↓
+   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
+   │   session    │  │   module    │  │    fix      │
+   │  (git changes│  │(path pattern│  │(export file │
+   │   review)    │  │   review)   │  │  auto-fix)  │
+   └─────────────┘  └─────────────┘  └─────────────┘
+   phases/           phases/           phases/
+   review-session.md review-module.md  review-fix.md
 ```
 
-## Key Design Principles
+## Auto Mode Detection
 
-1. **Dual-Mode Review**: Session-based (git changes) and module-based (path patterns) share the same review pipeline (Phase 2-5), differing only in file discovery (Phase 1)
-2. **Pure Orchestrator**: Execute phases in sequence, parse outputs, pass context between them
-3. **Progressive Phase Loading**: Phase docs are read on-demand when that phase executes, not all at once
-4. **Auto-Continue**: All phases run autonomously without user intervention between phases
-5. **Task Attachment Model**: Sub-tasks attached/collapsed dynamically in TaskCreate/TaskUpdate
-6. **Optional Fix Pipeline**: Phase 6-9 triggered only by explicit `--fix` flag or user confirmation after Phase 5
-7. **Content Preservation**: All agent prompts, code, schemas preserved verbatim from source commands
-
-## Usage
-
+```javascript
+// ★ 统一 auto mode 检测：-y/--yes 从 $ARGUMENTS 或 ccw 传播
+const autoYes = /\b(-y|--yes)\b/.test($ARGUMENTS)
 ```
-# Review Pipeline (Phase 1-5)
-Skill(skill="review-cycle", args="<path-pattern>")                                    # Module mode
-Skill(skill="review-cycle", args="[session-id]")                                      # Session mode
-Skill(skill="review-cycle", args="[session-id|path-pattern] [FLAGS]")                 # With flags
 
-# Fix Pipeline (Phase 6-9)
-Skill(skill="review-cycle", args="--fix <review-dir|export-file>")                    # Fix mode
-Skill(skill="review-cycle", args="--fix <review-dir> [FLAGS]")                        # Fix with flags
-
-# Flags
---dimensions=dim1,dim2,...    Custom dimensions (default: all 7)
---max-iterations=N           Max deep-dive iterations (default: 3)
---fix                        Enter fix pipeline after review or standalone
---resume                     Resume interrupted fix session
---batch-size=N               Findings per planning batch (default: 5, fix mode only)
-
-# Examples
-Skill(skill="review-cycle", args="src/auth/**")                                       # Module: review auth
-Skill(skill="review-cycle", args="src/auth/**,src/payment/**")                        # Module: multiple paths
-Skill(skill="review-cycle", args="src/auth/** --dimensions=security,architecture")    # Module: custom dims
-Skill(skill="review-cycle", args="WFS-payment-integration")                           # Session: specific
-Skill(skill="review-cycle", args="")                                                  # Session: auto-detect
-Skill(skill="review-cycle", args="--fix .workflow/active/WFS-123/.review/")           # Fix: from review dir
-Skill(skill="review-cycle", args="--fix --resume")                                    # Fix: resume session
-```
+When `autoYes` is true, skip all interactive confirmations and use defaults throughout the review cycle phases.
 
 ## Mode Detection
 
 ```javascript
-// Input parsing logic (orchestrator responsibility)
 function detectMode(args) {
   if (args.includes('--fix')) return 'fix';
-  if (args.match(/\*|\.ts|\.js|\.py|src\/|lib\//)) return 'module';  // glob/path patterns
-  if (args.match(/^WFS-/) || args.trim() === '') return 'session';   // session ID or empty
+  if (args.match(/\*|\.ts|\.js|\.py|\.vue|\.jsx|\.tsx|src\/|lib\//)) return 'module';
+  if (args.match(/^WFS-/) || args.trim() === '') return 'session';
   return 'session';  // default
 }
 ```
 
-| Input Pattern | Detected Mode | Phase Entry |
-|---------------|---------------|-------------|
-| `src/auth/**` | `module` | Phase 1 (module branch) |
-| `WFS-payment-integration` | `session` | Phase 1 (session branch) |
-| _(empty)_ | `session` | Phase 1 (session branch, auto-detect) |
-| `--fix .review/` | `fix` | Phase 6 |
-| `--fix --resume` | `fix` | Phase 6 (resume) |
+| Input Pattern | Detected Mode | Phase Doc |
+|---------------|---------------|-----------|
+| `src/auth/**` | `module` | phases/review-module.md |
+| `src/auth/**,src/payment/**` | `module` | phases/review-module.md |
+| `WFS-payment-integration` | `session` | phases/review-session.md |
+| _(empty)_ | `session` | phases/review-session.md |
+| `--fix .review/` | `fix` | phases/review-fix.md |
+| `--fix --resume` | `fix` | phases/review-fix.md |
+
+## Usage
+
+```
+Skill(skill="review-cycle", args="src/auth/**")                                    # Module mode
+Skill(skill="review-cycle", args="src/auth/** --dimensions=security,architecture") # Module + custom dims
+Skill(skill="review-cycle", args="WFS-payment-integration")                        # Session mode
+Skill(skill="review-cycle", args="")                                               # Session: auto-detect
+Skill(skill="review-cycle", args="--fix .workflow/active/WFS-123/.review/")        # Fix mode
+Skill(skill="review-cycle", args="--fix --resume")                                 # Fix: resume
+Skill(skill="review-cycle", args="-y src/auth/**")                                 # Auto mode (skip confirmations)
+
+# Common flags (all modes):
+--dimensions=dim1,dim2,...    Custom dimensions (default: all 7)
+--max-iterations=N           Max deep-dive iterations (default: 3)
+
+# Fix-only flags:
+--fix                        Enter fix pipeline
+--resume                     Resume interrupted fix session
+--batch-size=N               Findings per planning batch (default: 5)
+--max-iterations=N           Max retry per finding (default: 3)
+```
 
 ## Execution Flow
 
 ```
-Input Parsing:
-   └─ Detect mode (session|module|fix) → route to appropriate phase entry
-
-Review Pipeline (session or module mode):
-
-Phase 1: Discovery & Initialization
-   └─ Ref: phases/01-discovery-initialization.md
-      ├─ Session mode: session discovery → git changed files → resolve
-      ├─ Module mode: path patterns → glob expand → resolve
-      └─ Common: create session, output dirs, review-state.json, review-progress.json
-
-Phase 2: Parallel Review Coordination
-   └─ Ref: phases/02-parallel-review.md
-      ├─ Launch 7 cli-explore-agent instances (Deep Scan mode)
-      ├─ Each produces dimensions/{dimension}.json + reports/{dimension}-analysis.md
-      └─ CLI fallback: Gemini → Qwen → Codex
-
-Phase 3: Aggregation
-   └─ Ref: phases/03-aggregation.md
-      ├─ Load dimension JSONs, calculate severity distribution
-      ├─ Identify cross-cutting concerns (files in 3+ dimensions)
-      └─ Decision: critical > 0 OR high > 5 OR critical files → Phase 4
-                   Else → Phase 5
-
-Phase 4: Iterative Deep-Dive (conditional)
-   └─ Ref: phases/04-iterative-deep-dive.md
-      ├─ Select critical findings (max 5 per iteration)
-      ├─ Launch deep-dive agents for root cause analysis
-      ├─ Re-assess severity → loop back to Phase 3 aggregation
-      └─ Exit when: no critical findings OR max iterations reached
-
-Phase 5: Review Completion
-   └─ Ref: phases/05-review-completion.md
-      ├─ Finalize review-state.json + review-progress.json
-      ├─ Prompt user: "Run automated fixes? [Y/n]"
-      └─ If yes → Continue to Phase 6
-
-Fix Pipeline (--fix mode or after Phase 5):
-
-Phase 6: Fix Discovery & Batching
-   └─ Ref: phases/06-fix-discovery-batching.md
-      ├─ Validate export file, create fix session
-      └─ Intelligent grouping by file+dimension similarity → batches
-
-Phase 7: Fix Parallel Planning
-   └─ Ref: phases/07-fix-parallel-planning.md
-      ├─ Launch N cli-planning-agent instances (≤10 parallel)
-      ├─ Each outputs partial-plan-{batch-id}.json
-      └─ Orchestrator aggregates → fix-plan.json
-
-Phase 8: Fix Execution
-   └─ Ref: phases/08-fix-execution.md
-      ├─ Stage-based execution per aggregated timeline
-      ├─ Each group: analyze → fix → test → commit/rollback
-      └─ 100% test pass rate required
-
-Phase 9: Fix Completion
-   └─ Ref: phases/09-fix-completion.md
-      ├─ Aggregate results → fix-summary.md
-      └─ Optional: complete workflow session if all fixes successful
-
-Complete: Review reports + optional fix results
+1. Parse $ARGUMENTS → extract mode + flags
+2. Detect mode (session | module | fix)
+3. Read corresponding phase doc:
+   - session → Read phases/review-session.md → execute
+   - module  → Read phases/review-module.md  → execute
+   - fix     → Read phases/review-fix.md     → execute
+4. Phase doc contains full execution detail (5 phases for review, 4+1 phases for fix)
 ```
 
-**Phase Reference Documents** (read on-demand when phase executes):
+**Phase Reference Documents** (read on-demand based on detected mode):
 
-| Phase | Document | Load When | Source |
-|-------|----------|-----------|--------|
-| 1 | [phases/01-discovery-initialization.md](phases/01-discovery-initialization.md) | Review/Fix start | review-session-cycle + review-module-cycle Phase 1 (fused) |
-| 2 | [phases/02-parallel-review.md](phases/02-parallel-review.md) | Phase 1 complete | Shared from both review commands Phase 2 |
-| 3 | [phases/03-aggregation.md](phases/03-aggregation.md) | Phase 2 complete | Shared from both review commands Phase 3 |
-| 4 | [phases/04-iterative-deep-dive.md](phases/04-iterative-deep-dive.md) | Aggregation triggers iteration | Shared from both review commands Phase 4 |
-| 5 | [phases/05-review-completion.md](phases/05-review-completion.md) | No more iterations needed | Shared from both review commands Phase 5 |
-| 6 | [phases/06-fix-discovery-batching.md](phases/06-fix-discovery-batching.md) | Fix mode entry | review-cycle-fix Phase 1 + 1.5 |
-| 7 | [phases/07-fix-parallel-planning.md](phases/07-fix-parallel-planning.md) | Phase 6 complete | review-cycle-fix Phase 2 |
-| 8 | [phases/08-fix-execution.md](phases/08-fix-execution.md) | Phase 7 complete | review-cycle-fix Phase 3 |
-| 9 | [phases/09-fix-completion.md](phases/09-fix-completion.md) | Phase 8 complete | review-cycle-fix Phase 4 + 5 |
+| Mode | Document | Source | Description |
+|------|----------|--------|-------------|
+| session | [phases/review-session.md](phases/review-session.md) | review-session-cycle.md | Session-based review: git changes → 7-dimension parallel analysis → aggregation → deep-dive → completion |
+| module | [phases/review-module.md](phases/review-module.md) | review-module-cycle.md | Module-based review: path patterns → 7-dimension parallel analysis → aggregation → deep-dive → completion |
+| fix | [phases/review-fix.md](phases/review-fix.md) | review-cycle-fix.md | Automated fix: export file → intelligent batching → parallel planning → execution → completion |
 
 ## Core Rules
 
-1. **Start Immediately**: First action is TaskCreate initialization, second action is Phase 1 execution
-2. **Mode Detection First**: Parse input to determine session/module/fix mode before Phase 1
-3. **Parse Every Output**: Extract required data from each phase for next phase
-4. **Auto-Continue**: Check TaskList status to execute next pending phase automatically
-5. **Progressive Phase Loading**: Read phase docs ONLY when that phase is about to execute
-6. **DO NOT STOP**: Continuous multi-phase workflow until all applicable phases complete
-7. **Conditional Phase 4**: Only execute if aggregation triggers iteration (critical > 0 OR high > 5 OR critical files)
-8. **Fix Pipeline Optional**: Phase 6-9 only execute with explicit --fix flag or user confirmation
-
-## Data Flow
-
-```
-User Input (path-pattern | session-id | --fix export-file)
-    ↓
-[Mode Detection: session | module | fix]
-    ↓
-Phase 1: Discovery & Initialization
-    ↓ Output: sessionId, reviewId, resolvedFiles, reviewMode, outputDir
-    ↓         review-state.json, review-progress.json
-Phase 2: Parallel Review Coordination
-    ↓ Output: dimensions/*.json, reports/*-analysis.md
-Phase 3: Aggregation
-    ↓ Output: severityDistribution, criticalFiles, deepDiveFindings
-    ↓ Decision: iterate? → Phase 4 : Phase 5
-Phase 4: Iterative Deep-Dive (conditional, loops with Phase 3)
-    ↓ Output: iterations/*.json, reports/deep-dive-*.md
-    ↓ Loop: re-aggregate → check criteria → iterate or exit
-Phase 5: Review Completion
-    ↓ Output: final review-state.json, review-progress.json
-    ↓ Decision: fix? → Phase 6 : END
-Phase 6: Fix Discovery & Batching
-    ↓ Output: finding batches (in-memory)
-Phase 7: Fix Parallel Planning
-    ↓ Output: partial-plan-*.json → fix-plan.json (aggregated)
-Phase 8: Fix Execution
-    ↓ Output: fix-progress-*.json, git commits
-Phase 9: Fix Completion
-    ↓ Output: fix-summary.md, fix-history.json
-```
-
-## TaskCreate/TaskUpdate Pattern
-
-**Review Pipeline Initialization**:
-```javascript
-TaskCreate({ subject: "Phase 1: Discovery & Initialization", activeForm: "Initializing review" });
-TaskCreate({ subject: "Phase 2: Parallel Reviews (7 dimensions)", activeForm: "Reviewing" });
-TaskCreate({ subject: "Phase 3: Aggregation", activeForm: "Aggregating findings" });
-TaskCreate({ subject: "Phase 4: Deep-dive (conditional)", activeForm: "Deep-diving" });
-TaskCreate({ subject: "Phase 5: Review Completion", activeForm: "Completing review" });
-```
-
-**During Phase 2 (sub-tasks for each dimension)**:
-```javascript
-// Attach dimension sub-tasks
-TaskCreate({ subject: "  → Security review", activeForm: "Analyzing security" });
-TaskCreate({ subject: "  → Architecture review", activeForm: "Analyzing architecture" });
-TaskCreate({ subject: "  → Quality review", activeForm: "Analyzing quality" });
-// ... other dimensions
-// Collapse: Mark all dimension tasks completed when Phase 2 finishes
-```
-
-**Fix Pipeline (added after Phase 5 if triggered)**:
-```javascript
-TaskCreate({ subject: "Phase 6: Fix Discovery & Batching", activeForm: "Batching findings" });
-TaskCreate({ subject: "Phase 7: Parallel Planning", activeForm: "Planning fixes" });
-TaskCreate({ subject: "Phase 8: Execution", activeForm: "Executing fixes" });
-TaskCreate({ subject: "Phase 9: Fix Completion", activeForm: "Completing fixes" });
-```
+1. **Mode Detection First**: Parse input to determine session/module/fix mode before anything else
+2. **Progressive Loading**: Read ONLY the phase doc for the detected mode, not all three
+3. **Full Delegation**: Once mode is detected, the phase doc owns the entire execution flow
+4. **Auto-Continue**: Phase docs contain their own multi-phase execution (Phase 1-5 or Phase 1-4+5)
+5. **DO NOT STOP**: Continuous execution until all internal phases within the phase doc complete
 
 ## Error Handling
 
-### Review Pipeline Errors
-
-| Phase | Error | Blocking? | Action |
-|-------|-------|-----------|--------|
-| Phase 1 | Session not found (session mode) | Yes | Error and exit |
-| Phase 1 | No changed files (session mode) | Yes | Error and exit |
-| Phase 1 | Invalid path pattern (module mode) | Yes | Error and exit |
-| Phase 1 | No files matched (module mode) | Yes | Error and exit |
-| Phase 2 | Single dimension fails | No | Log warning, continue other dimensions |
-| Phase 2 | All dimensions fail | Yes | Error and exit |
-| Phase 3 | Missing dimension JSON | No | Skip in aggregation, log warning |
-| Phase 4 | Deep-dive agent fails | No | Skip finding, continue others |
-| Phase 4 | Max iterations reached | No | Generate partial report |
-
-### Fix Pipeline Errors
-
-| Phase | Error | Blocking? | Action |
-|-------|-------|-----------|--------|
-| Phase 6 | Invalid export file | Yes | Abort with error |
-| Phase 6 | Empty batches | No | Warn and skip empty |
-| Phase 7 | Planning agent timeout | No | Mark batch failed, continue others |
-| Phase 7 | All agents fail | Yes | Abort fix session |
-| Phase 8 | Test failure after fix | No | Rollback, retry up to max_iterations |
-| Phase 8 | Git operations fail | Yes | Abort, preserve state |
-| Phase 9 | Aggregation error | No | Generate partial summary |
-
-### CLI Fallback Chain
-
-Gemini → Qwen → Codex → degraded mode
-
-**Fallback Triggers**: HTTP 429/5xx, connection timeout, invalid JSON output, low confidence < 0.4, analysis too brief (< 100 words)
-
-## Output File Structure
-
-```
-.workflow/active/WFS-{session-id}/.review/
-├── review-state.json                    # Orchestrator state machine
-├── review-progress.json                 # Real-time progress
-├── dimensions/                          # Per-dimension results (Phase 2)
-│   ├── security.json
-│   ├── architecture.json
-│   ├── quality.json
-│   ├── action-items.json
-│   ├── performance.json
-│   ├── maintainability.json
-│   └── best-practices.json
-├── iterations/                          # Deep-dive results (Phase 4)
-│   ├── iteration-1-finding-{uuid}.json
-│   └── iteration-2-finding-{uuid}.json
-├── reports/                             # Human-readable reports
-│   ├── security-analysis.md
-│   ├── security-cli-output.txt
-│   ├── deep-dive-1-{uuid}.md
-│   └── ...
-└── fixes/{fix-session-id}/             # Fix results (Phase 6-9)
-    ├── partial-plan-*.json
-    ├── fix-plan.json
-    ├── fix-progress-*.json
-    ├── fix-summary.md
-    ├── active-fix-session.json
-    └── fix-history.json
-```
+| Error | Action |
+|-------|--------|
+| Cannot determine mode from input | AskUserQuestion to clarify intent |
+| Phase doc not found | Error and exit with file path |
+| Invalid flags for mode | Warn and continue with defaults |
 
 ## Related Commands
 
-### View Progress
 ```bash
+# View review/fix progress dashboard
 ccw view
-```
 
-### Workflow Pipeline
-```bash
-# Step 1: Review (this skill)
+# Workflow pipeline
+# Step 1: Review
 Skill(skill="review-cycle", args="src/auth/**")
-
-# Step 2: Fix (continue or standalone)
+# Step 2: Fix (after review complete)
 Skill(skill="review-cycle", args="--fix .workflow/active/WFS-{session-id}/.review/")
 ```

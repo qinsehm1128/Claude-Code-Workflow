@@ -1,16 +1,22 @@
 # Phase 4: Synthesis Integration
 
-Eight-phase workflow to eliminate ambiguities, enhance conceptual depth, and generate per-feature specifications through cross-role analysis and user clarification.
+Six-phase workflow to eliminate ambiguities, generate per-feature specifications through cross-role analysis and user clarification, with conditional quality review.
 
 ## Objective
 
-- Discover and validate all role analysis files
+- Discover and validate all role analysis files (read-only, never modify originals)
 - Execute cross-role analysis to identify consensus, conflicts, and gaps
 - Present enhancement recommendations and clarification questions to user
-- Update role analyses in parallel with enhancements and clarifications
-- Generate consolidated feature specifications (feature_mode)
-- Generate feature index for downstream consumers (feature_mode)
+- Generate consolidated feature specifications as final synthesis artifact
+- Conditional quality review based on task complexity
 - Update context package and session metadata
+
+## Design Principles
+
+1. **原始角色产出不可变** — 角色分析文档是各角色的原始视角，综合阶段只读不写
+2. **Spec 作为最终信物** — 所有综合决策、冲突解决、用户澄清都体现在 spec 中，不倒灌回角色文档
+3. **单 Agent 顺序生成** — 一个 Spec Agent 加载一次上下文，顺序生成所有 spec，跨 feature 决策可传递复用
+4. **按需校验** — Review Agent 由 Spec Agent 根据复杂度自判断触发，非必须环节
 
 ## Auto Mode
 
@@ -25,11 +31,9 @@ When `--yes` or `-y`: Auto-select all enhancements, skip clarification questions
 | 1 | Session detection | Main flow | session_id, brainstorm_dir |
 | 2 | File discovery | Main flow | role_analysis_paths |
 | 3A | Cross-role analysis | Agent | enhancement_recommendations, feature_conflict_map |
-| 4 | User interaction | Main flow + AskUserQuestion | update_plan |
-| 5 | Document updates | Parallel agents | Updated analysis*.md |
-| 6 | Feature spec generation | Parallel agents | feature-specs/F-{id}-{slug}.md [feature_mode] |
-| 6.5 | Feature index generation | Main flow | feature-index.json [feature_mode] |
-| 7 | Finalization | Main flow | context-package.json, report |
+| 4 | User interaction | Main flow + AskUserQuestion | spec_context |
+| 5 | Spec generation + conditional review | Spec Agent → Review Agent | feature-specs/, feature-index.json, synthesis-changelog.md |
+| 6 | Finalization | Main flow | context-package.json, report |
 
 ### AskUserQuestion Pattern
 
@@ -73,9 +77,8 @@ AskUserQuestion({
   {"content": "Execute analysis agent (cross-role analysis + feature conflict map)", "status": "pending", "activeForm": "Executing analysis"},
   {"content": "Present enhancements via AskUserQuestion", "status": "pending", "activeForm": "Selecting enhancements"},
   {"content": "Clarification questions via AskUserQuestion", "status": "pending", "activeForm": "Clarifying"},
-  {"content": "Execute parallel update agents", "status": "pending", "activeForm": "Updating documents"},
-  {"content": "Generate parallel feature specs (feature_mode only)", "status": "pending", "activeForm": "Generating feature specs"},
-  {"content": "Generate feature-index.json (feature_mode only)", "status": "pending", "activeForm": "Building feature index"},
+  {"content": "Execute Spec Agent (generate specs + index + changelog)", "status": "pending", "activeForm": "Generating specs"},
+  {"content": "Conditional Review Agent", "status": "pending", "activeForm": "Reviewing specs"},
   {"content": "Update context package and metadata", "status": "pending", "activeForm": "Finalizing"}
 ]
 ```
@@ -173,7 +176,7 @@ ${feature_mode ? `3. load_feature_decomposition → Read Feature Decomposition t
 ]
 
 ${feature_mode ? `### feature_conflict_map (feature_mode only)
-Bridge artifact from Phase 3A to Phase 6. One entry per feature from Feature Decomposition.
+Bridge artifact from Phase 3A to Phase 5. One entry per feature from Feature Decomposition.
 
 {
   "F-001": {
@@ -221,7 +224,7 @@ Bridge artifact from Phase 3A to Phase 6. One entry per feature from Feature Dec
 // Store enhancement_recommendations for Phase 4
 const enhancement_recommendations = agent_output.enhancement_recommendations;
 
-// Store feature_conflict_map for Phase 6 (feature_mode only)
+// Store feature_conflict_map for Phase 5 Spec Agent (feature_mode only)
 const feature_conflict_map = feature_mode ? agent_output.feature_conflict_map : null;
 ```
 
@@ -311,85 +314,43 @@ for (let i = 0; i < clarifications.length; i += BATCH_SIZE) {
 **Quality Rules**:
 
 **MUST Include**:
-- ✅ All questions in Chinese (用中文提问)
-- ✅ 基于跨角色分析的具体发现
-- ✅ 选项包含业务影响说明
-- ✅ 解决实际的模糊点或冲突
+- All questions in Chinese (用中文提问)
+- 基于跨角色分析的具体发现
+- 选项包含业务影响说明
+- 解决实际的模糊点或冲突
 
 **MUST Avoid**:
-- ❌ 与角色分析无关的通用问题
-- ❌ 重复已在 artifacts 阶段确认的内容
-- ❌ 过于细节的实现级问题
+- 与角色分析无关的通用问题
+- 重复已在 artifacts 阶段确认的内容
+- 过于细节的实现级问题
 
-#### Step 3: Build Update Plan
+#### Step 3: Build Spec Context
 
 ```javascript
-update_plan = {
-  "role1": {
-    "enhancements": ["EP-001", "EP-003"],
-    "clarifications": [
-      {"question": "...", "answer": "...", "category": "..."}
-    ]
-  },
-  "role2": {
-    "enhancements": ["EP-002"],
-    "clarifications": [...]
-  }
+// Unified context for Spec Agent (replaces per-role update_plan)
+spec_context = {
+  selected_enhancements: selected_eps,  // ["EP-001", "EP-002", ...]
+  enhancement_details: enhancements.filter(ep => selected_eps.includes(ep.id)),
+  clarification_answers: [
+    { question: "...", answer: "...", category: "..." }
+  ],
+  original_user_intent: intent
 }
 ```
 
-### Phase 5: Parallel Document Update Agents
+### Phase 5: Spec Generation & Conditional Review
 
-**Execute in parallel** (one agent per role):
+**Single Spec Agent generates all outputs sequentially, then self-evaluates complexity to decide whether to trigger Review Agent.**
 
-```javascript
-// Single message with multiple Task calls for parallelism
-Task(conceptual-planning-agent, `
-## Agent Mission
-Apply enhancements and clarifications to ${role} analysis
+**Skip condition (feature_mode = false)**: Spec Agent generates a single `synthesis-specification.md` instead of per-feature specs. Feature-index.json is skipped. All other logic (changelog, review) still applies.
 
-## Input
-- role: ${role}
-- analysis_path: ${brainstorm_dir}/${role}/analysis.md
-- enhancements: ${role_enhancements}
-- clarifications: ${role_clarifications}
-- original_user_intent: ${intent}
-
-## Flow Control Steps
-1. load_current_analysis → Read analysis file
-2. add_clarifications_section → Insert Q&A section
-3. apply_enhancements → Integrate into relevant sections
-4. resolve_contradictions → Remove conflicts
-5. enforce_terminology → Align terminology
-6. validate_intent → Verify alignment with user intent
-7. write_updated_file → Save changes
-
-## Output
-Updated ${role}/analysis.md
-`)
-```
-
-**Agent Characteristics**:
-- **Isolation**: Each agent updates exactly ONE role (parallel safe)
-- **Dependencies**: Zero cross-agent dependencies
-- **Validation**: All updates must align with original_user_intent
-
-### Phase 6: Parallel Feature Spec Generation [feature_mode only]
-
-**Skip condition**: If `feature_mode` is false, skip Phase 6 and Phase 6.5 entirely. Proceed directly to Phase 7.
-
-**Purpose**: Generate one consolidated feature specification per feature by aggregating all role perspectives.
-
-#### Step 1: Prepare Feature Spec Directory
+#### Step 1: Prepare Input
 
 ```javascript
 const feature_specs_dir = `${brainstorm_dir}/feature-specs`;
-// Ensure directory exists (create if not)
-```
+// Ensure directory exists (create if not) [feature_mode only]
 
-#### Step 2: Build Per-Feature Input Bundles
-
-```javascript
+// Build per-feature input bundles [feature_mode only]
 const feature_bundles = feature_list.map(feature => {
   const fid = feature.id;
   const slug = feature.slug;
@@ -411,34 +372,130 @@ const feature_bundles = feature_list.map(feature => {
 });
 ```
 
-#### Step 3: Execute Parallel Feature Spec Agents
-
-**Execute in parallel** (one agent per feature):
+#### Step 2: Execute Spec Agent
 
 ```javascript
 Task(conceptual-planning-agent, `
 ## Agent Mission
-Generate consolidated feature specification for ${feature.feature_id}: ${feature.feature_name}
-by aggregating all role-specific analyses with conflict resolution.
+Generate all feature specifications sequentially, produce feature-index.json and synthesis-changelog.md.
+After generation, self-evaluate complexity and output complexity_score.
 
 ## Input
-- feature_id: ${feature.feature_id}
-- feature_slug: ${feature.feature_slug}
-- feature_name: ${feature.feature_name}
-- feature_priority: ${feature.feature_priority}
-- role_analysis_files: ${feature.role_analysis_files}
-- conflict_map_entry: ${JSON.stringify(feature.conflict_map_entry)}
-- output_path: ${feature.output_path}
-- guidance_spec_feature_section: (Feature Decomposition row for this feature)
+- brainstorm_dir: ${brainstorm_dir}
+- feature_mode: ${feature_mode}
+- participating_roles: ${participating_roles}
+${feature_mode ? `- feature_bundles: ${JSON.stringify(feature_bundles)}
+- feature_conflict_map: ${JSON.stringify(feature_conflict_map)}` : `- role_analysis_paths: ${role_analysis_paths}`}
+- spec_context: ${JSON.stringify(spec_context)}
+- guidance_spec_path: ${brainstorm_dir}/guidance-specification.md
 
 ## Flow Control Steps
-1. load_role_analyses → Read all role-specific analysis files for this feature
-   (Each file ~1500-2000 words, total ~6.5K words for 3-4 roles)
-2. apply_conflict_map → Use conflict_map_entry to identify resolved/unresolved conflicts
-3. four_layer_aggregation → Apply aggregation rules (see below)
-4. generate_feature_spec → Write consolidated spec using template
-5. write_output → Save to output_path
 
+### Step 1: Load Context (once)
+1. Read guidance-specification.md
+2. Read spec_context (enhancements + clarifications + user intent)
+${feature_mode
+  ? '3. Load feature_conflict_map into working memory'
+  : '3. Read all role analysis files'}
+
+### Step 2: Generate Specs
+${feature_mode ? `
+For EACH feature in feature_bundles (sequentially):
+  a. Read role-specific analysis files for this feature
+     (Each file ~1500-2000 words, total ~6.5K words for 3-4 roles)
+  b. Apply conflict_map_entry to identify resolved/unresolved conflicts
+  c. Apply four-layer aggregation rules (see below)
+  d. Apply relevant enhancements from spec_context.enhancement_details
+  e. Incorporate relevant clarification answers from spec_context.clarification_answers
+  f. Generate feature spec using template (see below)
+  g. Write to feature_bundles[i].output_path
+
+**Cross-feature context**: Decisions made in earlier features carry forward.
+When a later feature references an earlier one, use the actual decision (not re-analyze).
+` : `
+Generate a single synthesis-specification.md:
+  a. Read all role analysis files
+  b. Apply cross-role conflict resolution
+  c. Incorporate selected enhancements and clarification answers
+  d. Write consolidated synthesis to ${brainstorm_dir}/synthesis-specification.md
+`}
+
+### Step 3: Generate feature-index.json [feature_mode only]
+
+${feature_mode ? `
+Collect all generated spec paths and build structured index:
+
+const feature_index = {
+  "version": "1.0",
+  "generated_at": new Date().toISOString(),
+  "session_id": "${session_id}",
+  "feature_mode": true,
+  "features": feature_bundles.map(fb => ({
+    "id": fb.feature_id,
+    "slug": fb.feature_slug,
+    "name": fb.feature_name,
+    "priority": fb.feature_priority,
+    "spec_path": "feature-specs/" + fb.feature_id + "-" + fb.feature_slug + ".md",
+    "contributing_roles": fb.contributing_roles,
+    "cross_cutting_refs": feature_conflict_map[fb.feature_id]
+      ? feature_conflict_map[fb.feature_id].cross_refs : []
+  })),
+  "cross_cutting_specs": participating_roles
+    .filter(role => fileExists(brainstorm_dir + "/" + role + "/analysis-cross-cutting.md"))
+    .map(role => role + "/analysis-cross-cutting.md")
+};
+
+Write feature-index.json to ${brainstorm_dir}/feature-index.json
+` : 'Skip this step.'}
+
+### Step 4: Generate synthesis-changelog.md
+
+Record all synthesis decisions as audit trail:
+
+Write to ${brainstorm_dir}/synthesis-changelog.md:
+
+---
+# Synthesis Changelog
+
+**Session**: ${session_id}
+**Generated**: {timestamp}
+
+## Enhancements Applied
+For each selected enhancement:
+- **{EP-ID}**: {title} — {how it was incorporated into which spec(s)}
+
+## Clarifications Resolved
+For each clarification answer:
+- **{Category}**: {question} → {answer} — {impact on specs}
+
+## Conflicts Resolved
+For each conflict in feature_conflict_map:
+- **{Feature ID} / {topic}**: {resolution} [{confidence}]
+
+## Unresolved Items
+List any [DECISION NEEDED] or [UNRESOLVED] items remaining in specs.
+---
+
+### Step 5: Self-Evaluate Complexity
+
+Compute complexity_score based on generation results:
+
+| Dimension | Low (0) | Medium (1) | High (2) |
+|-----------|---------|------------|----------|
+| Feature count | ≤2 | 3-4 | ≥5 |
+| UNRESOLVED conflicts | 0 | 1-2 | ≥3 |
+| Participating roles | ≤2 | 3-4 | ≥5 |
+| Cross-feature dependencies | 0 | 1-2 | ≥3 |
+
+Output complexity_score (0-8) at the end of agent response.
+
+## Output
+- Feature specs: ${feature_mode ? 'feature-specs/F-{id}-{slug}.md' : 'synthesis-specification.md'}
+${feature_mode ? '- feature-index.json' : ''}
+- synthesis-changelog.md
+- complexity_score: {number}
+
+${feature_mode ? `
 ## Four-Layer Aggregation Rules
 
 ### Layer 1: Direct Reference
@@ -461,13 +518,15 @@ by aggregating all role-specific analyses with conflict resolution.
 - Add explicit dependency notes with feature IDs
 - Document integration points with other features
 - Note shared constraints or patterns
+` : ''}
 
+${feature_mode ? `
 ## Feature Spec Template (7 Sections, target 1500-2500 words)
 
 ---
-# Feature Spec: ${feature.feature_id} - ${feature.feature_name}
+# Feature Spec: {feature_id} - {feature_name}
 
-**Priority**: ${feature.feature_priority}
+**Priority**: {feature_priority}
 **Contributing Roles**: [list of roles]
 **Status**: Draft (from synthesis)
 
@@ -512,7 +571,7 @@ For each decision:
 
 ## 6. Detailed Analysis References
 [Pointers back to role-specific analysis documents]
-- @../{role}/analysis-${feature.feature_id}-${feature.feature_slug}.md for each contributing role
+- @../{role}/analysis-{feature_id}-{feature_slug}.md for each contributing role
 - @../guidance-specification.md#feature-decomposition
 
 ## 7. Cross-Feature Dependencies
@@ -523,127 +582,108 @@ For each decision:
 - **Integration points**: [Specific interfaces between features]
 ---
 
-## Completion Criteria
+## Feature Spec Completion Criteria
 - All 7 sections populated with aggregated content
 - Section 2 (Design Decisions) is the most detailed section (40%+ of word count)
 - All conflicts from conflict_map_entry addressed with resolutions
 - Cross-feature dependencies explicitly documented
 - Word count between 1500-2500
 - No placeholder text except [DECISION NEEDED] for genuinely unresolved items
+` : ''}
 `)
 ```
 
-**Agent Characteristics (Phase 6)**:
-- **Isolation**: Each agent processes exactly ONE feature (parallel safe)
-- **Dependencies**: Requires Phase 3A feature_conflict_map and Phase 5 updated role analyses
-- **Input budget**: ~6.5K words per agent (3-4 role sub-docs + conflict map entry)
-- **Output budget**: 1500-2500 words per feature spec
+#### Step 3: Conditional Review Agent
 
-### Phase 6.5: Feature Index Generation [feature_mode only]
+**Trigger**: `complexity_score >= 4` (from Spec Agent output)
 
-**Skip condition**: Same as Phase 6 - skip if `feature_mode` is false.
-
-**Purpose**: Collect all Phase 6 outputs and generate structured `feature-index.json`.
-
-#### Step 1: Collect Feature Spec Outputs
+**Skip**: If `complexity_score < 4`, proceed directly to Phase 6 Finalization.
 
 ```javascript
-const feature_spec_files = Glob(`${brainstorm_dir}/feature-specs/F-*-*.md`);
+if (complexity_score >= 4) {
+  Task(conceptual-planning-agent, `
+## Agent Mission
+Review all generated feature specs for cross-feature consistency and quality.
+Read ONLY the generated specs (not role analysis originals) to minimize context.
 
-const cross_cutting_specs = participating_roles
-  .map(role => `${brainstorm_dir}/${role}/analysis-cross-cutting.md`)
-  .filter(path => fileExists(path));
-```
+## Input
+- brainstorm_dir: ${brainstorm_dir}
+- feature_mode: ${feature_mode}
+${feature_mode
+  ? `- feature_spec_files: ${Glob(brainstorm_dir + '/feature-specs/F-*-*.md')}
+- feature_index_path: ${brainstorm_dir}/feature-index.json`
+  : `- synthesis_spec_path: ${brainstorm_dir}/synthesis-specification.md`}
+- changelog_path: ${brainstorm_dir}/synthesis-changelog.md
 
-#### Step 2: Generate feature-index.json
+## Review Checklist
 
-```javascript
-const feature_index = {
-  "version": "1.0",
-  "generated_at": new Date().toISOString(),
-  "session_id": session_id,
-  "feature_mode": true,
-  "features": feature_list.map(feature => {
-    const fid = feature.id;
-    const slug = feature.slug;
-    const spec_path = `feature-specs/${fid}-${slug}.md`;
-    const spec_exists = fileExists(`${brainstorm_dir}/${spec_path}`);
+### 1. Cross-Feature Consistency
+- Terminology: same concept uses same term across all specs
+- Decisions: no contradictory decisions between features
+- Technology choices: consistent stack across features
 
-    const contributing_roles = participating_roles.filter(role =>
-      fileExists(`${brainstorm_dir}/${role}/analysis-${fid}-${slug}.md`)
-    );
+### 2. Conflict Resolution Completeness
+- All [UNRESOLVED] items have [DECISION NEEDED] markers
+- All [RESOLVED] items state clear decision + rationale
+- No silent conflicts (same topic, different decisions in different specs)
 
-    const cross_cutting_refs = feature_conflict_map[fid]
-      ? feature_conflict_map[fid].cross_refs
-      : [];
+### 3. Dependency Bidirectionality
+- If F-001 "Depends on" F-003 → F-003 must have "Required by" F-001
+- Cross-refs in feature-index.json match spec Section 7
 
-    return {
-      "id": fid,
-      "slug": slug,
-      "name": feature.description,
-      "priority": feature.priority,
-      "spec_path": spec_exists ? spec_path : null,
-      "contributing_roles": contributing_roles,
-      "cross_cutting_refs": cross_cutting_refs
-    };
-  }),
-  "cross_cutting_specs": cross_cutting_specs.map(path =>
-    path.replace(brainstorm_dir + '/', '')
-  )
-};
+### 4. Enhancement & Clarification Coverage
+- All selected enhancements (from changelog) reflected in relevant specs
+- All clarification answers (from changelog) incorporated
 
-Write(
-  `${brainstorm_dir}/feature-index.json`,
-  JSON.stringify(feature_index, null, 2)
-);
-```
+## Action Protocol
+- **Minor issues** (typo, missing cross-ref, terminology inconsistency):
+  Fix directly in the spec file. Log fix in review_fixes[].
+- **Major issues** (contradictory decisions, missing section, unaddressed conflict):
+  Add [REVIEW-FLAG] annotation inline. Log in review_flags[].
 
-#### feature-index.json Schema
+## Output Format
+Append to synthesis-changelog.md:
 
-```json
-{
-  "version": "1.0",
-  "generated_at": "2026-02-11T10:00:00.000Z",
-  "session_id": "WFS-xxx",
-  "feature_mode": true,
-  "features": [
-    {
-      "id": "F-001",
-      "slug": "real-time-sync",
-      "name": "Real-time collaborative synchronization",
-      "priority": "High",
-      "spec_path": "feature-specs/F-001-real-time-sync.md",
-      "contributing_roles": ["system-architect", "ux-expert", "data-architect"],
-      "cross_cutting_refs": ["F-003 offline-mode depends on sync strategy"]
-    }
-  ],
-  "cross_cutting_specs": [
-    "system-architect/analysis-cross-cutting.md",
-    "ux-expert/analysis-cross-cutting.md"
-  ]
+## Review Results
+**Complexity Score**: {score}
+**Specs Reviewed**: {count}
+**Minor Fixes Applied**: {count}
+**Major Flags Raised**: {count}
+
+### Fixes Applied
+- {spec_file}: {description of fix}
+
+### Flags Raised
+- {spec_file}: [REVIEW-FLAG] {description of issue}
+`)
 }
 ```
 
-**Consumers**: `action-planning-agent` reads feature-index.json to generate task JSONs. `code-developer` loads individual feature specs as implementation context.
+**Review Agent Characteristics**:
+- **Input**: Only generated specs + changelog (NOT role analysis originals)
+- **Context budget**: ~10-15K words (much smaller than generation phase)
+- **Write permission**: Can modify spec files for minor fixes; uses [REVIEW-FLAG] for major issues
+- **Isolation**: Does not touch role analysis files or guidance-specification.md
 
-### Phase 7: Finalization
+### Phase 6: Finalization
 
 #### Step 1: Update Context Package
 
 ```javascript
 const context_pkg = Read(".workflow/active/WFS-{session}/.process/context-package.json")
 
-// Update guidance-specification if exists
-// Update synthesis-specification if exists
-// Re-read all role analysis files
 // Update metadata timestamps
+// Add spec paths
 
-// If feature_mode: add feature-index.json and feature-specs paths
 if (feature_mode) {
   context_pkg.feature_index_path = `${brainstorm_dir}/feature-index.json`;
   context_pkg.feature_specs_dir = `${brainstorm_dir}/feature-specs/`;
   context_pkg.feature_mode = true;
+} else {
+  context_pkg.synthesis_spec_path = `${brainstorm_dir}/synthesis-specification.md`;
 }
+
+context_pkg.changelog_path = `${brainstorm_dir}/synthesis-changelog.md`;
 
 Write(context_pkg_path, JSON.stringify(context_pkg))
 ```
@@ -654,22 +694,23 @@ Write(context_pkg_path, JSON.stringify(context_pkg))
 {
   "phases": {
     "BRAINSTORM": {
-      "status": "clarification_completed",
-      "clarification_completed": true,
+      "status": "synthesis_completed",
       "completed_at": "timestamp",
       "participating_roles": ["..."],
-      "clarification_results": {
+      "synthesis_results": {
         "enhancements_applied": ["EP-001", "EP-002"],
         "questions_asked": 3,
         "categories_clarified": ["Architecture", "UX"],
-        "roles_updated": ["role1", "role2"]
+        "complexity_score": 5,
+        "review_triggered": true,
+        "review_fixes": 2,
+        "review_flags": 0
       },
       "feature_spec_results": {
         "feature_mode": true,
         "features_generated": ["F-001", "F-002", "F-003"],
         "feature_index_path": ".brainstorming/feature-index.json",
-        "feature_specs_dir": ".brainstorming/feature-specs/",
-        "conflict_map_generated": true
+        "feature_specs_dir": ".brainstorming/feature-specs/"
       },
       "quality_metrics": {
         "user_intent_alignment": "validated",
@@ -691,12 +732,16 @@ Write(context_pkg_path, JSON.stringify(context_pkg))
 **Session**: {sessionId}
 **Enhancements Applied**: EP-001, EP-002, EP-003
 **Questions Answered**: 3/5
-**Roles Updated**: role1, role2, role3
+**Complexity Score**: {score}/8
+
+### Review Status
+{review_triggered ? "Review Agent executed: {fixes} fixes applied, {flags} flags raised" : "Skipped (complexity below threshold)"}
 
 ### Feature Specs (feature_mode only)
 **Feature Specs Generated**: F-001, F-002, F-003
 **Feature Index**: .brainstorming/feature-index.json
 **Spec Directory**: .brainstorming/feature-specs/
+**Changelog**: .brainstorming/synthesis-changelog.md
 
 ### Next Steps
 PROCEED: `/workflow:plan --session {session-id}`
@@ -704,77 +749,66 @@ PROCEED: `/workflow:plan --session {session-id}`
 
 ## Output
 
-**Location (role analyses)**: `.workflow/active/WFS-{session}/.brainstorming/[role]/analysis*.md`
+**Location (role analyses)**: `.workflow/active/WFS-{session}/.brainstorming/[role]/analysis*.md` (read-only, never modified by synthesis)
 **Location (feature specs)**: `.workflow/active/WFS-{session}/.brainstorming/feature-specs/F-{id}-{slug}.md` [feature_mode]
+**Location (synthesis spec)**: `.workflow/active/WFS-{session}/.brainstorming/synthesis-specification.md` [non-feature_mode]
 **Location (feature index)**: `.workflow/active/WFS-{session}/.brainstorming/feature-index.json` [feature_mode]
+**Location (changelog)**: `.workflow/active/WFS-{session}/.brainstorming/synthesis-changelog.md`
 
-**Updated Directory Structure** (feature_mode):
+**Directory Structure** (feature_mode):
 ```
 .workflow/active/WFS-{session}/.brainstorming/
-├── guidance-specification.md
-├── feature-index.json                    # Phase 6.5 output
-├── feature-specs/                        # Phase 6 output directory
-│   ├── F-001-{slug}.md                   # Consolidated feature spec (1500-2500 words)
+├── guidance-specification.md              # Phase 2 output (read-only)
+├── feature-index.json                     # Phase 5 Spec Agent output
+├── synthesis-changelog.md                 # Phase 5 Spec Agent output (+ Review appendix)
+├── feature-specs/                         # Phase 5 Spec Agent output
+│   ├── F-001-{slug}.md                    # Consolidated feature spec (1500-2500 words)
 │   ├── F-002-{slug}.md
 │   └── F-00N-{slug}.md
-├── {role-1}/
-│   ├── analysis.md                       # Role overview index (read by Phase 3A)
+├── {role-1}/                              # Phase 3 output (IMMUTABLE)
+│   ├── analysis.md                        # Role overview index
 │   ├── analysis-cross-cutting.md
-│   ├── analysis-F-001-{slug}.md          # Per-feature detail (read by Phase 6)
+│   ├── analysis-F-001-{slug}.md           # Per-feature detail
 │   └── analysis-F-002-{slug}.md
 └── {role-N}/
     └── ...
 ```
 
-**Updated Role Analysis Structure**:
-```markdown
-## Clarifications
-### Session {date}
-- **Q**: {question} (Category: {category})
-  **A**: {answer}
-
-## {Existing Sections}
-{Refined content based on clarifications}
-```
-
-**Changes**:
-- User intent validated/corrected
-- Requirements more specific/measurable
-- Architecture with rationale
-- Ambiguities resolved, placeholders removed
-- Consistent terminology
-- Feature specs generated with cross-role conflict resolution [feature_mode]
-- Feature index provides structured access for downstream consumers [feature_mode]
+**Consumers**: `action-planning-agent` reads feature-index.json to generate task JSONs. `code-developer` loads individual feature specs as implementation context.
 
 ## Quality Checklist
 
 **Content**:
-- All role analyses loaded/analyzed
+- All role analyses loaded/analyzed (read-only)
 - Cross-role analysis (consensus, conflicts, gaps)
 - 9-category ambiguity scan
 - Questions prioritized
 
-**Analysis**:
-- User intent validated
-- Cross-role synthesis complete
-- Ambiguities resolved
-- Terminology consistent
-
-**Documents**:
-- Clarifications section formatted
-- Sections reflect answers
-- No placeholders (TODO/TBD)
-- Valid Markdown
+**Spec Generation**:
+- Single Spec Agent generates all specs sequentially
+- Cross-feature decisions carry forward (no re-analysis)
+- All selected enhancements incorporated
+- All clarification answers reflected
+- synthesis-changelog.md records all decisions
 
 **Feature Specs (feature_mode only)**:
 - Phase 3A reads only analysis.md index files (not sub-documents), input token <= 5K words
 - feature_conflict_map generated with consensus/conflicts/cross_refs per feature
-- Phase 6 parallel agents defined: one per feature, input token <= 7K words each
 - Feature spec template has 7 sections, Section 2 (Design Decisions) is core
 - Four-layer aggregation rules applied
 - Each feature spec is 1500-2500 words
 - feature-index.json generated with features[] + cross_cutting_specs[]
-- feature-specs/ directory created with F-{id}-{slug}.md files
+
+**Review (conditional)**:
+- complexity_score computed from 4 dimensions (0-8 scale)
+- Review triggered when score >= 4
+- Minor fixes applied directly, major issues flagged with [REVIEW-FLAG]
+- Review results appended to synthesis-changelog.md
+
+**Immutability**:
+- Role analysis files NOT modified by synthesis
+- guidance-specification.md NOT modified by synthesis
+- Only spec files, index, and changelog are write targets
 
 - **TodoWrite**: Mark Phase 4 completed, collapse all sub-tasks to summary
 

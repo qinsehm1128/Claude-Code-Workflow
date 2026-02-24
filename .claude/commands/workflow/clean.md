@@ -544,5 +544,5 @@ Cleanup manifest archived to: ${sessionFolder}/cleanup-manifest.json
 ## Related Commands
 
 - `/workflow:session:complete` - Properly archive active sessions
-- `/memory:compact` - Save session memory before cleanup
-- `/workflow:status` - View current workflow state
+- `memory-capture` skill - Save session memory before cleanup
+- `workflow-execute` skill - View current workflow state

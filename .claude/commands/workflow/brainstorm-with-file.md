@@ -611,8 +611,8 @@ CONSTRAINTS: Don't force incompatible ideas together
    - **Session statistics**: Rounds, ideas generated/survived, duration
 
 3. **Post-Completion Options** (AskUserQuestion)
-   - **创建实施计划**: Launch workflow:plan with top idea
-   - **创建Issue**: Launch issue:new for top 3 ideas
+   - **创建实施计划**: Launch workflow-plan with top idea
+   - **创建Issue**: Launch issue-discover for top 3 ideas
    - **深入分析**: Launch workflow:analyze-with-file for top idea
    - **导出分享**: Generate shareable report
    - **完成**: No further action
@@ -750,7 +750,7 @@ See full markdown template in original file (lines 955-1161).
 
 ## Usage Recommendations (Requires User Confirmation)
 
-**Use `Skill(skill="workflow:brainstorm-with-file", args="\"topic or question\"")` when:**
+**Use `Skill(skill="brainstorm", args="\"topic or question\"")` when:**
 - Starting a new feature/product without clear direction
 - Facing a complex problem with multiple possible solutions
 - Need to explore alternatives before committing
@@ -763,13 +763,13 @@ See full markdown template in original file (lines 955-1161).
 - Debugging or troubleshooting
 - Understanding current state
 
-**Use `Skill(skill="workflow:collaborative-plan-with-file", args="\"task description\"")` when:**
+**Use `Skill(skill="workflow-plan", args="\"task description\"")` when:**
 - Complex planning requiring multiple perspectives
 - Large scope needing parallel sub-domain analysis
 - Want shared collaborative planning document
 - Need structured task breakdown with agent coordination
 
-**Use `Skill(skill="workflow:lite-plan", args="\"task description\"")` when:**
+**Use `Skill(skill="workflow-lite-plan", args="\"task description\"")` when:**
 - Direction is already clear
 - Ready to move from ideas to execution
 - Need simple implementation breakdown

@@ -17,6 +17,20 @@ import type {
 } from '../core/a2ui/A2UITypes.js';
 import http from 'http';
 import { a2uiWebSocketHandler } from '../core/a2ui/A2UIWebSocketHandler.js';
+import { remoteNotificationService } from '../core/services/remote-notification-service.js';
+import {
+  addPendingQuestion,
+  getPendingQuestion,
+  updatePendingQuestion,
+  removePendingQuestion,
+  getAllPendingQuestions,
+  clearAllPendingQuestions,
+  hasPendingQuestion,
+} from '../core/services/pending-question-service.js';
+import {
+  isDashboardServerRunning,
+  startCcwServeProcess,
+} from '../utils/dashboard-launcher.js';
 
 const DASHBOARD_PORT = Number(process.env.CCW_PORT || 3456);
 const POLL_INTERVAL_MS = 1000;
@@ -30,9 +44,6 @@ a2uiWebSocketHandler.registerMultiAnswerCallback(
 
 /** Default question timeout (5 minutes) */
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
-
-/** Map of pending questions waiting for responses */
-const pendingQuestions = new Map<string, PendingQuestion>();
 
 // ========== Validation ==========
 
@@ -162,17 +173,22 @@ function normalizeSimpleQuestion(simple: SimpleQuestion): Question {
     type = 'input';
   }
 
-  const options: QuestionOption[] | undefined = simple.options?.map((opt) => ({
-    value: opt.label,
-    label: opt.label,
-    description: opt.description,
-  }));
+  let defaultValue: string | undefined;
+  const options: QuestionOption[] | undefined = simple.options?.map((opt) => {
+    const isDefault = opt.isDefault === true
+      || /\(Recommended\)/i.test(opt.label);
+    if (isDefault && !defaultValue) {
+      defaultValue = opt.label;
+    }
+    return { value: opt.label, label: opt.label, description: opt.description };
+  });
 
   return {
     id: simple.header,
     type,
     title: simple.question,
     options,
+    ...(defaultValue !== undefined && { defaultValue }),
   } as Question;
 }
 
@@ -191,7 +207,7 @@ function isSimpleFormat(params: Record<string, unknown>): params is { questions:
  * @param surfaceId - Surface ID for the question
  * @returns A2UI surface update object
  */
-function generateQuestionSurface(question: Question, surfaceId: string): {
+function generateQuestionSurface(question: Question, surfaceId: string, timeoutMs: number): {
   surfaceUpdate: {
     surfaceId: string;
     components: unknown[];
@@ -273,6 +289,7 @@ function generateQuestionSurface(question: Question, surfaceId: string): {
         label: { literalString: opt.label },
         value: opt.value,
         description: opt.description ? { literalString: opt.description } : undefined,
+        isDefault: question.defaultValue !== undefined && opt.value === String(question.defaultValue),
       })) || [];
 
       // Add "Other" option for custom input
@@ -280,6 +297,7 @@ function generateQuestionSurface(question: Question, surfaceId: string): {
         label: { literalString: 'Other' },
         value: '__other__',
         description: { literalString: 'Provide a custom answer' },
+        isDefault: false,
       });
 
       // Use RadioGroup for direct selection display (not dropdown)
@@ -410,6 +428,8 @@ function generateQuestionSurface(question: Question, surfaceId: string): {
         questionType: question.type,
         options: question.options,
         required: question.required,
+        timeoutAt: new Date(Date.now() + timeoutMs).toISOString(),
+        ...(question.defaultValue !== undefined && { defaultValue: question.defaultValue }),
       },
       /** Display mode: 'popup' for centered dialog (interactive questions) */
       displayMode: 'popup' as const,
@@ -432,42 +452,82 @@ export async function execute(params: AskQuestionParams): Promise<ToolResult<Ask
     // Generate surface ID
     const surfaceId = params.surfaceId || `question-${question.id}-${Date.now()}`;
 
+    // Check if this question was restored from disk (e.g., after MCP restart)
+    const existingPending = getPendingQuestion(question.id);
+
     // Create promise for answer
     const resultPromise = new Promise<AskQuestionResult>((resolve, reject) => {
-      // Store pending question
+      // Store pending question with real resolve/reject
       const pendingQuestion: PendingQuestion = {
         id: question.id,
         surfaceId,
         question,
-        timestamp: Date.now(),
+        timestamp: existingPending?.timestamp || Date.now(),
         timeout: params.timeout || DEFAULT_TIMEOUT_MS,
         resolve,
         reject,
       };
-      pendingQuestions.set(question.id, pendingQuestion);
+
+      // If question exists (restored from disk), update it with real resolve/reject
+      // This fixes the "no promise attached" issue when MCP restarts
+      if (existingPending) {
+        updatePendingQuestion(question.id, pendingQuestion);
+        console.log(`[AskQuestion] Updated restored question "${question.id}" with real resolve/reject`);
+      } else {
+        addPendingQuestion(pendingQuestion);
+      }
 
       // Set timeout
       setTimeout(() => {
-        if (pendingQuestions.has(question.id)) {
-          pendingQuestions.delete(question.id);
-          resolve({
-            success: false,
-            surfaceId,
-            cancelled: false,
-            answers: [],
-            timestamp: new Date().toISOString(),
-            error: 'Question timed out',
-          });
+        const timedOutQuestion = getPendingQuestion(question.id);
+        if (timedOutQuestion) {
+          removePendingQuestion(question.id);
+          if (question.defaultValue !== undefined) {
+            resolve({
+              success: true,
+              surfaceId,
+              cancelled: false,
+              answers: [{ questionId: question.id, value: question.defaultValue as string | string[] | boolean, cancelled: false }],
+              timestamp: new Date().toISOString(),
+              autoSelected: true,
+            });
+          } else {
+            resolve({
+              success: false,
+              surfaceId,
+              cancelled: false,
+              answers: [],
+              timestamp: new Date().toISOString(),
+              error: 'Question timed out',
+            });
+          }
         }
       }, params.timeout || DEFAULT_TIMEOUT_MS);
     });
 
     // Send A2UI surface via WebSocket to frontend
-    const a2uiSurface = generateQuestionSurface(question, surfaceId);
+    const a2uiSurface = generateQuestionSurface(question, surfaceId, params.timeout || DEFAULT_TIMEOUT_MS);
     const sentCount = a2uiWebSocketHandler.sendSurface(a2uiSurface.surfaceUpdate);
 
-    // If no local WS clients, start HTTP polling for answer from Dashboard
+    // Trigger remote notification for ask-user-question event (if enabled)
+    if (remoteNotificationService.shouldNotify('ask-user-question')) {
+      remoteNotificationService.sendNotification('ask-user-question', {
+        sessionId: surfaceId,
+        questionText: question.title,
+      });
+    }
+
+    // If no local WS clients, check Dashboard status and start HTTP polling
     if (sentCount === 0) {
+      // Check if Dashboard server is running, attempt to start if not
+      const dashboardRunning = await isDashboardServerRunning();
+      if (!dashboardRunning) {
+        console.warn(`[AskQuestion] Dashboard server not running. Attempting to start...`);
+        const started = await startCcwServeProcess();
+        if (!started) {
+          console.error(`[AskQuestion] Failed to automatically start Dashboard server.`);
+        }
+      }
       startAnswerPolling(question.id);
     }
 
@@ -494,7 +554,7 @@ export async function execute(params: AskQuestionParams): Promise<ToolResult<Ask
  * @returns True if answer was processed
  */
 export function handleAnswer(answer: QuestionAnswer): boolean {
-  const pending = pendingQuestions.get(answer.questionId);
+  const pending = getPendingQuestion(answer.questionId);
   if (!pending) {
     return false;
   }
@@ -514,7 +574,7 @@ export function handleAnswer(answer: QuestionAnswer): boolean {
   });
 
   // Remove from pending
-  pendingQuestions.delete(answer.questionId);
+  removePendingQuestion(answer.questionId);
 
   return true;
 }
@@ -526,7 +586,7 @@ export function handleAnswer(answer: QuestionAnswer): boolean {
  * @returns True if answer was processed
  */
 export function handleMultiAnswer(compositeId: string, answers: QuestionAnswer[]): boolean {
-  const pending = pendingQuestions.get(compositeId);
+  const pending = getPendingQuestion(compositeId);
   if (!pending) {
     return false;
   }
@@ -539,7 +599,7 @@ export function handleMultiAnswer(compositeId: string, answers: QuestionAnswer[]
     timestamp: new Date().toISOString(),
   });
 
-  pendingQuestions.delete(compositeId);
+  removePendingQuestion(compositeId);
   return true;
 }
 
@@ -548,7 +608,7 @@ export function handleMultiAnswer(compositeId: string, answers: QuestionAnswer[]
 /**
  * Poll Dashboard server for answers when running in a separate MCP process.
  * Starts polling GET /api/a2ui/answer and resolves the pending promise when an answer arrives.
- * Automatically stops when the questionId is no longer in pendingQuestions (timeout cleanup).
+ * Automatically stops when the questionId is no longer in pending questions (timeout cleanup).
  */
 function startAnswerPolling(questionId: string, isComposite: boolean = false): void {
   const pollPath = `/api/a2ui/answer?questionId=${encodeURIComponent(questionId)}&composite=${isComposite}`;
@@ -557,7 +617,7 @@ function startAnswerPolling(questionId: string, isComposite: boolean = false): v
 
   const poll = () => {
     // Stop if the question was already resolved or timed out
-    if (!pendingQuestions.has(questionId)) {
+    if (!hasPendingQuestion(questionId)) {
       console.error(`[A2UI-Poll] Stopping: questionId=${questionId} no longer pending`);
       return;
     }
@@ -585,9 +645,17 @@ function startAnswerPolling(questionId: string, isComposite: boolean = false): v
           if (isComposite && Array.isArray(parsed.answers)) {
             const ok = handleMultiAnswer(questionId, parsed.answers as QuestionAnswer[]);
             console.error(`[A2UI-Poll] handleMultiAnswer result: ${ok}`);
+            if (!ok && hasPendingQuestion(questionId)) {
+              // Answer consumed but delivery failed; keep polling for a new answer
+              setTimeout(poll, POLL_INTERVAL_MS);
+            }
           } else if (!isComposite && parsed.answer) {
             const ok = handleAnswer(parsed.answer as QuestionAnswer);
             console.error(`[A2UI-Poll] handleAnswer result: ${ok}`);
+            if (!ok && hasPendingQuestion(questionId)) {
+              // Answer consumed but validation/delivery failed; keep polling for a new answer
+              setTimeout(poll, POLL_INTERVAL_MS);
+            }
           } else {
             console.error(`[A2UI-Poll] Unexpected response shape, keep polling`);
             setTimeout(poll, POLL_INTERVAL_MS);
@@ -601,7 +669,7 @@ function startAnswerPolling(questionId: string, isComposite: boolean = false): v
 
     req.on('error', (err) => {
       console.error(`[A2UI-Poll] Network error: ${err.message}`);
-      if (pendingQuestions.has(questionId)) {
+      if (hasPendingQuestion(questionId)) {
         setTimeout(poll, POLL_INTERVAL_MS);
       }
     });
@@ -623,7 +691,7 @@ function startAnswerPolling(questionId: string, isComposite: boolean = false): v
  * @returns True if question was cancelled
  */
 export function cancelQuestion(questionId: string): boolean {
-  const pending = pendingQuestions.get(questionId);
+  const pending = getPendingQuestion(questionId);
   if (!pending) {
     return false;
   }
@@ -637,7 +705,7 @@ export function cancelQuestion(questionId: string): boolean {
     error: 'Question cancelled',
   });
 
-  pendingQuestions.delete(questionId);
+  removePendingQuestion(questionId);
   return true;
 }
 
@@ -646,17 +714,17 @@ export function cancelQuestion(questionId: string): boolean {
  * @returns Array of pending questions
  */
 export function getPendingQuestions(): PendingQuestion[] {
-  return Array.from(pendingQuestions.values());
+  return getAllPendingQuestions();
 }
 
 /**
  * Clear all pending questions
  */
 export function clearPendingQuestions(): void {
-  for (const pending of pendingQuestions.values()) {
+  for (const pending of getAllPendingQuestions()) {
     pending.reject(new Error('Question cleared'));
   }
-  pendingQuestions.clear();
+  clearAllPendingQuestions();
 }
 
 // ========== Tool Schema ==========
@@ -714,6 +782,7 @@ Type inference: options + multiSelect=true → multi-select; options + multiSele
                 properties: {
                   label: { type: 'string', description: 'Display text, also used as value' },
                   description: { type: 'string', description: 'Option description' },
+                  isDefault: { type: 'boolean', description: 'Mark as default/recommended option' },
                 },
                 required: ['label'],
               },
@@ -793,6 +862,7 @@ interface PageMeta {
 function generateMultiQuestionSurface(
   questions: SimpleQuestion[],
   surfaceId: string,
+  timeoutMs: number,
 ): {
   surfaceUpdate: {
     surfaceId: string;
@@ -864,6 +934,7 @@ function generateMultiQuestionSurface(
           label: { literalString: opt.label },
           value: opt.value,
           description: opt.description ? { literalString: opt.description } : undefined,
+          isDefault: question.defaultValue !== undefined && opt.value === String(question.defaultValue),
         })) || [];
 
         // Add "Other" option for custom input
@@ -871,6 +942,7 @@ function generateMultiQuestionSurface(
           label: { literalString: 'Other' },
           value: '__other__',
           description: { literalString: 'Provide a custom answer' },
+          isDefault: false,
         });
 
         components.push({
@@ -958,6 +1030,7 @@ function generateMultiQuestionSurface(
         questionType: 'multi-question',
         pages,
         totalPages: questions.length,
+        timeoutAt: new Date(Date.now() + timeoutMs).toISOString(),
       },
       displayMode: 'popup',
     },
@@ -988,7 +1061,8 @@ async function executeSimpleFormat(
       return result;
     }
 
-    if (result.result.cancelled) {
+    // Propagate inner failures (e.g. timeout) — don't mask them as success
+    if (result.result.cancelled || !result.result.success) {
       return result;
     }
 
@@ -1015,7 +1089,7 @@ async function executeSimpleFormat(
   const compositeId = `multi-${Date.now()}`;
   const surfaceId = `question-${compositeId}`;
 
-  const { surfaceUpdate, pages } = generateMultiQuestionSurface(questions, surfaceId);
+  const { surfaceUpdate, pages } = generateMultiQuestionSurface(questions, surfaceId, timeout ?? DEFAULT_TIMEOUT_MS);
 
   // Create promise for the composite answer
   const resultPromise = new Promise<AskQuestionResult>((resolve, reject) => {
@@ -1033,7 +1107,7 @@ async function executeSimpleFormat(
       resolve,
       reject,
     };
-    pendingQuestions.set(compositeId, pendingQuestion);
+    addPendingQuestion(pendingQuestion);
 
     // Also register each sub-question's questionId pointing to the same pending entry
     // so that select/toggle actions on individual questions get tracked
@@ -1047,22 +1121,51 @@ async function executeSimpleFormat(
     }
 
     setTimeout(() => {
-      if (pendingQuestions.has(compositeId)) {
-        pendingQuestions.delete(compositeId);
-        resolve({
-          success: false,
-          surfaceId,
-          cancelled: false,
-          answers: [],
-          timestamp: new Date().toISOString(),
-          error: 'Question timed out',
-        });
+      const timedOutQuestion = getPendingQuestion(compositeId);
+      if (timedOutQuestion) {
+        removePendingQuestion(compositeId);
+        // Collect default values from each sub-question
+        const defaultAnswers: QuestionAnswer[] = [];
+        for (const simpleQ of questions) {
+          const q = normalizeSimpleQuestion(simpleQ);
+          if (q.defaultValue !== undefined) {
+            defaultAnswers.push({ questionId: q.id, value: q.defaultValue as string | string[] | boolean, cancelled: false });
+          }
+        }
+        if (defaultAnswers.length > 0) {
+          resolve({
+            success: true,
+            surfaceId,
+            cancelled: false,
+            answers: defaultAnswers,
+            timestamp: new Date().toISOString(),
+            autoSelected: true,
+          });
+        } else {
+          resolve({
+            success: false,
+            surfaceId,
+            cancelled: false,
+            answers: [],
+            timestamp: new Date().toISOString(),
+            error: 'Question timed out',
+          });
+        }
       }
     }, timeout ?? DEFAULT_TIMEOUT_MS);
   });
 
   // Send the surface
   const sentCount = a2uiWebSocketHandler.sendSurface(surfaceUpdate);
+
+  // Trigger remote notification for ask-user-question event (if enabled)
+  if (remoteNotificationService.shouldNotify('ask-user-question')) {
+    const questionTexts = questions.map(q => q.question).join('\n');
+    remoteNotificationService.sendNotification('ask-user-question', {
+      sessionId: compositeId,
+      questionText: questionTexts,
+    });
+  }
 
   // If no local WS clients, start HTTP polling for answer from Dashboard
   if (sentCount === 0) {

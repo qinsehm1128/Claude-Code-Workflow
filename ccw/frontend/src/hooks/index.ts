@@ -20,6 +20,8 @@ export type { UseWebSocketOptions, UseWebSocketReturn } from './useWebSocket';
 
 export { useWebSocketNotifications } from './useWebSocketNotifications';
 
+export { useCompletionCallbackChain } from './useCompletionCallbackChain';
+
 export { useSystemNotifications } from './useSystemNotifications';
 export type { UseSystemNotificationsReturn, SystemNotificationOptions } from './useSystemNotifications';
 
@@ -54,7 +56,6 @@ export {
   useUpdateLoopStatus,
   useDeleteLoop,
   useLoopMutations,
-  loopsKeys,
 } from './useLoops';
 export type {
   LoopsFilter,
@@ -118,7 +119,6 @@ export {
   useCommands,
   useCommandSearch,
   useCommandMutations,
-  commandsKeys,
 } from './useCommands';
 export type {
   CommandsFilter,
@@ -144,6 +144,22 @@ export type {
   UseUpdateMemoryReturn,
   UseDeleteMemoryReturn,
 } from './useMemory';
+
+// ========== Unified Memory ==========
+export {
+  useUnifiedSearch,
+  useUnifiedStats,
+  useRecommendations,
+  useReindex,
+} from './useUnifiedSearch';
+export type {
+  UseUnifiedSearchOptions,
+  UseUnifiedSearchReturn,
+  UseUnifiedStatsReturn,
+  UseRecommendationsOptions,
+  UseRecommendationsReturn,
+  UseReindexReturn,
+} from './useUnifiedSearch';
 
 // ========== MCP Servers ==========
 export {
@@ -336,3 +352,32 @@ export type {
   UseUpdateRerankerConfigReturn,
   UseCcwToolsListReturn,
 } from './useCodexLens';
+
+// ========== Skill Hub ==========
+export {
+  useRemoteSkills,
+  useLocalSkills,
+  useInstalledSkills,
+  useSkillHubUpdates,
+  useInstallSkill,
+  useCacheSkill,
+  useUninstallSkill,
+  useSkillHubStats,
+  useSkillHub,
+  skillHubKeys,
+} from './useSkillHub';
+export type {
+  CliType,
+  SkillSource,
+  RemoteSkill,
+  LocalSkill,
+  InstalledSkill,
+  RemoteSkillsResponse,
+  LocalSkillsResponse,
+  InstalledSkillsResponse,
+  SkillInstallRequest,
+  SkillInstallResponse,
+  SkillCacheRequest,
+  SkillCacheResponse,
+  SkillHubStats,
+} from './useSkillHub';

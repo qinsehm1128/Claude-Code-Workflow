@@ -13,7 +13,10 @@ import {
   AlertTriangle,
   Search,
   X,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
+import { useAppStore, selectIsImmersiveMode } from '@/stores/appStore';
 import { cn } from '@/lib/utils';
 import { useHistory } from '@/hooks/useHistory';
 import { ConversationCard } from '@/components/shared/ConversationCard';
@@ -53,6 +56,8 @@ export function HistoryPage() {
   const [isPanelOpen, setIsPanelOpen] = React.useState(false);
   const [nativeExecutionId, setNativeExecutionId] = React.useState<string | null>(null);
   const [isNativePanelOpen, setIsNativePanelOpen] = React.useState(false);
+  const isImmersiveMode = useAppStore(selectIsImmersiveMode);
+  const toggleImmersiveMode = useAppStore((s) => s.toggleImmersiveMode);
 
   const {
     executions,
@@ -134,7 +139,7 @@ export function HistoryPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className={cn("space-y-6", isImmersiveMode && "h-screen overflow-hidden")}>
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -146,6 +151,18 @@ export function HistoryPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={toggleImmersiveMode}
+            className={cn(
+              'p-2 rounded-md transition-colors',
+              isImmersiveMode
+                ? 'bg-primary/10 text-primary'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+            )}
+            title={isImmersiveMode ? 'Exit Fullscreen' : 'Fullscreen'}
+          >
+            {isImmersiveMode ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+          </button>
           <Button
             variant="outline"
             size="sm"

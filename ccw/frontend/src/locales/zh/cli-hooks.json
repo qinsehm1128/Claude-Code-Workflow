@@ -7,7 +7,14 @@
     "UserPromptSubmit": "用户提交提示",
     "PreToolUse": "工具使用前",
     "PostToolUse": "工具使用后",
-    "Stop": "停止"
+    "Stop": "停止",
+    "Notification": "通知",
+    "SubagentStart": "子代理启动",
+    "SubagentStop": "子代理停止",
+    "PreCompact": "压缩前",
+    "SessionEnd": "会话结束",
+    "PostToolUseFailure": "工具使用失败后",
+    "PermissionRequest": "权限请求"
   },
   "form": {
     "name": "钩子名称",
@@ -77,6 +84,34 @@
       "session-state-watch": {
         "name": "会话状态监控",
         "description": "监控会话元数据文件变更 (workflow-session.json)"
+      },
+      "stop-notify": {
+        "name": "停止通知",
+        "description": "Claude 完成响应时通知仪表盘"
+      },
+      "auto-format-on-write": {
+        "name": "写入后自动格式化",
+        "description": "Claude 写入或编辑文件后自动格式化"
+      },
+      "auto-lint-on-write": {
+        "name": "写入后自动检查",
+        "description": "Claude 写入或编辑文件后自动执行 lint 检查"
+      },
+      "block-sensitive-files": {
+        "name": "阻止敏感文件修改",
+        "description": "阻止修改敏感文件（.env、密钥、凭证）"
+      },
+      "git-auto-stage": {
+        "name": "Git 自动暂存",
+        "description": "Claude 完成响应时自动暂存所有已修改文件"
+      },
+      "post-edit-index": {
+        "name": "编辑后索引",
+        "description": "文件修改时通知索引服务"
+      },
+      "session-end-summary": {
+        "name": "会话结束摘要",
+        "description": "会话结束时发送摘要到仪表盘"
       }
     },
     "actions": {

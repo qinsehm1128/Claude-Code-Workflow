@@ -15,6 +15,7 @@ import {
 } from '../lib/api';
 import { useWorkflowStore, selectProjectPath } from '@/stores/workflowStore';
 import { workspaceQueryKeys } from '@/lib/queryKeys';
+import { parseMemoryMetadata } from '@/lib/utils';
 
 // Query key factory
 export const memoryKeys = {
@@ -99,13 +100,8 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
     // Filter by favorite status (from metadata)
     if (filter?.favorite === true) {
       memories = memories.filter((m) => {
-        if (!m.metadata) return false;
-        try {
-          const metadata = typeof m.metadata === 'string' ? JSON.parse(m.metadata) : m.metadata;
-          return metadata.favorite === true;
-        } catch {
-          return false;
-        }
+        const metadata = parseMemoryMetadata(m.metadata);
+        return metadata.favorite === true;
       });
     }
 

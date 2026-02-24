@@ -24,7 +24,7 @@ Before every `SendMessage`, MUST call `mcp__ccw-tools__team_msg` to log:
 
 ```javascript
 // Plan ready
-mcp__ccw-tools__team_msg({ operation: "log", team: teamName, from: "planner", to: "coordinator", type: "plan_ready", summary: "Plan ready: 3 tasks, Medium complexity", ref: `${sessionFolder}/plan.json` })
+mcp__ccw-tools__team_msg({ operation: "log", team: teamName, from: "planner", to: "coordinator", type: "plan_ready", summary: "Plan ready: 3 tasks, Medium complexity", ref: `${sessionFolder}/plan/plan.json` })
 
 // Plan revision
 mcp__ccw-tools__team_msg({ operation: "log", team: teamName, from: "planner", to: "coordinator", type: "plan_revision", summary: "Split task-2 into two subtasks per feedback" })
@@ -38,7 +38,7 @@ mcp__ccw-tools__team_msg({ operation: "log", team: teamName, from: "planner", to
 When `mcp__ccw-tools__team_msg` MCP is unavailable:
 
 ```javascript
-Bash(`ccw team log --team "${teamName}" --from "planner" --to "coordinator" --type "plan_ready" --summary "Plan ready: 3 tasks" --ref "${sessionFolder}/plan.json" --json`)
+Bash(`ccw team log --team "${teamName}" --from "planner" --to "coordinator" --type "plan_ready" --summary "Plan ready: 3 tasks" --ref "${sessionFolder}/plan/plan.json" --json`)
 ```
 
 ## Execution (5-Phase)
@@ -60,14 +60,30 @@ const task = TaskGet({ taskId: myTasks[0].id })
 TaskUpdate({ taskId: task.id, status: 'in_progress' })
 ```
 
+### Phase 1.5: Load Spec Context (Full-Lifecycle Mode)
+
+```javascript
+// Extract session folder from task description (set by coordinator)
+const sessionMatch = task.description.match(/Session:\s*(.+)/)
+const sessionFolder = sessionMatch ? sessionMatch[1].trim() : `.workflow/.team/default`
+const planDir = `${sessionFolder}/plan`
+Bash(`mkdir -p ${planDir}`)
+
+// Check if spec directory exists (full-lifecycle mode)
+const specDir = `${sessionFolder}/spec`
+let specContext = null
+try {
+  const reqIndex = Read(`${specDir}/requirements/_index.md`)
+  const archIndex = Read(`${specDir}/architecture/_index.md`)
+  const epicsIndex = Read(`${specDir}/epics/_index.md`)
+  const specConfig = JSON.parse(Read(`${specDir}/spec-config.json`))
+  specContext = { reqIndex, archIndex, epicsIndex, specConfig }
+} catch { /* impl-only mode has no spec */ }
+```
+
 ### Phase 2: Multi-Angle Exploration
 
 ```javascript
-// Session setup
-const taskSlug = task.subject.toLowerCase().replace(/[^a-z0-9]+/g, '-').substring(0, 40)
-const dateStr = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().substring(0, 10)
-const sessionFolder = `.workflow/.team-plan/${taskSlug}-${dateStr}`
-Bash(`mkdir -p ${sessionFolder}`)
 
 // Complexity assessment
 function assessComplexity(desc) {
@@ -110,7 +126,7 @@ if (complexity === 'Low') {
     project_root_path: projectRoot,
     query: task.description
   })
-  Write(`${sessionFolder}/exploration-${selectedAngles[0]}.json`, JSON.stringify({
+  Write(`${planDir}/exploration-${selectedAngles[0]}.json`, JSON.stringify({
     project_structure: "...",
     relevant_files: [],
     patterns: [],
@@ -133,11 +149,12 @@ Execute **${angle}** exploration for task planning context.
 
 ## Output Location
 **Session Folder**: ${sessionFolder}
-**Output File**: ${sessionFolder}/exploration-${angle}.json
+**Output File**: ${planDir}/exploration-${angle}.json
 
 ## Assigned Context
 - **Exploration Angle**: ${angle}
 - **Task Description**: ${task.description}
+- **Spec Context**: ${specContext ? 'Available — use spec/requirements, spec/architecture, spec/epics for informed exploration' : 'Not available (impl-only mode)'}
 - **Exploration Index**: ${index + 1} of ${selectedAngles.length}
 
 ## MANDATORY FIRST STEPS
@@ -146,7 +163,7 @@ Execute **${angle}** exploration for task planning context.
 3. Read: .workflow/project-tech.json (if exists - technology stack)
 
 ## Expected Output
-Write JSON to: ${sessionFolder}/exploration-${angle}.json
+Write JSON to: ${planDir}/exploration-${angle}.json
 Follow explore-json-schema.json structure with ${angle}-focused findings.
 
 **MANDATORY**: Every file in relevant_files MUST have:
@@ -168,10 +185,10 @@ const explorationManifest = {
   explorations: selectedAngles.map(angle => ({
     angle: angle,
     file: `exploration-${angle}.json`,
-    path: `${sessionFolder}/exploration-${angle}.json`
+    path: `${planDir}/exploration-${angle}.json`
   }))
 }
-Write(`${sessionFolder}/explorations-manifest.json`, JSON.stringify(explorationManifest, null, 2))
+Write(`${planDir}/explorations-manifest.json`, JSON.stringify(explorationManifest, null, 2))
 ```
 
 ### Phase 3: Plan Generation
@@ -182,7 +199,7 @@ const schema = Bash(`cat ~/.ccw/workflows/cli-templates/schemas/plan-overview-ba
 
 if (complexity === 'Low') {
   // Direct Claude planning
-  Bash(`mkdir -p ${sessionFolder}/.task`)
+  Bash(`mkdir -p ${planDir}/.task`)
   // Generate plan.json + .task/TASK-*.json following schemas
 } else {
   // Use cli-lite-planning-agent for Medium/High
@@ -191,11 +208,16 @@ if (complexity === 'Low') {
     run_in_background: false,
     description: "Generate detailed implementation plan",
     prompt: `Generate implementation plan.
-Output: ${sessionFolder}/plan.json + ${sessionFolder}/.task/TASK-*.json
+Output: ${planDir}/plan.json + ${planDir}/.task/TASK-*.json
 Schema: cat ~/.ccw/workflows/cli-templates/schemas/plan-overview-base-schema.json
 Task Description: ${task.description}
 Explorations: ${explorationManifest}
 Complexity: ${complexity}
+${specContext ? `Spec Context:
+- Requirements: ${specContext.reqIndex.substring(0, 500)}
+- Architecture: ${specContext.archIndex.substring(0, 500)}
+- Epics: ${specContext.epicsIndex.substring(0, 500)}
+Reference REQ-* IDs, follow ADR decisions, reuse Epic/Story decomposition.` : ''}
 Requirements: 2-7 tasks, each with id, title, files[].change, convergence.criteria, depends_on`
   })
 }
@@ -204,8 +226,8 @@ Requirements: 2-7 tasks, each with id, title, files[].change, convergence.criter
 ### Phase 4: Submit for Approval
 
 ```javascript
-const plan = JSON.parse(Read(`${sessionFolder}/plan.json`))
-const planTasks = plan.task_ids.map(id => JSON.parse(Read(`${sessionFolder}/.task/${id}.json`)))
+const plan = JSON.parse(Read(`${planDir}/plan.json`))
+const planTasks = plan.task_ids.map(id => JSON.parse(Read(`${planDir}/.task/${id}.json`)))
 const taskCount = plan.task_count || plan.task_ids.length
 
 mcp__ccw-tools__team_msg({
@@ -213,7 +235,7 @@ mcp__ccw-tools__team_msg({
   from: "planner", to: "coordinator",
   type: "plan_ready",
   summary: `Plan就绪: ${taskCount}个task, ${complexity}复杂度`,
-  ref: `${sessionFolder}/plan.json`
+  ref: `${planDir}/plan.json`
 })
 
 SendMessage({
@@ -232,8 +254,8 @@ ${planTasks.map((t, i) => (i+1) + '. ' + t.title).join('\n')}
 ${plan.approach}
 
 ### Plan Location
-${sessionFolder}/plan.json
-Task Files: ${sessionFolder}/.task/
+${planDir}/plan.json
+Task Files: ${planDir}/.task/
 
 Please review and approve or request revisions.`,
   summary: `Plan ready: ${taskCount} tasks`
@@ -253,7 +275,7 @@ TaskUpdate({ taskId: task.id, status: 'completed' })
 ## Session Files
 
 ```
-.workflow/.team-plan/{task-slug}-{YYYY-MM-DD}/
+{sessionFolder}/plan/
 ├── exploration-{angle}.json
 ├── explorations-manifest.json
 ├── planning-context.md
@@ -261,6 +283,8 @@ TaskUpdate({ taskId: task.id, status: 'completed' })
 └── .task/
     └── TASK-*.json
 ```
+
+> **Note**: `sessionFolder` is extracted from task description (`Session: .workflow/.team/TLS-xxx`). Plan outputs go to `plan/` subdirectory. In full-lifecycle mode, spec products are available at `../spec/`.
 
 ## Error Handling
 

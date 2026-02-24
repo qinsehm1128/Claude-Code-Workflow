@@ -71,8 +71,10 @@
   "collaboration_patterns": ["CP-1", "CP-2", "CP-4", "CP-5", "CP-6", "CP-10"],
 
   "session_dirs": {
-    "spec": ".workflow/.spec-team/{topic-slug}-{YYYY-MM-DD}/",
-    "impl": ".workflow/.team-plan/{task-slug}-{YYYY-MM-DD}/",
+    "base": ".workflow/.team/TLS-{slug}-{YYYY-MM-DD}/",
+    "spec": "spec/",
+    "discussions": "discussions/",
+    "plan": "plan/",
     "messages": ".workflow/.team-msg/{team-name}/"
   }
 }

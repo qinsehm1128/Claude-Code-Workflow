@@ -907,12 +907,41 @@ export async function handleCodexLensConfigRoutes(ctx: RouteContext): Promise<bo
         settingsDefaults['CODEXLENS_CASCADE_FINE_K'] = String(settings.cascade.fine_k);
       }
 
+      // Staged cascade settings (advanced)
+      if (settings.staged?.stage2_mode) {
+        settingsDefaults['CODEXLENS_STAGED_STAGE2_MODE'] = settings.staged.stage2_mode;
+      }
+      if (settings.staged?.clustering_strategy) {
+        settingsDefaults['CODEXLENS_STAGED_CLUSTERING_STRATEGY'] = settings.staged.clustering_strategy;
+      }
+      if (settings.staged?.clustering_min_size !== undefined) {
+        settingsDefaults['CODEXLENS_STAGED_CLUSTERING_MIN_SIZE'] = String(settings.staged.clustering_min_size);
+      }
+      if (settings.staged?.enable_rerank !== undefined) {
+        settingsDefaults['CODEXLENS_ENABLE_STAGED_RERANK'] = String(settings.staged.enable_rerank);
+      }
+
       // LLM settings
       if (settings.llm?.enabled !== undefined) {
         settingsDefaults['CODEXLENS_LLM_ENABLED'] = String(settings.llm.enabled);
       }
       if (settings.llm?.batch_size !== undefined) {
         settingsDefaults['CODEXLENS_LLM_BATCH_SIZE'] = String(settings.llm.batch_size);
+      }
+
+      // Parsing / indexing settings
+      if (settings.parsing?.use_astgrep !== undefined) {
+        settingsDefaults['CODEXLENS_USE_ASTGREP'] = String(settings.parsing.use_astgrep);
+      }
+      if (settings.indexing?.static_graph_enabled !== undefined) {
+        settingsDefaults['CODEXLENS_STATIC_GRAPH_ENABLED'] = String(settings.indexing.static_graph_enabled);
+      }
+      if (settings.indexing?.static_graph_relationship_types !== undefined) {
+        if (Array.isArray(settings.indexing.static_graph_relationship_types)) {
+          settingsDefaults['CODEXLENS_STATIC_GRAPH_RELATIONSHIP_TYPES'] = settings.indexing.static_graph_relationship_types.join(',');
+        } else if (typeof settings.indexing.static_graph_relationship_types === 'string') {
+          settingsDefaults['CODEXLENS_STATIC_GRAPH_RELATIONSHIP_TYPES'] = settings.indexing.static_graph_relationship_types;
+        }
       }
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -1080,7 +1109,7 @@ export async function handleCodexLensConfigRoutes(ctx: RouteContext): Promise<bo
           settings = JSON.parse(settingsContent);
         } catch {
           // File doesn't exist, create default structure
-          settings = { embedding: {}, reranker: {}, api: {}, cascade: {}, llm: {} };
+          settings = { embedding: {}, reranker: {}, api: {}, cascade: {}, staged: {}, llm: {}, parsing: {}, indexing: {} };
         }
 
         // Map env vars to settings.json structure
@@ -1103,8 +1132,21 @@ export async function handleCodexLensConfigRoutes(ctx: RouteContext): Promise<bo
           'CODEXLENS_CASCADE_STRATEGY': { path: ['cascade', 'strategy'] },
           'CODEXLENS_CASCADE_COARSE_K': { path: ['cascade', 'coarse_k'], transform: v => parseInt(v, 10) },
           'CODEXLENS_CASCADE_FINE_K': { path: ['cascade', 'fine_k'], transform: v => parseInt(v, 10) },
+          'CODEXLENS_STAGED_STAGE2_MODE': { path: ['staged', 'stage2_mode'] },
+          'CODEXLENS_STAGED_CLUSTERING_STRATEGY': { path: ['staged', 'clustering_strategy'] },
+          'CODEXLENS_STAGED_CLUSTERING_MIN_SIZE': { path: ['staged', 'clustering_min_size'], transform: v => parseInt(v, 10) },
+          'CODEXLENS_ENABLE_STAGED_RERANK': { path: ['staged', 'enable_rerank'], transform: v => v === 'true' },
           'CODEXLENS_LLM_ENABLED': { path: ['llm', 'enabled'], transform: v => v === 'true' },
           'CODEXLENS_LLM_BATCH_SIZE': { path: ['llm', 'batch_size'], transform: v => parseInt(v, 10) },
+          'CODEXLENS_USE_ASTGREP': { path: ['parsing', 'use_astgrep'], transform: v => v === 'true' },
+          'CODEXLENS_STATIC_GRAPH_ENABLED': { path: ['indexing', 'static_graph_enabled'], transform: v => v === 'true' },
+          'CODEXLENS_STATIC_GRAPH_RELATIONSHIP_TYPES': {
+            path: ['indexing', 'static_graph_relationship_types'],
+            transform: v => v
+              .split(',')
+              .map((t) => t.trim())
+              .filter((t) => t.length > 0),
+          },
           'LITELLM_EMBEDDING_MODEL': { path: ['embedding', 'model'] },
           'LITELLM_RERANKER_MODEL': { path: ['reranker', 'model'] }
         };

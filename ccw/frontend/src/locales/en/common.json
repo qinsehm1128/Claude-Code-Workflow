@@ -182,6 +182,8 @@
   "labels": {
     "progress": "Progress"
   },
+  "fullscreen": "Fullscreen",
+  "exitFullscreen": "Exit Fullscreen",
   "dialog": {
     "createSession": "Create New Session",
     "createSessionDesc": "Create a new workflow session to track your development tasks.",

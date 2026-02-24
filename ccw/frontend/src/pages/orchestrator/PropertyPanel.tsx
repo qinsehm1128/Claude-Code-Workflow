@@ -1126,6 +1126,49 @@ function PromptTemplateProperties({ data, onChange }: PromptTemplatePropertiesPr
         {/* CLI Session Routing (tmux-like) */}
         {!isSlashCommandMode && (
           <>
+            {/* Instruction Type for native CLI sessions */}
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">
+                Instruction Type
+              </label>
+              <select
+                value={data.instructionType || 'prompt'}
+                onChange={(e) => {
+                  const next = e.target.value as 'prompt' | 'skill' | 'command';
+                  const updates: Partial<PromptTemplateNodeData> = { instructionType: next };
+                  if (next !== 'skill') {
+                    updates.skillName = undefined;
+                  }
+                  onChange(updates);
+                }}
+                className="w-full h-10 px-3 rounded-md border border-border bg-background text-foreground text-sm"
+              >
+                <option value="prompt">Prompt (direct text)</option>
+                <option value="skill">Skill (CLI-specific prefix)</option>
+                <option value="command">Command (CLI native)</option>
+              </select>
+            </div>
+
+            {/* Skill Name - shown when instructionType is 'skill' */}
+            {(data.instructionType === 'skill') && (
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">
+                  Skill Name
+                  {data.tool && (
+                    <span className="ml-2 text-xs text-muted-foreground font-normal">
+                      {data.tool === 'claude' ? 'prefix: /' : data.tool === 'codex' ? 'prefix: $' : 'no prefix'}
+                    </span>
+                  )}
+                </label>
+                <Input
+                  value={data.skillName || ''}
+                  onChange={(e) => onChange({ skillName: e.target.value || undefined })}
+                  placeholder={data.tool === 'claude' ? 'e.g. review-code' : data.tool === 'codex' ? 'e.g. fix' : 'skill name'}
+                  className="font-mono text-sm"
+                />
+              </div>
+            )}
+
             <div>
               <label className="block text-sm font-medium text-foreground mb-1">
                 {formatMessage({ id: 'orchestrator.propertyPanel.delivery' })}

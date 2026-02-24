@@ -24,7 +24,12 @@ import {
   useCodexLensLspStatus,
   useCodexLensSemanticSearch,
 } from '@/hooks/useCodexLens';
-import type { CodexLensSearchParams, CodexLensSemanticSearchMode, CodexLensFusionStrategy } from '@/lib/api';
+import type {
+  CodexLensSearchParams,
+  CodexLensSemanticSearchMode,
+  CodexLensFusionStrategy,
+  CodexLensStagedStage2Mode,
+} from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 type SearchType = 'search' | 'search_files' | 'symbol' | 'semantic';
@@ -40,6 +45,7 @@ export function SearchTab({ enabled }: SearchTabProps) {
   const [searchMode, setSearchMode] = useState<SearchMode>('dense_rerank');
   const [semanticMode, setSemanticMode] = useState<CodexLensSemanticSearchMode>('fusion');
   const [fusionStrategy, setFusionStrategy] = useState<CodexLensFusionStrategy>('rrf');
+  const [stagedStage2Mode, setStagedStage2Mode] = useState<CodexLensStagedStage2Mode>('precomputed');
   const [query, setQuery] = useState('');
   const [hasSearched, setHasSearched] = useState(false);
 
@@ -76,6 +82,7 @@ export function SearchTab({ enabled }: SearchTabProps) {
       query,
       mode: semanticMode,
       fusion_strategy: semanticMode === 'fusion' ? fusionStrategy : undefined,
+      staged_stage2_mode: semanticMode === 'fusion' && fusionStrategy === 'staged' ? stagedStage2Mode : undefined,
       limit: 20,
       include_match_reason: true,
     },
@@ -120,6 +127,11 @@ export function SearchTab({ enabled }: SearchTabProps) {
 
   const handleFusionStrategyChange = (value: CodexLensFusionStrategy) => {
     setFusionStrategy(value);
+    setHasSearched(false);
+  };
+
+  const handleStagedStage2ModeChange = (value: CodexLensStagedStage2Mode) => {
+    setStagedStage2Mode(value);
     setHasSearched(false);
   };
 
@@ -302,6 +314,29 @@ export function SearchTab({ enabled }: SearchTabProps) {
               </SelectItem>
               <SelectItem value="staged">
                 {formatMessage({ id: 'codexlens.search.fusionStrategy.staged' })}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {/* Staged Stage-2 Mode - only when semantic + fusion + staged */}
+      {searchType === 'semantic' && semanticMode === 'fusion' && fusionStrategy === 'staged' && (
+        <div className="space-y-2">
+          <Label>{formatMessage({ id: 'codexlens.search.stagedStage2Mode' })}</Label>
+          <Select value={stagedStage2Mode} onValueChange={handleStagedStage2ModeChange}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="precomputed">
+                {formatMessage({ id: 'codexlens.search.stagedStage2Mode.precomputed' })}
+              </SelectItem>
+              <SelectItem value="realtime">
+                {formatMessage({ id: 'codexlens.search.stagedStage2Mode.realtime' })}
+              </SelectItem>
+              <SelectItem value="static_global_graph">
+                {formatMessage({ id: 'codexlens.search.stagedStage2Mode.static_global_graph' })}
               </SelectItem>
             </SelectContent>
           </Select>

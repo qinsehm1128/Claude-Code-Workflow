@@ -140,6 +140,8 @@ interface CliExecOptions {
   title?: string; // Optional title for review summary
   // Template/Rules options
   rule?: string; // Template name for auto-discovery (defines $PROTO and $TMPL env vars)
+  // Claude-specific options
+  effort?: string; // Effort level for claude: low, medium, high
   // Output options
   raw?: boolean; // Raw output only (best for piping)
   final?: boolean; // Final agent result only (best for piping)
@@ -612,6 +614,7 @@ async function execAction(positionalPrompt: string | undefined, options: CliExec
     commit,
     title,
     rule,
+    effort,
     toFile,
     raw,
     final: finalOnly,
@@ -683,6 +686,21 @@ async function execAction(positionalPrompt: string | undefined, options: CliExec
   // Prompt is required unless resuming OR using review mode with target flags
   // codex review: --uncommitted, --base, --commit don't require a prompt
   const isReviewWithTarget = mode === 'review' && (uncommitted || base || commit);
+
+  // Conflict detection: prompt + review target flags are mutually exclusive
+  // When both provided, warn user and prioritize target flag (drop prompt)
+  if (isReviewWithTarget && finalPrompt && tool === 'codex') {
+    const targetFlag = uncommitted ? '--uncommitted' : (base ? `--base ${base}` : `--commit ${commit}`);
+    console.log(chalk.yellow('Warning: Prompt is ignored when review target flag is specified'));
+    console.log(chalk.gray(`  Using: ${targetFlag} (prompt will be dropped)`));
+    console.log(chalk.gray('  Valid combinations:'));
+    console.log(chalk.gray('    • ccw cli -p "..." --tool codex --mode review           # prompt only'));
+    console.log(chalk.gray('    • ccw cli --tool codex --mode review --uncommitted       # target only'));
+    console.log();
+    // Drop prompt to avoid codex CLI argument conflict
+    finalPrompt = undefined;
+  }
+
   if (!finalPrompt && !resume && !isReviewWithTarget) {
     console.error(chalk.red('Error: Prompt is required'));
     console.error(chalk.gray('Usage: ccw cli -p "<prompt>" --tool gemini'));
@@ -1044,7 +1062,8 @@ async function execAction(positionalPrompt: string | undefined, options: CliExec
       uncommitted,
       base,
       commit,
-      title
+      title,
+      effort
       // Rules are now concatenated directly into prompt (no env vars)
     }, onOutput); // Always pass onOutput for real-time dashboard streaming
 
@@ -1497,6 +1516,7 @@ export async function cliCommand(
         console.log(chalk.gray('    --mode <mode>       Mode: analysis, write, auto, review (default: analysis)'));
         console.log(chalk.gray('    -d, --debug         Enable debug logging for troubleshooting'));
         console.log(chalk.gray('    --model <model>     Model override (supports PRIMARY_MODEL, SECONDARY_MODEL aliases)'));
+        console.log(chalk.gray('    --effort <level>    Effort level for claude (low, medium, high)'));
         console.log(chalk.gray('    --cd <path>         Working directory'));
         console.log(chalk.gray('    --includeDirs <dirs>  Additional directories'));
         // --timeout removed - controlled by external caller (bash timeout)

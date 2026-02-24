@@ -1,27 +1,25 @@
 // ========================================
 // Orchestrator Page
 // ========================================
-// Visual workflow editor with React Flow, drag-drop node palette, and property panel
+// Visual workflow template editor with React Flow, drag-drop node palette, and property panel
+// Execution functionality moved to Terminal Dashboard
 
 import { useEffect, useState, useCallback } from 'react';
 import * as Collapsible from '@radix-ui/react-collapsible';
 import { ChevronRight } from 'lucide-react';
 import { useFlowStore } from '@/stores';
-import { useExecutionStore } from '@/stores/executionStore';
 import { Button } from '@/components/ui/Button';
 import { FlowCanvas } from './FlowCanvas';
 import { LeftSidebar } from './LeftSidebar';
 import { PropertyPanel } from './PropertyPanel';
 import { FlowToolbar } from './FlowToolbar';
 import { TemplateLibrary } from './TemplateLibrary';
-import { ExecutionMonitor } from './ExecutionMonitor';
 
 export function OrchestratorPage() {
   const fetchFlows = useFlowStore((state) => state.fetchFlows);
   const isPaletteOpen = useFlowStore((state) => state.isPaletteOpen);
   const setIsPaletteOpen = useFlowStore((state) => state.setIsPaletteOpen);
   const isPropertyPanelOpen = useFlowStore((state) => state.isPropertyPanelOpen);
-  const isMonitorPanelOpen = useExecutionStore((state) => state.isMonitorPanelOpen);
   const [isTemplateLibraryOpen, setIsTemplateLibraryOpen] = useState(false);
 
   // Load flows on mount
@@ -60,15 +58,12 @@ export function OrchestratorPage() {
           <FlowCanvas className="absolute inset-0" />
 
           {/* Property Panel as overlay - only shown when a node is selected */}
-          {!isMonitorPanelOpen && isPropertyPanelOpen && (
+          {isPropertyPanelOpen && (
             <div className="absolute top-2 right-2 bottom-2 z-10">
               <PropertyPanel className="h-full" />
             </div>
           )}
         </div>
-
-        {/* Execution Monitor Panel (Right) */}
-        <ExecutionMonitor />
       </div>
 
       {/* Template Library Dialog */}

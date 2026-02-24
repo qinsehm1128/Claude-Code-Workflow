@@ -11,7 +11,7 @@ return `None`; callers should use a regex-based fallback such as
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, TYPE_CHECKING
 
 try:
     from tree_sitter import Language as TreeSitterLanguage
@@ -27,25 +27,45 @@ except ImportError:
 from codexlens.entities import CodeRelationship, IndexedFile, RelationshipType, Symbol
 from codexlens.parsers.tokenizer import get_default_tokenizer
 
+if TYPE_CHECKING:
+    from codexlens.config import Config
+
 
 class TreeSitterSymbolParser:
-    """Parser using tree-sitter for AST-level symbol extraction."""
+    """Parser using tree-sitter for AST-level symbol extraction.
 
-    def __init__(self, language_id: str, path: Optional[Path] = None) -> None:
+    Supports optional ast-grep integration for relationship extraction
+    (Python/JavaScript/TypeScript) when config.use_astgrep is True and
+    ast-grep-py is available.
+    """
+
+    def __init__(
+        self,
+        language_id: str,
+        path: Optional[Path] = None,
+        config: Optional["Config"] = None,
+    ) -> None:
         """Initialize tree-sitter parser for a language.
 
         Args:
             language_id: Language identifier (python, javascript, typescript, etc.)
             path: Optional file path for language variant detection (e.g., .tsx)
+            config: Optional Config instance for parser feature toggles
         """
         self.language_id = language_id
         self.path = path
+        self._config = config
         self._parser: Optional[object] = None
         self._language: Optional[TreeSitterLanguage] = None
         self._tokenizer = get_default_tokenizer()
+        self._astgrep_processor = None
 
         if TREE_SITTER_AVAILABLE:
             self._initialize_parser()
+
+        # Initialize ast-grep processor for Python if config enables it
+        if self._should_use_astgrep():
+            self._initialize_astgrep_processor()
 
     def _initialize_parser(self) -> None:
         """Initialize tree-sitter parser and language."""
@@ -81,6 +101,40 @@ class TreeSitterSymbolParser:
             # Gracefully handle missing language bindings
             self._parser = None
             self._language = None
+
+    def _should_use_astgrep(self) -> bool:
+        """Check if ast-grep should be used for relationship extraction.
+
+        Returns:
+            True if config.use_astgrep is True and language is supported
+        """
+        if self._config is None:
+            return False
+        if not getattr(self._config, "use_astgrep", False):
+            return False
+        return self.language_id in {"python", "javascript", "typescript"}
+
+    def _initialize_astgrep_processor(self) -> None:
+        """Initialize ast-grep processor for relationship extraction."""
+        try:
+            from codexlens.parsers.astgrep_processor import (
+                AstGrepPythonProcessor,
+                is_astgrep_processor_available,
+            )
+            from codexlens.parsers.astgrep_js_ts_processor import (
+                AstGrepJavaScriptProcessor,
+                AstGrepTypeScriptProcessor,
+            )
+
+            if is_astgrep_processor_available():
+                if self.language_id == "python":
+                    self._astgrep_processor = AstGrepPythonProcessor(self.path)
+                elif self.language_id == "javascript":
+                    self._astgrep_processor = AstGrepJavaScriptProcessor(self.path)
+                elif self.language_id == "typescript":
+                    self._astgrep_processor = AstGrepTypeScriptProcessor(self.path)
+        except ImportError:
+            self._astgrep_processor = None
 
     def is_available(self) -> bool:
         """Check if tree-sitter parser is available.
@@ -138,7 +192,10 @@ class TreeSitterSymbolParser:
         source_bytes, root = parsed
         try:
             symbols = self._extract_symbols(source_bytes, root)
-            relationships = self._extract_relationships(source_bytes, root, path)
+            # Pass source_code for ast-grep integration
+            relationships = self._extract_relationships(
+                source_bytes, root, path, source_code=text
+            )
 
             return IndexedFile(
                 path=str(path.resolve()),
@@ -173,12 +230,66 @@ class TreeSitterSymbolParser:
         source_bytes: bytes,
         root: TreeSitterNode,
         path: Path,
+        source_code: Optional[str] = None,
     ) -> List[CodeRelationship]:
+        """Extract relationships, optionally using ast-grep.
+
+        When config.use_astgrep is True and an ast-grep processor is available,
+        uses ast-grep for relationship extraction. Otherwise, uses tree-sitter.
+
+        Args:
+            source_bytes: Source code as bytes
+            root: Root AST node from tree-sitter
+            path: File path
+            source_code: Optional source code string (required for ast-grep)
+
+        Returns:
+            List of extracted relationships
+        """
+        # Try ast-grep first if configured and available for this language.
+        if self._astgrep_processor is not None and source_code is not None:
+            try:
+                astgrep_rels = self._extract_relationships_astgrep(source_code, path)
+                if astgrep_rels is not None:
+                    return astgrep_rels
+            except Exception:
+                # Fall back to tree-sitter on ast-grep failure
+                pass
+
         if self.language_id == "python":
             return self._extract_python_relationships(source_bytes, root, path)
         if self.language_id in {"javascript", "typescript"}:
             return self._extract_js_ts_relationships(source_bytes, root, path)
         return []
+
+    def _extract_relationships_astgrep(
+        self,
+        source_code: str,
+        path: Path,
+    ) -> Optional[List[CodeRelationship]]:
+        """Extract relationships using ast-grep processor.
+
+        Args:
+            source_code: Source code text
+            path: File path
+
+        Returns:
+            List of relationships, or None if ast-grep unavailable
+        """
+        if self._astgrep_processor is None:
+            return None
+
+        if not self._astgrep_processor.is_available():
+            return None
+
+        try:
+            indexed = self._astgrep_processor.parse(source_code, path)
+            if indexed is not None:
+                return indexed.relationships
+        except Exception:
+            pass
+
+        return None
 
     def _extract_python_relationships(
         self,
@@ -189,7 +300,9 @@ class TreeSitterSymbolParser:
         source_file = str(path.resolve())
         relationships: List[CodeRelationship] = []
 
-        scope_stack: List[str] = []
+        # Use a synthetic module scope so module-level imports/calls can be recorded
+        # (useful for static global graph persistence).
+        scope_stack: List[str] = ["<module>"]
         alias_stack: List[Dict[str, str]] = [{}]
 
         def record_import(target_symbol: str, source_line: int) -> None:
@@ -296,7 +409,9 @@ class TreeSitterSymbolParser:
         source_file = str(path.resolve())
         relationships: List[CodeRelationship] = []
 
-        scope_stack: List[str] = []
+        # Use a synthetic module scope so module-level imports/calls can be recorded
+        # (useful for static global graph persistence).
+        scope_stack: List[str] = ["<module>"]
         alias_stack: List[Dict[str, str]] = [{}]
 
         def record_import(target_symbol: str, source_line: int) -> None:
@@ -489,7 +604,7 @@ class TreeSitterSymbolParser:
         targets: List[str] = []
 
         if node.type == "import_statement":
-            for child in node.children:
+            for i, child in enumerate(node.children):
                 if child.type == "aliased_import":
                     name_node = child.child_by_field_name("name")
                     alias_node = child.child_by_field_name("alias")
@@ -526,7 +641,7 @@ class TreeSitterSymbolParser:
             if module_node is not None:
                 module_name = self._node_text(source_bytes, module_node).strip()
 
-            for child in node.children:
+            for i, child in enumerate(node.children):
                 if child.type == "aliased_import":
                     name_node = child.child_by_field_name("name")
                     alias_node = child.child_by_field_name("alias")
@@ -544,7 +659,18 @@ class TreeSitterSymbolParser:
                     if bound_name:
                         aliases[bound_name] = target
                     targets.append(target)
-                elif child.type == "identifier":
+                elif child.type == "dotted_name" and node.field_name_for_child(i) == "name":
+                    # tree-sitter-python represents `from X import A, B, C` as
+                    # multiple dotted_name nodes (field: "name").
+                    imported_name = self._node_text(source_bytes, child).strip()
+                    if not imported_name:
+                        continue
+                    target = (
+                        f"{module_name}.{imported_name}" if module_name else imported_name
+                    )
+                    aliases[imported_name] = target
+                    targets.append(target)
+                elif child.type == "identifier" and node.field_name_for_child(i) == "name":
                     imported_name = self._node_text(source_bytes, child).strip()
                     if not imported_name or imported_name in {"from", "import", "*"}:
                         continue

@@ -81,6 +81,7 @@ const navGroupDefinitions: NavGroupDef[] = [
       { path: '/history', labelKey: 'navigation.main.history', icon: Clock },
       { path: '/issues', labelKey: 'navigation.main.issues', icon: AlertCircle },
       { path: '/teams', labelKey: 'navigation.main.teams', icon: Users },
+      { path: '/terminal-dashboard', labelKey: 'navigation.main.terminalDashboard', icon: Terminal },
     ],
   },
   {

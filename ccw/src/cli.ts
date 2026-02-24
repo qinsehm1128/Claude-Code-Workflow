@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { viewCommand } from './commands/view.js';
 import { serveCommand } from './commands/serve.js';
 import { stopCommand } from './commands/stop.js';
-import { installCommand } from './commands/install.js';
+import { installCommand, installSkillHubCommand } from './commands/install.js';
 import { uninstallCommand } from './commands/uninstall.js';
 import { upgradeCommand } from './commands/upgrade.js';
 import { listCommand } from './commands/list.js';
@@ -115,7 +115,21 @@ export function run(argv: string[]): void {
     .option('-m, --mode <mode>', 'Installation mode: Global or Path')
     .option('-p, --path <path>', 'Installation path (for Path mode)')
     .option('-f, --force', 'Force installation without prompts')
-    .action(installCommand);
+    .option('--skill-hub [skillId]', 'Install skill from skill-hub (use --list to see available)')
+    .option('--cli <type>', 'Target CLI for skill installation (claude or codex)', 'claude')
+    .option('--list', 'List available skills in skill-hub')
+    .action((options) => {
+      // If skill-hub option is used, route to skill hub command
+      if (options.skillHub !== undefined || options.list) {
+        return installSkillHubCommand({
+          skillId: typeof options.skillHub === 'string' ? options.skillHub : undefined,
+          cliType: options.cli,
+          list: options.list,
+        });
+      }
+      // Otherwise use normal install
+      return installCommand(options);
+    });
 
   // Uninstall command
   program
@@ -192,6 +206,8 @@ export function run(argv: string[]): void {
     .option('--inject-mode <mode>', 'Inject mode: none, full, progressive (default: codex=full, others=none)')
     // Template/Rules options
     .option('--rule <template>', 'Template name for auto-discovery (defines $PROTO and $TMPL env vars)')
+    // Claude-specific options
+    .option('--effort <level>', 'Effort level for claude session (low, medium, high)')
     // Codex review options
     .option('--uncommitted', 'Review uncommitted changes (codex review)')
     .option('--base <branch>', 'Review changes against base branch (codex review)')
@@ -263,6 +279,10 @@ export function run(argv: string[]): void {
     .option('--output <file>', 'Output file path for export')
     .option('--overwrite', 'Overwrite existing memories when importing')
     .option('--prefix <prefix>', 'Add prefix to imported memory IDs')
+    .option('--unified', 'Use unified vector+FTS search (for search subcommand)')
+    .option('--topK <n>', 'Max results for unified search', '20')
+    .option('--minScore <n>', 'Min relevance score for unified search', '0')
+    .option('--category <cat>', 'Filter by category for unified search')
     .action((subcommand, args, options) => coreMemoryCommand(subcommand, args, options));
 
   // Hook command - CLI endpoint for Claude Code hooks

@@ -1,6 +1,6 @@
 import path from 'path';
 
-export type CliSessionShellKind = 'wsl-bash' | 'git-bash' | 'pwsh';
+export type CliSessionShellKind = 'wsl-bash' | 'git-bash' | 'pwsh' | 'cmd';
 
 export type CliSessionResumeStrategy = 'nativeResume' | 'promptConcat';
 

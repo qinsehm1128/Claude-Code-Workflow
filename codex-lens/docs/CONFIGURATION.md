@@ -125,6 +125,13 @@ CODEXLENS_DEBUG=false
     "tool": "gemini",
     "timeout_ms": 300000,
     "batch_size": 5
+  },
+  "parsing": {
+    "use_astgrep": false
+  },
+  "indexing": {
+    "static_graph_enabled": false,
+    "static_graph_relationship_types": ["imports", "inherits"]
   }
 }
 ```
@@ -166,6 +173,32 @@ CODEXLENS_DEBUG=false
 | `tool` | string | LLM 工具 (`gemini`, `codex`) |
 | `timeout_ms` | int | 超时时间 (毫秒) |
 | `batch_size` | int | 批处理大小 |
+
+### Parsing 设置
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `use_astgrep` | bool | 优先使用 ast-grep 解析关系（实验性；当前主要用于 Python relationships） |
+
+### Indexing 设置（静态图）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `static_graph_enabled` | bool | 索引时将 relationships 写入全局 `global_relationships`，用于搜索阶段静态图扩展 |
+| `static_graph_relationship_types` | array | 允许持久化的关系类型：`imports` / `inherits` / `calls` |
+
+**CLI 覆盖（单次运行，不写入 settings.json）**:
+
+```bash
+# 索引时启用静态图 relationships + 使用 ast-grep（如果可用）
+codexlens index init --use-astgrep --static-graph --static-graph-types imports,inherits,calls
+```
+
+**Search staged 静态图扩展（高级）**:
+
+```bash
+codexlens search --cascade-strategy staged --staged-stage2-mode static_global_graph
+```
 
 ## FastEmbed 模型配置文件
 

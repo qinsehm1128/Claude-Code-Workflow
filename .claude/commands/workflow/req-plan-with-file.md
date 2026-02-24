@@ -1,6 +1,6 @@
 ---
 name: req-plan-with-file
-description: Requirement-level progressive roadmap planning with JSONL output. Decomposes requirements into convergent layers (MVP→iterations) or topologically-sorted task sequences, each with testable completion criteria.
+description: Requirement-level progressive roadmap planning with issue creation. Decomposes requirements into convergent layers or task sequences, creates issues via ccw issue create, and generates roadmap.md for human review. Issues stored in .workflow/issues/issues.jsonl (single source of truth).
 argument-hint: "[-y|--yes] [-c|--continue] [-m|--mode progressive|direct|auto] \"requirement description\""
 allowed-tools: TodoWrite(*), Task(*), AskUserQuestion(*), Read(*), Grep(*), Glob(*), Bash(*), Edit(*), Write(*)
 ---
@@ -31,18 +31,18 @@ When `--yes` or `-y`: Auto-confirm strategy selection, use recommended mode, ski
 
 **Context Source**: cli-explore-agent (optional) + requirement analysis
 **Output Directory**: `.workflow/.req-plan/{session-id}/`
-**Core Innovation**: JSONL roadmap where each record is self-contained + has convergence criteria, independently executable via lite-plan
+**Core Innovation**: Requirement decomposition → issue creation via `ccw issue create`. Issues stored in `.workflow/issues/issues.jsonl` (single source of truth). Wave/dependency info embedded in issue tags (`wave-N`) and `extended_context.notes.depends_on_issues`. team-planex consumes issues directly by ID or tag query.
 
 ## Overview
 
-Requirement-level layered roadmap planning command. Decomposes a requirement into **convergent layers or task sequences**, each record containing explicit completion criteria (convergence), independently executable via `lite-plan`.
+Requirement-level layered roadmap planning command. Decomposes a requirement into **convergent layers or task sequences**, creates issues via `ccw issue create`. Issues are the single source of truth in `.workflow/issues/issues.jsonl`; wave and dependency info is embedded in issue tags and `extended_context.notes`.
 
 **Dual Modes**:
 - **Progressive**: Layered MVP→iterations, suitable for high-uncertainty requirements (validate first, then refine)
 - **Direct**: Topologically-sorted task sequence, suitable for low-uncertainty requirements (clear tasks, directly ordered)
 - **Auto**: Automatically selects based on uncertainty level
 
-**Core Workflow**: Requirement Understanding → Strategy Selection → Context Collection (optional) → Decomposition → Validation → Output
+**Core Workflow**: Requirement Understanding → Strategy Selection → Context Collection (optional) → Decomposition + Issue Creation → Validation → team-planex Handoff
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -62,16 +62,16 @@ Requirement-level layered roadmap planning command. Decomposes a requirement int
 │     ├─ Has codebase → cli-explore-agent explores relevant modules        │
 │     └─ No codebase  → skip, pure requirement decomposition               │
 │                                                                          │
-│  Phase 3: Decomposition Execution (cli-roadmap-plan-agent)               │
+│  Phase 3: Decomposition & Issue Creation (cli-roadmap-plan-agent)        │
 │     ├─ Progressive: define 2-4 layers, each with full convergence        │
 │     ├─ Direct: vertical slicing + topological sort, each with convergence│
-│     └─ Generate roadmap.jsonl (one self-contained record per line)        │
+│     ├─ Create issues via ccw issue create (ISS-xxx IDs)                  │
+│     └─ Generate roadmap.md (with issue ID references)                    │
 │                                                                          │
-│  Phase 4: Interactive Validation & Final Output                          │
+│  Phase 4: Validation & team-planex Handoff                               │
 │     ├─ Display decomposition results (tabular + convergence criteria)    │
 │     ├─ User feedback loop (up to 5 rounds)                               │
-│     ├─ Generate final roadmap.md                                         │
-│     └─ Next steps: layer-by-layer lite-plan / create issue / export      │
+│     └─ Next steps: team-planex full execution / wave-by-wave / view      │
 │                                                                          │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -80,8 +80,7 @@ Requirement-level layered roadmap planning command. Decomposes a requirement int
 
 ```
 .workflow/.req-plan/RPLAN-{slug}-{YYYY-MM-DD}/
-├── roadmap.md                    # ⭐ Human-readable roadmap
-├── roadmap.jsonl                 # ⭐ Machine-readable, one self-contained record per line (with convergence)
+├── roadmap.md                    # Human-readable roadmap with issue ID references
 ├── strategy-assessment.json      # Strategy assessment result
 └── exploration-codebase.json     # Codebase context (optional)
 ```
@@ -89,10 +88,9 @@ Requirement-level layered roadmap planning command. Decomposes a requirement int
 | File | Phase | Description |
 |------|-------|-------------|
 | `strategy-assessment.json` | 1 | Uncertainty analysis + mode recommendation + extracted goal/constraints/stakeholders |
-| `roadmap.md` (skeleton) | 1 | Initial skeleton with placeholders, finalized in Phase 4 |
+| `roadmap.md` (skeleton) | 1 | Initial skeleton with placeholders, finalized in Phase 3 |
 | `exploration-codebase.json` | 2 | Codebase context: relevant modules, patterns, integration points (only when codebase exists) |
-| `roadmap.jsonl` | 3 | One self-contained JSON record per line with convergence criteria |
-| `roadmap.md` (final) | 4 | Human-readable roadmap with tabular display + convergence details, revised per user feedback |
+| `roadmap.md` (final) | 3 | Human-readable roadmap with issue ID references, convergence details, team-planex execution guide |
 
 **roadmap.md template**:
 
@@ -133,59 +131,36 @@ Requirement-level layered roadmap planning command. Decomposes a requirement int
 **Session ID format**: `RPLAN-{slug}-{YYYY-MM-DD}`
 - slug: lowercase, alphanumeric + CJK characters, max 40 chars
 - date: YYYY-MM-DD (UTC+8)
-- Auto-detect continue: session folder + roadmap.jsonl exists → continue mode
+- Auto-detect continue: session folder + roadmap.md exists → continue mode
 
 ## JSONL Schema Design
 
-### Convergence Criteria (convergence field)
+### Issue Format
 
-Each JSONL record's `convergence` object contains three levels:
+Each line in `issues.jsonl` follows the standard `issues-jsonl-schema.json` (see `.ccw/workflows/cli-templates/schemas/issues-jsonl-schema.json`).
 
-| Field | Purpose | Requirement |
-|-------|---------|-------------|
-| `criteria[]` | List of checkable specific conditions | **Testable** (can be written as assertions or manual steps) |
-| `verification` | How to verify these conditions | **Executable** (command, script, or explicit steps) |
-| `definition_of_done` | One-sentence completion definition | **Business language** (non-technical person can judge) |
+**Key fields per issue**:
 
-### Progressive Mode
+| Field | Source | Description |
+|-------|--------|-------------|
+| `id` | `ccw issue create` | Formal ISS-YYYYMMDD-NNN ID |
+| `title` | Layer/task mapping | `[LayerName] goal` or `[TaskType] title` |
+| `context` | Convergence fields | Markdown with goal, scope, convergence criteria, verification, DoD |
+| `priority` | Effort mapping | small→4, medium→3, large→2 |
+| `source` | Fixed | `"text"` |
+| `tags` | Auto-generated | `["req-plan", mode, name/type, "wave-N"]` |
+| `extended_context.notes` | Metadata JSON | session, strategy, original_id, wave, depends_on_issues |
+| `lifecycle_requirements` | Fixed | test_strategy, regression_scope, acceptance_type, commit_strategy |
 
-Each line = one layer. Layer naming convention:
+### Convergence Criteria (in issue context)
 
-| Layer | Name | Typical Goal |
-|-------|------|--------------|
-| L0 | MVP | Minimum viable closed loop, core path works end-to-end |
-| L1 | Usable | Key user paths refined, basic error handling |
-| L2 | Refined | Edge case handling, performance optimization, security hardening |
-| L3 | Optimized | Advanced features, observability, operations support |
+Each issue's `context` field contains convergence information:
 
-**Schema**: `id, name, goal, scope[], excludes[], convergence{}, risks[], effort, depends_on[]`
-
-```jsonl
-{"id":"L0","name":"MVP","goal":"Minimum viable closed loop","scope":["User registration and login","Basic CRUD"],"excludes":["OAuth","2FA"],"convergence":{"criteria":["End-to-end register→login→operate flow works","Core API returns correct responses"],"verification":"curl/Postman manual testing or smoke test script","definition_of_done":"New user can complete the full flow of register→login→perform one core operation"},"risks":[{"description":"JWT library selection needs validation","probability":"Medium","impact":"Medium","mitigation":"N/A"}],"effort":"medium","depends_on":[]}
-{"id":"L1","name":"Usable","goal":"Complete key user paths","scope":["Password reset","Input validation","Error messages"],"excludes":["Audit logs","Rate limiting"],"convergence":{"criteria":["All form fields have frontend+backend validation","Password reset email can be sent and reset completed","Error scenarios show user-friendly messages"],"verification":"Unit tests cover validation logic + manual test of reset flow","definition_of_done":"Users have a clear recovery path when encountering input errors or forgotten passwords"},"risks":[],"effort":"medium","depends_on":["L0"]}
-```
-
-**Constraints**: 2-4 layers, L0 must be a self-contained closed loop with no dependencies, each feature belongs to exactly ONE layer (no scope overlap).
-
-### Direct Mode
-
-Each line = one task. Task type convention:
-
-| Type | Use Case |
-|------|----------|
-| infrastructure | Data models, configuration, scaffolding |
-| feature | API, UI, business logic implementation |
-| enhancement | Validation, error handling, edge cases |
-| testing | Unit tests, integration tests, E2E |
-
-**Schema**: `id, title, type, scope, inputs[], outputs[], convergence{}, depends_on[], parallel_group`
-
-```jsonl
-{"id":"T1","title":"Establish data model","type":"infrastructure","scope":"DB schema + TypeScript types","inputs":[],"outputs":["schema.prisma","types/user.ts"],"convergence":{"criteria":["Migration executes without errors","TypeScript types compile successfully","Fields cover all business entities"],"verification":"npx prisma migrate dev && npx tsc --noEmit","definition_of_done":"Database schema migrates correctly, type definitions can be referenced by other modules"},"depends_on":[],"parallel_group":1}
-{"id":"T2","title":"Implement core API","type":"feature","scope":"CRUD endpoints for User","inputs":["schema.prisma","types/user.ts"],"outputs":["routes/user.ts","controllers/user.ts"],"convergence":{"criteria":["GET/POST/PUT/DELETE return correct status codes","Request/response conforms to schema","No N+1 queries"],"verification":"jest --testPathPattern=user.test.ts","definition_of_done":"All User CRUD endpoints pass integration tests"},"depends_on":["T1"],"parallel_group":2}
-```
-
-**Constraints**: Inputs must come from preceding task outputs or existing resources, tasks in same parallel_group must be truly independent, no circular dependencies.
+| Section | Purpose | Requirement |
+|---------|---------|-------------|
+| `## Convergence Criteria` | List of checkable specific conditions | **Testable** (can be written as assertions or manual steps) |
+| `## Verification` | How to verify these conditions | **Executable** (command, script, or explicit steps) |
+| `## Definition of Done` | One-sentence completion definition | **Business language** (non-technical person can judge) |
 
 ## Implementation
 
@@ -214,7 +189,7 @@ const dateStr = getUtc8ISOString().substring(0, 10)
 const sessionId = `RPLAN-${slug}-${dateStr}`
 const sessionFolder = `.workflow/.req-plan/${sessionId}`
 
-// Auto-detect continue: session folder + roadmap.jsonl exists → continue mode
+// Auto-detect continue: session folder + roadmap.md exists → continue mode
 Bash(`mkdir -p ${sessionFolder}`)
 ```
 
@@ -403,13 +378,13 @@ Bash(`mkdir -p ${sessionFolder}`)
 - When codebase exists, exploration-codebase.json generated
 - When no codebase, skipped and logged
 
-### Phase 3: Decomposition Execution
+### Phase 3: Decomposition & Issue Creation
 
-**Objective**: Execute requirement decomposition via `cli-roadmap-plan-agent`, generating roadmap.jsonl + roadmap.md.
+**Objective**: Execute requirement decomposition via `cli-roadmap-plan-agent`, creating issues and generating roadmap.md.
 
 **Prerequisites**: Phase 1, Phase 2 complete. Strategy selected. Context collected (if applicable).
 
-**Agent**: `cli-roadmap-plan-agent` (dedicated requirement roadmap planning agent, supports CLI-assisted decomposition + built-in quality checks)
+**Agent**: `cli-roadmap-plan-agent` (dedicated requirement roadmap planning agent, supports CLI-assisted decomposition + issue creation + built-in quality checks)
 
 **Steps**:
 
@@ -429,7 +404,7 @@ Bash(`mkdir -p ${sessionFolder}`)
    - Phase 1: Context loading + requirement analysis
    - Phase 2: CLI-assisted decomposition (Gemini → Qwen → manual fallback)
    - Phase 3: Record enhancement + validation (schema compliance, dependency checks, convergence quality)
-   - Phase 4: Generate roadmap.jsonl + roadmap.md
+   - Phase 4: Issue creation + roadmap generation (ccw issue create → roadmap.md)
    - Phase 5: CLI decomposition quality check (**MANDATORY** - requirement coverage, convergence criteria quality, dependency correctness)
 
    ```javascript
@@ -454,14 +429,19 @@ Bash(`mkdir -p ${sessionFolder}`)
      ? `File: ${sessionFolder}/exploration-codebase.json\n${JSON.stringify(explorationContext, null, 2)}`
      : 'No codebase detected - pure requirement decomposition'}
 
+   ### Issue Creation
+   - Use \`ccw issue create\` for each decomposed item
+   - Issue format: issues-jsonl-schema (id, title, status, priority, context, source, tags, extended_context)
+   - Update \`roadmap.md\` with issue ID references
+
    ### CLI Configuration
    - Primary tool: gemini
    - Fallback: qwen
    - Timeout: 60000ms
 
    ### Expected Output
-   1. **${sessionFolder}/roadmap.jsonl** - One JSON record per line with convergence field
-   2. **${sessionFolder}/roadmap.md** - Human-readable roadmap with tables and convergence details
+   1. **${sessionFolder}/roadmap.md** - Human-readable roadmap with issue references
+   2. Issues created in \`.workflow/issues/issues.jsonl\` via ccw issue create
 
    ### Mode-Specific Requirements
 
@@ -487,7 +467,7 @@ Bash(`mkdir -p ${sessionFolder}`)
    1. Analyze requirement and build decomposition context
    2. Execute CLI-assisted decomposition (Gemini, fallback Qwen)
    3. Parse output, validate records, enhance convergence quality
-   4. Write roadmap.jsonl + roadmap.md
+   4. Create issues via ccw issue create, generate roadmap.md
    5. Execute mandatory quality check (Phase 5)
    6. Return brief completion summary
    `
@@ -495,54 +475,58 @@ Bash(`mkdir -p ${sessionFolder}`)
    ```
 
 **Success Criteria**:
-- roadmap.jsonl generated, each line independently JSON.parse-able
-- roadmap.md generated (follows template in Output section)
-- Each record contains convergence (criteria + verification + definition_of_done)
+- Issues created via `ccw issue create`, each with formal ISS-xxx ID
+- roadmap.md generated with issue ID references
 - Agent's internal quality check passed
 - No circular dependencies
 - Progressive: 2-4 layers, no scope overlap
 - Direct: tasks have explicit inputs/outputs, parallel_group assigned
 
-### Phase 4: Interactive Validation & Final Output
+### Phase 4: Validation & team-planex Handoff
 
-**Objective**: Display decomposition results, collect user feedback, generate final artifacts.
+**Objective**: Display decomposition results, collect user feedback, provide team-planex execution options.
 
-**Prerequisites**: Phase 3 complete, roadmap.jsonl generated.
+**Prerequisites**: Phase 3 complete, issues created, roadmap.md generated.
 
 **Steps**:
 
 1. **Display Decomposition Results** (tabular format)
 
+   ```javascript
+   // Use issueIdMap from Phase 3 for display
+   const issueIds = Object.values(issueIdMap)
+   ```
+
    **Progressive Mode**:
    ```markdown
    ## Roadmap Overview
 
-   | Layer | Name | Goal | Scope | Effort | Dependencies |
-   |-------|------|------|-------|--------|--------------|
-   | L0 | MVP | ... | ... | medium | - |
-   | L1 | Usable | ... | ... | medium | L0 |
+   | Wave | Issue ID | Name | Goal | Priority |
+   |------|----------|------|------|----------|
+   | 1 | ISS-xxx | MVP | ... | 2 |
+   | 2 | ISS-yyy | Usable | ... | 3 |
 
    ### Convergence Criteria
-   **L0 - MVP**:
-   - ✅ Criteria: [criteria list]
-   - 🔍 Verification: [verification]
-   - 🎯 Definition of Done: [definition_of_done]
+   **Wave 1 - MVP (ISS-xxx)**:
+   - Criteria: [criteria list]
+   - Verification: [verification]
+   - Definition of Done: [definition_of_done]
    ```
 
    **Direct Mode**:
    ```markdown
    ## Task Sequence
 
-   | Group | ID | Title | Type | Dependencies |
-   |-------|----|-------|------|--------------|
-   | 1 | T1 | ... | infrastructure | - |
-   | 2 | T2 | ... | feature | T1 |
+   | Wave | Issue ID | Title | Type | Dependencies |
+   |------|----------|-------|------|--------------|
+   | 1 | ISS-xxx | ... | infrastructure | - |
+   | 2 | ISS-yyy | ... | feature | ISS-xxx |
 
    ### Convergence Criteria
-   **T1 - Establish Data Model**:
-   - ✅ Criteria: [criteria list]
-   - 🔍 Verification: [verification]
-   - 🎯 Definition of Done: [definition_of_done]
+   **Wave 1 - ISS-xxx**:
+   - Criteria: [criteria list]
+   - Verification: [verification]
+   - Definition of Done: [definition_of_done]
    ```
 
 2. **User Feedback Loop** (up to 5 rounds, skipped when autoYes)
@@ -560,8 +544,8 @@ Bash(`mkdir -p ${sessionFolder}`)
            header: "Feedback",
            multiSelect: false,
            options: [
-             { label: "Approve", description: "Decomposition is reasonable, generate final artifacts" },
-             { label: "Adjust Scope", description: "Some layer/task scopes need adjustment" },
+             { label: "Approve", description: "Decomposition is reasonable, proceed to next steps" },
+             { label: "Adjust Scope", description: "Some issue scopes need adjustment" },
              { label: "Modify Convergence", description: "Convergence criteria are not specific or testable enough" },
              { label: "Re-decompose", description: "Overall strategy or layering approach needs change" }
            ]
@@ -578,54 +562,20 @@ Bash(`mkdir -p ${sessionFolder}`)
    }
    ```
 
-3. **Finalize roadmap.md** (populate template from Output section with actual data)
-
-   ```javascript
-   const roadmapMd = `
-   # Requirement Roadmap
-
-   **Session**: ${sessionId}
-   **Requirement**: ${requirement}
-   **Strategy**: ${selectedMode}
-   **Generated**: ${getUtc8ISOString()}
-
-   ## Strategy Assessment
-   - Uncertainty level: ${strategy.uncertainty_level}
-   - Decomposition mode: ${selectedMode}
-
-   ## Roadmap
-   ${generateRoadmapTable(items, selectedMode)}
-
-   ## Convergence Criteria Details
-   ${items.map(item => generateConvergenceSection(item, selectedMode)).join('\n\n')}
-
-   ## Risk Items
-   ${generateRiskSection(items)}
-
-   ## Next Steps
-   Each layer/task can be executed independently:
-   \`\`\`bash
-   /workflow:lite-plan "${items[0].name || items[0].title}: ${items[0].scope}"
-   \`\`\`
-   Roadmap JSONL file: \`${sessionFolder}/roadmap.jsonl\`
-   `
-   Write(`${sessionFolder}/roadmap.md`, roadmapMd)
-   ```
-
-4. **Post-Completion Options**
+3. **Post-Completion Options**
 
    ```javascript
    if (!autoYes) {
      AskUserQuestion({
        questions: [{
-         question: "Roadmap generated. Next step:",
+         question: `路线图已生成，${issueIds.length} 个 issues 已创建。下一步：`,
          header: "Next Step",
          multiSelect: false,
          options: [
-           { label: "Execute First Layer", description: `Launch lite-plan to execute ${items[0].id}` },
-           { label: "Create Issue", description: "Create GitHub Issue based on roadmap" },
-           { label: "Export Report", description: "Generate standalone shareable roadmap report" },
-           { label: "Done", description: "Save roadmap only, execute later" }
+           { label: "Execute with team-planex", description: `启动 team-planex 执行全部 ${issueIds.length} 个 issues` },
+           { label: "Execute first wave", description: "仅执行 Wave 1（按 wave-1 tag 筛选）" },
+           { label: "View issues", description: "查看已创建的 issue 详情" },
+           { label: "Done", description: "保存路线图，稍后执行" }
          ]
        }]
      })
@@ -634,16 +584,15 @@ Bash(`mkdir -p ${sessionFolder}`)
 
    | Selection | Action |
    |-----------|--------|
-   | Execute First Layer | `Skill(skill="workflow:lite-plan", args="${firstItem.scope}")` |
-   | Create Issue | `Skill(skill="issue:new", args="...")` |
-   | Export Report | Copy roadmap.md + roadmap.jsonl to user-specified location, or generate standalone HTML/Markdown report |
-   | Done | Display roadmap file paths, end |
+   | Execute with team-planex | `Skill(skill="team-planex", args="${issueIds.join(' ')}")` |
+   | Execute first wave | Filter issues by `wave-1` tag, pass to team-planex |
+   | View issues | Display issues summary from `.workflow/issues/issues.jsonl` |
+   | Done | Display file paths, end |
 
 **Success Criteria**:
 - User feedback processed (or skipped via autoYes)
-- roadmap.md finalized
-- roadmap.jsonl final version updated
 - Post-completion options provided
+- team-planex handoff available via issue IDs
 
 ## Error Handling
 
@@ -655,7 +604,6 @@ Bash(`mkdir -p ${sessionFolder}`)
 | User feedback timeout | Save current state, display `--continue` recovery command |
 | Max feedback rounds reached | Use current version to generate final artifacts |
 | Session folder conflict | Append timestamp suffix |
-| JSONL format error | Validate line by line, report problematic lines and fix |
 
 ## Best Practices
 
@@ -664,28 +612,8 @@ Bash(`mkdir -p ${sessionFolder}`)
 3. **Testable convergence**: criteria must be writable as assertions or manual steps; definition_of_done should be judgeable by non-technical stakeholders (see Convergence Criteria in JSONL Schema Design)
 4. **Agent-First for Exploration**: Delegate codebase exploration to cli-explore-agent, do not analyze directly in main flow
 5. **Incremental validation**: Use `--continue` to iterate on existing roadmaps
-6. **Independently executable**: Each JSONL record should be independently passable to lite-plan for execution
+6. **team-planex integration**: Issues created follow standard issues-jsonl-schema, directly consumable by team-planex via issue IDs and tags
 
-## Usage Recommendations
-
-**Use `/workflow:req-plan-with-file` when:**
-- You need to decompose a large requirement into a progressively executable roadmap
-- Unsure where to start, need an MVP strategy
-- Need to generate a trackable task sequence for the team
-- Requirement involves multiple stages or iterations
-
-**Use `/workflow:lite-plan` when:**
-- You have a clear single task to execute
-- The requirement is already a layer/task from the roadmap
-- No layered planning needed
-
-**Use `/workflow:collaborative-plan-with-file` when:**
-- A single complex task needs multi-agent parallel planning
-- Need to analyze the same task from multiple domain perspectives
-
-**Use `/workflow:analyze-with-file` when:**
-- Need in-depth analysis of a technical problem
-- Not about planning execution, but understanding and discussion
 
 ---
 

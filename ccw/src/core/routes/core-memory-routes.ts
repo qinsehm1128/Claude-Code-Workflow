@@ -38,10 +38,21 @@ export async function handleCoreMemoryRoutes(ctx: RouteContext): Promise<boolean
     const archived = archivedParam === null ? undefined : archivedParam === 'true';
     const limit = parseInt(url.searchParams.get('limit') || '100', 10);
     const offset = parseInt(url.searchParams.get('offset') || '0', 10);
+    const tagsParam = url.searchParams.get('tags');
 
     try {
       const store = getCoreMemoryStore(projectPath);
-      const memories = store.getMemories({ archived, limit, offset });
+
+      // Use tag filter if tags query parameter is provided
+      let memories;
+      if (tagsParam) {
+        const tags = tagsParam.split(',').map(t => t.trim()).filter(Boolean);
+        memories = tags.length > 0
+          ? store.getMemoriesByTags(tags, { archived, limit, offset })
+          : store.getMemories({ archived, limit, offset });
+      } else {
+        memories = store.getMemories({ archived, limit, offset });
+      }
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: true, memories }));
@@ -78,7 +89,7 @@ export async function handleCoreMemoryRoutes(ctx: RouteContext): Promise<boolean
   // API: Core Memory - Create or update memory
   if (pathname === '/api/core-memory/memories' && req.method === 'POST') {
     handlePostRequest(req, res, async (body) => {
-      const { content, summary, raw_output, id, archived, metadata, path: projectPath } = body;
+      const { content, summary, raw_output, id, archived, metadata, tags, path: projectPath } = body;
 
       if (!content) {
         return { error: 'content is required', status: 400 };
@@ -94,7 +105,8 @@ export async function handleCoreMemoryRoutes(ctx: RouteContext): Promise<boolean
           summary,
           raw_output,
           archived,
-          metadata: metadata ? JSON.stringify(metadata) : undefined
+          metadata: metadata ? JSON.stringify(metadata) : undefined,
+          tags
         });
 
         // Broadcast update event
@@ -821,6 +833,49 @@ export async function handleCoreMemoryRoutes(ctx: RouteContext): Promise<boolean
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: true, results }));
+    } catch (error: unknown) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: (error as Error).message }));
+    }
+    return true;
+  }
+
+  // API: Get session summaries (list)
+  if (pathname === '/api/core-memory/sessions/summaries' && req.method === 'GET') {
+    const projectPath = url.searchParams.get('path') || initialPath;
+    const limit = parseInt(url.searchParams.get('limit') || '20', 10);
+
+    try {
+      const store = getCoreMemoryStore(projectPath);
+      const summaries = store.getSessionSummaries(limit);
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, summaries }));
+    } catch (error: unknown) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: (error as Error).message }));
+    }
+    return true;
+  }
+
+  // API: Get single session summary by thread ID
+  if (pathname.match(/^\/api\/core-memory\/sessions\/[^\/]+\/summary$/) && req.method === 'GET') {
+    const parts = pathname.split('/');
+    const threadId = parts[4]; // /api/core-memory/sessions/:id/summary
+    const projectPath = url.searchParams.get('path') || initialPath;
+
+    try {
+      const store = getCoreMemoryStore(projectPath);
+      const summary = store.getSessionSummary(threadId);
+
+      if (!summary) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Session summary not found' }));
+        return true;
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, ...summary }));
     } catch (error: unknown) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: (error as Error).message }));

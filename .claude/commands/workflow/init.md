@@ -284,5 +284,5 @@ Next steps:
 
 - `/workflow:init-guidelines` - Interactive wizard to configure project guidelines (called after init)
 - `/workflow:session:solidify` - Add individual rules/constraints one at a time
-- `/workflow:plan` - Start planning with initialized project context
+- `workflow-plan` skill - Start planning with initialized project context
 - `/workflow:status --project` - View project state and guidelines

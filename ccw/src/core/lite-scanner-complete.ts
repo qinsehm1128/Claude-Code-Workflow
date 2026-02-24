@@ -16,10 +16,9 @@ interface TaskContext {
 }
 
 interface TaskFlowControl {
-  implementation_approach: Array<{
-    step: string;
-    action: string;
-  }>;
+  implementation_approach: Array<Record<string, unknown>>;
+  pre_analysis?: Array<Record<string, unknown>>;
+  target_files?: Array<{ path: string; [key: string]: unknown }>;
 }
 
 interface NormalizedTask {
@@ -29,6 +28,13 @@ interface NormalizedTask {
   meta: TaskMeta;
   context: TaskContext;
   flow_control: TaskFlowControl;
+  // New flat format pass-through fields (consumed by frontend normalizer)
+  description?: string;
+  convergence?: { criteria?: string[]; verification?: string; definition_of_done?: string };
+  focus_paths?: string[];
+  pre_analysis?: Array<Record<string, unknown>>;
+  implementation?: unknown[];
+  files?: Array<{ path: string; [key: string]: unknown }>;
   _raw: unknown;
 }
 
@@ -282,16 +288,59 @@ function normalizeTask(task: unknown): NormalizedTask | null {
   const context = taskObj.context as Record<string, unknown> | undefined;
   const flowControl = taskObj.flow_control as Record<string, unknown> | undefined;
   const implementation = taskObj.implementation as unknown[] | undefined;
+  const preAnalysis = taskObj.pre_analysis as Array<Record<string, unknown>> | undefined;
+  const convergence = taskObj.convergence as NormalizedTask['convergence'] | undefined;
   const modificationPoints = taskObj.modification_points as Array<{ file?: string }> | undefined;
 
   // Ensure id is always a string (handle numeric IDs from JSON)
   const rawId = taskObj.id ?? taskObj.task_id;
   const stringId = rawId != null ? String(rawId) : 'unknown';
 
+  // Normalize files: support both string[] and {path, action, change}[] formats
+  const rawFiles = taskObj.files as unknown[] | undefined;
+  const normalizedFiles: Array<{ path: string; [key: string]: unknown }> | undefined =
+    Array.isArray(rawFiles) && rawFiles.length > 0
+      ? rawFiles.map(f => typeof f === 'string' ? { path: f } : f as { path: string })
+      : undefined;
+
+  // Extract focus_paths: top-level > context > files paths > modification_points
+  const focusPaths: string[] =
+    (taskObj.focus_paths as string[])
+    || (context?.focus_paths as string[])
+    || normalizedFiles?.map(f => f.path).filter(Boolean)
+    || modificationPoints?.map(m => m.file).filter((f): f is string => !!f)
+    || [];
+
+  // Build implementation_approach: preserve rich objects, handle strings
+  let implApproach: Array<Record<string, unknown>> = [];
+  if (flowControl?.implementation_approach) {
+    implApproach = flowControl.implementation_approach as Array<Record<string, unknown>>;
+  } else if (implementation) {
+    implApproach = implementation.map((step, i) => {
+      if (typeof step === 'object' && step !== null) {
+        return step as Record<string, unknown>;
+      }
+      return { step: i + 1, title: `Step ${i + 1}`, action: String(step) };
+    });
+  }
+
+  // Build pre_analysis: top-level > flow_control
+  const preAnalysisSteps = preAnalysis
+    || (flowControl?.pre_analysis as Array<Record<string, unknown>>)
+    || undefined;
+
+  // Build acceptance criteria: convergence.criteria > context.acceptance
+  const acceptance: string[] =
+    convergence?.criteria
+    || (context?.acceptance as string[])
+    || (taskObj.acceptance as string[])
+    || [];
+
   return {
     id: stringId,
     title: (taskObj.title as string) || (taskObj.name as string) || (taskObj.summary as string) || 'Untitled Task',
     status: (status as string).toLowerCase(),
+    description: taskObj.description as string | undefined,
     // Preserve original fields for flexible rendering
     meta: meta ? {
       type: (meta.type as string) || (taskObj.type as string) || (taskObj.action as string) || 'task',
@@ -306,23 +355,29 @@ function normalizeTask(task: unknown): NormalizedTask | null {
     },
     context: context ? {
       requirements: (context.requirements as string[]) || [],
-      focus_paths: (context.focus_paths as string[]) || [],
-      acceptance: (context.acceptance as string[]) || [],
+      focus_paths: focusPaths,
+      acceptance,
       depends_on: (context.depends_on as string[]) || []
     } : {
-      requirements: (taskObj.requirements as string[]) || (taskObj.description ? [taskObj.description as string] : []),
-      focus_paths: (taskObj.focus_paths as string[]) || modificationPoints?.map(m => m.file).filter((f): f is string => !!f) || [],
-      acceptance: (taskObj.acceptance as string[]) || [],
+      requirements: (taskObj.requirements as string[])
+        || (taskObj.details as string[])
+        || (taskObj.description ? [taskObj.description as string] : taskObj.scope ? [taskObj.scope as string] : []),
+      focus_paths: focusPaths,
+      acceptance,
       depends_on: (taskObj.depends_on as string[]) || []
     },
-    flow_control: flowControl ? {
-      implementation_approach: (flowControl.implementation_approach as Array<{ step: string; action: string }>) || []
-    } : {
-      implementation_approach: implementation?.map((step, i) => ({
-        step: `Step ${i + 1}`,
-        action: step as string
-      })) || []
+    flow_control: {
+      implementation_approach: implApproach,
+      pre_analysis: preAnalysisSteps,
+      target_files: normalizedFiles
+        || (flowControl?.target_files as Array<{ path: string }>) || undefined,
     },
+    // New flat format pass-through: let frontend normalizer consume these directly
+    convergence,
+    focus_paths: focusPaths,
+    pre_analysis: preAnalysisSteps,
+    implementation: implementation,
+    files: normalizedFiles,
     // Keep all original fields for raw JSON view
     _raw: task
   };

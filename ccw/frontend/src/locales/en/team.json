@@ -10,6 +10,58 @@
   "filterByType": "Filter by type",
   "filterAll": "All Types",
   "stage": "Stage",
+  "status": {
+    "active": "Active",
+    "completed": "Completed",
+    "archived": "Archived"
+  },
+  "filters": {
+    "active": "Active",
+    "archived": "Archived",
+    "all": "All"
+  },
+  "searchPlaceholder": "Search teams...",
+  "card": {
+    "members": "Members",
+    "messages": "Messages",
+    "lastActivity": "Last Activity",
+    "created": "Created"
+  },
+  "actions": {
+    "viewDetails": "View Details",
+    "archive": "Archive",
+    "unarchive": "Unarchive",
+    "delete": "Delete Team"
+  },
+  "dialog": {
+    "deleteTeam": "Delete Team",
+    "deleteConfirm": "This action cannot be undone. This will permanently delete the team and all its messages.",
+    "cancel": "Cancel",
+    "deleting": "Deleting..."
+  },
+  "detail": {
+    "backToList": "Back to Teams"
+  },
+  "tabs": {
+    "artifacts": "Artifacts",
+    "messages": "Messages"
+  },
+  "artifacts": {
+    "title": "Team Artifacts",
+    "plan": "Plan",
+    "impl": "Implementation",
+    "test": "Test",
+    "review": "Review",
+    "noArtifacts": "No artifacts found",
+    "viewFile": "View File",
+    "noRef": "Inline data"
+  },
+  "emptyState": {
+    "noTeams": "No Teams",
+    "noTeamsDescription": "Use /team:coordinate to create a team and start collaborating",
+    "noMatching": "No Matching Teams",
+    "noMatchingDescription": "Try adjusting your search or filter criteria"
+  },
   "empty": {
     "title": "No Active Teams",
     "description": "Use /team:coordinate to create a team and start collaborating",

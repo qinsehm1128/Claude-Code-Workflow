@@ -23,6 +23,7 @@ import {
   ChevronRight,
   Globe,
   Folder,
+  AlertTriangle,
 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -84,6 +85,12 @@ export interface CcwToolsMcpCardProps {
   onInstall: () => void;
   /** Installation target: Claude or Codex */
   target?: 'claude' | 'codex';
+  /** Scopes where CCW MCP is currently installed */
+  installedScopes?: ('global' | 'project')[];
+  /** Callback to uninstall from a specific scope */
+  onUninstallScope?: (scope: 'global' | 'project') => void;
+  /** Callback to install to an additional scope */
+  onInstallToScope?: (scope: 'global' | 'project') => void;
 }
 
 // ========== Constants ==========
@@ -115,6 +122,9 @@ export function CcwToolsMcpCard({
   onUpdateConfig,
   onInstall,
   target = 'claude',
+  installedScopes = [],
+  onUninstallScope,
+  onInstallToScope,
 }: CcwToolsMcpCardProps) {
   const { formatMessage } = useIntl();
   const queryClient = useQueryClient();
@@ -242,9 +252,26 @@ export function CcwToolsMcpCard({
                 <span className="text-sm font-medium text-foreground">
                   {formatMessage({ id: 'mcp.ccw.title' })}
                 </span>
-                <Badge variant={isInstalled ? 'default' : 'secondary'} className="text-xs">
-                  {isInstalled ? formatMessage({ id: 'mcp.ccw.status.installed' }) : formatMessage({ id: 'mcp.ccw.status.notInstalled' })}
-                </Badge>
+                {isInstalled && installedScopes.length > 0 ? (
+                  <>
+                    {installedScopes.map((s) => (
+                      <Badge key={s} variant="default" className="text-xs">
+                        {s === 'global' ? <Globe className="w-3 h-3 mr-1" /> : <Folder className="w-3 h-3 mr-1" />}
+                        {formatMessage({ id: `mcp.ccw.scope.${s}` })}
+                      </Badge>
+                    ))}
+                    {installedScopes.length >= 2 && (
+                      <Badge variant="outline" className="text-xs text-orange-500 border-orange-300">
+                        <AlertTriangle className="w-3 h-3 mr-1" />
+                        {formatMessage({ id: 'mcp.conflict.badge' })}
+                      </Badge>
+                    )}
+                  </>
+                ) : (
+                  <Badge variant={isInstalled ? 'default' : 'secondary'} className="text-xs">
+                    {isInstalled ? formatMessage({ id: 'mcp.ccw.status.installed' }) : formatMessage({ id: 'mcp.ccw.status.notInstalled' })}
+                  </Badge>
+                )}
                 {isCodex && (
                   <Badge variant="outline" className="text-xs text-blue-500">
                     Codex
@@ -425,7 +452,7 @@ export function CcwToolsMcpCard({
 
           {/* Install/Uninstall Button */}
           <div className="pt-3 border-t border-border space-y-3">
-            {/* Scope Selection - Claude only (Codex is always global) */}
+            {/* Scope Selection - Claude only, only when not installed */}
             {!isInstalled && !isCodex && (
               <div className="space-y-2">
                 <p className="text-xs font-medium text-muted-foreground uppercase">
@@ -465,6 +492,20 @@ export function CcwToolsMcpCard({
                 {formatMessage({ id: 'mcp.ccw.codexNote' })}
               </p>
             )}
+
+            {/* Dual-scope conflict warning */}
+            {isInstalled && !isCodex && installedScopes.length >= 2 && (
+              <div className="p-3 bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800 rounded-lg space-y-1">
+                <div className="flex items-center gap-2 text-orange-700 dark:text-orange-400">
+                  <AlertTriangle className="w-4 h-4" />
+                  <span className="text-sm font-medium">{formatMessage({ id: 'mcp.conflict.title' })}</span>
+                </div>
+                <p className="text-xs text-orange-600 dark:text-orange-400/80">
+                  {formatMessage({ id: 'mcp.conflict.description' }, { scope: formatMessage({ id: 'mcp.scope.global' }) })}
+                </p>
+              </div>
+            )}
+
             {!isInstalled ? (
               <Button
                 onClick={handleInstallClick}
@@ -476,7 +517,8 @@ export function CcwToolsMcpCard({
                   : formatMessage({ id: isCodex ? 'mcp.ccw.actions.installCodex' : 'mcp.ccw.actions.install' })
                 }
               </Button>
-            ) : (
+            ) : isCodex ? (
+              /* Codex: single uninstall button */
               <Button
                 variant="destructive"
                 onClick={handleUninstallClick}
@@ -488,6 +530,63 @@ export function CcwToolsMcpCard({
                   : formatMessage({ id: 'mcp.ccw.actions.uninstall' })
                 }
               </Button>
+            ) : (
+              /* Claude: per-scope install/uninstall */
+              <div className="space-y-2">
+                {/* Install to missing scope */}
+                {installedScopes.length === 1 && onInstallToScope && (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      const missingScope = installedScopes.includes('global') ? 'project' : 'global';
+                      onInstallToScope(missingScope);
+                    }}
+                    disabled={isPending}
+                    className="w-full"
+                  >
+                    {installedScopes.includes('global')
+                      ? formatMessage({ id: 'mcp.ccw.scope.installToProject' })
+                      : formatMessage({ id: 'mcp.ccw.scope.installToGlobal' })
+                    }
+                  </Button>
+                )}
+
+                {/* Per-scope uninstall buttons */}
+                {onUninstallScope && installedScopes.map((s) => (
+                  <Button
+                    key={s}
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => {
+                      if (confirm(formatMessage({ id: 'mcp.ccw.actions.uninstallScopeConfirm' }, { scope: formatMessage({ id: `mcp.ccw.scope.${s}` }) }))) {
+                        onUninstallScope(s);
+                      }
+                    }}
+                    disabled={isPending}
+                    className="w-full"
+                  >
+                    {s === 'global'
+                      ? formatMessage({ id: 'mcp.ccw.scope.uninstallGlobal' })
+                      : formatMessage({ id: 'mcp.ccw.scope.uninstallProject' })
+                    }
+                  </Button>
+                ))}
+
+                {/* Fallback: full uninstall if no scope info */}
+                {(!onUninstallScope || installedScopes.length === 0) && (
+                  <Button
+                    variant="destructive"
+                    onClick={handleUninstallClick}
+                    disabled={isPending}
+                    className="w-full"
+                  >
+                    {isPending
+                      ? formatMessage({ id: 'mcp.ccw.actions.uninstalling' })
+                      : formatMessage({ id: 'mcp.ccw.actions.uninstall' })
+                    }
+                  </Button>
+                )}
+              </div>
             )}
           </div>
         </div>

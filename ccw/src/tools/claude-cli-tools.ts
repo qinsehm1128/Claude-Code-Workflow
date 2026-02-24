@@ -62,6 +62,12 @@ export interface ClaudeCliTool {
    * Supports ~, absolute, relative, and Windows paths
    */
   settingsFile?: string;
+  /**
+   * Default effort level for Claude CLI (builtin claude only)
+   * Passed to Claude CLI via --effort parameter
+   * Valid values: 'low', 'medium', 'high'
+   */
+  effort?: string;
 }
 
 export type CliToolName = 'gemini' | 'qwen' | 'codex' | 'claude' | 'opencode' | string;
@@ -1030,6 +1036,7 @@ export function getToolConfig(projectDir: string, tool: string): {
   tags?: string[];
   envFile?: string;
   settingsFile?: string;
+  effort?: string;
 } {
   const config = loadClaudeCliTools(projectDir);
   const toolConfig = config.tools[tool];
@@ -1050,7 +1057,8 @@ export function getToolConfig(projectDir: string, tool: string): {
     secondaryModel: toolConfig.secondaryModel ?? '',
     tags: toolConfig.tags,
     envFile: toolConfig.envFile,
-    settingsFile: toolConfig.settingsFile
+    settingsFile: toolConfig.settingsFile,
+    effort: toolConfig.effort
   };
 }
 
@@ -1068,6 +1076,7 @@ export function updateToolConfig(
     tags: string[];
     envFile: string | null;
     settingsFile: string | null;
+    effort: string | null;
   }>
 ): ClaudeCliToolsConfig {
   const config = loadClaudeCliTools(projectDir);
@@ -1102,6 +1111,14 @@ export function updateToolConfig(
         delete config.tools[tool].settingsFile;
       } else {
         config.tools[tool].settingsFile = updates.settingsFile;
+      }
+    }
+    // Handle effort: set to undefined if null/empty, otherwise set value
+    if (updates.effort !== undefined) {
+      if (updates.effort === null || updates.effort === '') {
+        delete config.tools[tool].effort;
+      } else {
+        config.tools[tool].effort = updates.effort;
       }
     }
     saveClaudeCliTools(projectDir, config);

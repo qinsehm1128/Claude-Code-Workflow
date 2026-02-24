@@ -20,7 +20,7 @@ import { cn } from '@/lib/utils';
 
 // ========== Types ==========
 
-export type HookTriggerType = 'SessionStart' | 'UserPromptSubmit' | 'PreToolUse' | 'PostToolUse' | 'Stop';
+export type HookTriggerType = 'SessionStart' | 'UserPromptSubmit' | 'PreToolUse' | 'PostToolUse' | 'Stop' | 'Notification' | 'SubagentStart' | 'SubagentStop' | 'PreCompact' | 'SessionEnd' | 'PostToolUseFailure' | 'PermissionRequest';
 
 export interface HookCardData {
   name: string;
@@ -55,6 +55,20 @@ function getTriggerIcon(trigger: HookTriggerType) {
       return '✅';
     case 'Stop':
       return '🛑';
+    case 'Notification':
+      return '🔔';
+    case 'SubagentStart':
+      return '🚀';
+    case 'SubagentStop':
+      return '🏁';
+    case 'PreCompact':
+      return '📦';
+    case 'SessionEnd':
+      return '👋';
+    case 'PostToolUseFailure':
+      return '❌';
+    case 'PermissionRequest':
+      return '🔐';
     default:
       return '📌';
   }
@@ -63,15 +77,20 @@ function getTriggerIcon(trigger: HookTriggerType) {
 function getTriggerVariant(trigger: HookTriggerType): 'default' | 'secondary' | 'outline' {
   switch (trigger) {
     case 'SessionStart':
-      return 'default';
     case 'UserPromptSubmit':
+    case 'SubagentStart':
       return 'default';
     case 'PreToolUse':
+    case 'Stop':
+    case 'PreCompact':
+    case 'PermissionRequest':
       return 'secondary';
     case 'PostToolUse':
+    case 'Notification':
+    case 'SubagentStop':
+    case 'SessionEnd':
+    case 'PostToolUseFailure':
       return 'outline';
-    case 'Stop':
-      return 'secondary';
     default:
       return 'outline';
   }

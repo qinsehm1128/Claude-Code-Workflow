@@ -1,26 +1,19 @@
 // ========================================
 // TeamHeader Component
 // ========================================
-// Team selector, stats chips, and controls
+// Detail view header with back button, stats, and controls
 
 import { useIntl } from 'react-intl';
-import { Users, MessageSquare, RefreshCw } from 'lucide-react';
+import { Users, MessageSquare, RefreshCw, ArrowLeft } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
 import { Switch } from '@/components/ui/Switch';
 import { Label } from '@/components/ui/Label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/Select';
-import type { TeamSummary, TeamMember } from '@/types/team';
+import type { TeamMember } from '@/types/team';
 
 interface TeamHeaderProps {
-  teams: TeamSummary[];
   selectedTeam: string | null;
-  onSelectTeam: (name: string | null) => void;
+  onBack: () => void;
   members: TeamMember[];
   totalMessages: number;
   autoRefresh: boolean;
@@ -28,9 +21,8 @@ interface TeamHeaderProps {
 }
 
 export function TeamHeader({
-  teams,
   selectedTeam,
-  onSelectTeam,
+  onBack,
   members,
   totalMessages,
   autoRefresh,
@@ -41,35 +33,29 @@ export function TeamHeader({
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-center gap-3 flex-wrap">
-        {/* Team Selector */}
-        <Select
-          value={selectedTeam ?? ''}
-          onValueChange={(v) => onSelectTeam(v || null)}
-        >
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder={formatMessage({ id: 'team.selectTeam' })} />
-          </SelectTrigger>
-          <SelectContent>
-            {teams.map((t) => (
-              <SelectItem key={t.name} value={t.name}>
-                {t.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/* Back button */}
+        <Button variant="ghost" size="sm" onClick={onBack} className="gap-1">
+          <ArrowLeft className="h-4 w-4" />
+          {formatMessage({ id: 'team.detail.backToList' })}
+        </Button>
 
-        {/* Stats chips */}
+        {/* Team name */}
         {selectedTeam && (
-          <div className="flex items-center gap-2">
-            <Badge variant="secondary" className="gap-1">
-              <Users className="w-3 h-3" />
-              {formatMessage({ id: 'team.members' })}: {members.length}
-            </Badge>
-            <Badge variant="secondary" className="gap-1">
-              <MessageSquare className="w-3 h-3" />
-              {formatMessage({ id: 'team.messages' })}: {totalMessages}
-            </Badge>
-          </div>
+          <>
+            <h2 className="text-lg font-semibold">{selectedTeam}</h2>
+
+            {/* Stats chips */}
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary" className="gap-1">
+                <Users className="w-3 h-3" />
+                {formatMessage({ id: 'team.members' })}: {members.length}
+              </Badge>
+              <Badge variant="secondary" className="gap-1">
+                <MessageSquare className="w-3 h-3" />
+                {formatMessage({ id: 'team.messages' })}: {totalMessages}
+              </Badge>
+            </div>
+          </>
         )}
       </div>
 

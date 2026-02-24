@@ -14,15 +14,7 @@ import {
   type LoopsResponse,
 } from '../lib/api';
 import { useWorkflowStore, selectProjectPath } from '@/stores/workflowStore';
-
-// Query key factory
-export const loopsKeys = {
-  all: ['loops'] as const,
-  lists: () => [...loopsKeys.all, 'list'] as const,
-  list: (filters?: LoopsFilter) => [...loopsKeys.lists(), filters] as const,
-  details: () => [...loopsKeys.all, 'detail'] as const,
-  detail: (id: string) => [...loopsKeys.details(), id] as const,
-};
+import { workspaceQueryKeys } from '@/lib/queryKeys';
 
 // Default stale time: 10 seconds (loops update frequently)
 const STALE_TIME = 10 * 1000;
@@ -63,7 +55,7 @@ export function useLoops(options: UseLoopsOptions = {}): UseLoopsReturn {
   const queryEnabled = enabled && !!projectPath;
 
   const query = useQuery({
-    queryKey: loopsKeys.list(filter),
+    queryKey: workspaceQueryKeys.loopsList(projectPath),
     queryFn: () => fetchLoops(projectPath),
     staleTime,
     enabled: queryEnabled,
@@ -112,7 +104,7 @@ export function useLoops(options: UseLoopsOptions = {}): UseLoopsReturn {
   };
 
   const invalidate = async () => {
-    await queryClient.invalidateQueries({ queryKey: loopsKeys.all });
+    await queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.loops(projectPath) });
   };
 
   return {
@@ -137,7 +129,7 @@ export function useLoop(loopId: string, options: { enabled?: boolean } = {}) {
   const queryEnabled = (options.enabled ?? !!loopId) && !!projectPath;
 
   return useQuery({
-    queryKey: loopsKeys.detail(loopId),
+    queryKey: workspaceQueryKeys.loopDetail(projectPath, loopId),
     queryFn: () => fetchLoop(loopId, projectPath),
     enabled: queryEnabled,
     staleTime: STALE_TIME,
@@ -154,11 +146,12 @@ export interface UseCreateLoopReturn {
 
 export function useCreateLoop(): UseCreateLoopReturn {
   const queryClient = useQueryClient();
+  const projectPath = useWorkflowStore(selectProjectPath);
 
   const mutation = useMutation({
     mutationFn: createLoop,
     onSuccess: (newLoop) => {
-      queryClient.setQueryData<LoopsResponse>(loopsKeys.list(), (old) => {
+      queryClient.setQueryData<LoopsResponse>(workspaceQueryKeys.loopsList(projectPath), (old) => {
         if (!old) return { loops: [newLoop], total: 1 };
         return {
           loops: [newLoop, ...old.loops],
@@ -183,19 +176,20 @@ export interface UseUpdateLoopStatusReturn {
 
 export function useUpdateLoopStatus(): UseUpdateLoopStatusReturn {
   const queryClient = useQueryClient();
+  const projectPath = useWorkflowStore(selectProjectPath);
 
   const mutation = useMutation({
     mutationFn: ({ loopId, action }: { loopId: string; action: 'pause' | 'resume' | 'stop' }) =>
       updateLoopStatus(loopId, action),
     onSuccess: (updatedLoop) => {
-      queryClient.setQueryData<LoopsResponse>(loopsKeys.list(), (old) => {
+      queryClient.setQueryData<LoopsResponse>(workspaceQueryKeys.loopsList(projectPath), (old) => {
         if (!old) return old;
         return {
           ...old,
           loops: old.loops.map((l) => (l.id === updatedLoop.id ? updatedLoop : l)),
         };
       });
-      queryClient.setQueryData(loopsKeys.detail(updatedLoop.id), updatedLoop);
+      queryClient.setQueryData(workspaceQueryKeys.loopDetail(projectPath, updatedLoop.id), updatedLoop);
     },
   });
 
@@ -214,14 +208,15 @@ export interface UseDeleteLoopReturn {
 
 export function useDeleteLoop(): UseDeleteLoopReturn {
   const queryClient = useQueryClient();
+  const projectPath = useWorkflowStore(selectProjectPath);
 
   const mutation = useMutation({
     mutationFn: deleteLoop,
     onMutate: async (loopId) => {
-      await queryClient.cancelQueries({ queryKey: loopsKeys.all });
-      const previousLoops = queryClient.getQueryData<LoopsResponse>(loopsKeys.list());
+      await queryClient.cancelQueries({ queryKey: workspaceQueryKeys.loops(projectPath) });
+      const previousLoops = queryClient.getQueryData<LoopsResponse>(workspaceQueryKeys.loopsList(projectPath));
 
-      queryClient.setQueryData<LoopsResponse>(loopsKeys.list(), (old) => {
+      queryClient.setQueryData<LoopsResponse>(workspaceQueryKeys.loopsList(projectPath), (old) => {
         if (!old) return old;
         return {
           ...old,
@@ -234,11 +229,11 @@ export function useDeleteLoop(): UseDeleteLoopReturn {
     },
     onError: (_error, _loopId, context) => {
       if (context?.previousLoops) {
-        queryClient.setQueryData(loopsKeys.list(), context.previousLoops);
+        queryClient.setQueryData(workspaceQueryKeys.loopsList(projectPath), context.previousLoops);
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: loopsKeys.all });
+      queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.loops(projectPath) });
     },
   });
 

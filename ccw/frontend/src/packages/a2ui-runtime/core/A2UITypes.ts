@@ -127,6 +127,7 @@ export const RadioGroupComponentSchema = z.object({
       label: TextContentSchema,
       value: z.string(),
       description: TextContentSchema.optional(),
+      isDefault: z.boolean().optional(),
     })),
     selectedValue: TextContentSchema.optional(),
     onChange: ActionSchema,

@@ -24,7 +24,7 @@ export type ExecutionStatus = 'pending' | 'running' | 'completed' | 'failed';
 /**
  * Available CLI tools for execution
  */
-export type CliTool = 'gemini' | 'qwen' | 'codex' | 'claude';
+export type CliTool = 'gemini' | 'qwen' | 'codex' | 'claude' | 'opencode';
 
 /**
  * Execution modes for prompt templates
@@ -116,6 +116,20 @@ export interface PromptTemplateNodeData {
    * Use the outputName values from earlier nodes
    */
   contextRefs?: string[];
+
+  /**
+   * Instruction type for CLI session execution.
+   * - prompt: raw text sent as conversation input
+   * - skill: CLI-specific skill invocation (Claude: /name, Codex: $name)
+   * - command: CLI native command
+   */
+  instructionType?: 'prompt' | 'skill' | 'command';
+
+  /**
+   * Skill name for instructionType='skill'.
+   * The actual prefix (/ or $) is determined by the target CLI tool.
+   */
+  skillName?: string;
 
   /**
    * Selected slash command name (e.g., "workflow:plan", "review-code")

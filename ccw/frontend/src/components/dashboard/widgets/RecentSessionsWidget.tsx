@@ -126,14 +126,14 @@ function TaskItemCard({ item, onClick }: { item: UnifiedTaskItem; onClick: () =>
       onClick={onClick}
       className="w-full text-left p-3 rounded-lg border border-border bg-card hover:bg-accent/50 hover:border-primary/30 transition-all group"
     >
-      <div className="flex items-start gap-2.5">
+      <div className="flex items-start gap-2.5 min-w-0">
         <div className={cn('p-1.5 rounded-md shrink-0', typeColors[item.type])}>
           <TypeIcon className="h-4 w-4" />
         </div>
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 overflow-hidden">
           {/* Header: name + status */}
-          <div className="flex items-start gap-2 mb-1">
-            <h4 className="text-sm font-medium text-foreground truncate flex-1 group-hover:text-primary transition-colors">
+          <div className="flex items-start gap-2 mb-1 min-w-0">
+            <h4 className="text-sm font-medium text-foreground truncate flex-1 min-w-0 group-hover:text-primary transition-colors">
               {item.name}
             </h4>
             <Badge className={cn('text-[10px] px-1.5 py-0 shrink-0 border', statusColors[item.status])}>

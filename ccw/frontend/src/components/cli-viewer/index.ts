@@ -26,3 +26,7 @@ export type { ContentAreaProps } from './ContentArea';
 // Empty state
 export { EmptyState } from './EmptyState';
 export type { EmptyStateProps } from './EmptyState';
+
+// Toolbar
+export { CliViewerToolbar } from './CliViewerToolbar';
+export type { CliViewerToolbarProps, LayoutType } from './CliViewerToolbar';

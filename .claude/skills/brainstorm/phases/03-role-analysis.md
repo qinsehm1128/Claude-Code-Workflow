@@ -34,10 +34,10 @@ When called from auto mode, launch N role-analysis calls simultaneously:
 ```javascript
 // Single message with multiple Skill invokes for parallelism
 // For each selected role:
-Skill(skill="workflow:brainstorm:role-analysis", args="{role-name} --session {session-id} --skip-questions")
+Skill(skill="brainstorm", args="{role-name} --session {session-id} --skip-questions")
 
 // For ui-designer with style-skill:
-Skill(skill="workflow:brainstorm:role-analysis", args="ui-designer --session {session-id} --skip-questions --style-skill {style_skill_package}")
+Skill(skill="brainstorm", args="ui-designer --session {session-id} --skip-questions --style-skill {style_skill_package}")
 ```
 
 **Parallel Safety**: Each role operates independently on its own directory. No cross-agent dependencies.

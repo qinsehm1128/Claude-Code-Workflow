@@ -1,0 +1,177 @@
+{
+  "page": {
+    "title": "终端仪表板"
+  },
+  "columns": {
+    "sessions": "会话",
+    "workflow": "工作流",
+    "terminal": "终端工作台"
+  },
+  "kpi": {
+    "title": "仪表板 KPI",
+    "activeSessions": "活跃会话",
+    "queueSize": "队列大小",
+    "alertCount": "告警数",
+    "errorCount": "错误数",
+    "idleCount": "空闲数"
+  },
+  "inspector": {
+    "title": "检查器",
+    "noSelection": "选择一个项目以查看详情",
+    "associationChain": "关联链路"
+  },
+  "bottomPanel": {
+    "queueTab": "队列",
+    "inspectorTab": "检查器",
+    "collapse": "折叠面板",
+    "expand": "展开面板"
+  },
+  "sessionTree": {
+    "createGroup": "新建分组",
+    "groupNamePrompt": "输入分组名称",
+    "defaultGroupName": "未命名分组",
+    "emptyGroup": "此分组暂无会话",
+    "noGroups": "暂无会话分组",
+    "sessionCount": "{count} 个会话",
+    "dragHint": "拖拽会话至其他分组"
+  },
+  "agentList": {
+    "title": "代理",
+    "noAgents": "暂无活跃代理",
+    "stepLabel": "步骤 {current}/{total}",
+    "statusRunning": "运行中",
+    "statusCompleted": "已完成",
+    "statusFailed": "已失败",
+    "statusPaused": "已暂停",
+    "statusPending": "等待中"
+  },
+  "issuePanel": {
+    "title": "问题",
+    "sendToQueue": "发送到队列",
+    "noIssues": "暂无问题",
+    "noIssuesDesc": "发现问题时将在此显示",
+    "error": "加载问题失败"
+  },
+  "queuePanel": {
+    "title": "队列",
+    "noItems": "队列为空",
+    "noItemsDesc": "将问题发送到队列以启动工作流",
+    "error": "加载队列失败",
+    "order": "#{order}",
+    "dependsOn": "依赖: {deps}",
+    "status": {
+      "pending": "等待中",
+      "ready": "就绪",
+      "executing": "执行中",
+      "completed": "已完成",
+      "failed": "已失败",
+      "blocked": "已阻塞"
+    }
+  },
+  "toolbar": {
+    "sessions": "会话",
+    "issues": "问题",
+    "queue": "队列",
+    "inspector": "检查器",
+    "files": "文件",
+    "layoutSingle": "单窗格",
+    "layoutSplitH": "左右分割",
+    "layoutSplitV": "上下分割",
+    "layoutGrid": "2x2 网格",
+    "launchCli": "新建会话",
+    "launchCliHint": "点击配置并创建新的 CLI 会话",
+    "fullscreen": "全屏",
+    "orchestrator": "编排器"
+  },
+  "orchestratorPanel": {
+    "noPlans": "没有活跃的编排任务",
+    "noPlansHint": "从编排器运行流程后，进度将显示在这里"
+  },
+  "cliConfig": {
+    "title": "创建 CLI 会话",
+    "description": "配置工具、模型、模式、Shell 与工作目录。",
+    "tag": "会话名称",
+    "tagPlaceholder": "例如：gemini-143052",
+    "tagHint": "自动生成格式：{工具}-{时间}。用于会话分组显示。",
+    "regenerateTag": "重新生成名称",
+    "tool": "工具",
+    "model": "模型",
+    "modelAuto": "自动",
+    "mode": "模式",
+    "modeDefault": "默认",
+    "modeYolo": "Yolo",
+    "shell": "Shell",
+    "workingDir": "工作目录",
+    "workingDirPlaceholder": "例如：/path/to/project",
+    "browse": "浏览",
+    "errors": {
+      "workingDirRequired": "工作目录不能为空。",
+      "createFailed": "创建会话失败。"
+    }
+  },
+  "fileBrowser": {
+    "title": "文件浏览器",
+    "open": "打开文件浏览器",
+    "selected": "已选文件",
+    "noSelection": "未选择文件",
+    "copyPath": "复制路径",
+    "copied": "已复制",
+    "insertPath": "插入到终端",
+    "loading": "加载中...",
+    "loadFailed": "加载文件树失败",
+    "showHidden": "显示/隐藏过滤文件"
+  },
+  "fileSidebar": {
+    "title": "文件",
+    "refresh": "刷新",
+    "collapse": "折叠",
+    "noProject": "未打开项目",
+    "openProjectHint": "打开项目以浏览文件"
+  },
+  "artifacts": {
+    "types": {
+      "workflowSession": "工作流",
+      "liteSession": "Lite",
+      "claudeMd": "CLAUDE.md",
+      "ccwConfig": "配置",
+      "issue": "问题"
+    }
+  },
+  "pane": {
+    "selectSession": "选择会话",
+    "selectSessionHint": "从下拉菜单中选择终端会话",
+    "sessionNotFound": "会话已不存在",
+    "sessionNotFoundHint": "该会话可能已关闭或服务器已重启，请选择其他会话。",
+    "splitHorizontal": "向右分割",
+    "splitVertical": "向下分割",
+    "clearTerminal": "清屏",
+    "closePane": "关闭窗格",
+    "closeSession": "关闭会话",
+    "linkedIssue": "关联问题",
+    "restart": "重启会话",
+    "pause": "暂停会话",
+    "resume": "恢复会话",
+    "backToTerminal": "返回终端",
+    "closeConfirmTitle": "关闭窗格？",
+    "closeConfirmMessage": "会话仍将保留，可从会话树中恢复。",
+    "closeConfirmAction": "关闭窗格"
+  },
+  "tabBar": {
+    "noTabs": "暂无终端会话"
+  },
+  "workbench": {
+    "noTerminal": "未选择终端",
+    "noTerminalHint": "从标签栏选择会话或创建新会话",
+    "issuePreview": "问题预览",
+    "issuePreviewHint": "选择终端会话或将此问题发送到队列以开始工作"
+  },
+  "placeholder": {
+    "sessionTree": "会话分组将在此显示",
+    "agentList": "Agent 列表将在此显示",
+    "issuePanel": "问题面板将在此显示",
+    "queuePanel": "队列面板将在此显示",
+    "terminalWorkbench": "终端工作台将在此显示",
+    "kpiBar": "KPI 指标将在此显示",
+    "inspector": "检查器详情将在此显示"
+  }
+}

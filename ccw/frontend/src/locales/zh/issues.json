@@ -114,6 +114,7 @@
     }
   },
   "terminal": {
+    "launch": "启动会话",
     "session": {
       "select": "选择会话",
       "none": "暂无会话",
@@ -447,5 +448,34 @@
     "autoStart": {
       "label": "拖到进行中自动执行"
     }
+  },
+  "issueDialog": {
+    "titleLabel": "标题",
+    "titlePlaceholder": "请输入Issue标题...",
+    "descriptionLabel": "描述",
+    "descriptionPlaceholder": "请详细描述问题或需求...",
+    "typeLabel": "选择类型",
+    "typeBug": "Bug",
+    "typeBugDesc": "功能异常或错误",
+    "typeFeature": "Feature",
+    "typeFeatureDesc": "新功能需求",
+    "typeImprovement": "Improvement",
+    "typeImprovementDesc": "现有功能改进",
+    "typeOther": "Other",
+    "typeOtherDesc": "其他类型",
+    "priorityLabel": "选择优先级",
+    "priorityLow": "低",
+    "priorityMedium": "中",
+    "priorityHigh": "高",
+    "priorityUrgent": "紧急",
+    "summaryTitle": "标题",
+    "summaryDescription": "描述",
+    "summaryType": "类型",
+    "summaryPriority": "优先级",
+    "cancel": "取消",
+    "previous": "上一步",
+    "next": "下一步",
+    "submit": "提交",
+    "submitting": "提交中..."
   }
 }

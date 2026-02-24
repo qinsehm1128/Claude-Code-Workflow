@@ -464,6 +464,7 @@ export const useExecutionStore = create<ExecutionStore>()(
 );
 
 // Selectors for common access patterns
+const EMPTY_TOOL_CALLS: never[] = [];
 export const selectCurrentExecution = (state: ExecutionStore) => state.currentExecution;
 export const selectNodeStates = (state: ExecutionStore) => state.nodeStates;
 export const selectLogs = (state: ExecutionStore) => state.logs;
@@ -474,7 +475,7 @@ export const selectAutoScrollLogs = (state: ExecutionStore) => state.autoScrollL
 export const selectNodeOutputs = (state: ExecutionStore, nodeId: string) =>
   state.nodeOutputs[nodeId];
 export const selectNodeToolCalls = (state: ExecutionStore, nodeId: string) =>
-  state.nodeToolCalls[nodeId] || [];
+  state.nodeToolCalls[nodeId] || EMPTY_TOOL_CALLS;
 export const selectSelectedNodeId = (state: ExecutionStore) => state.selectedNodeId;
 
 // Helper to check if execution is active
@@ -489,6 +490,6 @@ export const selectNodeStatus = (nodeId: string) => (state: ExecutionStore) => {
 
 // Helper to get selected node's tool calls
 export const selectSelectedNodeToolCalls = (state: ExecutionStore) => {
-  if (!state.selectedNodeId) return [];
-  return state.nodeToolCalls[state.selectedNodeId] || [];
+  if (!state.selectedNodeId) return EMPTY_TOOL_CALLS;
+  return state.nodeToolCalls[state.selectedNodeId] || EMPTY_TOOL_CALLS;
 };

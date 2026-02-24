@@ -1,0 +1,177 @@
+{
+  "page": {
+    "title": "Terminal Dashboard"
+  },
+  "columns": {
+    "sessions": "Sessions",
+    "workflow": "Workflow",
+    "terminal": "Terminal Workbench"
+  },
+  "kpi": {
+    "title": "Dashboard KPI",
+    "activeSessions": "Active Sessions",
+    "queueSize": "Queue Size",
+    "alertCount": "Alerts",
+    "errorCount": "Errors",
+    "idleCount": "Idle"
+  },
+  "inspector": {
+    "title": "Inspector",
+    "noSelection": "Select an item to view details",
+    "associationChain": "Association Chain"
+  },
+  "bottomPanel": {
+    "queueTab": "Queue",
+    "inspectorTab": "Inspector",
+    "collapse": "Collapse panel",
+    "expand": "Expand panel"
+  },
+  "sessionTree": {
+    "createGroup": "New Group",
+    "groupNamePrompt": "Enter group name",
+    "defaultGroupName": "Untitled Group",
+    "emptyGroup": "No sessions in this group",
+    "noGroups": "No session groups yet",
+    "sessionCount": "{count} sessions",
+    "dragHint": "Drag sessions between groups"
+  },
+  "agentList": {
+    "title": "Agents",
+    "noAgents": "No active agents",
+    "stepLabel": "Step {current}/{total}",
+    "statusRunning": "Running",
+    "statusCompleted": "Completed",
+    "statusFailed": "Failed",
+    "statusPaused": "Paused",
+    "statusPending": "Pending"
+  },
+  "issuePanel": {
+    "title": "Issues",
+    "sendToQueue": "Send to Queue",
+    "noIssues": "No issues found",
+    "noIssuesDesc": "Issues will appear here when discovered",
+    "error": "Failed to load issues"
+  },
+  "queuePanel": {
+    "title": "Queue",
+    "noItems": "Queue is empty",
+    "noItemsDesc": "Send issues to queue to start workflow",
+    "error": "Failed to load queue",
+    "order": "#{order}",
+    "dependsOn": "Depends on: {deps}",
+    "status": {
+      "pending": "Pending",
+      "ready": "Ready",
+      "executing": "Executing",
+      "completed": "Completed",
+      "failed": "Failed",
+      "blocked": "Blocked"
+    }
+  },
+  "toolbar": {
+    "sessions": "Sessions",
+    "issues": "Issues",
+    "queue": "Queue",
+    "inspector": "Inspector",
+    "files": "Files",
+    "layoutSingle": "Single",
+    "layoutSplitH": "Split Horizontal",
+    "layoutSplitV": "Split Vertical",
+    "layoutGrid": "Grid 2x2",
+    "launchCli": "New Session",
+    "launchCliHint": "Click to configure and create a new CLI session",
+    "fullscreen": "Fullscreen",
+    "orchestrator": "Orchestrator"
+  },
+  "orchestratorPanel": {
+    "noPlans": "No active orchestrations",
+    "noPlansHint": "Run a flow from the Orchestrator to see progress here"
+  },
+  "cliConfig": {
+    "title": "Create CLI Session",
+    "description": "Configure tool, model, mode, shell, and working directory.",
+    "tag": "Session Name",
+    "tagPlaceholder": "e.g., gemini-143052",
+    "tagHint": "Auto-generated as {tool}-{time}. Used for grouping sessions.",
+    "regenerateTag": "Regenerate name",
+    "tool": "Tool",
+    "model": "Model",
+    "modelAuto": "Auto",
+    "mode": "Mode",
+    "modeDefault": "Default",
+    "modeYolo": "Yolo",
+    "shell": "Shell",
+    "workingDir": "Working Directory",
+    "workingDirPlaceholder": "e.g. /path/to/project",
+    "browse": "Browse",
+    "errors": {
+      "workingDirRequired": "Working directory is required.",
+      "createFailed": "Failed to create session."
+    }
+  },
+  "fileBrowser": {
+    "title": "File Browser",
+    "open": "Open file browser",
+    "selected": "Selected file",
+    "noSelection": "No file selected",
+    "copyPath": "Copy path",
+    "copied": "Copied",
+    "insertPath": "Insert into terminal",
+    "loading": "Loading...",
+    "loadFailed": "Failed to load file tree",
+    "showHidden": "Toggle filtered files"
+  },
+  "fileSidebar": {
+    "title": "Files",
+    "refresh": "Refresh",
+    "collapse": "Collapse",
+    "noProject": "No project open",
+    "openProjectHint": "Open a project to browse files"
+  },
+  "artifacts": {
+    "types": {
+      "workflowSession": "Workflow",
+      "liteSession": "Lite",
+      "claudeMd": "CLAUDE.md",
+      "ccwConfig": "CCW Config",
+      "issue": "Issue"
+    }
+  },
+  "pane": {
+    "selectSession": "Select a session",
+    "selectSessionHint": "Choose a terminal session from the dropdown",
+    "sessionNotFound": "Session no longer exists",
+    "sessionNotFoundHint": "The session may have been closed or the server restarted. Please select another session.",
+    "splitHorizontal": "Split Right",
+    "splitVertical": "Split Down",
+    "clearTerminal": "Clear Terminal",
+    "closePane": "Close Pane",
+    "closeSession": "Close Session",
+    "linkedIssue": "Linked Issue",
+    "restart": "Restart Session",
+    "pause": "Pause Session",
+    "resume": "Resume Session",
+    "backToTerminal": "Back to terminal",
+    "closeConfirmTitle": "Close Pane?",
+    "closeConfirmMessage": "The session will still exist and can be restored from the session tree.",
+    "closeConfirmAction": "Close Pane"
+  },
+  "tabBar": {
+    "noTabs": "No terminal sessions"
+  },
+  "workbench": {
+    "noTerminal": "No terminal selected",
+    "noTerminalHint": "Select a session from the tab bar or create a new one",
+    "issuePreview": "Issue Preview",
+    "issuePreviewHint": "Select a terminal session or send this issue to the queue to begin work"
+  },
+  "placeholder": {
+    "sessionTree": "Session groups will appear here",
+    "agentList": "Agent list will appear here",
+    "issuePanel": "Issue panel will appear here",
+    "queuePanel": "Queue panel will appear here",
+    "terminalWorkbench": "Terminal workbench will appear here",
+    "kpiBar": "KPI metrics will appear here",
+    "inspector": "Inspector details will appear here"
+  }
+}

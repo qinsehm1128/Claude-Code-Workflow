@@ -157,21 +157,33 @@ export const useQueueExecutionStore = create<QueueExecutionStore>()(
 
 // ========== Selectors ==========
 
+/** Stable empty array to avoid new references */
+const EMPTY_EXECUTIONS: QueueExecution[] = [];
+
 /** Select all executions as a record */
 export const selectQueueExecutions = (state: QueueExecutionStore) => state.executions;
 
-/** Select only currently running executions */
+/**
+ * Select only currently running executions.
+ * WARNING: Returns new array each call — use with useMemo in components.
+ */
 export const selectActiveExecutions = (state: QueueExecutionStore): QueueExecution[] => {
-  return Object.values(state.executions).filter((exec) => exec.status === 'running');
+  const all = Object.values(state.executions);
+  const running = all.filter((exec) => exec.status === 'running');
+  return running.length === 0 ? EMPTY_EXECUTIONS : running;
 };
 
-/** Select executions for a specific queue item */
+/**
+ * Select executions for a specific queue item.
+ * WARNING: Returns new array each call — use with useMemo in components.
+ */
 export const selectByQueueItem =
   (queueItemId: string) =>
   (state: QueueExecutionStore): QueueExecution[] => {
-    return Object.values(state.executions).filter(
+    const matched = Object.values(state.executions).filter(
       (exec) => exec.queueItemId === queueItemId
     );
+    return matched.length === 0 ? EMPTY_EXECUTIONS : matched;
   };
 
 /** Compute execution statistics by status */

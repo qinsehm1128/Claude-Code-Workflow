@@ -104,14 +104,12 @@ function MonitorBodyComponent(
   return (
     <div
       ref={containerRef}
-      className={cn('flex-1 overflow-y-auto bg-background relative', className)}
+      className={cn('flex-1 min-h-0 overflow-y-auto bg-background relative', className)}
       onScroll={handleScroll}
     >
-      <div className="h-full">
-        {children}
-        {/* Anchor for scroll to bottom */}
-        <div ref={logsEndRef} />
-      </div>
+      {children}
+      {/* Anchor for scroll to bottom */}
+      <div ref={logsEndRef} />
 
       {/* Show scroll button when user is not at bottom */}
       {showScrollButton && isUserScrolling && (

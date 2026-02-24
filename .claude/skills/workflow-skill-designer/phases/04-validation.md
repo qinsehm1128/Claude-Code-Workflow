@@ -231,7 +231,8 @@ function validateSkillMdSections(config) {
 
   // Conditional sections
   const conditionalSections = [
-    { name: 'Auto Mode', pattern: /## Auto Mode/, condition: config.features.hasAutoMode },
+    { name: 'Interactive Preference Collection', pattern: /## Interactive Preference Collection/, condition: config.features.hasAutoMode },
+    { name: 'Auto Mode Defaults', pattern: /## Auto Mode Defaults/, condition: config.features.hasAutoMode },
     { name: 'Post-Phase Updates', pattern: /## Post-Phase Updates/, condition: config.features.hasPostPhaseUpdates }
   ];
 
@@ -257,7 +258,77 @@ function validateSkillMdSections(config) {
 }
 ```
 
-## Step 4.6: Aggregate Results and Report
+## Step 4.6: Phase File Hygiene
+
+Scan generated phase files for prohibited content patterns. Phase files are internal execution documents and must not contain user-facing syntax, flag parsing, or inter-phase routing.
+
+```javascript
+function validatePhaseFileHygiene(config) {
+  const skillDir = `.claude/skills/${config.skillName}`;
+  const results = { errors: [], warnings: [], info: [] };
+
+  const prohibitedPatterns = [
+    {
+      name: 'Flag parsing ($ARGUMENTS)',
+      regex: /\$ARGUMENTS\.includes/g,
+      severity: 'error',
+      fix: 'Replace with workflowPreferences.{key} reference'
+    },
+    {
+      name: 'Invocation syntax (/skill-name)',
+      regex: /\/\w+[\-:]\w+\s+["']/g,
+      severity: 'warning',
+      fix: 'Remove (phase files are not user-facing docs)'
+    },
+    {
+      name: 'Conversion provenance (Source: Converted from)',
+      regex: /Source:.*Converted from/g,
+      severity: 'warning',
+      fix: 'Remove (implementation detail)'
+    },
+    {
+      name: 'Skill routing for inter-phase (Skill(skill=...)',
+      regex: /Skill\(skill=/g,
+      severity: 'error',
+      fix: 'Replace with direct Read("phases/0N-xxx.md")'
+    },
+    {
+      name: 'CLI flag definitions (--flag)',
+      regex: /^\s*-\w,\s+--\w+\s+/gm,
+      severity: 'warning',
+      fix: 'Move flag definitions to SKILL.md Interactive Preference Collection'
+    }
+  ];
+
+  for (const phase of config.phases) {
+    const filename = `${String(phase.number).padStart(2, '0')}-${phase.slug}.md`;
+    const filepath = `${skillDir}/phases/${filename}`;
+    if (!fileExists(filepath)) continue;
+
+    const content = Read(filepath);
+
+    for (const pattern of prohibitedPatterns) {
+      const matches = content.match(pattern.regex);
+      if (matches && matches.length > 0) {
+        const msg = `Phase ${phase.number} (${filename}): ${pattern.name} found (${matches.length} occurrence(s)). Fix: ${pattern.fix}`;
+        if (pattern.severity === 'error') {
+          results.errors.push(msg);
+        } else {
+          results.warnings.push(msg);
+        }
+      }
+    }
+  }
+
+  if (results.errors.length === 0 && results.warnings.length === 0) {
+    results.info.push('Phase file hygiene: All phase files clean ✓');
+  }
+
+  return results;
+}
+```
+
+## Step 4.7: Aggregate Results and Report
 
 ```javascript
 function generateValidationReport(config) {
@@ -266,6 +337,7 @@ function generateValidationReport(config) {
   const content = validateContentQuality(config);
   const dataFlow = validateDataFlow(config);
   const sections = validateSkillMdSections(config);
+  const hygiene = validatePhaseFileHygiene(config);
 
   // Aggregate
   const allErrors = [
@@ -273,21 +345,24 @@ function generateValidationReport(config) {
     ...references.errors,
     ...content.errors,
     ...dataFlow.errors,
-    ...sections.errors
+    ...sections.errors,
+    ...hygiene.errors
   ];
   const allWarnings = [
     ...structural.warnings,
     ...references.warnings,
     ...content.warnings,
     ...dataFlow.warnings,
-    ...sections.warnings
+    ...sections.warnings,
+    ...hygiene.warnings
   ];
   const allInfo = [
     ...structural.info,
     ...references.info,
     ...content.info,
     ...dataFlow.info,
-    ...sections.info
+    ...sections.info,
+    ...hygiene.info
   ];
 
   // Quality gate
@@ -325,7 +400,7 @@ ${allInfo.length > 0 ? `Info:\n${allInfo.map(i => `  ℹ ${i}`).join('\n')}` : '
 }
 ```
 
-## Step 4.7: Error Recovery
+## Step 4.8: Error Recovery
 
 If validation fails, offer recovery options:
 
@@ -356,7 +431,7 @@ if (report.gate === 'FAIL') {
 }
 ```
 
-## Step 4.8: Integration Summary
+## Step 4.9: Integration Summary
 
 ```javascript
 function displayIntegrationSummary(config) {
@@ -367,21 +442,20 @@ Integration Complete:
 
 Usage:
   Trigger: ${config.triggers.map(t => `"${t}"`).join(', ')}
-  Auto: /${config.triggers[0]} --yes "task description"
-
 Design Patterns Applied:
   ✓ Progressive phase loading (Ref: markers)
   ✓ Phase Reference Documents table
+  ✓ Phase file hygiene (no flag parsing, no invocation syntax)
   ${config.features.hasTodoWriteSubTasks ? '✓' : '○'} TodoWrite attachment/collapse
   ${config.features.hasConditionalPhases ? '✓' : '○'} Conditional phase execution
-  ${config.features.hasAutoMode ? '✓' : '○'} Auto mode (--yes flag)
+  ${config.features.hasAutoMode ? '✓' : '○'} Interactive preference collection (AskUserQuestion)
   ${config.features.hasPostPhaseUpdates ? '✓' : '○'} Post-phase state updates
   ${config.features.hasPlanningNotes ? '✓' : '○'} Accumulated planning notes
 
 Next Steps:
   1. Review SKILL.md orchestrator logic
   2. Review each phase file for completeness
-  3. Test skill invocation: /${config.triggers[0]} "test task"
+  3. Test skill invocation with trigger phrase
   4. Iterate based on execution results
   `);
 }

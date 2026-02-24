@@ -21,7 +21,14 @@
   "toolbar": {
     "refresh": "Refresh",
     "clearAll": "Clear All",
-    "settings": "Settings"
+    "settings": "Settings",
+    "back": "Back",
+    "addExecution": "Add",
+    "running": "running",
+    "executions": "executions",
+    "executionsList": "Recent Executions",
+    "fullscreen": "Fullscreen",
+    "exitFullscreen": "Exit Fullscreen"
   },
   "emptyState": {
     "title": "No CLI Executions",

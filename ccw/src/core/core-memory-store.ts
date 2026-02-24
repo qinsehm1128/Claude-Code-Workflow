@@ -7,6 +7,18 @@ import Database from 'better-sqlite3';
 import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { StoragePaths, ensureStorageDir } from '../config/storage-paths.js';
+import { UnifiedVectorIndex, isUnifiedEmbedderAvailable } from './unified-vector-index.js';
+import type { ChunkMetadata } from './unified-vector-index.js';
+
+// Helpers
+function safeParseTags(raw: string | null | undefined): string[] {
+  try {
+    const parsed = JSON.parse(raw || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
 
 // Types
 export interface CoreMemory {
@@ -18,6 +30,7 @@ export interface CoreMemory {
   updated_at: string;
   archived: boolean;
   metadata?: string; // JSON string
+  tags?: string[];  // JSON array stored as TEXT
 }
 
 export interface SessionCluster {
@@ -101,6 +114,7 @@ export class CoreMemoryStore {
   private db: Database.Database;
   private dbPath: string;
   private projectPath: string;
+  private vectorIndex: UnifiedVectorIndex | null = null;
 
   constructor(projectPath: string) {
     this.projectPath = projectPath;
@@ -134,7 +148,8 @@ export class CoreMemoryStore {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         archived INTEGER DEFAULT 0,
-        metadata TEXT
+        metadata TEXT,
+        tags TEXT DEFAULT '[]'
       );
 
       -- Session clusters table
@@ -310,6 +325,16 @@ export class CoreMemoryStore {
 
       // Re-enable foreign key constraints
       this.db.pragma('foreign_keys = ON');
+
+      // Add tags column to existing memories table
+      try {
+        this.db.exec(`ALTER TABLE memories ADD COLUMN tags TEXT DEFAULT '[]'`);
+      } catch (e) {
+        const msg = (e as Error).message || '';
+        if (!msg.includes('duplicate column name')) {
+          throw e; // Re-throw unexpected errors
+        }
+      }
     } catch (e) {
       // If migration fails, continue - tables may not exist
       try {
@@ -326,6 +351,38 @@ export class CoreMemoryStore {
    */
   getDb(): Database.Database {
     return this.db;
+  }
+
+  /**
+   * Get or create the UnifiedVectorIndex instance (lazy initialization).
+   * Returns null if the embedder is not available.
+   */
+  private getVectorIndex(): UnifiedVectorIndex | null {
+    if (this.vectorIndex) return this.vectorIndex;
+    if (!isUnifiedEmbedderAvailable()) return null;
+    this.vectorIndex = new UnifiedVectorIndex(this.projectPath);
+    return this.vectorIndex;
+  }
+
+  /**
+   * Fire-and-forget: sync content to the vector index.
+   * Logs errors but never throws, to avoid disrupting the synchronous write path.
+   */
+  private syncToVectorIndex(content: string, sourceId: string): void {
+    const idx = this.getVectorIndex();
+    if (!idx) return;
+
+    const metadata: ChunkMetadata = {
+      source_id: sourceId,
+      source_type: 'core_memory',
+      category: 'core_memory',
+    };
+
+    idx.indexContent(content, metadata).catch((err) => {
+      if (process.env.DEBUG) {
+        console.error(`[CoreMemoryStore] Vector index sync failed for ${sourceId}:`, (err as Error).message);
+      }
+    });
   }
 
   /**
@@ -373,10 +430,11 @@ export class CoreMemoryStore {
       // Update existing memory
       const stmt = this.db.prepare(`
         UPDATE memories
-        SET content = ?, summary = ?, raw_output = ?, updated_at = ?, archived = ?, metadata = ?
+        SET content = ?, summary = ?, raw_output = ?, updated_at = ?, archived = ?, metadata = ?, tags = ?
         WHERE id = ?
       `);
 
+      const tags = memory.tags ?? existingMemory.tags ?? [];
       stmt.run(
         memory.content,
         memory.summary || existingMemory.summary,
@@ -384,15 +442,19 @@ export class CoreMemoryStore {
         now,
         memory.archived !== undefined ? (memory.archived ? 1 : 0) : existingMemory.archived ? 1 : 0,
         memory.metadata || existingMemory.metadata,
+        JSON.stringify(tags),
         id
       );
+
+      // Sync updated content to vector index
+      this.syncToVectorIndex(memory.content, id);
 
       return this.getMemory(id)!;
     } else {
       // Insert new memory
       const stmt = this.db.prepare(`
-        INSERT INTO memories (id, content, summary, raw_output, created_at, updated_at, archived, metadata)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO memories (id, content, summary, raw_output, created_at, updated_at, archived, metadata, tags)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       stmt.run(
@@ -403,8 +465,12 @@ export class CoreMemoryStore {
         now,
         now,
         memory.archived ? 1 : 0,
-        memory.metadata || null
+        memory.metadata || null,
+        JSON.stringify(memory.tags || [])
       );
+
+      // Sync new content to vector index
+      this.syncToVectorIndex(memory.content, id);
 
       return this.getMemory(id)!;
     }
@@ -426,12 +492,13 @@ export class CoreMemoryStore {
       created_at: row.created_at,
       updated_at: row.updated_at,
       archived: Boolean(row.archived),
-      metadata: row.metadata
+      metadata: row.metadata,
+      tags: safeParseTags(row.tags)
     };
   }
 
   /**
-   * Get all memories
+   * Get memories with optional filtering by archived status
    */
   getMemories(options: { archived?: boolean; limit?: number; offset?: number } = {}): CoreMemory[] {
     const { archived, limit = 50, offset = 0 } = options;
@@ -465,7 +532,52 @@ export class CoreMemoryStore {
       created_at: row.created_at,
       updated_at: row.updated_at,
       archived: Boolean(row.archived),
-      metadata: row.metadata
+      metadata: row.metadata,
+      tags: safeParseTags(row.tags)
+    }));
+  }
+
+  /**
+   * Get memories filtered by tags (AND logic - must contain ALL specified tags)
+   */
+  getMemoriesByTags(tags: string[], options: { archived?: boolean; limit?: number; offset?: number } = {}): CoreMemory[] {
+    const { archived, limit = 50, offset = 0 } = options;
+
+    if (tags.length === 0) {
+      return this.getMemories({ archived, limit, offset });
+    }
+
+    // Use json_each for proper structured matching (safe from injection)
+    const conditions = tags.map(() => `EXISTS (SELECT 1 FROM json_each(memories.tags) WHERE json_each.value = ?)`).join(' AND ');
+    const params: (string | number)[] = [...tags];
+
+    let archiveClause = '';
+    if (archived !== undefined) {
+      archiveClause = ' AND archived = ?';
+      params.push(archived ? 1 : 0);
+    }
+
+    const query = `
+      SELECT * FROM memories
+      WHERE ${conditions}${archiveClause}
+      ORDER BY updated_at DESC
+      LIMIT ? OFFSET ?
+    `;
+    params.push(limit, offset);
+
+    const stmt = this.db.prepare(query);
+    const rows = stmt.all(...params) as any[];
+
+    return rows.map(row => ({
+      id: row.id,
+      content: row.content,
+      summary: row.summary,
+      raw_output: row.raw_output,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      archived: Boolean(row.archived),
+      metadata: row.metadata,
+      tags: safeParseTags(row.tags)
     }));
   }
 
@@ -491,6 +603,60 @@ export class CoreMemoryStore {
       WHERE id = ?
     `);
     stmt.run(new Date().toISOString(), id);
+  }
+
+  /**
+   * Get recent memories ordered by creation time (newest first)
+   * Used by compression flow to select candidates for consolidation
+   */
+  getRecentMemories(limit: number = 20, excludeArchived: boolean = true): CoreMemory[] {
+    const query = excludeArchived
+      ? `SELECT * FROM memories WHERE archived = 0 ORDER BY created_at DESC LIMIT ?`
+      : `SELECT * FROM memories ORDER BY created_at DESC LIMIT ?`;
+
+    const stmt = this.db.prepare(query);
+    const rows = stmt.all(limit) as any[];
+
+    return rows.map(row => ({
+      id: row.id,
+      content: row.content,
+      summary: row.summary,
+      raw_output: row.raw_output,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      archived: Boolean(row.archived),
+      metadata: row.metadata,
+      tags: safeParseTags(row.tags)
+    }));
+  }
+
+  /**
+   * Archive multiple memories in a single transaction
+   * Used after successful compression to archive source memories
+   */
+  archiveMemories(ids: string[]): void {
+    if (ids.length === 0) return;
+
+    const now = new Date().toISOString();
+    const placeholders = ids.map(() => '?').join(', ');
+    const stmt = this.db.prepare(`
+      UPDATE memories
+      SET archived = 1, updated_at = ?
+      WHERE id IN (${placeholders})
+    `);
+    stmt.run(now, ...ids);
+  }
+
+  /**
+   * Build metadata JSON for a compressed memory
+   * Tracks source memory IDs, compression ratio, and timestamp
+   */
+  buildCompressionMetadata(sourceIds: string[], originalSize: number, compressedSize: number): string {
+    return JSON.stringify({
+      compressed_from: sourceIds,
+      compression_ratio: originalSize > 0 ? compressedSize / originalSize : 0,
+      compressed_at: new Date().toISOString()
+    });
   }
 
   /**
@@ -928,11 +1094,12 @@ ${memory.content}
   searchSessionsByKeyword(keyword: string): SessionMetadataCache[] {
     const stmt = this.db.prepare(`
       SELECT * FROM session_metadata_cache
-      WHERE title LIKE ? OR summary LIKE ? OR keywords LIKE ?
+      WHERE title LIKE ? ESCAPE '\\' OR summary LIKE ? ESCAPE '\\' OR keywords LIKE ? ESCAPE '\\'
       ORDER BY access_count DESC, last_accessed DESC
     `);
 
-    const pattern = `%${keyword}%`;
+    const escaped = keyword.replace(/[%_\\]/g, c => '\\' + c);
+    const pattern = `%${escaped}%`;
     const rows = stmt.all(pattern, pattern, pattern) as any[];
 
     return rows.map(row => ({
@@ -1373,6 +1540,39 @@ ${memory.content}
   }
 
   /**
+   * Get session summaries from stage1_outputs, ordered by generated_at descending.
+   * Returns lightweight objects with thread_id, rollout_summary, and generated_at.
+   */
+  getSessionSummaries(limit: number = 20): Array<{ thread_id: string; rollout_summary: string; generated_at: number }> {
+    const stmt = this.db.prepare(
+      `SELECT thread_id, rollout_summary, generated_at FROM stage1_outputs ORDER BY generated_at DESC LIMIT ?`
+    );
+    const rows = stmt.all(limit) as any[];
+    return rows.map(row => ({
+      thread_id: row.thread_id,
+      rollout_summary: row.rollout_summary,
+      generated_at: row.generated_at,
+    }));
+  }
+
+  /**
+   * Get a single session summary by thread_id.
+   * Returns null if no extraction output exists for the given thread.
+   */
+  getSessionSummary(threadId: string): { thread_id: string; rollout_summary: string; generated_at: number } | null {
+    const stmt = this.db.prepare(
+      `SELECT thread_id, rollout_summary, generated_at FROM stage1_outputs WHERE thread_id = ?`
+    );
+    const row = stmt.get(threadId) as any;
+    if (!row) return null;
+    return {
+      thread_id: row.thread_id,
+      rollout_summary: row.rollout_summary,
+      generated_at: row.generated_at,
+    };
+  }
+
+  /**
    * Count Phase 1 outputs
    */
   countStage1Outputs(): number {
@@ -1540,7 +1740,8 @@ export function getMemoriesFromProject(projectId: string): CoreMemory[] {
     created_at: row.created_at,
     updated_at: row.updated_at,
     archived: Boolean(row.archived),
-    metadata: row.metadata
+    metadata: row.metadata,
+    tags: safeParseTags(row.tags)
   }));
 }
 
@@ -1580,7 +1781,8 @@ export function findMemoryAcrossProjects(memoryId: string): { memory: CoreMemory
             created_at: row.created_at,
             updated_at: row.updated_at,
             archived: Boolean(row.archived),
-            metadata: row.metadata
+            metadata: row.metadata,
+            tags: safeParseTags(row.tags)
           },
           projectId
         };
@@ -1666,7 +1868,8 @@ export function importMemories(
       content: memory.content,
       summary: memory.summary,
       raw_output: memory.raw_output,
-      metadata: memory.metadata
+      metadata: memory.metadata,
+      tags: memory.tags
     });
 
     imported++;

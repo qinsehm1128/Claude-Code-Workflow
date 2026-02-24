@@ -10,7 +10,8 @@
     "systemStatus": "系统状态",
     "hooks": "Git 钩子",
     "rules": "规则",
-    "about": "关于"
+    "about": "关于",
+    "a2ui": "A2UI 偏好设置"
   },
   "appearance": {
     "title": "外观",
@@ -40,7 +41,12 @@
     "saveToConfig": "保存到配置文件",
     "saving": "保存中...",
     "configSaved": "配置已保存到 ~/.claude/cli-tools.json",
-    "configSaveError": "保存配置失败"
+    "configSaveError": "保存配置失败",
+    "effort": "思考力度",
+    "effortHint": "控制 Claude 会话的思考力度。默认：high。",
+    "effortLow": "低",
+    "effortMedium": "中",
+    "effortHigh": "高"
   },
   "display": {
     "title": "显示设置",
@@ -114,6 +120,76 @@
     "on": "开启",
     "off": "关闭"
   },
+  "remoteNotifications": {
+    "title": "远程通知",
+    "description": "当事件发生时，发送通知到 Discord、Telegram 或自定义 Webhook 等外部平台。",
+    "enabled": "已启用",
+    "disabled": "已禁用",
+    "platforms": "平台配置",
+    "events": "事件触发器",
+    "selectPlatforms": "选择此事件要通知的平台：",
+    "noPlatforms": "无平台",
+    "configured": "已配置",
+    "save": "保存",
+    "saving": "保存中...",
+    "saved": "配置已保存",
+    "saveError": "保存配置失败",
+    "reset": "重置为默认值",
+    "resetConfirm": "确定要将所有远程通知设置重置为默认值吗？",
+    "resetSuccess": "设置已重置为默认值",
+    "resetError": "重置设置失败",
+    "testConnection": "测试连接",
+    "testSuccess": "测试通知发送成功",
+    "testFailed": "测试通知发送失败",
+    "testError": "发送测试通知失败",
+    "discord": {
+      "webhookUrl": "Webhook URL",
+      "webhookUrlHint": "在 Discord 频道设置中创建 Webhook",
+      "username": "自定义用户名（可选）"
+    },
+    "telegram": {
+      "botToken": "Bot Token",
+      "botTokenHint": "从 Telegram 的 @BotFather 获取",
+      "chatId": "Chat ID",
+      "chatIdHint": "用户或群组 Chat ID（使用 @userinfobot 查找）"
+    },
+    "webhook": {
+      "url": "Webhook URL",
+      "method": "HTTP 方法",
+      "headers": "自定义请求头（JSON）",
+      "headersHint": "可选的 JSON 对象，包含自定义请求头"
+    },
+    "feishu": {
+      "webhookUrl": "Webhook URL",
+      "webhookUrlHint": "从飞书机器人设置中获取",
+      "useCard": "使用卡片格式",
+      "useCardHint": "以富交互卡片形式发送",
+      "title": "卡片标题（可选）"
+    },
+    "dingtalk": {
+      "webhookUrl": "Webhook URL",
+      "webhookUrlHint": "从钉钉机器人设置中获取",
+      "keywords": "安全关键词",
+      "keywordsHint": "逗号分隔的关键词，用于安全校验"
+    },
+    "wecom": {
+      "webhookUrl": "Webhook URL",
+      "webhookUrlHint": "从企业微信机器人设置中获取",
+      "mentionedList": "提醒用户",
+      "mentionedListHint": "要提醒的用户 ID，使用 '@all' 提醒所有人"
+    },
+    "email": {
+      "host": "SMTP 服务器",
+      "hostHint": "例如：smtp.gmail.com",
+      "port": "端口",
+      "secure": "使用 TLS",
+      "username": "用户名",
+      "password": "密码",
+      "from": "发件人邮箱",
+      "to": "收件人",
+      "toHint": "逗号分隔的邮箱地址"
+    }
+  },
   "versionCheck": {
     "title": "版本更新",
     "currentVersion": "当前版本",
@@ -140,5 +216,28 @@
     "description": "将所有用户偏好重置为默认值。此操作无法撤销。",
     "confirm": "确定要将所有设置重置为默认值吗？",
     "button": "重置为默认值"
+  },
+  "a2ui": {
+    "title": "A2UI 偏好设置",
+    "dialogStyle": "对话框风格",
+    "dialogStyleDesc": "选择 A2UI 对话框的显示方式",
+    "styleModal": "弹窗",
+    "styleModalDesc": "居中显示",
+    "styleDrawer": "抽屉",
+    "styleDrawerDesc": "侧边面板",
+    "styleSheet": "底部弹出",
+    "styleSheetDesc": "从底部弹出",
+    "styleFullscreen": "全屏",
+    "styleFullscreenDesc": "全屏显示",
+    "smartMode": "智能模式",
+    "smartModeDesc": "根据问题类型自动选择风格",
+    "autoSelectionDuration": "自动选择倒计时",
+    "autoSelectionDurationDesc": "自动选择默认选项前的倒计时",
+    "pauseOnInteraction": "交互时暂停",
+    "pauseOnInteractionDesc": "与对话框交互时暂停倒计时",
+    "soundNotification": "声音提醒",
+    "soundNotificationDesc": "自动提交前 3 秒播放提示音",
+    "showToolbarButton": "显示工具栏按钮",
+    "showToolbarButtonDesc": "在工具栏显示 A2UI 快速操作按钮"
   }
 }

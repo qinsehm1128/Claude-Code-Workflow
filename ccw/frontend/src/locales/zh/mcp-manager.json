@@ -164,10 +164,27 @@
       "uninstall": "卸载",
       "uninstalling": "卸载中...",
       "uninstallConfirm": "确定要卸载 CCW MCP 吗？",
+      "uninstallScopeConfirm": "确定要从{scope}移除 CCW MCP 吗？",
       "saveConfig": "保存配置",
       "saving": "保存中..."
     },
+    "scope": {
+      "global": "全局",
+      "project": "项目",
+      "addScope": "安装到其他作用域",
+      "installToProject": "同时安装到项目",
+      "installToGlobal": "同时安装到全局",
+      "uninstallFrom": "按作用域卸载",
+      "uninstallGlobal": "从全局移除",
+      "uninstallProject": "从项目移除"
+    },
     "codexNote": "需要全局安装：npm install -g claude-code-workflow"
+  },
+  "conflict": {
+    "badge": "冲突",
+    "title": "作用域冲突",
+    "description": "此服务器同时存在于项目和全局作用域。运行时使用{scope}版本。",
+    "resolution": "建议从其中一个作用域移除该服务器。"
   },
   "recommended": {
     "title": "推荐服务器",

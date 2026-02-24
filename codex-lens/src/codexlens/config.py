@@ -140,7 +140,7 @@ class Config:
     enable_cascade_search: bool = False  # Enable cascade search (coarse + fine ranking)
     cascade_coarse_k: int = 100  # Number of coarse candidates from first stage
     cascade_fine_k: int = 10  # Number of final results after reranking
-    cascade_strategy: str = "binary"  # "binary", "binary_rerank", "dense_rerank", or "staged"
+    cascade_strategy: str = "binary"  # "binary", "binary_rerank" (alias: "hybrid"), "dense_rerank", or "staged"
 
     # Staged cascade search configuration (4-stage pipeline)
     staged_coarse_k: int = 200  # Number of coarse candidates from Stage 1 binary search
@@ -188,6 +188,9 @@ class Config:
     api_batch_size_utilization_factor: float = 0.8  # Use 80% of model token capacity
     api_batch_size_max: int = 2048  # Absolute upper limit for batch size
     chars_per_token_estimate: int = 4  # Characters per token estimation ratio
+
+    # Parser configuration
+    use_astgrep: bool = False  # Use ast-grep for relationship extraction (Python/JS/TS); tree-sitter is default
 
     def __post_init__(self) -> None:
         try:
@@ -291,6 +294,15 @@ class Config:
                 "timeout_ms": self.llm_timeout_ms,
                 "batch_size": self.llm_batch_size,
             },
+            "parsing": {
+                # Prefer ast-grep processors when available (experimental).
+                "use_astgrep": self.use_astgrep,
+            },
+            "indexing": {
+                # Persist global relationship edges during index build for static graph expansion.
+                "static_graph_enabled": self.static_graph_enabled,
+                "static_graph_relationship_types": self.static_graph_relationship_types,
+            },
             "reranker": {
                 "enabled": self.enable_cross_encoder_rerank,
                 "backend": self.reranker_backend,
@@ -305,6 +317,21 @@ class Config:
                 "strategy": self.cascade_strategy,
                 "coarse_k": self.cascade_coarse_k,
                 "fine_k": self.cascade_fine_k,
+            },
+            "staged": {
+                "coarse_k": self.staged_coarse_k,
+                "lsp_depth": self.staged_lsp_depth,
+                "stage2_mode": self.staged_stage2_mode,
+                "realtime_lsp_timeout_s": self.staged_realtime_lsp_timeout_s,
+                "realtime_lsp_depth": self.staged_realtime_lsp_depth,
+                "realtime_lsp_max_nodes": self.staged_realtime_lsp_max_nodes,
+                "realtime_lsp_max_seeds": self.staged_realtime_lsp_max_seeds,
+                "realtime_lsp_max_concurrent": self.staged_realtime_lsp_max_concurrent,
+                "realtime_lsp_warmup_s": self.staged_realtime_lsp_warmup_s,
+                "realtime_lsp_resolve_symbols": self.staged_realtime_lsp_resolve_symbols,
+                "clustering_strategy": self.staged_clustering_strategy,
+                "clustering_min_size": self.staged_clustering_min_size,
+                "enable_rerank": self.enable_staged_rerank,
             },
             "api": {
                 "max_workers": self.api_max_workers,
@@ -396,19 +423,219 @@ class Config:
                 # Load cascade settings
                 cascade = settings.get("cascade", {})
                 if "strategy" in cascade:
-                    strategy = cascade["strategy"]
+                    raw_strategy = cascade["strategy"]
+                    strategy = str(raw_strategy).strip().lower()
                     if strategy in {"binary", "binary_rerank", "dense_rerank", "staged"}:
                         self.cascade_strategy = strategy
+                    elif strategy == "hybrid":
+                        self.cascade_strategy = "binary_rerank"
+                        log.debug("Mapping cascade strategy 'hybrid' -> 'binary_rerank'")
                     else:
                         log.warning(
                             "Invalid cascade strategy in %s: %r (expected 'binary', 'binary_rerank', 'dense_rerank', or 'staged')",
                             self.settings_path,
-                            strategy,
+                            raw_strategy,
                         )
                 if "coarse_k" in cascade:
                     self.cascade_coarse_k = cascade["coarse_k"]
                 if "fine_k" in cascade:
                     self.cascade_fine_k = cascade["fine_k"]
+
+                # Load staged cascade settings
+                staged = settings.get("staged", {})
+                if isinstance(staged, dict):
+                    if "coarse_k" in staged:
+                        try:
+                            self.staged_coarse_k = int(staged["coarse_k"])
+                        except (TypeError, ValueError):
+                            log.warning(
+                                "Invalid staged.coarse_k in %s: %r (expected int)",
+                                self.settings_path,
+                                staged["coarse_k"],
+                            )
+                    if "lsp_depth" in staged:
+                        try:
+                            self.staged_lsp_depth = int(staged["lsp_depth"])
+                        except (TypeError, ValueError):
+                            log.warning(
+                                "Invalid staged.lsp_depth in %s: %r (expected int)",
+                                self.settings_path,
+                                staged["lsp_depth"],
+                            )
+                    if "stage2_mode" in staged:
+                        raw_mode = str(staged["stage2_mode"]).strip().lower()
+                        if raw_mode in {"precomputed", "realtime", "static_global_graph"}:
+                            self.staged_stage2_mode = raw_mode
+                        elif raw_mode in {"live"}:
+                            self.staged_stage2_mode = "realtime"
+                        else:
+                            log.warning(
+                                "Invalid staged.stage2_mode in %s: %r "
+                                "(expected 'precomputed', 'realtime', or 'static_global_graph')",
+                                self.settings_path,
+                                staged["stage2_mode"],
+                            )
+
+                    if "realtime_lsp_timeout_s" in staged:
+                        try:
+                            self.staged_realtime_lsp_timeout_s = float(
+                                staged["realtime_lsp_timeout_s"]
+                            )
+                        except (TypeError, ValueError):
+                            log.warning(
+                                "Invalid staged.realtime_lsp_timeout_s in %s: %r (expected float)",
+                                self.settings_path,
+                                staged["realtime_lsp_timeout_s"],
+                            )
+                    if "realtime_lsp_depth" in staged:
+                        try:
+                            self.staged_realtime_lsp_depth = int(
+                                staged["realtime_lsp_depth"]
+                            )
+                        except (TypeError, ValueError):
+                            log.warning(
+                                "Invalid staged.realtime_lsp_depth in %s: %r (expected int)",
+                                self.settings_path,
+                                staged["realtime_lsp_depth"],
+                            )
+                    if "realtime_lsp_max_nodes" in staged:
+                        try:
+                            self.staged_realtime_lsp_max_nodes = int(
+                                staged["realtime_lsp_max_nodes"]
+                            )
+                        except (TypeError, ValueError):
+                            log.warning(
+                                "Invalid staged.realtime_lsp_max_nodes in %s: %r (expected int)",
+                                self.settings_path,
+                                staged["realtime_lsp_max_nodes"],
+                            )
+                    if "realtime_lsp_max_seeds" in staged:
+                        try:
+                            self.staged_realtime_lsp_max_seeds = int(
+                                staged["realtime_lsp_max_seeds"]
+                            )
+                        except (TypeError, ValueError):
+                            log.warning(
+                                "Invalid staged.realtime_lsp_max_seeds in %s: %r (expected int)",
+                                self.settings_path,
+                                staged["realtime_lsp_max_seeds"],
+                            )
+                    if "realtime_lsp_max_concurrent" in staged:
+                        try:
+                            self.staged_realtime_lsp_max_concurrent = int(
+                                staged["realtime_lsp_max_concurrent"]
+                            )
+                        except (TypeError, ValueError):
+                            log.warning(
+                                "Invalid staged.realtime_lsp_max_concurrent in %s: %r (expected int)",
+                                self.settings_path,
+                                staged["realtime_lsp_max_concurrent"],
+                            )
+                    if "realtime_lsp_warmup_s" in staged:
+                        try:
+                            self.staged_realtime_lsp_warmup_s = float(
+                                staged["realtime_lsp_warmup_s"]
+                            )
+                        except (TypeError, ValueError):
+                            log.warning(
+                                "Invalid staged.realtime_lsp_warmup_s in %s: %r (expected float)",
+                                self.settings_path,
+                                staged["realtime_lsp_warmup_s"],
+                            )
+                    if "realtime_lsp_resolve_symbols" in staged:
+                        raw = staged["realtime_lsp_resolve_symbols"]
+                        if isinstance(raw, bool):
+                            self.staged_realtime_lsp_resolve_symbols = raw
+                        elif isinstance(raw, (int, float)):
+                            self.staged_realtime_lsp_resolve_symbols = bool(raw)
+                        elif isinstance(raw, str):
+                            self.staged_realtime_lsp_resolve_symbols = (
+                                raw.strip().lower() in {"true", "1", "yes", "on"}
+                            )
+                        else:
+                            log.warning(
+                                "Invalid staged.realtime_lsp_resolve_symbols in %s: %r (expected bool)",
+                                self.settings_path,
+                                raw,
+                            )
+
+                    if "clustering_strategy" in staged:
+                        raw_strategy = str(staged["clustering_strategy"]).strip().lower()
+                        allowed = {
+                            "auto",
+                            "hdbscan",
+                            "dbscan",
+                            "frequency",
+                            "noop",
+                            "score",
+                            "dir_rr",
+                            "path",
+                        }
+                        if raw_strategy in allowed:
+                            self.staged_clustering_strategy = raw_strategy
+                        elif raw_strategy in {"none", "off"}:
+                            self.staged_clustering_strategy = "noop"
+                        else:
+                            log.warning(
+                                "Invalid staged.clustering_strategy in %s: %r",
+                                self.settings_path,
+                                staged["clustering_strategy"],
+                            )
+                    if "clustering_min_size" in staged:
+                        try:
+                            self.staged_clustering_min_size = int(
+                                staged["clustering_min_size"]
+                            )
+                        except (TypeError, ValueError):
+                            log.warning(
+                                "Invalid staged.clustering_min_size in %s: %r (expected int)",
+                                self.settings_path,
+                                staged["clustering_min_size"],
+                            )
+                    if "enable_rerank" in staged:
+                        raw = staged["enable_rerank"]
+                        if isinstance(raw, bool):
+                            self.enable_staged_rerank = raw
+                        elif isinstance(raw, (int, float)):
+                            self.enable_staged_rerank = bool(raw)
+                        elif isinstance(raw, str):
+                            self.enable_staged_rerank = (
+                                raw.strip().lower() in {"true", "1", "yes", "on"}
+                            )
+                        else:
+                            log.warning(
+                                "Invalid staged.enable_rerank in %s: %r (expected bool)",
+                                self.settings_path,
+                                raw,
+                            )
+
+                # Load parsing settings
+                parsing = settings.get("parsing", {})
+                if isinstance(parsing, dict) and "use_astgrep" in parsing:
+                    self.use_astgrep = bool(parsing["use_astgrep"])
+
+                # Load indexing settings
+                indexing = settings.get("indexing", {})
+                if isinstance(indexing, dict):
+                    if "static_graph_enabled" in indexing:
+                        self.static_graph_enabled = bool(indexing["static_graph_enabled"])
+                    if "static_graph_relationship_types" in indexing:
+                        raw_types = indexing["static_graph_relationship_types"]
+                        if isinstance(raw_types, list):
+                            allowed = {"imports", "inherits", "calls"}
+                            cleaned = []
+                            for item in raw_types:
+                                val = str(item).strip().lower()
+                                if val and val in allowed:
+                                    cleaned.append(val)
+                            if cleaned:
+                                self.static_graph_relationship_types = cleaned
+                        else:
+                            log.warning(
+                                "Invalid indexing.static_graph_relationship_types in %s: %r (expected list)",
+                                self.settings_path,
+                                raw_types,
+                            )
 
                 # Load API settings
                 api = settings.get("api", {})
@@ -481,6 +708,9 @@ class Config:
             strategy = cascade_strategy.strip().lower()
             if strategy in {"binary", "binary_rerank", "dense_rerank", "staged"}:
                 self.cascade_strategy = strategy
+                log.debug("Overriding cascade_strategy from .env: %s", self.cascade_strategy)
+            elif strategy == "hybrid":
+                self.cascade_strategy = "binary_rerank"
                 log.debug("Overriding cascade_strategy from .env: %s", self.cascade_strategy)
             else:
                 log.warning("Invalid CASCADE_STRATEGY in .env: %r", cascade_strategy)

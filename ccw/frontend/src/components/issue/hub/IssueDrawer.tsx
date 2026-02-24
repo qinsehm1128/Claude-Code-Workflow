@@ -3,15 +3,17 @@
 // ========================================
 // Right-side issue detail drawer with Overview/Solutions/History tabs
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useIntl } from 'react-intl';
-import { X, FileText, CheckCircle, Circle, Loader2, Tag, History, Hash, Terminal } from 'lucide-react';
+import { X, FileText, CheckCircle, Circle, Loader2, Tag, History, Hash, Terminal, Play } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs';
 import { cn } from '@/lib/utils';
 import type { Issue } from '@/lib/api';
+import { createCliSession } from '@/lib/api';
 import { useOpenTerminalPanel } from '@/stores/terminalPanelStore';
+import { useWorkflowStore, selectProjectPath } from '@/stores/workflowStore';
 
 // ========== Types ==========
 export interface IssueDrawerProps {
@@ -44,7 +46,14 @@ const priorityConfig: Record<string, { label: string; variant: 'default' | 'seco
 export function IssueDrawer({ issue, isOpen, onClose, initialTab = 'overview' }: IssueDrawerProps) {
   const { formatMessage } = useIntl();
   const openTerminal = useOpenTerminalPanel();
+  const projectPath = useWorkflowStore(selectProjectPath);
   const [activeTab, setActiveTab] = useState<TabValue>(initialTab);
+
+  // Execution binding state
+  const CLI_TOOLS = ['claude', 'gemini', 'qwen', 'codex', 'opencode'] as const;
+  const [selectedTool, setSelectedTool] = useState<string>('claude');
+  const [selectedMode, setSelectedMode] = useState<'analysis' | 'write'>('analysis');
+  const [isLaunching, setIsLaunching] = useState(false);
 
   // Reset to initial tab when opening/switching issues
   useEffect(() => {
@@ -61,6 +70,23 @@ export function IssueDrawer({ issue, isOpen, onClose, initialTab = 'overview' }:
     window.addEventListener('keydown', handleEsc);
     return () => window.removeEventListener('keydown', handleEsc);
   }, [isOpen, onClose]);
+
+  const handleLaunchSession = useCallback(async () => {
+    if (!projectPath || !issue || isLaunching) return;
+    setIsLaunching(true);
+    try {
+      const created = await createCliSession(
+        { workingDir: projectPath, tool: selectedTool },
+        projectPath
+      );
+      openTerminal(created.session.sessionKey);
+      onClose();
+    } catch (err) {
+      console.error('[IssueDrawer] createCliSession failed:', err);
+    } finally {
+      setIsLaunching(false);
+    }
+  }, [projectPath, issue, isLaunching, selectedTool, openTerminal, onClose]);
 
   if (!issue || !isOpen) {
     return null;
@@ -225,20 +251,70 @@ export function IssueDrawer({ issue, isOpen, onClose, initialTab = 'overview' }:
                 )}
               </TabsContent>
 
-              {/* Terminal Tab - Link to Terminal Panel */}
+              {/* Terminal Tab - Execution Binding */}
               <TabsContent value="terminal" className="mt-4 pb-6 focus-visible:outline-none">
-                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                  <Terminal className="h-12 w-12 mb-4 opacity-50" />
-                  <p className="text-sm mb-4">{formatMessage({ id: 'home.terminalPanel.openInPanel' })}</p>
-                  <Button
-                    onClick={() => {
-                      openTerminal(issue.id);
-                      onClose();
-                    }}
-                  >
-                    <Terminal className="h-4 w-4 mr-2" />
-                    {formatMessage({ id: 'home.terminalPanel.openInPanel' })}
-                  </Button>
+                <div className="space-y-5">
+                  {/* Tool Selection */}
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground mb-2">
+                      {formatMessage({ id: 'issues.terminal.exec.tool' })}
+                    </h3>
+                    <div className="flex flex-wrap gap-2">
+                      {CLI_TOOLS.map((t) => (
+                        <Button
+                          key={t}
+                          variant={selectedTool === t ? 'default' : 'outline'}
+                          size="sm"
+                          onClick={() => setSelectedTool(t)}
+                        >
+                          {t}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Mode Selection */}
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground mb-2">
+                      {formatMessage({ id: 'issues.terminal.exec.mode' })}
+                    </h3>
+                    <div className="flex gap-2">
+                      {(['analysis', 'write'] as const).map((m) => (
+                        <Button
+                          key={m}
+                          variant={selectedMode === m ? 'default' : 'outline'}
+                          size="sm"
+                          onClick={() => setSelectedMode(m)}
+                        >
+                          {m}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Launch Action */}
+                  <div className="pt-2 space-y-2">
+                    <Button
+                      className="w-full gap-2"
+                      disabled={isLaunching || !projectPath}
+                      onClick={handleLaunchSession}
+                    >
+                      {isLaunching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                      {formatMessage({ id: 'issues.terminal.launch' })}
+                    </Button>
+
+                    <Button
+                      variant="outline"
+                      className="w-full gap-2"
+                      onClick={() => {
+                        openTerminal(issue.id);
+                        onClose();
+                      }}
+                    >
+                      <Terminal className="h-4 w-4" />
+                      {formatMessage({ id: 'home.terminalPanel.openInPanel' })}
+                    </Button>
+                  </div>
                 </div>
               </TabsContent>
 

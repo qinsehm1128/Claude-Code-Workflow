@@ -35,7 +35,7 @@ Unified planning skill combining 4-phase planning workflow, plan quality verific
               ┌───────────┐
               │ Confirm   │─── Verify ──→ Phase 5
               │ (choice)  │─── Execute ─→ Skill("workflow-execute")
-              └───────────┘─── Review ──→ /workflow:status
+              └───────────┘─── Review ──→ Display session status inline
 ```
 
 ## Key Design Principles
@@ -47,9 +47,57 @@ Unified planning skill combining 4-phase planning workflow, plan quality verific
 5. **Auto-Continue**: After each phase completes, automatically execute next pending phase
 6. **Accumulated State**: planning-notes.md carries context across phases for N+1 decisions
 
-## Auto Mode
+## Interactive Preference Collection
 
-When `--yes` or `-y`: Auto-continue all phases (skip confirmations), use recommended conflict resolutions, use safe defaults for replan.
+Before dispatching to phase execution, collect workflow preferences via AskUserQuestion:
+
+```javascript
+// ★ 统一 auto mode 检测：-y/--yes 从 $ARGUMENTS 或 ccw 传播
+const autoYes = /\b(-y|--yes)\b/.test($ARGUMENTS)
+
+if (autoYes) {
+  // 自动模式：跳过所有询问，使用默认值
+  workflowPreferences = { autoYes: true, interactive: false }
+} else {
+  const prefResponse = AskUserQuestion({
+    questions: [
+      {
+        question: "是否跳过所有确认步骤（自动模式）？",
+        header: "Auto Mode",
+        multiSelect: false,
+        options: [
+          { label: "Interactive (Recommended)", description: "交互模式，包含确认步骤" },
+          { label: "Auto", description: "跳过所有确认，自动执行" }
+        ]
+      }
+    ]
+  })
+
+  workflowPreferences = {
+    autoYes: prefResponse.autoMode === 'Auto'
+  }
+
+  // For replan mode, also collect interactive preference
+  if (mode === 'replan') {
+    const replanPref = AskUserQuestion({
+      questions: [
+        {
+          question: "是否使用交互式澄清模式？",
+          header: "Replan Mode",
+          multiSelect: false,
+          options: [
+            { label: "Standard (Recommended)", description: "使用安全默认值" },
+            { label: "Interactive", description: "通过提问交互式澄清修改范围" }
+          ]
+        }
+      ]
+    })
+    workflowPreferences.interactive = replanPref.replanMode === 'Interactive'
+  }
+}
+```
+
+**workflowPreferences** is passed to phase execution as context variable, referenced as `workflowPreferences.autoYes`, `workflowPreferences.interactive` within phases.
 
 ## Mode Detection
 
@@ -97,7 +145,7 @@ Plan Confirmation (User Decision Gate):
    └─ Decision (user choice):
       ├─ "Verify Plan Quality" (Recommended) → Route to Phase 5 (plan-verify)
       ├─ "Start Execution" → Skill(skill="workflow-execute")
-      └─ "Review Status Only" → Route to /workflow:status
+      └─ "Review Status Only" → Display session status inline
 ```
 
 ### Verify Mode
@@ -202,7 +250,7 @@ Phase 4: task-generate-agent --session sessionId
 Plan Confirmation (User Decision Gate):
     ├─ "Verify Plan Quality" (Recommended) → Route to Phase 5
     ├─ "Start Execution" → Skill(skill="workflow-execute")
-    └─ "Review Status Only" → Route to /workflow:status
+    └─ "Review Status Only" → Display session status inline
 ```
 
 **Session Memory Flow**: Each phase receives session ID, which provides access to:
@@ -325,19 +373,19 @@ See phase files for detailed update code.
 - **Plan Confirmation Gate**: Present user with choice (Verify → Phase 5 / Execute / Review Status)
 - **If user selects Verify**: Read phases/05-plan-verify.md, execute Phase 5 in-process
 - **If user selects Execute**: Skill(skill="workflow-execute")
-- **If user selects Review**: Route to /workflow:status
-- **Auto mode (--yes)**: Auto-select "Verify Plan Quality", then auto-continue to execute if PROCEED
+- **If user selects Review**: Display session status inline
+- **Auto mode (workflowPreferences.autoYes)**: Auto-select "Verify Plan Quality", then auto-continue to execute if PROCEED
 - Update TodoWrite after each phase
 - After each phase, automatically continue to next phase based on TodoList status
 
 ### Verify Mode
-- Detect/validate session (from --session flag or auto-detect)
+- Detect/validate session (auto-detect from active sessions)
 - Initialize TodoWrite with single verification task
 - Execute Phase 5 verification agent
 - Present quality gate result and next step options
 
 ### Replan Mode
-- Parse flags (--session, --interactive, task-id)
+- Parse task ID from $ARGUMENTS (IMPL-N format, if present)
 - Detect operation mode (task vs session)
 - Initialize TodoWrite with replan-specific tasks
 - Execute Phase 6 through all sub-phases (clarification → impact → backup → apply → verify)
@@ -363,18 +411,18 @@ CONSTRAINTS: [Limitations or boundaries]
 ## Related Skills
 
 **Prerequisite Skills**:
-- `/workflow:brainstorm:artifacts` - Optional: Generate role-based analyses before planning
-- `/workflow:brainstorm:synthesis` - Optional: Refine brainstorm analyses with clarifications
+- `brainstorm` skill - Optional: Generate role-based analyses before planning
+- `brainstorm` skill - Optional: Refine brainstorm analyses with clarifications
 
 **Called by Plan Mode** (4 phases):
 - `/workflow:session:start` - Phase 1: Create or discover workflow session
-- `/workflow:tools:context-gather` - Phase 2: Gather project context and analyze codebase
-- `/workflow:tools:conflict-resolution` - Phase 3: Detect and resolve conflicts (conditional)
-- `/compact` - Phase 3: Memory optimization (if context approaching limits)
-- `/workflow:tools:task-generate-agent` - Phase 4: Generate task JSON files
+- `phases/02-context-gathering.md` - Phase 2: Gather project context and analyze codebase (inline)
+- `phases/03-conflict-resolution.md` - Phase 3: Detect and resolve conflicts (inline, conditional)
+- `memory-capture` skill - Phase 3: Memory optimization (if context approaching limits)
+- `phases/04-task-generation.md` - Phase 4: Generate task JSON files (inline)
 
 **Follow-up Skills**:
-- `/workflow:plan-verify` - Verify plan quality (can also invoke via verify mode)
-- `/workflow:status` - Review task breakdown and current progress
+- `workflow-plan` skill (plan-verify phase) - Verify plan quality (can also invoke via verify mode)
+- Display session status inline - Review task breakdown and current progress
 - `Skill(skill="workflow-execute")` - Begin implementation of generated tasks (skill: workflow-execute)
-- `/workflow:replan` - Modify plan (can also invoke via replan mode)
+- `workflow-plan` skill (replan phase) - Modify plan (can also invoke via replan mode)

@@ -304,7 +304,7 @@ const workflowConfig = {
 
   // Features
   features: {
-    hasAutoMode: true,                  // --yes flag support
+    hasAutoMode: true,                  // Interactive preference collection (AskUserQuestion)
     hasConditionalPhases: true,         // some phases may be skipped
     hasTodoWriteSubTasks: true,         // phases expand into sub-tasks
     hasPlanningNotes: true,             // accumulated state document

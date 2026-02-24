@@ -337,6 +337,30 @@
       "installFailed": "Failed to install ccw-litellm",
       "uninstallSuccess": "ccw-litellm uninstalled successfully",
       "uninstallFailed": "Failed to uninstall ccw-litellm"
+    },
+    "install": {
+      "title": "Install CCW-LiteLLM",
+      "description": "Install ccw-litellm into the CodexLens Python virtual environment for embedding support.",
+      "checklist": "What will be installed",
+      "codexlensVenv": "CodexLens Venv",
+      "codexlensVenvDesc": "Ensures CodexLens Python virtual environment is ready",
+      "litellmPackage": "ccw-litellm Package",
+      "litellmPackageDesc": "LiteLLM-based embedding client for multi-provider support",
+      "embeddingSupport": "Embedding Support",
+      "embeddingSupportDesc": "Enables LiteLLM embedding backend for semantic search",
+      "location": "Install Location",
+      "locationPath": "~/.codexlens/venv",
+      "timeEstimate": "Installation may take 1-3 minutes depending on network speed.",
+      "installNow": "Install Now",
+      "installing": "Installing...",
+      "stage": {
+        "checkingVenv": "Checking CodexLens virtual environment...",
+        "detectingPackage": "Detecting ccw-litellm package source...",
+        "installingDeps": "Installing dependencies...",
+        "installingPackage": "Installing ccw-litellm package...",
+        "verifying": "Verifying installation...",
+        "complete": "Installation complete!"
+      }
     }
   },
   "common": {

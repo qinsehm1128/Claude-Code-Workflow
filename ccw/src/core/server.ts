@@ -9,6 +9,7 @@ import { handleAuditRoutes } from './routes/audit-routes.js';
 import { handleProviderRoutes } from './routes/provider-routes.js';
 import { handleMemoryRoutes } from './routes/memory-routes.js';
 import { handleCoreMemoryRoutes } from './routes/core-memory-routes.js';
+import { handleUnifiedMemoryRoutes } from './routes/unified-memory-routes.js';
 import { handleMcpRoutes } from './routes/mcp-routes.js';
 import { handleHooksRoutes } from './routes/hooks-routes.js';
 import { handleUnsplashRoutes, handleBackgroundRoutes } from './routes/unsplash-routes.js';
@@ -17,6 +18,7 @@ import { handleGraphRoutes } from './routes/graph-routes.js';
 import { handleSystemRoutes } from './routes/system-routes.js';
 import { handleFilesRoutes } from './routes/files-routes.js';
 import { handleSkillsRoutes } from './routes/skills-routes.js';
+import { handleSkillHubRoutes } from './routes/skill-hub-routes.js';
 import { handleCommandsRoutes } from './routes/commands-routes.js';
 import { handleIssueRoutes } from './routes/issue-routes.js';
 import { handleDiscoveryRoutes } from './routes/discovery-routes.js';
@@ -37,6 +39,7 @@ import { handleDashboardRoutes } from './routes/dashboard-routes.js';
 import { handleOrchestratorRoutes } from './routes/orchestrator-routes.js';
 import { handleConfigRoutes } from './routes/config-routes.js';
 import { handleTeamRoutes } from './routes/team-routes.js';
+import { handleNotificationRoutes } from './routes/notification-routes.js';
 
 // Import WebSocket handling
 import { handleWebSocketUpgrade, broadcastToClients, extractSessionIdFromPath } from './websocket.js';
@@ -91,7 +94,11 @@ function handlePostRequest(req: http.IncomingMessage, res: http.ServerResponse, 
         return;
       }
 
-      res.writeHead(200, { 'Content-Type': 'application/json' });
+      // Support custom success status codes (e.g., 201 Created)
+      const successStatus = typeof statusValue === 'number' && statusValue >= 200 && statusValue < 300
+        ? statusValue
+        : 200;
+      res.writeHead(successStatus, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(result));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
@@ -462,6 +469,11 @@ export async function startServer(options: ServerOptions = {}): Promise<http.Ser
         if (await handleCoreMemoryRoutes(routeContext)) return;
       }
 
+      // Unified Memory routes (/api/unified-memory/*)
+      if (pathname.startsWith('/api/unified-memory/')) {
+        if (await handleUnifiedMemoryRoutes(routeContext)) return;
+      }
+
 
       // MCP routes (/api/mcp*, /api/codex-mcp*)
       if (pathname.startsWith('/api/mcp') || pathname.startsWith('/api/codex-mcp')) {
@@ -533,6 +545,11 @@ export async function startServer(options: ServerOptions = {}): Promise<http.Ser
         if (await handleTeamRoutes(routeContext)) return;
       }
 
+      // Remote notification routes (/api/notifications/remote/*)
+      if (pathname.startsWith('/api/notifications/remote')) {
+        if (await handleNotificationRoutes(req, res, pathname)) return;
+      }
+
       // Task routes (/api/tasks)
       if (pathname.startsWith('/api/tasks')) {
         if (await handleTaskRoutes(routeContext)) return;
@@ -546,6 +563,11 @@ export async function startServer(options: ServerOptions = {}): Promise<http.Ser
       // Skills routes (/api/skills*)
       if (pathname.startsWith('/api/skills')) {
         if (await handleSkillsRoutes(routeContext)) return;
+      }
+
+      // Skill Hub routes (/api/skill-hub*)
+      if (pathname.startsWith('/api/skill-hub')) {
+        if (await handleSkillHubRoutes(routeContext)) return;
       }
 
       // Commands routes (/api/commands*)
@@ -583,9 +605,10 @@ export async function startServer(options: ServerOptions = {}): Promise<http.Ser
         if (await handleSessionRoutes(routeContext)) return;
       }
 
-      // Files routes (/api/files, /api/file, /api/file-content, /api/update-claude-md)
+      // Files routes (/api/files, /api/file, /api/file-content, /api/update-claude-md, /api/explorer/*)
       if (pathname === '/api/files' || pathname === '/api/file' ||
-          pathname === '/api/file-content' || pathname === '/api/update-claude-md') {
+          pathname === '/api/file-content' || pathname === '/api/update-claude-md' ||
+          pathname.startsWith('/api/explorer/')) {
         if (await handleFilesRoutes(routeContext)) return;
       }
 

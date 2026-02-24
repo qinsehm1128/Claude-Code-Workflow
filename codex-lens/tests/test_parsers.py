@@ -377,6 +377,43 @@ class TestParserFactory:
             finally:
                 del os.environ["CODEXLENS_DATA_DIR"]
 
+    def test_factory_passes_config_to_treesitter(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Ensure ParserFactory config is forwarded into TreeSitterSymbolParser."""
+        from codexlens.entities import IndexedFile
+
+        captured: dict = {}
+
+        class FakeTreeSitterSymbolParser:
+            def __init__(self, language_id, path=None, config=None) -> None:
+                captured["config"] = config
+                self.language_id = language_id
+
+            def is_available(self) -> bool:
+                return True
+
+            def parse(self, text: str, path: Path) -> IndexedFile:
+                return IndexedFile(
+                    path=str(path.resolve()),
+                    language=self.language_id,
+                    symbols=[],
+                    chunks=[],
+                    relationships=[],
+                )
+
+        monkeypatch.setattr(
+            "codexlens.parsers.factory.TreeSitterSymbolParser",
+            FakeTreeSitterSymbolParser,
+        )
+
+        config = Config()
+        config.use_astgrep = True
+
+        factory = ParserFactory(config)
+        parser = factory.get_parser("python")
+        parser.parse("def hello():\n    pass\n", Path("test.py"))
+
+        assert captured.get("config") is config
+
 
 class TestParserEdgeCases:
     """Edge case tests for parsers."""

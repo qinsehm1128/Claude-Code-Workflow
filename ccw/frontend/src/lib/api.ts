@@ -4,6 +4,7 @@
 // Typed fetch functions for API communication with CSRF token handling
 
 import type { SessionMetadata, TaskData, IndexStatus, IndexRebuildRequest, Rule, RuleCreateInput, RulesResponse, Prompt, PromptInsight, Pattern, Suggestion, McpTemplate, McpTemplateInstallRequest, AllProjectsResponse, OtherProjectsServersResponse, CrossCliCopyRequest, CrossCliCopyResponse } from '../types/store';
+import type { TeamArtifactsResponse } from '../types/team';
 
 // Re-export types for backward compatibility
 export type { IndexStatus, IndexRebuildRequest, Rule, RuleCreateInput, RulesResponse, Prompt, PromptInsight, Pattern, Suggestion, McpTemplate, McpTemplateInstallRequest, AllProjectsResponse, OtherProjectsServersResponse, CrossCliCopyRequest, CrossCliCopyResponse };
@@ -151,7 +152,9 @@ async function fetchApi<T>(
     if (contentType && contentType.includes('application/json')) {
       try {
         const body = await response.json();
+        // Check both 'message' and 'error' fields for error message
         if (body.message) error.message = body.message;
+        else if (body.error) error.message = body.error;
         if (body.code) error.code = body.code;
       } catch (parseError) {
         // Silently ignore JSON parse errors for non-JSON responses
@@ -675,6 +678,18 @@ export interface IssueSolution {
   estimatedEffort?: string;
 }
 
+/**
+ * Attachment entity for file uploads
+ */
+export interface Attachment {
+  id: string;
+  filename: string;
+  path: string;
+  type: string;
+  size: number;
+  uploaded_at: string;
+}
+
 export interface Issue {
   id: string;
   title: string;
@@ -686,6 +701,7 @@ export interface Issue {
   solutions?: IssueSolution[];
   labels?: string[];
   assignee?: string;
+  attachments?: Attachment[];
 }
 
 export interface QueueItem {
@@ -785,6 +801,71 @@ export async function deleteIssue(issueId: string): Promise<void> {
   return fetchApi<void>(`/api/issues/${encodeURIComponent(issueId)}`, {
     method: 'DELETE',
   });
+}
+
+// ========== Attachment API ==========
+
+export interface UploadAttachmentsResponse {
+  success: boolean;
+  issueId: string;
+  attachments: Attachment[];
+  count: number;
+}
+
+export interface ListAttachmentsResponse {
+  success: boolean;
+  issueId: string;
+  attachments: Attachment[];
+  count: number;
+}
+
+/**
+ * Upload attachments to an issue
+ */
+export async function uploadAttachments(
+  issueId: string,
+  files: File[]
+): Promise<UploadAttachmentsResponse> {
+  const formData = new FormData();
+  files.forEach((file) => {
+    formData.append('files', file);
+  });
+
+  const response = await fetch(`/api/issues/${encodeURIComponent(issueId)}/attachments`, {
+    method: 'POST',
+    body: formData,
+    credentials: 'same-origin',
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Upload failed' }));
+    throw new Error(error.error || 'Failed to upload attachments');
+  }
+
+  return response.json();
+}
+
+/**
+ * List attachments for an issue
+ */
+export async function listAttachments(issueId: string): Promise<ListAttachmentsResponse> {
+  return fetchApi<ListAttachmentsResponse>(`/api/issues/${encodeURIComponent(issueId)}/attachments`);
+}
+
+/**
+ * Delete an attachment
+ */
+export async function deleteAttachment(issueId: string, attachmentId: string): Promise<void> {
+  return fetchApi<void>(`/api/issues/${encodeURIComponent(issueId)}/attachments/${encodeURIComponent(attachmentId)}`, {
+    method: 'DELETE',
+  });
+}
+
+/**
+ * Get attachment download URL
+ */
+export function getAttachmentUrl(issueId: string, filename: string): string {
+  return `/api/issues/files/${encodeURIComponent(issueId)}/${encodeURIComponent(filename)}`;
 }
 
 /**
@@ -1680,8 +1761,15 @@ export async function fetchSessionDetail(sessionId: string, projectPath?: string
   // Backend returns raw context-package.json content, frontend expects it nested under 'context' field
   const transformedContext = detailData.context ? { context: detailData.context } : undefined;
 
+  // Step 5: Merge tasks from detailData into session object
+  // Backend returns tasks at root level, frontend expects them on session object
+  const sessionWithTasks = {
+    ...session,
+    tasks: detailData.tasks || session.tasks || [],
+  };
+
   return {
-    session,
+    session: sessionWithTasks,
     context: transformedContext,
     summary: finalSummary,
     summaries: detailData.summaries,
@@ -2040,6 +2128,14 @@ export interface NormalizedTask extends TaskData {
 }
 
 /**
+ * Normalize files field: handles both old string[] format and new {path}[] format.
+ */
+function normalizeFilesField(files: unknown): Array<{ path: string; name?: string }> | undefined {
+  if (!Array.isArray(files) || files.length === 0) return undefined;
+  return files.map((f: unknown) => typeof f === 'string' ? { path: f } : f) as Array<{ path: string; name?: string }>;
+}
+
+/**
  * Normalize a raw task object (old 6-field or new unified flat) into NormalizedTask.
  * Reads new flat fields first, falls back to old nested paths.
  * Long-term compatible: handles both formats permanently.
@@ -2049,18 +2145,43 @@ export function normalizeTask(raw: Record<string, unknown>): NormalizedTask {
     return { task_id: 'N/A', status: 'pending', _raw: raw } as NormalizedTask;
   }
 
-  // Type-safe access helpers
-  const rawContext = raw.context as LiteTask['context'] | undefined;
+  // Type-safe access helpers (use intersection for broad compat with old/new schemas)
+  const rawContext = raw.context as (LiteTask['context'] & { requirements?: string[] }) | undefined;
   const rawFlowControl = raw.flow_control as FlowControl | undefined;
   const rawMeta = raw.meta as LiteTask['meta'] | undefined;
   const rawConvergence = raw.convergence as NormalizedTask['convergence'] | undefined;
+  const rawModPoints = raw.modification_points as Array<{ file?: string; target?: string; change?: string }> | undefined;
 
-  // Description: new flat field first, then join old context.requirements
+  // Description: new flat field first, then join old context.requirements, then old details/scope
   const rawRequirements = rawContext?.requirements;
+  const rawDetails = raw.details as string[] | undefined;
   const description = (raw.description as string | undefined)
     || (Array.isArray(rawRequirements) && rawRequirements.length > 0
       ? rawRequirements.join('; ')
+      : undefined)
+    || (Array.isArray(rawDetails) && rawDetails.length > 0
+      ? rawDetails.join('; ')
+      : undefined)
+    || (raw.scope as string | undefined);
+
+  // Normalize files: new flat files > flow_control.target_files > modification_points
+  const normalizedFiles = normalizeFilesField(raw.files)
+    || rawFlowControl?.target_files
+    || (rawModPoints?.length
+      ? rawModPoints.filter(m => m.file).map(m => ({ path: m.file!, name: m.target, change: m.change }))
       : undefined);
+
+  // Normalize focus_paths: top-level > context > files paths
+  const focusPaths = (raw.focus_paths as string[])
+    || rawContext?.focus_paths
+    || (normalizedFiles?.length ? normalizedFiles.map(f => f.path).filter(Boolean) : undefined)
+    || [];
+
+  // Normalize acceptance: convergence > context.acceptance > top-level acceptance
+  const rawAcceptance = raw.acceptance as string[] | undefined;
+  const convergence = rawConvergence
+    || (rawContext?.acceptance?.length ? { criteria: rawContext.acceptance } : undefined)
+    || (rawAcceptance?.length ? { criteria: rawAcceptance } : undefined);
 
   return {
     // Identity
@@ -2076,15 +2197,13 @@ export function normalizeTask(raw: Record<string, unknown>): NormalizedTask {
 
     // Promoted from context (new first, old fallback)
     depends_on: (raw.depends_on as string[]) || rawContext?.depends_on || [],
-    focus_paths: (raw.focus_paths as string[]) || rawContext?.focus_paths || [],
-    convergence: rawConvergence || (rawContext?.acceptance?.length
-      ? { criteria: rawContext.acceptance }
-      : undefined),
+    focus_paths: focusPaths,
+    convergence,
 
     // Promoted from flow_control (new first, old fallback)
     pre_analysis: (raw.pre_analysis as PreAnalysisStep[]) || rawFlowControl?.pre_analysis,
     implementation: (raw.implementation as (ImplementationStep | string)[]) || rawFlowControl?.implementation_approach,
-    files: (raw.files as Array<{ path: string; name?: string }>) || rawFlowControl?.target_files,
+    files: normalizedFiles,
 
     // Promoted from meta (new first, old fallback)
     type: (raw.type as string) || rawMeta?.type,
@@ -2142,6 +2261,111 @@ export interface LiteTaskSession {
   status?: string;
   createdAt?: string;
   updatedAt?: string;
+  // Multi-cli-plan specific fields
+  rounds?: RoundSynthesis[];
+}
+
+// Multi-cli-plan synthesis types
+export interface SolutionFileAction {
+  file: string;
+  line: number;
+  action: 'modify' | 'create' | 'delete';
+}
+
+export interface SolutionTask {
+  id: string;
+  name: string;
+  depends_on: string[];
+  files: SolutionFileAction[];
+  key_point: string | null;
+}
+
+export interface Solution {
+  name: string;
+  source_cli: string[];
+  feasibility: number;
+  effort: string;
+  risk: string;
+  summary: string;
+  pros: string[];
+  cons: string[];
+  affected_files: SolutionFileAction[];
+  implementation_plan: {
+    approach: string;
+    tasks: SolutionTask[];
+    execution_flow: string;
+    milestones: string[];
+  };
+  dependencies: {
+    internal: string[];
+    external: string[];
+  };
+  technical_concerns: string[];
+}
+
+export interface SynthesisConvergence {
+  score: number;
+  new_insights: boolean;
+  recommendation: 'converged' | 'continue' | 'user_input_needed';
+  rationale: string;
+}
+
+export interface SynthesisCrossVerification {
+  agreements: string[];
+  disagreements: Array<{
+    topic: string;
+    gemini: string;
+    codex: string;
+    resolution: string | null;
+  }>;
+  resolution: string;
+}
+
+export interface RoundSynthesis {
+  round: number;
+  timestamp: string;
+  cli_executions: Record<string, { status: string; duration_ms: number; model: string }>;
+  solutions: Solution[];
+  convergence: SynthesisConvergence;
+  cross_verification: SynthesisCrossVerification;
+  clarification_questions: string[];
+  user_feedback_incorporated?: string;
+}
+
+// Multi-cli-plan context-package.json structure
+export interface MultiCliContextPackage {
+  solution?: {
+    name: string;
+    source_cli: string[];
+    feasibility: number;
+    effort: string;
+    risk: string;
+    summary: string;
+  };
+  implementation_plan?: {
+    approach: string;
+    tasks: Array<{
+      id: string;
+      name: string;
+      depends_on: string[];
+      files: SolutionFileAction[];
+      key_point: string | null;
+    }>;
+    execution_flow: string;
+    milestones: string[];
+  };
+  dependencies?: {
+    internal: string[];
+    external: string[];
+  };
+  technical_concerns?: string[];
+  consensus?: {
+    agreements: string[];
+    resolved_conflicts?: string;
+  };
+  constraints?: string[];
+  task_description?: string;
+  session_id?: string;
 }
 
 export interface LiteTasksResponse {
@@ -2370,9 +2594,18 @@ export interface McpServer {
   scope: 'project' | 'global';
 }
 
+export interface McpServerConflict {
+  name: string;
+  projectServer: McpServer;
+  globalServer: McpServer;
+  /** Runtime effective scope */
+  effectiveScope: 'global' | 'project';
+}
+
 export interface McpServersResponse {
   project: McpServer[];
   global: McpServer[];
+  conflicts: McpServerConflict[];
 }
 
 /**
@@ -2481,7 +2714,6 @@ export async function fetchMcpServers(projectPath?: string): Promise<McpServersR
   const disabledSet = new Set(disabledServers);
 
   const userServers = isUnknownRecord(config.userServers) ? (config.userServers as UnknownRecord) : {};
-  const enterpriseServers = isUnknownRecord(config.enterpriseServers) ? (config.enterpriseServers as UnknownRecord) : {};
 
   const projectServersRecord = projectConfig && isUnknownRecord(projectConfig.mcpServers)
     ? (projectConfig.mcpServers as UnknownRecord)
@@ -2498,21 +2730,34 @@ export async function fetchMcpServers(projectPath?: string): Promise<McpServersR
   });
 
   const project: McpServer[] = Object.entries(projectServersRecord)
-    // Avoid duplicates: if defined globally/enterprise, treat it as global
-    .filter(([name]) => !(name in userServers) && !(name in enterpriseServers))
     .map(([name, raw]) => {
       const normalized = normalizeServerConfig(raw);
       return {
         name,
         ...normalized,
         enabled: !disabledSet.has(name),
-        scope: 'project',
+        scope: 'project' as const,
       };
     });
+
+  // Detect conflicts: same name exists in both project and global
+  const conflicts: McpServerConflict[] = [];
+  for (const ps of project) {
+    const gs = global.find(g => g.name === ps.name);
+    if (gs) {
+      conflicts.push({
+        name: ps.name,
+        projectServer: ps,
+        globalServer: gs,
+        effectiveScope: 'global',
+      });
+    }
+  }
 
   return {
     project,
     global,
+    conflicts,
   };
 }
 
@@ -3175,10 +3420,89 @@ export interface Hook {
   command?: string;
   trigger: string;
   matcher?: string;
+  scope?: 'global' | 'project';
+  index?: number;
+  templateId?: string;
 }
 
 export interface HooksResponse {
   hooks: Hook[];
+}
+
+/**
+ * Raw hook entry as stored in settings.json
+ * Format: { matcher?: string, hooks: [{ type: "command", command: "..." }] }
+ */
+interface RawHookEntry {
+  matcher?: string;
+  _templateId?: string;
+  hooks?: Array<{
+    type?: string;
+    command?: string;
+    prompt?: string;
+    timeout?: number;
+    async?: boolean;
+  }>;
+  // Legacy flat format support
+  command?: string;
+  args?: string[];
+  script?: string;
+  enabled?: boolean;
+  description?: string;
+}
+
+/**
+ * Parse raw hooks config from backend into flat Hook array
+ */
+function parseHooksConfig(
+  data: {
+    global?: { path?: string; hooks?: Record<string, RawHookEntry[]> };
+    project?: { path?: string | null; hooks?: Record<string, RawHookEntry[]> };
+  }
+): Hook[] {
+  const result: Hook[] = [];
+
+  for (const scope of ['project', 'global'] as const) {
+    const scopeData = data[scope];
+    if (!scopeData?.hooks || typeof scopeData.hooks !== 'object') continue;
+
+    for (const [event, entries] of Object.entries(scopeData.hooks)) {
+      if (!Array.isArray(entries)) continue;
+
+      entries.forEach((entry, index) => {
+        // Extract command from nested hooks array (official format)
+        let command = '';
+        if (entry.hooks && Array.isArray(entry.hooks) && entry.hooks.length > 0) {
+          command = entry.hooks.map(h => h.command || h.prompt || '').filter(Boolean).join(' && ');
+        }
+        // Legacy flat format fallback
+        if (!command && entry.command) {
+          command = entry.args
+            ? `${entry.command} ${entry.args.join(' ')}`
+            : entry.command;
+        }
+        if (!command && entry.script) {
+          command = entry.script;
+        }
+
+        const name = `${scope}-${event}-${index}`;
+
+        result.push({
+          name,
+          description: entry.description,
+          enabled: entry.enabled !== false,
+          command,
+          trigger: event,
+          matcher: entry.matcher,
+          scope,
+          index,
+          templateId: entry._templateId,
+        });
+      });
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -3187,9 +3511,9 @@ export interface HooksResponse {
  */
 export async function fetchHooks(projectPath?: string): Promise<HooksResponse> {
   const url = projectPath ? `/api/hooks?path=${encodeURIComponent(projectPath)}` : '/api/hooks';
-  const data = await fetchApi<{ hooks?: Hook[] }>(url);
+  const data = await fetchApi<Record<string, unknown>>(url);
   return {
-    hooks: data.hooks ?? [],
+    hooks: parseHooksConfig(data as Parameters<typeof parseHooksConfig>[0]),
   };
 }
 
@@ -3270,12 +3594,35 @@ export async function deleteHook(hookName: string): Promise<void> {
 
 /**
  * Install a hook from predefined template
+ * Converts template data to Claude Code's settings.json format:
+ * { _templateId, matcher?, hooks: [{ type: "command", command: "full command string" }] }
  */
-export async function installHookTemplate(templateId: string): Promise<Hook> {
-  return fetchApi<Hook>('/api/hooks/install-template', {
-    method: 'POST',
-    body: JSON.stringify({ templateId }),
-  });
+export async function installHookTemplate(
+  trigger: string,
+  templateData: { id: string; command: string; args?: string[]; matcher?: string }
+): Promise<{ success: boolean }> {
+  // Build full command string from command + args
+  const fullCommand = templateData.args
+    ? `${templateData.command} ${templateData.args.map(a => a.includes(' ') ? `'${a}'` : a).join(' ')}`
+    : templateData.command;
+
+  // Build hookData in Claude Code's official nested format
+  // _templateId is ignored by Claude Code but used for installed detection
+  const hookData: Record<string, unknown> = {
+    _templateId: templateData.id,
+    hooks: [
+      {
+        type: 'command',
+        command: fullCommand,
+      }
+    ]
+  };
+
+  if (templateData.matcher) {
+    hookData.matcher = templateData.matcher;
+  }
+
+  return saveHook('project', trigger, hookData);
 }
 
 // ========== Rules API ==========
@@ -3412,6 +3759,7 @@ export interface CcwMcpConfig {
   projectRoot?: string;
   allowedDirs?: string;
   enableSandbox?: boolean;
+  installedScopes: ('global' | 'project')[];
 }
 
 /**
@@ -3464,27 +3812,43 @@ function buildCcwMcpServerConfig(config: {
 /**
  * Fetch CCW Tools MCP configuration by checking if ccw-tools server exists
  */
-export async function fetchCcwMcpConfig(): Promise<CcwMcpConfig> {
+export async function fetchCcwMcpConfig(currentProjectPath?: string): Promise<CcwMcpConfig> {
   try {
     const config = await fetchMcpConfig();
 
-    // Check if ccw-tools server exists in any config
+    const installedScopes: ('global' | 'project')[] = [];
     let ccwServer: any = null;
 
-    // Check global servers
+    // Check global/user servers
     if (config.globalServers?.['ccw-tools']) {
+      installedScopes.push('global');
       ccwServer = config.globalServers['ccw-tools'];
-    }
-    // Check user servers
-    if (!ccwServer && config.userServers?.['ccw-tools']) {
+    } else if (config.userServers?.['ccw-tools']) {
+      installedScopes.push('global');
       ccwServer = config.userServers['ccw-tools'];
     }
-    // Check project servers
-    if (!ccwServer && config.projects) {
-      for (const proj of Object.values(config.projects)) {
-        if (proj.mcpServers?.['ccw-tools']) {
-          ccwServer = proj.mcpServers['ccw-tools'];
-          break;
+
+    // Check project servers - only check current project if specified
+    if (config.projects) {
+      if (currentProjectPath) {
+        // Normalize path for comparison (forward slashes)
+        const normalizedCurrent = currentProjectPath.replace(/\\/g, '/');
+        for (const [key, proj] of Object.entries(config.projects)) {
+          const normalizedKey = key.replace(/\\/g, '/');
+          if (normalizedKey === normalizedCurrent && proj.mcpServers?.['ccw-tools']) {
+            installedScopes.push('project');
+            if (!ccwServer) ccwServer = proj.mcpServers['ccw-tools'];
+            break;
+          }
+        }
+      } else {
+        // Fallback: check all projects (legacy behavior)
+        for (const proj of Object.values(config.projects)) {
+          if (proj.mcpServers?.['ccw-tools']) {
+            installedScopes.push('project');
+            if (!ccwServer) ccwServer = proj.mcpServers['ccw-tools'];
+            break;
+          }
         }
       }
     }
@@ -3493,6 +3857,7 @@ export async function fetchCcwMcpConfig(): Promise<CcwMcpConfig> {
       return {
         isInstalled: false,
         enabledTools: [],
+        installedScopes: [],
       };
     }
 
@@ -3509,11 +3874,13 @@ export async function fetchCcwMcpConfig(): Promise<CcwMcpConfig> {
       projectRoot: env.CCW_PROJECT_ROOT,
       allowedDirs: env.CCW_ALLOWED_DIRS,
       enableSandbox: env.CCW_ENABLE_SANDBOX === '1',
+      installedScopes,
     };
   } catch {
     return {
       isInstalled: false,
       enabledTools: [],
+      installedScopes: [],
     };
   }
 }
@@ -3605,6 +3972,27 @@ export async function uninstallCcwMcp(): Promise<void> {
   }
 }
 
+/**
+ * Uninstall CCW Tools MCP server from a specific scope
+ */
+export async function uninstallCcwMcpFromScope(
+  scope: 'global' | 'project',
+  projectPath?: string
+): Promise<void> {
+  if (scope === 'global') {
+    await fetchApi('/api/mcp-remove-global-server', {
+      method: 'POST',
+      body: JSON.stringify({ serverName: 'ccw-tools' }),
+    });
+  } else {
+    if (!projectPath) throw new Error('projectPath required for project scope uninstall');
+    await fetchApi('/api/mcp-remove-server', {
+      method: 'POST',
+      body: JSON.stringify({ projectPath, serverName: 'ccw-tools' }),
+    });
+  }
+}
+
 // ========== CCW Tools MCP - Codex API ==========
 
 /**
@@ -3616,7 +4004,7 @@ export async function fetchCcwMcpConfigForCodex(): Promise<CcwMcpConfig> {
     const ccwServer = servers.find((s) => s.name === 'ccw-tools');
 
     if (!ccwServer) {
-      return { isInstalled: false, enabledTools: [] };
+      return { isInstalled: false, enabledTools: [], installedScopes: [] };
     }
 
     const env = ccwServer.env || {};
@@ -3631,9 +4019,10 @@ export async function fetchCcwMcpConfigForCodex(): Promise<CcwMcpConfig> {
       projectRoot: env.CCW_PROJECT_ROOT,
       allowedDirs: env.CCW_ALLOWED_DIRS,
       enableSandbox: env.CCW_ENABLE_SANDBOX === '1',
+      installedScopes: ['global'],
     };
   } catch {
-    return { isInstalled: false, enabledTools: [] };
+    return { isInstalled: false, enabledTools: [], installedScopes: [] };
   }
 }
 
@@ -3719,18 +4108,39 @@ export async function updateCcwConfigForCodex(config: {
  * @param projectPath - Optional project path to filter data by workspace
  */
 export async function fetchIndexStatus(projectPath?: string): Promise<IndexStatus> {
-  const url = projectPath ? `/api/index/status?path=${encodeURIComponent(projectPath)}` : '/api/index/status';
-  return fetchApi<IndexStatus>(url);
+  const url = projectPath
+    ? `/api/codexlens/workspace-status?path=${encodeURIComponent(projectPath)}`
+    : '/api/codexlens/workspace-status';
+  const resp = await fetchApi<{
+    success: boolean;
+    hasIndex: boolean;
+    fts?: { indexedFiles: number; totalFiles: number };
+  }>(url);
+  return {
+    totalFiles: resp.fts?.totalFiles ?? 0,
+    lastUpdated: new Date().toISOString(),
+    buildTime: 0,
+    status: resp.hasIndex ? 'completed' : 'idle',
+  };
 }
 
 /**
  * Rebuild index
  */
 export async function rebuildIndex(request: IndexRebuildRequest = {}): Promise<IndexStatus> {
-  return fetchApi<IndexStatus>('/api/index/rebuild', {
+  await fetchApi<{ success: boolean }>('/api/codexlens/init', {
     method: 'POST',
-    body: JSON.stringify(request),
+    body: JSON.stringify({
+      path: request.paths?.[0],
+      indexType: 'vector',
+    }),
   });
+  return {
+    totalFiles: 0,
+    lastUpdated: new Date().toISOString(),
+    buildTime: 0,
+    status: 'building',
+  };
 }
 
 // ========== Prompt History API ==========
@@ -4730,12 +5140,14 @@ export interface CodexLensLspStatusResponse {
  */
 export type CodexLensSemanticSearchMode = 'fusion' | 'vector' | 'structural';
 export type CodexLensFusionStrategy = 'rrf' | 'staged' | 'binary' | 'hybrid' | 'dense_rerank';
+export type CodexLensStagedStage2Mode = 'precomputed' | 'realtime' | 'static_global_graph';
 
 export interface CodexLensSemanticSearchParams {
   query: string;
   path?: string;
   mode?: CodexLensSemanticSearchMode;
   fusion_strategy?: CodexLensFusionStrategy;
+  staged_stage2_mode?: CodexLensStagedStage2Mode;
   vector_weight?: number;
   structural_weight?: number;
   keyword_weight?: number;
@@ -5964,8 +6376,23 @@ export async function fetchCcwTools(): Promise<CcwToolInfo[]> {
 
 // ========== Team API ==========
 
-export async function fetchTeams(): Promise<{ teams: Array<{ name: string; messageCount: number; lastActivity: string }> }> {
-  return fetchApi('/api/teams');
+export async function fetchTeams(location?: string): Promise<{ teams: Array<{ name: string; messageCount: number; lastActivity: string; status: string; created_at: string; updated_at: string; archived_at?: string; pipeline_mode?: string; memberCount: number; members?: string[] }> }> {
+  const params = new URLSearchParams();
+  if (location) params.set('location', location);
+  const qs = params.toString();
+  return fetchApi(`/api/teams${qs ? `?${qs}` : ''}`);
+}
+
+export async function archiveTeam(teamName: string): Promise<{ success: boolean; team: string; status: string }> {
+  return fetchApi(`/api/teams/${encodeURIComponent(teamName)}/archive`, { method: 'POST' });
+}
+
+export async function unarchiveTeam(teamName: string): Promise<{ success: boolean; team: string; status: string }> {
+  return fetchApi(`/api/teams/${encodeURIComponent(teamName)}/unarchive`, { method: 'POST' });
+}
+
+export async function deleteTeam(teamName: string): Promise<void> {
+  return fetchApi<void>(`/api/teams/${encodeURIComponent(teamName)}`, { method: 'DELETE' });
 }
 
 export async function fetchTeamMessages(
@@ -5988,6 +6415,19 @@ export async function fetchTeamStatus(
   return fetchApi(`/api/teams/${encodeURIComponent(teamName)}/status`);
 }
 
+export async function fetchTeamArtifacts(
+  teamName: string
+): Promise<TeamArtifactsResponse> {
+  return fetchApi(`/api/teams/${encodeURIComponent(teamName)}/artifacts`);
+}
+
+export async function fetchArtifactContent(
+  teamName: string,
+  artifactPath: string
+): Promise<{ content: string; contentType: string; path: string }> {
+  return fetchApi(`/api/teams/${encodeURIComponent(teamName)}/artifacts/${encodeURIComponent(artifactPath)}`);
+}
+
 // ========== CLI Sessions (PTY) API ==========
 
 export interface CliSession {
@@ -5999,16 +6439,22 @@ export interface CliSession {
   resumeKey?: string;
   createdAt: string;
   updatedAt: string;
+  isPaused: boolean;
+  /** When set, this session is a native CLI interactive process. */
+  cliTool?: string;
 }
 
 export interface CreateCliSessionInput {
   workingDir?: string;
   cols?: number;
   rows?: number;
-  preferredShell?: 'bash' | 'pwsh';
+  /** Shell to use for spawning CLI tools on Windows. */
+  preferredShell?: 'bash' | 'pwsh' | 'cmd';
   tool?: string;
   model?: string;
   resumeKey?: string;
+  /** Launch mode for native CLI sessions (default or yolo). */
+  launchMode?: 'default' | 'yolo';
 }
 
 function withPath(url: string, projectPath?: string): string {
@@ -6060,6 +6506,8 @@ export interface ExecuteInCliSessionInput {
   category?: 'user' | 'internal' | 'insight';
   resumeKey?: string;
   resumeStrategy?: 'nativeResume' | 'promptConcat';
+  instructionType?: 'prompt' | 'skill' | 'command';
+  skillName?: string;
 }
 
 export async function executeInCliSession(
@@ -6086,6 +6534,20 @@ export async function resizeCliSession(
 
 export async function closeCliSession(sessionKey: string, projectPath?: string): Promise<{ success: boolean }> {
   return fetchApi<{ success: boolean }>(withPath(`/api/cli-sessions/${encodeURIComponent(sessionKey)}/close`, projectPath), {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
+export async function pauseCliSession(sessionKey: string, projectPath?: string): Promise<{ success: boolean }> {
+  return fetchApi<{ success: boolean }>(withPath(`/api/cli-sessions/${encodeURIComponent(sessionKey)}/pause`, projectPath), {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
+export async function resumeCliSession(sessionKey: string, projectPath?: string): Promise<{ success: boolean }> {
+  return fetchApi<{ success: boolean }>(withPath(`/api/cli-sessions/${encodeURIComponent(sessionKey)}/resume`, projectPath), {
     method: 'POST',
     body: JSON.stringify({}),
   });
@@ -6178,5 +6640,151 @@ export async function fetchCliSessionAudit(
   const queryString = params.toString();
   return fetchApi<{ success: boolean; data: CliSessionAuditListResponse }>(
     withPath(`/api/audit/cli-sessions${queryString ? `?${queryString}` : ''}`, options?.projectPath)
+  );
+}
+
+// ========== Unified Memory API ==========
+
+export interface UnifiedSearchResult {
+  source_id: string;
+  source_type: string;
+  score: number;
+  content: string;
+  category: string;
+  rank_sources: {
+    vector_rank?: number;
+    vector_score?: number;
+    fts_rank?: number;
+    heat_score?: number;
+  };
+}
+
+export interface UnifiedSearchResponse {
+  success: boolean;
+  query: string;
+  total: number;
+  results: UnifiedSearchResult[];
+}
+
+export interface UnifiedMemoryStats {
+  core_memories: {
+    total: number;
+    archived: number;
+  };
+  stage1_outputs: number;
+  entities: number;
+  prompts: number;
+  conversations: number;
+  vector_index: {
+    available: boolean;
+    total_chunks: number;
+    hnsw_available: boolean;
+    hnsw_count: number;
+    dimension: number;
+    categories?: Record<string, number>;
+  };
+}
+
+export interface RecommendationResult {
+  source_id: string;
+  source_type: string;
+  score: number;
+  content: string;
+  category: string;
+}
+
+export interface ReindexResponse {
+  success: boolean;
+  hnsw_count?: number;
+  elapsed_time?: number;
+  error?: string;
+}
+
+/**
+ * Search unified memory using vector + FTS5 fusion (RRF)
+ * @param query - Search query text
+ * @param options - Search options (topK, minScore, category)
+ * @param projectPath - Optional project path for workspace isolation
+ */
+export async function fetchUnifiedSearch(
+  query: string,
+  options?: {
+    topK?: number;
+    minScore?: number;
+    category?: string;
+  },
+  projectPath?: string
+): Promise<UnifiedSearchResponse> {
+  const params = new URLSearchParams();
+  params.set('q', query);
+  if (options?.topK) params.set('topK', String(options.topK));
+  if (options?.minScore) params.set('minScore', String(options.minScore));
+  if (options?.category) params.set('category', options.category);
+
+  const data = await fetchApi<UnifiedSearchResponse & { error?: string }>(
+    withPath(`/api/unified-memory/search?${params.toString()}`, projectPath)
+  );
+  if (data.success === false) {
+    throw new Error(data.error || 'Search failed');
+  }
+  return data;
+}
+
+/**
+ * Fetch unified memory statistics (core memories, entities, vectors, etc.)
+ * @param projectPath - Optional project path for workspace isolation
+ */
+export async function fetchUnifiedStats(
+  projectPath?: string
+): Promise<{ success: boolean; stats: UnifiedMemoryStats }> {
+  const data = await fetchApi<{ success: boolean; stats: UnifiedMemoryStats; error?: string }>(
+    withPath('/api/unified-memory/stats', projectPath)
+  );
+  if (data.success === false) {
+    throw new Error(data.error || 'Failed to load unified stats');
+  }
+  return data;
+}
+
+/**
+ * Get KNN-based recommendations for a specific memory
+ * @param memoryId - Core memory ID (CMEM-*)
+ * @param limit - Number of recommendations (default: 5)
+ * @param projectPath - Optional project path for workspace isolation
+ */
+export async function fetchRecommendations(
+  memoryId: string,
+  limit?: number,
+  projectPath?: string
+): Promise<{ success: boolean; memory_id: string; total: number; recommendations: RecommendationResult[] }> {
+  const params = new URLSearchParams();
+  if (limit) params.set('limit', String(limit));
+  const queryString = params.toString();
+
+  const data = await fetchApi<{ success: boolean; memory_id: string; total: number; recommendations: RecommendationResult[]; error?: string }>(
+    withPath(
+      `/api/unified-memory/recommendations/${encodeURIComponent(memoryId)}${queryString ? `?${queryString}` : ''}`,
+      projectPath
+    )
+  );
+  if (data.success === false) {
+    throw new Error(data.error || 'Failed to load recommendations');
+  }
+  return data;
+}
+
+/**
+ * Trigger vector index rebuild
+ * @param projectPath - Optional project path for workspace isolation
+ */
+export async function triggerReindex(
+  projectPath?: string
+): Promise<ReindexResponse> {
+  return fetchApi<ReindexResponse>(
+    '/api/unified-memory/reindex',
+    {
+      method: 'POST',
+      body: JSON.stringify({ path: projectPath }),
+    }
   );
 }

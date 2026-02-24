@@ -10,7 +10,8 @@
   },
   "location": {
     "project": "Project",
-    "user": "Global"
+    "user": "Global",
+    "hub": "Hub"
   },
   "source": {
     "builtin": "Built-in",

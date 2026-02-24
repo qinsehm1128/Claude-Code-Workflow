@@ -92,6 +92,7 @@ export const workspaceQueryKeys = {
   prompts: (projectPath: string) => [...workspaceQueryKeys.all(projectPath), 'prompts'] as const,
   promptsList: (projectPath: string) => [...workspaceQueryKeys.prompts(projectPath), 'list'] as const,
   promptsInsights: (projectPath: string) => [...workspaceQueryKeys.prompts(projectPath), 'insights'] as const,
+  promptsInsightsHistory: (projectPath: string) => [...workspaceQueryKeys.prompts(projectPath), 'insightsHistory'] as const,
 
   // ========== Index ==========
   index: (projectPath: string) => [...workspaceQueryKeys.all(projectPath), 'index'] as const,
@@ -129,6 +130,15 @@ export const workspaceQueryKeys = {
       offset?: number;
     }
   ) => [...workspaceQueryKeys.audit(projectPath), 'cliSessions', options] as const,
+
+  // ========== Unified Memory ==========
+  unifiedMemory: (projectPath: string) => [...workspaceQueryKeys.all(projectPath), 'unifiedMemory'] as const,
+  unifiedSearch: (projectPath: string, query: string, categories?: string) =>
+    [...workspaceQueryKeys.unifiedMemory(projectPath), 'search', query, categories] as const,
+  unifiedStats: (projectPath: string) =>
+    [...workspaceQueryKeys.unifiedMemory(projectPath), 'stats'] as const,
+  unifiedRecommendations: (projectPath: string, memoryId: string) =>
+    [...workspaceQueryKeys.unifiedMemory(projectPath), 'recommendations', memoryId] as const,
 };
 
 // ========== API Settings Keys ==========

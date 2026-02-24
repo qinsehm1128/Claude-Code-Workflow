@@ -7,7 +7,8 @@ import type { Duplex } from 'stream';
 import http from 'http';
 import type { IncomingMessage } from 'http';
 import { createWebSocketFrame, parseWebSocketFrame, wsClients } from '../websocket.js';
-import type { QuestionAnswer, AskQuestionParams, Question } from './A2UITypes.js';
+import type { QuestionAnswer, AskQuestionParams, Question, PendingQuestion } from './A2UITypes.js';
+import { getAllPendingQuestions } from '../services/pending-question-service.js';
 
 const DASHBOARD_PORT = Number(process.env.CCW_PORT || 3456);
 
@@ -605,6 +606,215 @@ export class A2UIWebSocketHandler {
 // ========== WebSocket Integration ==========
 
 /**
+ * Generate A2UI surface for a pending question
+ * This is used to resend pending questions when frontend reconnects
+ */
+function generatePendingQuestionSurface(pq: PendingQuestion): {
+  surfaceId: string;
+  components: unknown[];
+  initialState: Record<string, unknown>;
+  displayMode?: 'popup' | 'panel';
+} | null {
+  const question = pq.question;
+  const components: unknown[] = [];
+
+  // Add title
+  components.push({
+    id: 'title',
+    component: {
+      Text: {
+        text: { literalString: question.title },
+        usageHint: 'h3',
+      },
+    },
+  });
+
+  // Add message if provided
+  if (question.message) {
+    components.push({
+      id: 'message',
+      component: {
+        Text: {
+          text: { literalString: question.message },
+          usageHint: 'p',
+        },
+      },
+    });
+  }
+
+  // Add description if provided
+  if (question.description) {
+    components.push({
+      id: 'description',
+      component: {
+        Text: {
+          text: { literalString: question.description },
+          usageHint: 'small',
+        },
+      },
+    });
+  }
+
+  // Add interactive components based on question type
+  switch (question.type) {
+    case 'confirm':
+      components.push({
+        id: 'confirm-btn',
+        component: {
+          Button: {
+            onClick: { actionId: 'confirm', parameters: { questionId: question.id } },
+            content: { Text: { text: { literalString: 'Confirm' } } },
+            variant: 'primary',
+          },
+        },
+      });
+      components.push({
+        id: 'cancel-btn',
+        component: {
+          Button: {
+            onClick: { actionId: 'cancel', parameters: { questionId: question.id } },
+            content: { Text: { text: { literalString: 'Cancel' } } },
+            variant: 'secondary',
+          },
+        },
+      });
+      break;
+
+    case 'select':
+      if (question.options && question.options.length > 0) {
+        const options = question.options.map((opt) => ({
+          label: { literalString: opt.label },
+          value: opt.value,
+          description: opt.description ? { literalString: opt.description } : undefined,
+          isDefault: question.defaultValue !== undefined && opt.value === String(question.defaultValue),
+        }));
+
+        options.push({
+          label: { literalString: 'Other' },
+          value: '__other__',
+          description: { literalString: 'Provide a custom answer' },
+          isDefault: false,
+        });
+
+        components.push({
+          id: 'radio-group',
+          component: {
+            RadioGroup: {
+              options,
+              selectedValue: question.defaultValue ? { literalString: String(question.defaultValue) } : undefined,
+              onChange: { actionId: 'select', parameters: { questionId: question.id } },
+            },
+          },
+        });
+
+        components.push({
+          id: 'submit-btn',
+          component: {
+            Button: {
+              onClick: { actionId: 'submit', parameters: { questionId: question.id } },
+              content: { Text: { text: { literalString: 'Submit' } } },
+              variant: 'primary',
+            },
+          },
+        });
+        components.push({
+          id: 'cancel-btn',
+          component: {
+            Button: {
+              onClick: { actionId: 'cancel', parameters: { questionId: question.id } },
+              content: { Text: { text: { literalString: 'Cancel' } } },
+              variant: 'secondary',
+            },
+          },
+        });
+      }
+      break;
+
+    case 'multi-select':
+      if (question.options && question.options.length > 0) {
+        question.options.forEach((opt, idx) => {
+          components.push({
+            id: `checkbox-${idx}`,
+            component: {
+              Checkbox: {
+                label: { literalString: opt.label },
+                ...(opt.description && { description: { literalString: opt.description } }),
+                onChange: { actionId: 'toggle', parameters: { questionId: question.id, value: opt.value } },
+                checked: { literalBoolean: false },
+              },
+            },
+          });
+        });
+
+        components.push({
+          id: 'checkbox-other',
+          component: {
+            Checkbox: {
+              label: { literalString: 'Other' },
+              description: { literalString: 'Provide a custom answer' },
+              onChange: { actionId: 'toggle', parameters: { questionId: question.id, value: '__other__' } },
+              checked: { literalBoolean: false },
+            },
+          },
+        });
+
+        components.push({
+          id: 'submit-btn',
+          component: {
+            Button: {
+              onClick: { actionId: 'submit', parameters: { questionId: question.id } },
+              content: { Text: { text: { literalString: 'Submit' } } },
+              variant: 'primary',
+            },
+          },
+        });
+        components.push({
+          id: 'cancel-btn',
+          component: {
+            Button: {
+              onClick: { actionId: 'cancel', parameters: { questionId: question.id } },
+              content: { Text: { text: { literalString: 'Cancel' } } },
+              variant: 'secondary',
+            },
+          },
+        });
+      }
+      break;
+
+    case 'input':
+      components.push({
+        id: 'input',
+        component: {
+          TextField: {
+            value: question.defaultValue ? { literalString: String(question.defaultValue) } : undefined,
+            onChange: { actionId: 'answer', parameters: { questionId: question.id } },
+            placeholder: question.placeholder || 'Enter your answer',
+            type: 'text',
+          },
+        },
+      });
+      break;
+
+    default:
+      return null;
+  }
+
+  return {
+    surfaceId: pq.surfaceId,
+    components,
+    initialState: {
+      questionId: question.id,
+      questionType: question.type,
+      options: question.options,
+      required: question.required,
+      timeoutAt: new Date(pq.timestamp + pq.timeout).toISOString(),
+      ...(question.defaultValue !== undefined && { defaultValue: question.defaultValue }),
+    },
+    displayMode: 'popup',
+  };
+}
+
+/**
  * Handle A2UI messages in WebSocket data handler
  * Called from main WebSocket handler
  * @param payload - Message payload
@@ -619,6 +829,23 @@ export function handleA2UIMessage(
 ): boolean {
   try {
     const data = JSON.parse(payload);
+
+    // Handle FRONTEND_READY - frontend requesting pending questions
+    if (data.type === 'FRONTEND_READY' && data.payload?.action === 'requestPendingQuestions') {
+      console.log('[A2UI] Frontend ready, sending pending questions...');
+      const pendingQuestions = getAllPendingQuestions();
+
+      for (const pq of pendingQuestions) {
+        // Regenerate surface for each pending question
+        const surfaceUpdate = generatePendingQuestionSurface(pq);
+        if (surfaceUpdate) {
+          a2uiHandler.sendSurface(surfaceUpdate);
+        }
+      }
+
+      console.log(`[A2UI] Sent ${pendingQuestions.length} pending questions to frontend`);
+      return true;
+    }
 
     // Handle A2UI action messages
     if (data.type === 'a2ui-action') {

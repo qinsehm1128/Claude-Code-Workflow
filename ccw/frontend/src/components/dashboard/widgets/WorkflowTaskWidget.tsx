@@ -609,7 +609,7 @@ function WorkflowTaskWidgetComponent({ className }: WorkflowTaskWidgetProps) {
         </div>
 
         {/* Task Details Section: Session Carousel with Task List */}
-        <div className="flex-1 p-4 flex flex-col">
+        <div className="flex-1 min-w-0 p-4 flex flex-col">
           {/* Header with navigation */}
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
@@ -650,14 +650,14 @@ function WorkflowTaskWidgetComponent({ className }: WorkflowTaskWidgetProps) {
               onClick={() => handleSessionClick(currentSession.session_id)}
             >
               {/* Session Header */}
-              <div className="mb-2 pb-2 border-b border-border shrink-0">
-                <div className="flex items-start gap-2">
+              <div className="mb-2 pb-2 border-b border-border shrink-0 min-w-0">
+                <div className="flex items-start gap-2 min-w-0">
                   <div className={cn('px-2 py-1 rounded text-xs font-medium shrink-0', sessionStatusColors[currentSession.status]?.bg || 'bg-muted', sessionStatusColors[currentSession.status]?.text || 'text-muted-foreground')}>
                     {formatMessage({ id: `common.status.${currentSession.status === 'in_progress' ? 'inProgress' : currentSession.status}` })}
                   </div>
-                  <div className="flex-1 min-w-0">
+                  <div className="flex-1 min-w-0 overflow-hidden">
                     <p className="text-sm font-medium text-foreground truncate">{currentSession.title || currentSession.session_id}</p>
-                    <p className="text-xs text-muted-foreground">{currentSession.session_id}</p>
+                    <p className="text-xs text-muted-foreground truncate">{currentSession.session_id}</p>
                   </div>
                 </div>
                 {/* Description */}
@@ -704,9 +704,9 @@ function WorkflowTaskWidgetComponent({ className }: WorkflowTaskWidgetProps) {
                       const isLastOdd = currentSession.tasks!.length % 2 === 1 && index === currentSession.tasks!.length - 1;
                       return (
                         <div
-                          key={task.task_id}
+                          key={`${currentSession.session_id}-${task.task_id}-${index}`}
                           className={cn(
-                            'flex items-center gap-2 p-2 rounded hover:bg-background/50 transition-colors',
+                            'flex items-center gap-2 p-2 rounded hover:bg-background/50 transition-colors min-w-0',
                             isLastOdd && 'col-span-2'
                           )}
                         >

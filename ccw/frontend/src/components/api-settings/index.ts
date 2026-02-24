@@ -13,3 +13,4 @@ export { CliSettingsList } from './CliSettingsList';
 export { CliSettingsModal } from './CliSettingsModal';
 export { MultiKeySettingsModal } from './MultiKeySettingsModal';
 export { ManageModelsModal } from './ManageModelsModal';
+export { CcwLitellmStatus } from './CcwLitellmStatus';

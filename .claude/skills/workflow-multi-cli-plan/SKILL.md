@@ -44,9 +44,60 @@ function detectMode() {
 | `workflow:multi-cli-plan` | plan | [phases/01-multi-cli-plan.md](phases/01-multi-cli-plan.md) | Multi-CLI collaborative planning (ACE context → discussion → plan → execute) |
 | `workflow:lite-execute` | execute | [phases/02-lite-execute.md](phases/02-lite-execute.md) | Standalone execution (in-memory / prompt / file) |
 
+## Interactive Preference Collection
+
+Before dispatching, collect workflow preferences via AskUserQuestion:
+
+```javascript
+// ★ 统一 auto mode 检测：-y/--yes 从 $ARGUMENTS 或 ccw 传播
+const autoYes = /\b(-y|--yes)\b/.test($ARGUMENTS)
+
+if (autoYes) {
+  // 自动模式：跳过所有询问，使用默认值
+  workflowPreferences = { autoYes: true }
+} else if (mode === 'plan') {
+  const prefResponse = AskUserQuestion({
+    questions: [
+      {
+        question: "是否跳过所有确认步骤（自动模式）？",
+        header: "Auto Mode",
+        multiSelect: false,
+        options: [
+          { label: "Interactive (Recommended)", description: "交互模式，包含确认步骤" },
+          { label: "Auto", description: "跳过所有确认，自动执行" }
+        ]
+      }
+    ]
+  })
+  workflowPreferences = {
+    autoYes: prefResponse.autoMode === 'Auto'
+  }
+} else {
+  // Execute mode
+  const prefResponse = AskUserQuestion({
+    questions: [
+      {
+        question: "是否跳过所有确认步骤（自动模式）？",
+        header: "Auto Mode",
+        multiSelect: false,
+        options: [
+          { label: "Interactive (Recommended)", description: "交互模式，包含确认步骤" },
+          { label: "Auto", description: "跳过所有确认，自动执行" }
+        ]
+      }
+    ]
+  })
+  workflowPreferences = {
+    autoYes: prefResponse.autoMode === 'Auto'
+  }
+}
+```
+
+**workflowPreferences** is passed to phase execution as context variable, referenced as `workflowPreferences.autoYes` within phases.
+
 ## Prompt Enhancement
 
-Before dispatching to the target phase, enhance context:
+After collecting preferences, enhance context and dispatch:
 
 ```javascript
 // Step 1: Check for project context files
@@ -61,7 +112,7 @@ if (hasProjectGuidelines) {
   console.log('Project guidelines available: .workflow/project-guidelines.json')
 }
 
-// Step 3: Dispatch to phase
+// Step 3: Dispatch to phase (workflowPreferences available as context)
 if (mode === 'plan') {
   // Read phases/01-multi-cli-plan.md and execute
 } else {
@@ -74,17 +125,17 @@ if (mode === 'plan') {
 ### Plan Mode (workflow:multi-cli-plan)
 
 ```
-1. Parse flags (-y/--yes, --max-rounds, --tools, --mode) and task description
+1. Collect preferences via AskUserQuestion (autoYes)
 2. Enhance prompt with project context availability
 3. Read phases/01-multi-cli-plan.md
 4. Execute multi-cli-plan pipeline (Phase 1-5 within the phase doc)
-5. Phase 5 internally calls workflow:lite-execute via Skill handoff
+5. Phase 5 directly reads and executes Phase 2 (lite-execute) with executionContext
 ```
 
 ### Execute Mode (workflow:lite-execute)
 
 ```
-1. Parse flags (--in-memory, -y/--yes) and input
+1. Collect preferences via AskUserQuestion (autoYes)
 2. Enhance prompt with project context availability
 3. Read phases/02-lite-execute.md
 4. Execute lite-execute pipeline (input detection → execution → review)
@@ -92,17 +143,10 @@ if (mode === 'plan') {
 
 ## Usage
 
-```bash
-# Multi-CLI plan mode
-/workflow:multi-cli-plan "Implement user authentication"
-/workflow:multi-cli-plan --yes "Add dark mode support"
-/workflow:multi-cli-plan "Refactor payment module" --max-rounds=3 --tools=gemini,codex
+Plan mode and execute mode are triggered by skill name routing (see Mode Detection). Workflow preferences (auto mode) are collected interactively via AskUserQuestion before dispatching to phases.
 
-# Execute mode (standalone)
-/workflow:lite-execute "Add unit tests for auth"     # Prompt description
-/workflow:lite-execute plan.json                     # File input
-/workflow:lite-execute --in-memory                   # Called by multi-cli-plan internally
-```
+**Plan mode**: Task description provided as arguments → interactive preference collection → multi-CLI planning pipeline
+**Execute mode**: Task description, file path, or in-memory context → interactive preference collection → execution pipeline
 
 ## Phase Reference Documents
 

@@ -117,6 +117,9 @@ export interface AppState {
   themeSlots: ThemeSlot[];
   activeSlotId: ThemeSlotId;
   deletedSlotBuffer: ThemeSlot | null;
+
+  // Immersive mode (fullscreen)
+  isImmersiveMode: boolean;
 }
 
 export interface AppActions {
@@ -170,6 +173,10 @@ export interface AppActions {
   updateBackgroundEffect: <K extends keyof BackgroundEffects>(key: K, value: BackgroundEffects[K]) => void;
   setBackgroundMode: (mode: BackgroundMode) => void;
   setBackgroundImage: (url: string | null, attribution: UnsplashAttribution | null) => void;
+
+  // Immersive mode actions
+  setImmersiveMode: (enabled: boolean) => void;
+  toggleImmersiveMode: () => void;
 }
 
 export type AppStore = AppState & AppActions;
@@ -389,6 +396,8 @@ export interface CliToolConfig {
   /** Path to Claude CLI settings.json, passed via --settings (claude only) */
   settingsFile?: string;
   availableModels?: string[];
+  /** Default effort level for claude (low, medium, high) */
+  effort?: string;
 }
 
 export interface ApiEndpoints {
@@ -413,6 +422,29 @@ export interface UserPreferences {
   locale?: Locale;
 }
 
+// ========== A2UI Preferences Types ==========
+
+export type DialogStyle = 'modal' | 'drawer' | 'sheet' | 'fullscreen';
+
+export interface A2UIPreferences {
+  /** Default dialog style */
+  dialogStyle: DialogStyle;
+  /** Enable smart mode - auto-select style based on question type */
+  smartModeEnabled: boolean;
+  /** Auto-selection countdown duration in seconds */
+  autoSelectionDuration: number;
+  /** Enable sound notification before auto-submit */
+  autoSelectionSoundEnabled: boolean;
+  /** Pause countdown on user interaction */
+  pauseOnInteraction: boolean;
+  /** Show A2UI quick action button in toolbar */
+  showA2UIButtonInToolbar: boolean;
+  /** Drawer side preference */
+  drawerSide: 'left' | 'right';
+  /** Drawer size preference */
+  drawerSize: 'sm' | 'md' | 'lg' | 'xl' | 'full';
+}
+
 export interface ConfigState {
   // CLI tools configuration
   cliTools: Record<string, CliToolConfig>;
@@ -423,6 +455,9 @@ export interface ConfigState {
 
   // User preferences
   userPreferences: UserPreferences;
+
+  // A2UI preferences
+  a2uiPreferences?: A2UIPreferences;
 
   // Feature flags
   featureFlags: Record<string, boolean>;
@@ -440,6 +475,10 @@ export interface ConfigActions {
   // User preferences
   setUserPreferences: (prefs: Partial<UserPreferences>) => void;
   resetUserPreferences: () => void;
+
+  // A2UI preferences
+  setA2uiPreferences: (prefs: A2UIPreferences) => void;
+  resetA2uiPreferences: () => void;
 
   // Feature flags
   setFeatureFlag: (flag: string, enabled: boolean) => void;

@@ -50,20 +50,20 @@ export const A2UICheckbox: ComponentRenderer = ({ component, onAction, resolveBi
     : '';
 
   return (
-    <div className="flex items-start space-x-2">
+    <div className="flex items-start space-x-3 py-1">
       <Checkbox
         className="mt-0.5"
         checked={checked}
         onCheckedChange={handleChange}
       />
-      <div className="grid gap-0.5">
+      <div className="grid gap-1">
         {labelText && (
-          <Label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+          <Label className="text-sm font-medium leading-normal peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
             {labelText}
           </Label>
         )}
         {descriptionText && (
-          <p className="text-xs text-muted-foreground">{descriptionText}</p>
+          <p className="text-xs text-muted-foreground leading-relaxed">{descriptionText}</p>
         )}
       </div>
     </div>

@@ -10,7 +10,8 @@
   },
   "location": {
     "project": "项目",
-    "user": "全局"
+    "user": "全局",
+    "hub": "仓库"
   },
   "source": {
     "builtin": "内置",

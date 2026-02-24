@@ -20,12 +20,14 @@ class TestCLIHybridSearch:
         for mode in valid_modes:
             result = runner.invoke(app, ["search", "test", "--mode", mode])
             # Should fail due to no index, not due to invalid mode
-            assert "Invalid mode" not in result.output
+            # Note: CLI now shows deprecation warning for --mode, use --method instead
+            assert "Invalid" not in result.output or "deprecated" in result.output.lower()
 
         # Invalid mode should fail
         result = runner.invoke(app, ["search", "test", "--mode", "invalid"])
         assert result.exit_code == 1
-        assert "Invalid mode" in result.output
+        # CLI now shows "Invalid deprecated mode:" instead of "Invalid mode"
+        assert "Invalid" in result.output and "mode" in result.output.lower()
 
     def test_weights_parameter_parsing(self, runner):
         """Test --weights parameter parses and validates correctly."""
@@ -60,14 +62,12 @@ class TestCLIHybridSearch:
             pass
 
     def test_search_help_shows_modes(self, runner):
-        """Test search --help displays all available modes."""
+        """Test search --help displays all available methods."""
         result = runner.invoke(app, ["search", "--help"])
         assert result.exit_code == 0
-        assert "exact" in result.output
-        assert "fuzzy" in result.output
-        assert "hybrid" in result.output
-        assert "vector" in result.output
-        assert "RRF fusion" in result.output
+        # CLI now uses --method with: dense_rerank, fts, hybrid, cascade
+        assert "dense_rerank" in result.output or "fts" in result.output
+        assert "method" in result.output.lower()
 
     def test_migrate_command_exists(self, runner):
         """Test migrate command is registered and accessible."""

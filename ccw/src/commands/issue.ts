@@ -1463,9 +1463,17 @@ async function initAction(issueId: string | undefined, options: IssueOptions): P
  * list - List issues or tasks
  */
 async function listAction(issueId: string | undefined, options: IssueOptions): Promise<void> {
+  // Always compute summary from ALL issues (unfiltered)
+  const allIssues = readIssues();
+  const statusCounts: Record<string, number> = {};
+  for (const i of allIssues) {
+    statusCounts[i.status] = (statusCounts[i.status] || 0) + 1;
+  }
+  const summary = { total: allIssues.length, by_status: statusCounts };
+
   if (!issueId) {
     // List all issues
-    let issues = readIssues();
+    let issues = allIssues;
 
     // Filter by status if specified
     if (options.status) {
@@ -1483,18 +1491,19 @@ async function listAction(issueId: string | undefined, options: IssueOptions): P
         tags: i.tags || [],
         bound_solution_id: i.bound_solution_id
       }));
-      console.log(JSON.stringify(briefIssues, null, 2));
+      console.log(JSON.stringify({ _summary: summary, issues: briefIssues }, null, 2));
       return;
     }
 
     if (options.json) {
-      console.log(JSON.stringify(issues, null, 2));
+      console.log(JSON.stringify({ _summary: summary, issues }, null, 2));
       return;
     }
 
     if (issues.length === 0) {
       console.log(chalk.yellow('No issues found'));
       console.log(chalk.gray('Create one with: ccw issue init <issue-id>'));
+      printIssueSummary(summary);
       return;
     }
 
@@ -1523,6 +1532,8 @@ async function listAction(issueId: string | undefined, options: IssueOptions): P
         (issue.title || '').substring(0, 30)
       );
     }
+
+    printIssueSummary(summary, options.status ? issues.length : undefined);
     return;
   }
 
@@ -1537,7 +1548,7 @@ async function listAction(issueId: string | undefined, options: IssueOptions): P
   const tasks = solution?.tasks || [];
 
   if (options.json) {
-    console.log(JSON.stringify({ issue, solution, tasks }, null, 2));
+    console.log(JSON.stringify({ _summary: summary, issue, solution, tasks }, null, 2));
     return;
   }
 
@@ -1549,6 +1560,7 @@ async function listAction(issueId: string | undefined, options: IssueOptions): P
 
   if (tasks.length === 0) {
     console.log(chalk.yellow('No tasks (bind a solution first)'));
+    printIssueSummary(summary);
     return;
   }
 
@@ -1563,6 +1575,32 @@ async function listAction(issueId: string | undefined, options: IssueOptions): P
       task.title.substring(0, 30)
     );
   }
+
+  printIssueSummary(summary);
+}
+
+/**
+ * Print issue summary line (total + per-status counts)
+ */
+function printIssueSummary(summary: { total: number; by_status: Record<string, number> }, filteredCount?: number): void {
+  const parts = Object.entries(summary.by_status)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([status, count]) => {
+      const color = {
+        'registered': chalk.gray,
+        'planning': chalk.blue,
+        'planned': chalk.cyan,
+        'queued': chalk.yellow,
+        'executing': chalk.yellow,
+        'completed': chalk.green,
+        'failed': chalk.red,
+        'paused': chalk.magenta
+      }[status] || chalk.white;
+      return color(`${status}: ${count}`);
+    });
+
+  const filterInfo = filteredCount !== undefined ? ` (showing ${filteredCount})` : '';
+  console.log(chalk.gray(`\nTotal: ${summary.total}${filterInfo} | ${parts.join(', ')}`));
 }
 
 /**
@@ -3120,6 +3158,8 @@ export async function issueCommand(
       console.log(chalk.gray('  solution <id>                      List solutions for issue'));
       console.log(chalk.gray('  solution <id> --brief              Brief: solution_id, files_touched, task_count'));
       console.log(chalk.gray('  solution <id> --data \'{...}\'       Create solution (auto-generates ID)'));
+      console.log(chalk.gray('  solutions [--status <s>] [--brief] Batch list bound solutions across issues'));
+      console.log(chalk.gray('  task <issue-id> [task-id] --title   Add or update task in solution'));
       console.log(chalk.gray('  bind <issue-id> [sol-id]           Bind solution'));
       console.log(chalk.gray('  update <issue-id> --status <s>     Update issue status'));
       console.log(chalk.gray('  update --from-queue [queue-id]     Sync statuses from queue (default: active)'));

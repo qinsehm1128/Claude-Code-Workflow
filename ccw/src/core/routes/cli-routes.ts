@@ -320,7 +320,7 @@ export async function handleCliRoutes(ctx: RouteContext): Promise<boolean> {
     if (req.method === 'PUT') {
       handlePostRequest(req, res, async (body: unknown) => {
         try {
-          const updates = body as { enabled?: boolean; primaryModel?: string; secondaryModel?: string; availableModels?: string[]; tags?: string[]; envFile?: string | null; settingsFile?: string | null };
+          const updates = body as { enabled?: boolean; primaryModel?: string; secondaryModel?: string; availableModels?: string[]; tags?: string[]; envFile?: string | null; settingsFile?: string | null; effort?: string | null };
           const updated = updateToolConfig(initialPath, tool, updates);
 
           // Broadcast config updated event

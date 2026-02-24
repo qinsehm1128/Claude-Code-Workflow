@@ -1,0 +1,87 @@
+# Python CALL patterns for ast-grep
+# Extracts function and method call expressions
+
+# Pattern metadata
+id: python-call
+language: python
+description: Extract function and method calls from Python code
+
+patterns:
+  # Simple function call
+  # Matches: func()
+  - id: simple_call
+    pattern: "$FUNC()"
+    message: "Found simple function call"
+    severity: hint
+
+  # Function call with arguments
+  # Matches: func(arg1, arg2)
+  - id: call_with_args
+    pattern: "$FUNC($$$ARGS)"
+    message: "Found function call with arguments"
+    severity: hint
+
+  # Method call
+  # Matches: obj.method()
+  - id: method_call
+    pattern: "$OBJ.$METHOD($$$ARGS)"
+    message: "Found method call"
+    severity: hint
+
+  # Chained method call
+  # Matches: obj.method1().method2()
+  - id: chained_call
+    pattern: "$OBJ.$METHOD($$$ARGS).$$$CHAIN"
+    message: "Found chained method call"
+    severity: hint
+
+  # Call with keyword arguments
+  # Matches: func(arg=value)
+  - id: call_with_kwargs
+    pattern: "$FUNC($$$ARGS, $KWARG=$VALUE$$$MORE)"
+    message: "Found call with keyword argument"
+    severity: hint
+
+  # Constructor call
+  # Matches: ClassName()
+  - id: constructor_call
+    pattern: "$CLASS($$$ARGS)"
+    message: "Found constructor call"
+    severity: hint
+
+  # Subscript call (not a real call, but often confused)
+  # This pattern helps exclude indexing from calls
+  - id: subscript_access
+    pattern: "$OBJ[$INDEX]"
+    message: "Found subscript access"
+    severity: hint
+
+# Metavariables used:
+#   $FUNC   - Function name being called
+#   $OBJ    - Object receiving the method call
+#   $METHOD - Method name being called
+#   $ARGS   - Positional arguments
+#   $KWARG  - Keyword argument name
+#   $VALUE  - Keyword argument value
+#   $CLASS  - Class name for constructor calls
+#   $INDEX  - Index for subscript access
+#   $$$MORE - Additional arguments
+#   $$$CHAIN - Additional method chains
+
+# Note: The generic call pattern "$FUNC($$$ARGS)" will match all function calls
+# including method calls and constructor calls. More specific patterns help
+# categorize the type of call.
+
+# Examples matched:
+#   print("hello")              -> call_with_args
+#   len(items)                  -> call_with_args
+#   obj.process()               -> method_call
+#   obj.get().save()            -> chained_call
+#   func(name=value)            -> call_with_kwargs
+#   MyClass()                   -> constructor_call
+#   items[0]                    -> subscript_access (not a call)
+
+# Filtering notes:
+#   - self.method() calls are typically filtered during processing
+#   - cls.method() calls are typically filtered during processing
+#   - super().method() calls may be handled specially

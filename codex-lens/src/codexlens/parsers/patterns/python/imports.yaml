@@ -1,0 +1,82 @@
+# Python IMPORTS patterns for ast-grep
+# Extracts import statements (import, from...import, as aliases)
+
+# Pattern metadata
+id: python-imports
+language: python
+description: Extract import statements from Python code
+
+patterns:
+  # Simple import
+  # Matches: import os
+  - id: simple_import
+    pattern: "import $MODULE"
+    message: "Found simple import"
+    severity: hint
+
+  # Import with alias
+  # Matches: import numpy as np
+  - id: import_with_alias
+    pattern: "import $MODULE as $ALIAS"
+    message: "Found import with alias"
+    severity: hint
+
+  # Multiple imports
+  # Matches: import os, sys
+  - id: multiple_imports
+    pattern: "import $FIRST, $$$REST"
+    message: "Found multiple imports"
+    severity: hint
+
+  # From import (single name)
+  # Matches: from os import path
+  - id: from_import_single
+    pattern: "from $MODULE import $NAME"
+    message: "Found from-import single"
+    severity: hint
+
+  # From import with alias
+  # Matches: from collections import defaultdict as dd
+  - id: from_import_with_alias
+    pattern: "from $MODULE import $NAME as $ALIAS"
+    message: "Found from-import with alias"
+    severity: hint
+
+  # From import multiple names
+  # Matches: from typing import List, Dict, Optional
+  - id: from_import_multiple
+    pattern: "from $MODULE import $FIRST, $$$REST"
+    message: "Found from-import multiple"
+    severity: hint
+
+  # From import star
+  # Matches: from module import *
+  - id: from_import_star
+    pattern: "from $MODULE import *"
+    message: "Found star import"
+    severity: warning
+
+  # Relative import
+  # Matches: from .module import func
+  - id: relative_import
+    pattern: "from .$$$MODULE import $NAMES"
+    message: "Found relative import"
+    severity: hint
+
+# Metavariables used:
+#   $MODULE - The module being imported
+#   $ALIAS  - The alias for the import
+#   $NAME   - The specific name being imported
+#   $FIRST  - First item in a multi-item import
+#   $$$REST - Remaining items in a multi-item import
+#   $NAMES  - Names being imported in from-import
+
+# Examples matched:
+#   import os                              -> simple_import
+#   import numpy as np                     -> import_with_alias
+#   import os, sys, pathlib                -> multiple_imports
+#   from os import path                    -> from_import_single
+#   from typing import List, Dict, Set     -> from_import_multiple
+#   from collections import defaultdict    -> from_import_single
+#   from .helpers import utils             -> relative_import
+#   from module import *                   -> from_import_star

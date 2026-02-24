@@ -21,6 +21,7 @@ import {
   crossCliCopy,
   type McpServer,
   type McpServersResponse,
+  type McpServerConflict,
   type McpProjectConfigType,
   type McpTemplate,
   type McpTemplateInstallRequest,
@@ -66,6 +67,7 @@ export interface UseMcpServersReturn {
   servers: McpServer[];
   projectServers: McpServer[];
   globalServers: McpServer[];
+  conflicts: McpServerConflict[];
   totalCount: number;
   enabledCount: number;
   isLoading: boolean;
@@ -95,6 +97,7 @@ export function useMcpServers(options: UseMcpServersOptions = {}): UseMcpServers
 
   const projectServers = query.data?.project ?? [];
   const globalServers = query.data?.global ?? [];
+  const conflicts = query.data?.conflicts ?? [];
   const allServers = scope === 'project' ? projectServers : scope === 'global' ? globalServers : [...projectServers, ...globalServers];
 
   const enabledServers = allServers.filter((s) => s.enabled);
@@ -111,6 +114,7 @@ export function useMcpServers(options: UseMcpServersOptions = {}): UseMcpServers
     servers: allServers,
     projectServers,
     globalServers,
+    conflicts,
     totalCount: allServers.length,
     enabledCount: enabledServers.length,
     isLoading: query.isLoading,
@@ -224,6 +228,7 @@ export function useToggleMcpServer(): UseToggleMcpServerReturn {
         return {
           project: updateServer(old.project),
           global: updateServer(old.global),
+          conflicts: old.conflicts ?? [],
         };
       });
 

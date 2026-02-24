@@ -43,7 +43,9 @@ export const A2UIRadioGroup: ComponentRenderer = ({ component, onAction, resolve
   return (
     <RadioGroup value={selectedValue} onValueChange={handleChange} className="space-y-2">
       {radioConfig.options.map((option, idx) => {
-        const labelText = resolveTextContent(option.label, resolveBinding);
+        const rawLabel = resolveTextContent(option.label, resolveBinding);
+        const labelText = rawLabel.replace(/\s*\(Recommended\)\s*/i, '');
+        const isDefault = (option as any).isDefault === true || /\(Recommended\)/i.test(rawLabel);
         const descriptionText = option.description
           ? resolveTextContent(option.description, resolveBinding)
           : undefined;
@@ -61,6 +63,11 @@ export const A2UIRadioGroup: ComponentRenderer = ({ component, onAction, resolve
                 className="text-sm font-medium leading-none cursor-pointer"
               >
                 {labelText}
+                {isDefault && (
+                  <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary">
+                    推荐
+                  </span>
+                )}
               </Label>
               {descriptionText && (
                 <span className="text-xs text-muted-foreground mt-1">

@@ -22,19 +22,31 @@
   "tabs": {
     "memories": "记忆",
     "favorites": "收藏",
-    "archived": "归档"
+    "archived": "归档",
+    "unifiedSearch": "统一搜索"
   },
   "stats": {
     "totalSize": "总大小",
     "count": "数量",
     "claudeMdCount": "CLAUDE.md 文件",
-    "totalEntries": "总条目"
+    "totalEntries": "总条目",
+    "vectorChunks": "向量块",
+    "hnswStatus": "HNSW 索引",
+    "entities": "实体",
+    "prompts": "提示"
   },
   "filters": {
     "search": "搜索记忆...",
+    "searchUnified": "跨所有记忆类型语义搜索...",
     "tags": "标签",
     "clear": "清除",
-    "all": "全部"
+    "all": "全部",
+    "categoryAll": "所有类别",
+    "categoryCoreMemory": "核心记忆",
+    "categoryCliHistory": "CLI 历史",
+    "categoryWorkflow": "工作流",
+    "categoryEntity": "实体",
+    "categoryPattern": "模式"
   },
   "card": {
     "id": "ID",
@@ -82,5 +94,20 @@
     "coreMemory": "核心记忆",
     "workflow": "工作流",
     "cliHistory": "CLI 历史"
+  },
+  "unified": {
+    "score": "分数",
+    "noResults": "未找到结果。请尝试不同的搜索查询。",
+    "searching": "搜索中...",
+    "resultCount": "{count} 条结果",
+    "recommendations": "相关",
+    "noRecommendations": "暂无推荐",
+    "reindex": "重建索引",
+    "reindexing": "重建中...",
+    "reindexSuccess": "索引重建成功",
+    "reindexError": "索引重建失败",
+    "vectorRank": "向量 #{rank}",
+    "ftsRank": "全文 #{rank}",
+    "heatScore": "热度: {score}"
   }
 }

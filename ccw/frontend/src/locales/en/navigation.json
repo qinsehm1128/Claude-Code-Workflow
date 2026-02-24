@@ -35,7 +35,9 @@
     "rules": "Rules",
     "explorer": "File Explorer",
     "graph": "Graph Explorer",
-    "teams": "Team Execution"
+    "teams": "Team Execution",
+    "terminalDashboard": "Terminal Dashboard",
+    "skillHub": "Skill Hub"
   },
   "sidebar": {
     "collapse": "Collapse",
@@ -93,5 +95,11 @@
     "tokens": "Tokens",
     "duration": "Duration",
     "model": "Model"
+  },
+  "toolbar": {
+    "a2ui": {
+      "button": "A2UI",
+      "quickAction": "A2UI Quick Action"
+    }
   }
 }

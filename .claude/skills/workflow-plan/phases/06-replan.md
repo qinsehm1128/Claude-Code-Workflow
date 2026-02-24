@@ -12,37 +12,26 @@ Interactive workflow replanning with session-level artifact updates and boundary
 
 ## Entry Point
 
-Triggered via `/workflow:replan` (Replan Mode).
+Triggered via Replan Mode routing in SKILL.md.
 
-## Operation Modes
+## Input
 
-### Session Replan Mode
+Replan accepts requirements text as arguments. Session and mode preferences are provided via `workflowPreferences` context variables (set by SKILL.md via AskUserQuestion).
 
-```bash
-# Auto-detect active session
-/workflow:replan "requirements text"
-
-# Explicit session
-/workflow:replan --session WFS-oauth "requirements text"
-
-# File-based input
-/workflow:replan --session WFS-oauth requirements-update.md
-
-# Interactive mode
-/workflow:replan --interactive
+```
+Input: requirements text (positional argument)
+Context: workflowPreferences.autoYes, workflowPreferences.interactive
+Session: auto-detected from .workflow/active/ or specified via workflowPreferences.sessionId
 ```
 
 ### Task Replan Mode
 
-```bash
+```text
 # Direct task update
-/workflow:replan IMPL-1 "requirements text"
+Replan input: IMPL-1 "requirements text"
 
-# Task with explicit session
-/workflow:replan --session WFS-oauth IMPL-2 "requirements text"
-
-# Interactive mode
-/workflow:replan IMPL-1 --interactive
+# Interactive mode (workflowPreferences.interactive = true)
+Replan input: IMPL-1 "requirements text"
 ```
 
 ## Language Convention
@@ -53,10 +42,11 @@ Interactive question options use Chinese (user-facing UI text) with English iden
 
 ### Input Parsing
 
-**Parse flags**:
+**Parse input**:
 ```javascript
-const sessionFlag = $ARGUMENTS.match(/--session\s+(\S+)/)?.[1]
-const interactive = $ARGUMENTS.includes('--interactive')
+// Reference workflowPreferences (set by SKILL.md via AskUserQuestion)
+const sessionFlag = workflowPreferences.sessionId
+const interactive = workflowPreferences.interactive
 const taskIdMatch = $ARGUMENTS.match(/\b(IMPL-\d+(?:\.\d+)?)\b/)
 const taskId = taskIdMatch?.[1]
 ```
@@ -117,10 +107,11 @@ const taskId = taskIdMatch?.[1]
 
 ### Auto Mode Support
 
-When `--yes` or `-y` flag is used, the command skips interactive clarification and uses safe defaults:
+When `workflowPreferences.autoYes === true`, the phase skips interactive clarification and uses safe defaults:
 
 ```javascript
-const autoYes = $ARGUMENTS.includes('--yes') || $ARGUMENTS.includes('-y')
+// Reference workflowPreferences (set by SKILL.md via AskUserQuestion)
+const autoYes = workflowPreferences.autoYes
 ```
 
 **Auto Mode Defaults**:
@@ -130,7 +121,7 @@ const autoYes = $ARGUMENTS.includes('--yes') || $ARGUMENTS.includes('-y')
 - **Dependency Changes**: `no` (preserve existing dependencies)
 - **User Confirmation**: Auto-confirm execution
 
-**Note**: `--interactive` flag overrides `--yes` flag (forces interactive mode).
+**Note**: `workflowPreferences.interactive` overrides `workflowPreferences.autoYes` (forces interactive mode).
 
 ---
 
@@ -142,7 +133,7 @@ const autoYes = $ARGUMENTS.includes('--yes') || $ARGUMENTS.includes('-y')
 ```javascript
 if (autoYes && !interactive) {
   // Use defaults and skip to Step 6.3
-  console.log(`[--yes] Using safe defaults for replan:`)
+  console.log(`[Auto] Using safe defaults for replan:`)
   console.log(`  - Scope: tasks_only`)
   console.log(`  - Changes: update_only`)
   console.log(`  - Dependencies: preserve existing`)
@@ -264,12 +255,12 @@ interface ImpactAnalysis {
 **Step 6.3.3: User Confirmation**
 
 ```javascript
-// Parse --yes flag
-const autoYes = $ARGUMENTS.includes('--yes') || $ARGUMENTS.includes('-y')
+// Reference workflowPreferences (set by SKILL.md via AskUserQuestion)
+const autoYes = workflowPreferences.autoYes
 
 if (autoYes) {
   // Auto mode: Auto-confirm execution
-  console.log(`[--yes] Auto-confirming replan execution`)
+  console.log(`[Auto] Auto-confirming replan execution`)
   userConfirmation = 'confirm'
   // Proceed to Step 6.4
 } else {
@@ -480,7 +471,7 @@ Available sessions: [list]
 
 # No changes specified
 WARNING: No modifications specified
-Use --interactive mode or provide requirements
+Provide requirements text or use interactive mode
 ```
 
 ### Task Errors
@@ -537,8 +528,8 @@ Backup preserved, rolling back changes
 
 ### Session Replan - Add Feature
 
-```bash
-/workflow:replan "Add 2FA support"
+```
+Replan input: "Add 2FA support"
 
 # Interactive clarification
 Q: Modification scope?

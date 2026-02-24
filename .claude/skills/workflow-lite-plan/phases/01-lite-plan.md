@@ -2,8 +2,6 @@
 
 Complete planning pipeline: task analysis, multi-angle exploration, clarification, adaptive planning, confirmation, and execution handoff.
 
-**Source**: Converted from `.claude/commands/workflow/lite-plan.md` - all execution detail preserved verbatim.
-
 ---
 
 ## Overview
@@ -18,23 +16,13 @@ Intelligent lightweight planning command with dynamic workflow adaptation based 
 - Two-step confirmation: plan display → multi-dimensional input collection
 - Execution handoff with complete context to lite-execute
 
-## Usage
+## Input
 
-```bash
-/workflow:lite-plan [FLAGS] <TASK_DESCRIPTION>
-
-# Flags
--y, --yes                  Skip all confirmations (auto mode)
--e, --explore              Force code exploration phase (overrides auto-detection)
-
-# Arguments
-<task-description>         Task description or path to .md file (required)
-
-# Examples
-/workflow:lite-plan "实现JWT认证"                    # Interactive mode
-/workflow:lite-plan --yes "实现JWT认证"              # Auto mode (no confirmations)
-/workflow:lite-plan -y -e "优化数据库查询性能"       # Auto mode + force exploration
 ```
+<task-description>         Task description or path to .md file (required)
+```
+
+Workflow preferences (`autoYes`, `forceExplore`) are collected by SKILL.md via AskUserQuestion and passed as `workflowPreferences` context variable.
 
 ## Output Artifacts
 
@@ -56,17 +44,11 @@ Intelligent lightweight planning command with dynamic workflow adaptation based 
 
 ## Auto Mode Defaults
 
-When `--yes` or `-y` flag is used:
+When `workflowPreferences.autoYes === true`:
 - **Clarification Questions**: Skipped (no clarification phase)
 - **Plan Confirmation**: Auto-selected "Allow"
 - **Execution Method**: Auto-selected "Auto"
 - **Code Review**: Auto-selected "Skip"
-
-**Flag Parsing**:
-```javascript
-const autoYes = $ARGUMENTS.includes('--yes') || $ARGUMENTS.includes('-y')
-const forceExplore = $ARGUMENTS.includes('--explore') || $ARGUMENTS.includes('-e')
-```
 
 ## Execution Process
 
@@ -74,7 +56,7 @@ const forceExplore = $ARGUMENTS.includes('--explore') || $ARGUMENTS.includes('-e
 Phase 1: Task Analysis & Exploration
    ├─ Parse input (description or .md file)
    ├─ intelligent complexity assessment (Low/Medium/High)
-   ├─ Exploration decision (auto-detect or --explore flag)
+   ├─ Exploration decision (auto-detect or workflowPreferences.forceExplore)
    ├─ Context protection: If file reading ≥50k chars → force cli-explore-agent
    └─ Decision:
       ├─ needsExploration=true → Launch parallel cli-explore-agents (1-4 based on complexity)
@@ -101,7 +83,7 @@ Phase 4: Confirmation & Selection
 
 Phase 5: Execute
    ├─ Build executionContext (plan + explorations + clarifications + selections)
-   └─ Skill(skill="workflow:lite-execute", args="--in-memory")
+   └─ Direct handoff: Read phases/02-lite-execute.md → Execute with executionContext (Mode 1)
 ```
 
 ## Implementation
@@ -125,7 +107,7 @@ bash(`mkdir -p ${sessionFolder} && test -d ${sessionFolder} && echo "SUCCESS: ${
 **Exploration Decision Logic**:
 ```javascript
 needsExploration = (
-  flags.includes('--explore') || flags.includes('-e') ||
+  workflowPreferences.forceExplore ||
   task.mentions_specific_files ||
   task.requires_codebase_context ||
   task.needs_architecture_understanding ||
@@ -368,12 +350,11 @@ explorations.forEach(exp => {
 // - Produce dedupedClarifications with unique intents only
 const dedupedClarifications = intelligentMerge(allClarifications)
 
-// Parse --yes flag
-const autoYes = $ARGUMENTS.includes('--yes') || $ARGUMENTS.includes('-y')
+const autoYes = workflowPreferences.autoYes
 
 if (autoYes) {
   // Auto mode: Skip clarification phase
-  console.log(`[--yes] Skipping ${dedupedClarifications.length} clarification questions`)
+  console.log(`[Auto] Skipping ${dedupedClarifications.length} clarification questions`)
   console.log(`Proceeding to planning with exploration results...`)
   // Continue to Phase 3
 } else if (dedupedClarifications.length > 0) {
@@ -608,14 +589,13 @@ ${taskList.map((t, i) => `${i+1}. ${t.title} (${t.scope || t.files?.[0]?.path ||
 
 **Step 4.2: Collect Confirmation**
 ```javascript
-// Parse --yes flag
-const autoYes = $ARGUMENTS.includes('--yes') || $ARGUMENTS.includes('-y')
+const autoYes = workflowPreferences.autoYes
 
 let userSelection
 
 if (autoYes) {
   // Auto mode: Use defaults
-  console.log(`[--yes] Auto-confirming plan:`)
+  console.log(`[Auto] Auto-confirming plan:`)
   console.log(`  - Confirmation: Allow`)
   console.log(`  - Execution: Auto`)
   console.log(`  - Review: Skip`)
@@ -723,7 +703,10 @@ executionContext = {
 **Step 5.2: Handoff**
 
 ```javascript
-Skill(skill="workflow:lite-execute", args="--in-memory")
+// Direct phase handoff: Read and execute Phase 2 (lite-execute) with in-memory context
+// No Skill routing needed - executionContext is already set in Step 5.1
+Read("phases/02-lite-execute.md")
+// Execute Phase 2 with executionContext (Mode 1: In-Memory Plan)
 ```
 
 ## Session Folder Structure

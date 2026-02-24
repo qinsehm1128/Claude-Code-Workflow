@@ -51,17 +51,18 @@ Each discussion round analyzes from 4 perspectives:
 | **Technical** | Feasibility, tech debt, performance, security, maintainability | Tech Lead |
 | **Quality** | Completeness, testability, consistency, standards compliance | QA Lead |
 | **Risk** | Risk identification, dependency analysis, assumption validation, failure modes | Risk Analyst |
+| **Coverage** | Requirement completeness vs original intent, scope drift, gap detection | Requirements Analyst |
 
 ## Discussion Round Configuration
 
 | Round | Artifact | Key Perspectives | Focus |
 |-------|----------|-----------------|-------|
-| DISCUSS-001 | discovery-context | product + risk | Scope confirmation, direction |
-| DISCUSS-002 | product-brief | product + technical + quality | Positioning, feasibility |
-| DISCUSS-003 | requirements | quality + product | Completeness, priority |
+| DISCUSS-001 | discovery-context | product + risk + **coverage** | Scope confirmation, direction, initial coverage check |
+| DISCUSS-002 | product-brief | product + technical + quality + **coverage** | Positioning, feasibility, requirement coverage |
+| DISCUSS-003 | requirements | quality + product + **coverage** | Completeness, priority, gap detection |
 | DISCUSS-004 | architecture | technical + risk | Tech choices, security |
-| DISCUSS-005 | epics | product + technical + quality | MVP scope, estimation |
-| DISCUSS-006 | readiness-report | all 4 perspectives | Final sign-off |
+| DISCUSS-005 | epics | product + technical + quality + **coverage** | MVP scope, estimation, requirement tracing |
+| DISCUSS-006 | readiness-report | all 5 perspectives | Final sign-off |
 
 ## Execution (5-Phase)
 
@@ -91,12 +92,12 @@ const roundMatch = task.subject.match(/DISCUSS-(\d+)/)
 const roundNumber = roundMatch ? parseInt(roundMatch[1]) : 0
 
 const roundConfig = {
-  1: { artifact: 'discovery-context.json', type: 'json', outputFile: 'discuss-001-scope.md', perspectives: ['product', 'risk'], label: '范围讨论' },
-  2: { artifact: 'product-brief.md', type: 'md', outputFile: 'discuss-002-brief.md', perspectives: ['product', 'technical', 'quality'], label: 'Brief评审' },
-  3: { artifact: 'requirements/_index.md', type: 'md', outputFile: 'discuss-003-requirements.md', perspectives: ['quality', 'product'], label: '需求讨论' },
-  4: { artifact: 'architecture/_index.md', type: 'md', outputFile: 'discuss-004-architecture.md', perspectives: ['technical', 'risk'], label: '架构讨论' },
-  5: { artifact: 'epics/_index.md', type: 'md', outputFile: 'discuss-005-epics.md', perspectives: ['product', 'technical', 'quality'], label: 'Epics讨论' },
-  6: { artifact: 'readiness-report.md', type: 'md', outputFile: 'discuss-006-final.md', perspectives: ['product', 'technical', 'quality', 'risk'], label: '最终签收' }
+  1: { artifact: 'spec/discovery-context.json', type: 'json', outputFile: 'discuss-001-scope.md', perspectives: ['product', 'risk', 'coverage'], label: '范围讨论' },
+  2: { artifact: 'spec/product-brief.md', type: 'md', outputFile: 'discuss-002-brief.md', perspectives: ['product', 'technical', 'quality', 'coverage'], label: 'Brief评审' },
+  3: { artifact: 'spec/requirements/_index.md', type: 'md', outputFile: 'discuss-003-requirements.md', perspectives: ['quality', 'product', 'coverage'], label: '需求讨论' },
+  4: { artifact: 'spec/architecture/_index.md', type: 'md', outputFile: 'discuss-004-architecture.md', perspectives: ['technical', 'risk'], label: '架构讨论' },
+  5: { artifact: 'spec/epics/_index.md', type: 'md', outputFile: 'discuss-005-epics.md', perspectives: ['product', 'technical', 'quality', 'coverage'], label: 'Epics讨论' },
+  6: { artifact: 'spec/readiness-report.md', type: 'md', outputFile: 'discuss-006-final.md', perspectives: ['product', 'technical', 'quality', 'risk', 'coverage'], label: '最终签收' }
 }
 
 const config = roundConfig[roundNumber]
@@ -112,8 +113,9 @@ Launch parallel CLI analyses for each required perspective:
 - **Technical Perspective** (codex): Feasibility, complexity, architecture decisions, tech debt risks. Rate 1-5.
 - **Quality Perspective** (claude): Completeness, testability, consistency, ambiguity detection. Rate 1-5.
 - **Risk Perspective** (gemini): Risk identification, dependency analysis, assumption validation, failure modes. Rate risk level.
+- **Coverage Perspective** (gemini): Compare current artifact against original requirements in discovery-context.json. Identify covered_requirements[], partial_requirements[], missing_requirements[], scope_creep[]. Rate coverage 1-5. **If missing_requirements is non-empty, flag as critical divergence.**
 
-Each CLI call produces structured critique with: strengths[], weaknesses[], suggestions[], rating.
+Each CLI call produces structured critique with: strengths[], weaknesses[], suggestions[], rating. Coverage perspective additionally outputs: covered_requirements[], missing_requirements[], scope_creep[].
 
 ### Phase 4: Consensus Synthesis
 
@@ -131,6 +133,17 @@ const synthesis = {
 
 // Extract convergent themes (items mentioned positively by 2+ perspectives)
 // Extract divergent views (items where perspectives conflict)
+// Check coverage gaps from coverage perspective (if present)
+const coverageResult = perspectiveResults.find(p => p.perspective === 'coverage')
+if (coverageResult?.missing_requirements?.length > 0) {
+  synthesis.coverage_gaps = coverageResult.missing_requirements
+  synthesis.divergent_views.push({
+    topic: 'requirement_coverage_gap',
+    description: `${coverageResult.missing_requirements.length} requirements from discovery-context not covered: ${coverageResult.missing_requirements.join(', ')}`,
+    severity: 'high',
+    source: 'coverage'
+  })
+}
 // Check for unresolvable conflicts
 const criticalDivergences = synthesis.divergent_views.filter(d => d.severity === 'high')
 if (criticalDivergences.length > 0) synthesis.consensus_reached = false

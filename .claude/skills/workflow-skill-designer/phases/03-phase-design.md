@@ -25,6 +25,98 @@ Generate phase files in `phases/` directory, preserving full execution detail fr
 
 **Anti-Pattern**: Creating a phase file that says "See original command for details" or "Execute the agent with appropriate parameters" - this defeats the purpose of the skill structure. The phase file must be self-contained.
 
+## Phase File Content Restrictions
+
+Phase files are internal execution documents. They MUST NOT contain the following prohibited content:
+
+| Prohibited Pattern | Detection | Correct Location |
+|-------------------|-----------|-----------------|
+| Flag parsing (`$ARGUMENTS.includes(...)`) | Grep: `\$ARGUMENTS\.includes` | SKILL.md via AskUserQuestion → `workflowPreferences` |
+| Invocation syntax (`/skill-name "..."`) | Grep: `\/\w+[\-:]\w+\s+"` | Removed entirely (phase files are not user-facing) |
+| Conversion provenance (`Source: Converted from...`) | Grep: `Source:.*Converted from` | Removed entirely (implementation detail) |
+| Skill routing for inter-phase (`Skill(skill="...")`) | Grep: `Skill\(skill=` | Direct `Read("phases/0N-xxx.md")` |
+
+### Preference Reference Pattern
+
+Phase files may **reference** workflow preferences but must NOT **parse** them from arguments:
+
+```javascript
+// CORRECT: Reference workflowPreferences (set by SKILL.md)
+const autoYes = workflowPreferences.autoYes
+const forceExplore = workflowPreferences.forceExplore
+
+// WRONG: Parse from $ARGUMENTS
+const autoYes = $ARGUMENTS.includes('--yes') || $ARGUMENTS.includes('-y')
+const forceExplore = $ARGUMENTS.includes('--explore') || $ARGUMENTS.includes('-e')
+```
+
+### Inter-Phase Handoff Pattern
+
+When phase N needs to invoke phase M, use direct phase reading:
+
+```javascript
+// CORRECT: Direct handoff (executionContext already set)
+Read("phases/02-lite-execute.md")
+// Execute with executionContext (Mode 1)
+
+// WRONG: Skill routing (unnecessary round-trip)
+Skill(skill="workflow-lite-plan", args="--in-memory")
+```
+
+### Content Restriction Enforcement
+
+When extracting from commands (Step 3.2), apply content sanitization after verbatim extraction:
+
+```javascript
+function sanitizePhaseContent(content) {
+  let sanitized = content;
+
+  // Remove flag parsing blocks
+  sanitized = sanitized.replace(
+    /\/\/.*flag.*parsing[\s\S]*?\n(?=\n)/gi, ''
+  );
+
+  // Remove invocation syntax examples
+  sanitized = sanitized.replace(
+    /^.*\/\w+[\-:]\w+\s+"[^"]*".*$/gm, ''
+  );
+
+  // Remove conversion provenance notes
+  sanitized = sanitized.replace(
+    /^\*\*Source\*\*:.*Converted from.*$/gm, ''
+  );
+
+  // Replace all $ARGUMENTS.includes patterns with workflowPreferences reference
+  // Handles any flag name, not just --yes/-y
+  sanitized = sanitized.replace(
+    /\$ARGUMENTS\.includes\(['"]--?([^"']+)['"]\)/g,
+    (match, flagName) => {
+      // Map common flag names to workflowPreferences keys
+      const flagMap = {
+        'yes': 'workflowPreferences.autoYes',
+        'y': 'workflowPreferences.autoYes',
+        'explore': 'workflowPreferences.forceExplore',
+        'e': 'workflowPreferences.forceExplore'
+      };
+      return flagMap[flagName] || `workflowPreferences.${flagName}`;
+    }
+  );
+  // Also clean up residual || chains from multi-flag expressions
+  sanitized = sanitized.replace(
+    /workflowPreferences\.(\w+)\s*\|\|\s*workflowPreferences\.\1/g,
+    'workflowPreferences.$1'
+  );
+
+  // Replace Skill() inter-phase routing with direct Read (with or without args)
+  sanitized = sanitized.replace(
+    /Skill\(skill=["']([^"']+)["'](?:,\s*args=["']([^"']+)["'])?\)/g,
+    (match, skillName) => `Read("phases/0N-xxx.md")\n// Execute with context`
+  );
+
+  return sanitized;
+}
+```
+
 ## Step 3.1: Phase File Generation Strategy
 
 ```javascript
@@ -76,6 +168,16 @@ function extractPhaseFromCommand(phase, config) {
   // But KEEP any overview content that adds execution detail
 
   phaseContent += bodyContent;
+
+  // 2.5. Ensure Objective section exists
+  if (!bodyContent.includes('## Objective')) {
+    // Insert Objective after phase header, before main content
+    const objectiveSection = `## Objective\n\n- ${phase.description}\n`;
+    phaseContent = phaseContent.replace(
+      `${phase.description}.\n\n${bodyContent}`,
+      `${phase.description}.\n\n${objectiveSection}\n${bodyContent}`
+    );
+  }
 
   // 3. Ensure Output section exists
   if (!bodyContent.includes('## Output')) {

@@ -18,8 +18,6 @@ vi.mock('@/hooks', async (importOriginal) => {
     useCodexLensEnv: vi.fn(),
     useUpdateCodexLensEnv: vi.fn(),
     useCodexLensModels: vi.fn(),
-    useCodexLensRerankerConfig: vi.fn(),
-    useUpdateRerankerConfig: vi.fn(),
     useNotifications: vi.fn(() => ({
       toasts: [],
       wsStatus: 'disconnected' as const,
@@ -50,8 +48,6 @@ import {
   useCodexLensEnv,
   useUpdateCodexLensEnv,
   useCodexLensModels,
-  useCodexLensRerankerConfig,
-  useUpdateRerankerConfig,
   useNotifications,
 } from '@/hooks';
 
@@ -67,7 +63,7 @@ const mockEnv: Record<string, string> = {
   CODEXLENS_EMBEDDING_MODEL: 'fast',
   CODEXLENS_USE_GPU: 'true',
   CODEXLENS_RERANKER_ENABLED: 'true',
-  CODEXLENS_RERANKER_BACKEND: 'local',
+  CODEXLENS_RERANKER_BACKEND: 'onnx',
   CODEXLENS_API_MAX_WORKERS: '4',
   CODEXLENS_API_BATCH_SIZE: '8',
   CODEXLENS_CASCADE_STRATEGY: 'dense_rerank',
@@ -105,25 +101,6 @@ function setupDefaultMocks() {
     isLoading: false,
     error: null,
     refetch: vi.fn(),
-  });
-  vi.mocked(useCodexLensRerankerConfig).mockReturnValue({
-    data: undefined,
-    backend: 'fastembed',
-    modelName: '',
-    apiProvider: '',
-    apiKeySet: false,
-    availableBackends: ['onnx', 'api', 'litellm', 'legacy'],
-    apiProviders: ['siliconflow', 'cohere', 'jina'],
-    litellmModels: undefined,
-    configSource: 'default',
-    isLoading: false,
-    error: null,
-    refetch: vi.fn(),
-  });
-  vi.mocked(useUpdateRerankerConfig).mockReturnValue({
-    updateConfig: vi.fn().mockResolvedValue({ success: true, message: 'Saved' }),
-    isUpdating: false,
-    error: null,
   });
 }
 
@@ -346,25 +323,6 @@ describe('SettingsTab', () => {
         isLoading: false,
         error: null,
         refetch: vi.fn(),
-      });
-      vi.mocked(useCodexLensRerankerConfig).mockReturnValue({
-        data: undefined,
-        backend: 'fastembed',
-        modelName: '',
-        apiProvider: '',
-        apiKeySet: false,
-        availableBackends: [],
-        apiProviders: [],
-        litellmModels: undefined,
-        configSource: 'default',
-        isLoading: false,
-        error: null,
-        refetch: vi.fn(),
-      });
-      vi.mocked(useUpdateRerankerConfig).mockReturnValue({
-        updateConfig: vi.fn().mockResolvedValue({ success: true }),
-        isUpdating: false,
-        error: null,
       });
 
       render(<SettingsTab enabled={true} />);

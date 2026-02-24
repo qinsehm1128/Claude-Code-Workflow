@@ -73,7 +73,7 @@ const reviewMode = task.subject.startsWith('REVIEW-') ? 'code' : 'spec'
 ```javascript
 if (reviewMode === 'code') {
   // Load plan for acceptance criteria
-  const planPathMatch = task.description.match(/\.workflow\/\.team-plan\/[^\s]+\/plan\.json/)
+  const planPathMatch = task.description.match(/\.workflow\/\.team\/[^\s]+\/plan\/plan\.json/)
   let plan = null
   if (planPathMatch) {
     try { plan = JSON.parse(Read(planPathMatch[0])) } catch {}
@@ -101,6 +101,10 @@ if (reviewMode === 'spec') {
   const sessionMatch = task.description.match(/Session:\s*(.+)/)
   const sessionFolder = sessionMatch ? sessionMatch[1].trim() : ''
 
+  // 加载质量门禁标准（引用 spec-generator 共享资源）
+  let qualityGates = null
+  try { qualityGates = Read('../specs/quality-gates.md') } catch {}
+
   // Load all spec documents
   const documents = {
     config: null, discoveryContext: null, productBrief: null,
@@ -108,18 +112,18 @@ if (reviewMode === 'spec') {
     adrs: [], epicsIndex: null, epics: [], discussions: []
   }
 
-  try { documents.config = JSON.parse(Read(`${sessionFolder}/spec-config.json`)) } catch {}
-  try { documents.discoveryContext = JSON.parse(Read(`${sessionFolder}/discovery-context.json`)) } catch {}
-  try { documents.productBrief = Read(`${sessionFolder}/product-brief.md`) } catch {}
-  try { documents.requirementsIndex = Read(`${sessionFolder}/requirements/_index.md`) } catch {}
-  try { documents.architectureIndex = Read(`${sessionFolder}/architecture/_index.md`) } catch {}
-  try { documents.epicsIndex = Read(`${sessionFolder}/epics/_index.md`) } catch {}
+  try { documents.config = JSON.parse(Read(`${sessionFolder}/spec/spec-config.json`)) } catch {}
+  try { documents.discoveryContext = JSON.parse(Read(`${sessionFolder}/spec/discovery-context.json`)) } catch {}
+  try { documents.productBrief = Read(`${sessionFolder}/spec/product-brief.md`) } catch {}
+  try { documents.requirementsIndex = Read(`${sessionFolder}/spec/requirements/_index.md`) } catch {}
+  try { documents.architectureIndex = Read(`${sessionFolder}/spec/architecture/_index.md`) } catch {}
+  try { documents.epicsIndex = Read(`${sessionFolder}/spec/epics/_index.md`) } catch {}
 
   // Load individual documents
-  Glob({ pattern: `${sessionFolder}/requirements/REQ-*.md` }).forEach(f => { try { documents.requirements.push(Read(f)) } catch {} })
-  Glob({ pattern: `${sessionFolder}/requirements/NFR-*.md` }).forEach(f => { try { documents.requirements.push(Read(f)) } catch {} })
-  Glob({ pattern: `${sessionFolder}/architecture/ADR-*.md` }).forEach(f => { try { documents.adrs.push(Read(f)) } catch {} })
-  Glob({ pattern: `${sessionFolder}/epics/EPIC-*.md` }).forEach(f => { try { documents.epics.push(Read(f)) } catch {} })
+  Glob({ pattern: `${sessionFolder}/spec/requirements/REQ-*.md` }).forEach(f => { try { documents.requirements.push(Read(f)) } catch {} })
+  Glob({ pattern: `${sessionFolder}/spec/requirements/NFR-*.md` }).forEach(f => { try { documents.requirements.push(Read(f)) } catch {} })
+  Glob({ pattern: `${sessionFolder}/spec/architecture/ADR-*.md` }).forEach(f => { try { documents.adrs.push(Read(f)) } catch {} })
+  Glob({ pattern: `${sessionFolder}/spec/epics/EPIC-*.md` }).forEach(f => { try { documents.epics.push(Read(f)) } catch {} })
   Glob({ pattern: `${sessionFolder}/discussions/discuss-*.md` }).forEach(f => { try { documents.discussions.push(Read(f)) } catch {} })
 
   const docInventory = {
@@ -222,11 +226,12 @@ function verifyRequirements(plan, fileContents) {
 
 ```javascript
 if (reviewMode === 'spec') {
-  const scores = { completeness: 0, consistency: 0, traceability: 0, depth: 0 }
+  const scores = { completeness: 0, consistency: 0, traceability: 0, depth: 0, requirementCoverage: 0 }
 
   // Completeness (25%): all sections present with content
   function scoreCompleteness(docs) {
     let score = 0
+    const issues = []
     const checks = [
       { name: 'spec-config.json', present: !!docs.config, weight: 5 },
       { name: 'discovery-context.json', present: !!docs.discoveryContext, weight: 10 },
@@ -238,8 +243,54 @@ if (reviewMode === 'spec') {
       { name: 'epics/_index.md', present: !!docs.epicsIndex, weight: 10 },
       { name: 'EPIC-* files', present: docs.epics.length > 0, weight: 5 }
     ]
-    checks.forEach(c => { if (c.present) score += c.weight })
-    return { score, issues: checks.filter(c => !c.present).map(c => `Missing: ${c.name}`) }
+    checks.forEach(c => { if (c.present) score += c.weight; else issues.push(`Missing: ${c.name}`) })
+
+    // 增强: section 内容检查（不仅检查文件是否存在，还检查关键 section 是否有实质内容）
+    if (docs.productBrief) {
+      const briefSections = ['## Vision', '## Problem Statement', '## Target Users', '## Goals', '## Scope']
+      const missingSections = briefSections.filter(s => !docs.productBrief.includes(s))
+      if (missingSections.length > 0) {
+        score -= missingSections.length * 3
+        issues.push(`Product Brief missing sections: ${missingSections.join(', ')}`)
+      }
+    }
+
+    if (docs.requirementsIndex) {
+      const reqSections = ['## Functional Requirements', '## Non-Functional Requirements', '## MoSCoW Summary']
+      const missingReqSections = reqSections.filter(s => !docs.requirementsIndex.includes(s))
+      if (missingReqSections.length > 0) {
+        score -= missingReqSections.length * 3
+        issues.push(`Requirements index missing sections: ${missingReqSections.join(', ')}`)
+      }
+    }
+
+    if (docs.architectureIndex) {
+      const archSections = ['## Architecture Decision Records', '## Technology Stack']
+      const missingArchSections = archSections.filter(s => !docs.architectureIndex.includes(s))
+      if (missingArchSections.length > 0) {
+        score -= missingArchSections.length * 3
+        issues.push(`Architecture index missing sections: ${missingArchSections.join(', ')}`)
+      }
+      if (!docs.architectureIndex.includes('```mermaid')) {
+        score -= 5
+        issues.push('Architecture index missing Mermaid component diagram')
+      }
+    }
+
+    if (docs.epicsIndex) {
+      const epicsSections = ['## Epic Overview', '## MVP Scope']
+      const missingEpicsSections = epicsSections.filter(s => !docs.epicsIndex.includes(s))
+      if (missingEpicsSections.length > 0) {
+        score -= missingEpicsSections.length * 3
+        issues.push(`Epics index missing sections: ${missingEpicsSections.join(', ')}`)
+      }
+      if (!docs.epicsIndex.includes('```mermaid')) {
+        score -= 5
+        issues.push('Epics index missing Mermaid dependency diagram')
+      }
+    }
+
+    return { score: Math.max(0, score), issues }
   }
 
   // Consistency (25%): terminology, format, references
@@ -297,19 +348,55 @@ if (reviewMode === 'spec') {
     return { score: Math.max(0, score), issues }
   }
 
+  // Requirement Coverage (20%): original requirements → document mapping
+  function scoreRequirementCoverage(docs) {
+    let score = 100
+    const issues = []
+    if (!docs.discoveryContext) {
+      return { score: 0, issues: ['discovery-context.json missing, cannot verify requirement coverage'] }
+    }
+    const context = typeof docs.discoveryContext === 'string' ? JSON.parse(docs.discoveryContext) : docs.discoveryContext
+    const dimensions = context.seed_analysis?.exploration_dimensions || []
+    const constraints = context.seed_analysis?.constraints || []
+    const userSupplements = context.seed_analysis?.user_supplements || ''
+    const allRequirements = [...dimensions, ...constraints]
+    if (userSupplements) allRequirements.push(userSupplements)
+
+    if (allRequirements.length === 0) {
+      return { score: 100, issues: [] } // No requirements to check
+    }
+
+    const allDocContent = [docs.productBrief, docs.requirementsIndex, docs.architectureIndex, docs.epicsIndex,
+      ...docs.requirements, ...docs.adrs, ...docs.epics].filter(Boolean).join('\n').toLowerCase()
+
+    let covered = 0
+    for (const req of allRequirements) {
+      const keywords = req.toLowerCase().split(/[\s,;]+/).filter(w => w.length > 2)
+      const isCovered = keywords.some(kw => allDocContent.includes(kw))
+      if (isCovered) { covered++ }
+      else { issues.push(`Requirement not covered in documents: "${req}"`) }
+    }
+
+    score = Math.round((covered / allRequirements.length) * 100)
+    return { score, issues }
+  }
+
   const completenessResult = scoreCompleteness(documents)
   const consistencyResult = scoreConsistency(documents)
   const traceabilityResult = scoreTraceability(documents)
   const depthResult = scoreDepth(documents)
+  const coverageResult = scoreRequirementCoverage(documents)
 
   scores.completeness = completenessResult.score
   scores.consistency = consistencyResult.score
   scores.traceability = traceabilityResult.score
   scores.depth = depthResult.score
+  scores.requirementCoverage = coverageResult.score
 
-  const overallScore = (scores.completeness + scores.consistency + scores.traceability + scores.depth) / 4
-  const qualityGate = overallScore >= 80 ? 'PASS' : overallScore >= 60 ? 'REVIEW' : 'FAIL'
-  const allSpecIssues = [...completenessResult.issues, ...consistencyResult.issues, ...traceabilityResult.issues, ...depthResult.issues]
+  const overallScore = (scores.completeness + scores.consistency + scores.traceability + scores.depth + scores.requirementCoverage) / 5
+  const qualityGate = (overallScore >= 80 && scores.requirementCoverage >= 70) ? 'PASS' :
+    (overallScore < 60 || scores.requirementCoverage < 50) ? 'FAIL' : 'REVIEW'
+  const allSpecIssues = [...completenessResult.issues, ...consistencyResult.issues, ...traceabilityResult.issues, ...depthResult.issues, ...coverageResult.issues]
 }
 ```
 
@@ -346,13 +433,39 @@ version: 1
 ## Quality Scores
 | Dimension | Score | Weight |
 |-----------|-------|--------|
-| Completeness | ${scores.completeness}% | 25% |
-| Consistency | ${scores.consistency}% | 25% |
-| Traceability | ${scores.traceability}% | 25% |
-| Depth | ${scores.depth}% | 25% |
+| Completeness | ${scores.completeness}% | 20% |
+| Consistency | ${scores.consistency}% | 20% |
+| Traceability | ${scores.traceability}% | 20% |
+| Depth | ${scores.depth}% | 20% |
+| Requirement Coverage | ${scores.requirementCoverage}% | 20% |
 | **Overall** | **${overallScore.toFixed(1)}%** | **100%** |
 
 ## Quality Gate: ${qualityGate}
+
+## Per-Phase Quality Gates
+${qualityGates ? `_(Applied from ../specs/quality-gates.md)_
+
+### Phase 2 (Product Brief)
+- Vision statement: ${docs.productBrief?.includes('## Vision') ? 'PASS' : 'MISSING'}
+- Problem statement specificity: ${docs.productBrief?.match(/## Problem/)?.length ? 'PASS' : 'MISSING'}
+- Target users >= 1: ${docs.productBrief?.includes('## Target Users') ? 'PASS' : 'MISSING'}
+- Measurable goals >= 2: ${docs.productBrief?.includes('## Goals') ? 'PASS' : 'MISSING'}
+
+### Phase 3 (Requirements)
+- Functional requirements >= 3: ${docs.requirements.length >= 3 ? 'PASS' : 'FAIL (' + docs.requirements.length + ')'}
+- Acceptance criteria present: ${docs.requirements.some(r => /acceptance|criteria/i.test(r)) ? 'PASS' : 'MISSING'}
+- MoSCoW priority tags: ${docs.requirementsIndex?.includes('Must') ? 'PASS' : 'MISSING'}
+
+### Phase 4 (Architecture)
+- Component diagram: ${docs.architectureIndex?.includes('mermaid') ? 'PASS' : 'MISSING'}
+- ADR with alternatives: ${docs.adrs.some(a => /alternative|option/i.test(a)) ? 'PASS' : 'MISSING'}
+- Tech stack specified: ${docs.architectureIndex?.includes('Technology') ? 'PASS' : 'MISSING'}
+
+### Phase 5 (Epics)
+- MVP subset tagged: ${docs.epics.some(e => /mvp:\s*true/i.test(e)) ? 'PASS' : 'MISSING'}
+- Dependency map: ${docs.epicsIndex?.includes('mermaid') ? 'PASS' : 'MISSING'}
+- Story sizing: ${docs.epics.some(e => /\b[SMLX]{1,2}\b|Small|Medium|Large/.test(e)) ? 'PASS' : 'MISSING'}
+` : '_(quality-gates.md not loaded)_'}
 
 ## Issues Found
 ${allSpecIssues.map(i => '- ' + i).join('\n') || 'None'}
@@ -360,7 +473,7 @@ ${allSpecIssues.map(i => '- ' + i).join('\n') || 'None'}
 ## Document Inventory
 ${Object.entries(docInventory).map(([k, v]) => '- ' + k + ': ' + (v === true ? '✓' : v === false ? '✗' : v)).join('\n')}
 `
-  Write(`${sessionFolder}/readiness-report.md`, readinessReport)
+  Write(`${sessionFolder}/spec/readiness-report.md`, readinessReport)
 
   // Generate spec-summary.md
   const specSummary = `---
@@ -390,7 +503,7 @@ ${qualityGate === 'PASS' ? '- Ready for handoff to execution workflows' :
   qualityGate === 'REVIEW' ? '- Address review items, then proceed to execution' :
   '- Fix critical issues before proceeding'}
 `
-  Write(`${sessionFolder}/spec-summary.md`, specSummary)
+  Write(`${sessionFolder}/spec/spec-summary.md`, specSummary)
 }
 ```
 
@@ -448,7 +561,7 @@ if (reviewMode === 'spec') {
     operation: "log", team: teamName,
     from: "reviewer", to: "coordinator",
     type: qualityGate === 'FAIL' ? "fix_required" : "quality_result",
-    summary: `质量检查 ${qualityGate}: ${overallScore.toFixed(1)}分 (完整性${scores.completeness}/一致性${scores.consistency}/追溯${scores.traceability}/深度${scores.depth})`,
+    summary: `质量检查 ${qualityGate}: ${overallScore.toFixed(1)}分 (完整性${scores.completeness}/一致性${scores.consistency}/追溯${scores.traceability}/深度${scores.depth}/覆盖率${scores.requirementCoverage})`,
     data: { gate: qualityGate, score: overallScore, issues: allSpecIssues }
   })
 
@@ -468,6 +581,7 @@ if (reviewMode === 'spec') {
 | 一致性 | ${scores.consistency}% |
 | 可追溯性 | ${scores.traceability}% |
 | 深度 | ${scores.depth}% |
+| 需求覆盖率 | ${scores.requirementCoverage}% |
 
 ### 问题列表 (${allSpecIssues.length})
 ${allSpecIssues.map(i => '- ' + i).join('\n') || '无问题'}
@@ -476,8 +590,8 @@ ${allSpecIssues.map(i => '- ' + i).join('\n') || '无问题'}
 ${Object.entries(docInventory).map(([k, v]) => '- ' + k + ': ' + (typeof v === 'boolean' ? (v ? '✓' : '✗') : v)).join('\n')}
 
 ### 输出位置
-- 就绪报告: ${sessionFolder}/readiness-report.md
-- 执行摘要: ${sessionFolder}/spec-summary.md
+- 就绪报告: ${sessionFolder}/spec/readiness-report.md
+- 执行摘要: ${sessionFolder}/spec/spec-summary.md
 
 ${qualityGate === 'PASS' ? '质量达标，可进入最终讨论轮次 DISCUSS-006。' :
   qualityGate === 'REVIEW' ? '质量基本达标但有改进空间，建议在讨论中审查。' :

@@ -111,6 +111,37 @@ export {
   selectHasActiveExecution,
 } from './queueExecutionStore';
 
+// Orchestrator Store
+export {
+  useOrchestratorStore,
+  selectActivePlans,
+  selectPlan,
+  selectStepStatuses,
+  selectStepRunState,
+  selectHasRunningPlan,
+  selectActivePlanCount,
+  selectPlanStepByExecutionId,
+} from './orchestratorStore';
+
+// Session Manager Store
+export {
+  useSessionManagerStore,
+  selectGroups,
+  selectLayout,
+  selectSessionManagerActiveTerminalId,
+  selectTerminalMetas,
+  selectTerminalMeta,
+} from './sessionManagerStore';
+
+// Issue Queue Integration Store
+export {
+  useIssueQueueIntegrationStore,
+  selectSelectedIssueId,
+  selectAssociationChain,
+  selectQueueByIssue,
+  selectIssueById,
+} from './issueQueueIntegrationStore';
+
 // Terminal Panel Store Types
 export type {
   PanelView,
@@ -130,6 +161,15 @@ export type {
   QueueExecutionActions,
   QueueExecutionStore,
 } from './queueExecutionStore';
+
+// Orchestrator Store Types
+export type {
+  StepRunState,
+  OrchestrationRunState,
+  OrchestratorState,
+  OrchestratorActions,
+  OrchestratorStore,
+} from './orchestratorStore';
 
 // Re-export types for convenience
 export type {
@@ -220,3 +260,53 @@ export type {
 } from '../types/flow';
 
 export { NODE_TYPE_CONFIGS } from '../types/flow';
+
+// Session Manager Store Types
+export type {
+  SessionGridLayout,
+  SessionLayout,
+  TerminalStatus,
+  TerminalMeta,
+  SessionGroup,
+  SessionManagerState,
+  SessionManagerActions,
+  SessionManagerStore,
+  AlertSeverity,
+  MonitorAlert,
+} from '../types/terminal-dashboard';
+
+// Terminal Grid Store
+export {
+  useTerminalGridStore,
+  selectTerminalGridLayout,
+  selectTerminalGridPanes,
+  selectTerminalGridFocusedPaneId,
+  selectTerminalPane,
+} from './terminalGridStore';
+
+export type {
+  TerminalPaneState,
+  TerminalGridState,
+  TerminalGridActions,
+  TerminalGridStore,
+} from './terminalGridStore';
+
+// Issue Queue Integration Store Types
+export type {
+  AssociationChain,
+  IssueQueueIntegrationState,
+  IssueQueueIntegrationActions,
+  IssueQueueIntegrationStore,
+} from '../types/terminal-dashboard';
+
+// Issue Dialog Store
+export {
+  useIssueDialogStore,
+} from './issueDialogStore';
+
+export type {
+  IssueType,
+  IssuePriority,
+  IssueFormData,
+  IssueDialogState,
+} from './issueDialogStore';

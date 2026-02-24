@@ -135,6 +135,25 @@ if (myTasks.length === 0) return // idle
 const task = TaskGet({ taskId: myTasks[0].id })
 TaskUpdate({ taskId: task.id, status: 'in_progress' })
 
+// Phase 1.5: Resume Artifact Check (防止重复产出)
+// 当 session 从暂停恢复时，coordinator 已将 in_progress 任务重置为 pending。
+// Worker 在开始工作前，必须检查该任务的输出产物是否已存在。
+// 如果产物已存在且内容完整：
+//   → 直接跳到 Phase 5 报告完成（避免覆盖上次成果）
+// 如果产物存在但不完整（如文件为空或缺少关键 section）：
+//   → 正常执行 Phase 2-4（基于已有产物继续，而非从头开始）
+// 如果产物不存在：
+//   → 正常执行 Phase 2-4
+//
+// 每个 role 检查自己的输出路径:
+//   analyst  → sessionFolder/spec/discovery-context.json
+//   writer   → sessionFolder/spec/{product-brief.md | requirements/ | architecture/ | epics/}
+//   discussant → sessionFolder/discussions/discuss-NNN-*.md
+//   planner  → sessionFolder/plan/plan.json
+//   executor → git diff (已提交的代码变更)
+//   tester   → test pass rate
+//   reviewer → sessionFolder/spec/readiness-report.md (quality) 或 review findings (code)
+
 // Phase 2-4: Role-specific (see roles/{role}.md)
 
 // Phase 5: Report + Loop
@@ -158,6 +177,53 @@ Impl-only:
 Full-lifecycle:
   [Spec pipeline] → PLAN-001(blockedBy: DISCUSS-006) → IMPL-001 → TEST-001 + REVIEW-001
 ```
+
+## Unified Session Directory
+
+All session artifacts are stored under a single session folder:
+
+```
+.workflow/.team/TLS-{slug}-{YYYY-MM-DD}/
+├── team-session.json           # Session state (status, progress, completed_tasks)
+├── spec/                       # Spec artifacts (analyst, writer, reviewer output)
+│   ├── spec-config.json
+│   ├── discovery-context.json
+│   ├── product-brief.md
+│   ├── requirements/           # _index.md + REQ-*.md + NFR-*.md
+│   ├── architecture/           # _index.md + ADR-*.md
+│   ├── epics/                  # _index.md + EPIC-*.md
+│   ├── readiness-report.md
+│   └── spec-summary.md
+├── discussions/                # Discussion records (discussant output)
+│   └── discuss-001..006.md
+└── plan/                       # Plan artifacts (planner output)
+    ├── exploration-{angle}.json
+    ├── explorations-manifest.json
+    ├── plan.json
+    └── .task/
+        └── TASK-*.json
+```
+
+Messages remain at `.workflow/.team-msg/{team-name}/` (unchanged).
+
+## Session Resume
+
+Coordinator supports `--resume` / `--continue` flags to resume interrupted sessions:
+
+1. Scans `.workflow/.team/TLS-*/team-session.json` for `status: "active"` or `"paused"`
+2. Multiple matches → `AskUserQuestion` for user selection
+3. **Audit TaskList** — 获取当前所有任务的真实状态
+4. **Reconcile** — 双向同步 session.completed_tasks ↔ TaskList 状态:
+   - session 已完成但 TaskList 未标记 → 修正 TaskList 为 completed
+   - TaskList 已完成但 session 未记录 → 补录到 session
+   - in_progress 状态（暂停中断）→ 重置为 pending
+5. Determines remaining pipeline from reconciled state
+6. Rebuilds team (`TeamCreate` + worker spawns for needed roles only)
+7. Creates missing tasks with correct `blockedBy` dependency chain (uses `TASK_METADATA` lookup)
+8. Verifies dependency chain integrity for existing tasks
+9. Updates session file with reconciled state + current_phase
+10. **Kick** — 向首个可执行任务的 worker 发送 `task_unblocked` 消息，打破 resume 死锁
+11. Jumps to Phase 4 coordination loop
 
 ## Coordinator Spawn Template
 
@@ -237,6 +303,7 @@ Task({
 当你收到 PLAN-* 任务时，调用 Skill(skill="team-lifecycle", args="--role=planner") 执行。
 当前需求: ${taskDescription}
 约束: ${constraints}
+Session: ${sessionFolder}
 
 ## 消息总线（必须）
 每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
@@ -309,6 +376,22 @@ Task({
 4. TaskUpdate completed → 检查下一个任务`
 })
 ```
+
+## Shared Spec Resources
+
+Writer 和 Reviewer 角色在 spec 模式下使用本 skill 内置的标准和模板（从 spec-generator 复制，独立维护）：
+
+| Resource | Path | Usage |
+|----------|------|-------|
+| Document Standards | `specs/document-standards.md` | YAML frontmatter、命名规范、内容结构 |
+| Quality Gates | `specs/quality-gates.md` | Per-phase 质量门禁、评分标尺 |
+| Product Brief Template | `templates/product-brief.md` | DRAFT-001 文档生成 |
+| Requirements Template | `templates/requirements-prd.md` | DRAFT-002 文档生成 |
+| Architecture Template | `templates/architecture-doc.md` | DRAFT-003 文档生成 |
+| Epics Template | `templates/epics-template.md` | DRAFT-004 文档生成 |
+
+> Writer 在执行每个 DRAFT-* 任务前 **必须先 Read** 对应的 template 文件和 document-standards.md。
+> 从 `roles/` 子目录引用时路径为 `../specs/` 和 `../templates/`。
 
 ## Error Handling
 

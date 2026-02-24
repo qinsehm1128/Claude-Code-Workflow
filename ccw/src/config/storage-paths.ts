@@ -388,6 +388,15 @@ export interface ProjectPaths {
     /** Skills directory */
     skills: string;
   };
+  /** Unified vector index paths (HNSW-backed) */
+  unifiedVectors: {
+    /** Root: <projectRoot>/unified-vectors/ */
+    root: string;
+    /** SQLite database for vector metadata */
+    vectorsDb: string;
+    /** HNSW index file */
+    hnswIndex: string;
+  };
 }
 
 /**
@@ -454,6 +463,11 @@ export function getProjectPaths(projectPath: string): ProjectPaths {
       memoryMd: join(projectDir, 'core-memory', 'v2', 'MEMORY.md'),
       skills: join(projectDir, 'core-memory', 'v2', 'skills'),
     },
+    unifiedVectors: {
+      root: join(projectDir, 'unified-vectors'),
+      vectorsDb: join(projectDir, 'unified-vectors', 'vectors.db'),
+      hnswIndex: join(projectDir, 'unified-vectors', 'vectors.hnsw'),
+    },
   };
 }
 
@@ -482,6 +496,11 @@ export function getProjectPathsById(projectId: string): ProjectPaths {
       rawMemories: join(projectDir, 'core-memory', 'v2', 'raw_memories.md'),
       memoryMd: join(projectDir, 'core-memory', 'v2', 'MEMORY.md'),
       skills: join(projectDir, 'core-memory', 'v2', 'skills'),
+    },
+    unifiedVectors: {
+      root: join(projectDir, 'unified-vectors'),
+      vectorsDb: join(projectDir, 'unified-vectors', 'vectors.db'),
+      hnswIndex: join(projectDir, 'unified-vectors', 'vectors.hnsw'),
     },
   };
 }

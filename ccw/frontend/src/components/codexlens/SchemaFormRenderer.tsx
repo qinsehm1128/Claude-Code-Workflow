@@ -218,7 +218,8 @@ function FieldRenderer({
       const backendKey = isEmbedding
         ? 'CODEXLENS_EMBEDDING_BACKEND'
         : 'CODEXLENS_RERANKER_BACKEND';
-      const backendType = allValues[backendKey] === 'api' ? 'api' : 'local';
+      const backendValue = allValues[backendKey];
+      const backendType = (backendValue === 'api' || backendValue === 'litellm') ? 'api' : 'local';
 
       return (
         <div className="flex items-center gap-2">

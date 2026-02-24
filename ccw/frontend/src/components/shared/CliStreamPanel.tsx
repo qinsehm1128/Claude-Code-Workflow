@@ -5,7 +5,7 @@
 
 import * as React from 'react';
 import { useIntl } from 'react-intl';
-import { User, Bot, AlertTriangle, Info, Layers, Clock, Copy, Terminal, Hash, Calendar, CheckCircle2, XCircle, Timer } from 'lucide-react';
+import { User, Bot, AlertTriangle, Info, Layers, Clock, Copy, Terminal, Hash, Calendar, CheckCircle2, XCircle, Timer, ChevronDown, ChevronRight, FileJson, Brain, Wrench, Coins, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -17,9 +17,10 @@ import {
   DialogTitle,
 } from '@/components/ui/Dialog';
 import { useCliExecutionDetail } from '@/hooks/useCliExecution';
-import type { ConversationRecord, ConversationTurn } from '@/lib/api';
+import { useNativeSession } from '@/hooks/useNativeSession';
+import type { ConversationRecord, ConversationTurn, NativeSessionTurn, NativeTokenInfo, NativeToolCall } from '@/lib/api';
 
-type ViewMode = 'per-turn' | 'concatenated';
+type ViewMode = 'per-turn' | 'concatenated' | 'native';
 type ConcatFormat = 'plain' | 'yaml' | 'json';
 
 export interface CliStreamPanelProps {
@@ -34,6 +35,8 @@ export interface CliStreamPanelProps {
 interface TurnSectionProps {
   turn: ConversationTurn;
   isLatest: boolean;
+  isExpanded: boolean;
+  onToggle: () => void;
 }
 
 interface ConcatenatedViewProps {
@@ -148,9 +151,9 @@ function buildConcatenatedPrompt(execution: ConversationRecord, format: ConcatFo
 // ========== Sub-Components ==========
 
 /**
- * TurnSection - Single turn display with header and content
+ * TurnSection - Single turn display with collapsible content
  */
-function TurnSection({ turn, isLatest }: TurnSectionProps) {
+function TurnSection({ turn, isLatest, isExpanded, onToggle }: TurnSectionProps) {
   const { formatMessage } = useIntl();
   const StatusIcon = getStatusInfo(turn.status as string).icon;
   const statusColor = getStatusInfo(turn.status as string).color;
@@ -162,12 +165,21 @@ function TurnSection({ turn, isLatest }: TurnSectionProps) {
         isLatest && 'ring-2 ring-primary/50 shadow-md'
       )}
     >
-      {/* Turn Header */}
-      <div className="flex items-center justify-between px-4 py-3 bg-muted/50 border-b">
+      {/* Turn Header - Clickable for expand/collapse */}
+      <div
+        className="flex items-center justify-between px-4 py-3 bg-muted/50 border-b cursor-pointer hover:bg-muted/70 transition-colors"
+        onClick={onToggle}
+        role="button"
+        aria-expanded={isExpanded}
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onToggle(); }}
+      >
         <div className="flex items-center gap-2">
-          <span className="text-lg font-medium" aria-hidden="true">
-            {turn.turn === 1 ? '\u25B6' : '\u21B3'} {/* ▶ or ↳ */}
-          </span>
+          {isExpanded ? (
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          )}
           <span className="font-semibold text-sm">{formatMessage({ id: 'cli.details.turn' })} {turn.turn}</span>
           {isLatest && (
             <Badge variant="default" className="text-xs h-5 px-1.5">
@@ -190,66 +202,92 @@ function TurnSection({ turn, isLatest }: TurnSectionProps) {
         </div>
       </div>
 
-      {/* Turn Body */}
-      <div className="p-4 space-y-4">
-        {/* User Prompt */}
-        <div>
-          <h4 className="flex items-center gap-2 text-sm font-semibold mb-2 text-foreground">
-            <User className="h-4 w-4 text-primary" aria-hidden="true" />
-            {formatMessage({ id: 'cli-manager.streamPanel.userPrompt' })}
-          </h4>
-          <pre className="p-3 bg-muted/50 rounded-lg text-sm whitespace-pre-wrap overflow-x-auto font-mono leading-relaxed">
-            {turn.prompt}
-          </pre>
-        </div>
-
-        {/* Assistant Response */}
-        {turn.output.stdout && (
+      {/* Turn Body - Collapsible */}
+      {isExpanded && (
+        <div className="p-4 space-y-4">
+          {/* User Prompt */}
           <div>
             <h4 className="flex items-center gap-2 text-sm font-semibold mb-2 text-foreground">
-              <Bot className="h-4 w-4 text-blue-500" aria-hidden="true" />
-              {formatMessage({ id: 'cli-manager.streamPanel.assistantResponse' })}
+              <User className="h-4 w-4 text-primary" aria-hidden="true" />
+              {formatMessage({ id: 'cli-manager.streamPanel.userPrompt' })}
             </h4>
-            <pre className="p-3 bg-blue-500/5 dark:bg-blue-500/10 rounded-lg text-sm whitespace-pre-wrap overflow-x-auto font-mono leading-relaxed">
-              {turn.output.stdout}
+            <pre className="p-3 bg-muted/50 rounded-lg text-sm whitespace-pre-wrap overflow-x-auto font-mono leading-relaxed">
+              {turn.prompt}
             </pre>
           </div>
-        )}
 
-        {/* Errors */}
-        {turn.output.stderr && (
-          <div>
-            <h4 className="flex items-center gap-2 text-sm font-semibold mb-2 text-destructive">
-              <AlertTriangle className="h-4 w-4" aria-hidden="true" />
-              {formatMessage({ id: 'cli-manager.streamPanel.errors' })}
-            </h4>
-            <pre className="p-3 bg-destructive/10 rounded-lg text-sm whitespace-pre-wrap overflow-x-auto font-mono leading-relaxed text-destructive">
-              {turn.output.stderr}
-            </pre>
-          </div>
-        )}
+          {/* Assistant Response */}
+          {turn.output.stdout && (
+            <div>
+              <h4 className="flex items-center gap-2 text-sm font-semibold mb-2 text-foreground">
+                <Bot className="h-4 w-4 text-blue-500" aria-hidden="true" />
+                {formatMessage({ id: 'cli-manager.streamPanel.assistantResponse' })}
+              </h4>
+              <pre className="p-3 bg-blue-500/5 dark:bg-blue-500/10 rounded-lg text-sm whitespace-pre-wrap overflow-x-auto font-mono leading-relaxed">
+                {turn.output.stdout}
+              </pre>
+            </div>
+          )}
 
-        {/* Truncated Notice */}
-        {turn.output.truncated && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground p-3 bg-muted/50 rounded-lg border border-border/50">
-            <Info className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
-            <span>{formatMessage({ id: 'cli-manager.streamPanel.truncatedNotice' })}</span>
-          </div>
-        )}
-      </div>
+          {/* Errors */}
+          {turn.output.stderr && (
+            <div>
+              <h4 className="flex items-center gap-2 text-sm font-semibold mb-2 text-destructive">
+                <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+                {formatMessage({ id: 'cli-manager.streamPanel.errors' })}
+              </h4>
+              <pre className="p-3 bg-destructive/10 rounded-lg text-sm whitespace-pre-wrap overflow-x-auto font-mono leading-relaxed text-destructive">
+                {turn.output.stderr}
+              </pre>
+            </div>
+          )}
+
+          {/* Truncated Notice */}
+          {turn.output.truncated && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground p-3 bg-muted/50 rounded-lg border border-border/50">
+              <Info className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+              <span>{formatMessage({ id: 'cli-manager.streamPanel.truncatedNotice' })}</span>
+            </div>
+          )}
+        </div>
+      )}
     </Card>
   );
 }
 
 /**
- * PerTurnView - Display all turns as separate sections with connectors
+ * PerTurnView - Display all turns with collapsible sections
+ * Default behavior: only latest turn is expanded, others are collapsed
  */
 function PerTurnView({ turns }: { turns: ConversationTurn[] }) {
+  // Default: only the latest turn is expanded
+  const [expandedTurns, setExpandedTurns] = React.useState<Set<number>>(() => {
+    if (turns.length === 0) return new Set();
+    return new Set([turns[turns.length - 1].turn]);
+  });
+
+  const handleToggle = React.useCallback((turnNumber: number) => {
+    setExpandedTurns((prev) => {
+      const next = new Set(prev);
+      if (next.has(turnNumber)) {
+        next.delete(turnNumber);
+      } else {
+        next.add(turnNumber);
+      }
+      return next;
+    });
+  }, []);
+
   return (
     <div className="space-y-4">
       {turns.map((turn, idx) => (
         <React.Fragment key={turn.turn}>
-          <TurnSection turn={turn} isLatest={idx === turns.length - 1} />
+          <TurnSection
+            turn={turn}
+            isLatest={idx === turns.length - 1}
+            isExpanded={expandedTurns.has(turn.turn)}
+            onToggle={() => handleToggle(turn.turn)}
+          />
           {/* Connector line between turns */}
           {idx < turns.length - 1 && (
             <div className="flex justify-center" aria-hidden="true">
@@ -296,14 +334,239 @@ function ConcatenatedView({ prompt, format, onFormatChange }: ConcatenatedViewPr
   );
 }
 
+// ========== Native View Components ==========
+
+/**
+ * Format token count with compact notation
+ */
+function formatTokenCount(count: number | undefined): string {
+  if (count == null || count === 0) return '0';
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K`;
+  return count.toLocaleString();
+}
+
+/**
+ * NativeTokenDisplay - Compact token info line
+ */
+function NativeTokenDisplay({ tokens, className }: { tokens: NativeTokenInfo; className?: string }) {
+  return (
+    <div className={cn('flex items-center gap-3 text-xs text-muted-foreground', className)}>
+      <span className="flex items-center gap-1" title="Total tokens">
+        <Coins className="h-3 w-3" />
+        {formatTokenCount(tokens.total)}
+      </span>
+      {tokens.input != null && (
+        <span title="Input tokens">in: {formatTokenCount(tokens.input)}</span>
+      )}
+      {tokens.output != null && (
+        <span title="Output tokens">out: {formatTokenCount(tokens.output)}</span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * NativeToolCallItem - Single tool call display
+ */
+function NativeToolCallItem({ toolCall, index }: { toolCall: NativeToolCall; index: number }) {
+  return (
+    <details className="group/tool border border-border/50 rounded-md overflow-hidden">
+      <summary className="flex items-center gap-2 px-3 py-2 text-xs cursor-pointer hover:bg-muted/50 select-none">
+        <Wrench className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+        <span className="font-mono font-medium">{toolCall.name}</span>
+        <span className="text-muted-foreground">#{index + 1}</span>
+      </summary>
+      <div className="border-t border-border/50 divide-y divide-border/50">
+        {toolCall.arguments && (
+          <div className="p-3">
+            <p className="text-xs font-medium text-muted-foreground mb-1">Input</p>
+            <pre className="p-2 bg-muted/30 rounded text-xs whitespace-pre-wrap overflow-x-auto font-mono leading-relaxed max-h-40 overflow-y-auto">
+              {toolCall.arguments}
+            </pre>
+          </div>
+        )}
+        {toolCall.output && (
+          <div className="p-3">
+            <p className="text-xs font-medium text-muted-foreground mb-1">Output</p>
+            <pre className="p-2 bg-muted/30 rounded text-xs whitespace-pre-wrap overflow-x-auto font-mono leading-relaxed max-h-40 overflow-y-auto">
+              {toolCall.output}
+            </pre>
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
+interface NativeTurnCardProps {
+  turn: NativeSessionTurn;
+  isLatest: boolean;
+  isExpanded: boolean;
+  onToggle: () => void;
+}
+
+/**
+ * NativeTurnCard - Single native conversation turn with collapsible content
+ */
+function NativeTurnCard({ turn, isLatest, isExpanded, onToggle }: NativeTurnCardProps) {
+  const { formatMessage } = useIntl();
+  const isUser = turn.role === 'user';
+  const RoleIcon = isUser ? User : Bot;
+
+  return (
+    <Card
+      className={cn(
+        'overflow-hidden transition-all',
+        isUser ? 'bg-muted/30' : 'bg-blue-500/5 dark:bg-blue-500/10',
+        isLatest && 'ring-2 ring-primary/50 shadow-md'
+      )}
+    >
+      {/* Header - Clickable */}
+      <div
+        className="flex items-center justify-between px-4 py-3 border-b border-border/50 cursor-pointer hover:bg-muted/30 transition-colors"
+        onClick={onToggle}
+        role="button"
+        aria-expanded={isExpanded}
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onToggle(); }}
+      >
+        <div className="flex items-center gap-2">
+          {isExpanded ? (
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          )}
+          <RoleIcon className={cn('h-4 w-4', isUser ? 'text-primary' : 'text-blue-500')} />
+          <span className="font-semibold text-sm capitalize">{turn.role}</span>
+          <span className="text-xs text-muted-foreground">#{turn.turnNumber}</span>
+          {isLatest && (
+            <Badge variant="default" className="text-xs h-5 px-1.5">
+              {formatMessage({ id: 'cli-manager.streamPanel.latest' })}
+            </Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          {turn.timestamp && (
+            <span className="flex items-center gap-1">
+              <Clock className="h-3 w-3" />
+              {new Date(turn.timestamp).toLocaleTimeString()}
+            </span>
+          )}
+          {turn.tokens && <NativeTokenDisplay tokens={turn.tokens} />}
+        </div>
+      </div>
+
+      {/* Content - Collapsible */}
+      {isExpanded && (
+        <div className="p-4 space-y-3">
+          {turn.content && (
+            <pre className="p-3 bg-background/50 rounded-lg text-sm whitespace-pre-wrap overflow-x-auto font-mono leading-relaxed max-h-80 overflow-y-auto">
+              {turn.content}
+            </pre>
+          )}
+
+          {/* Thoughts Section */}
+          {turn.thoughts && turn.thoughts.length > 0 && (
+            <details className="group/thoughts" open>
+              <summary className="flex items-center gap-2 text-sm cursor-pointer hover:text-foreground text-muted-foreground select-none py-1">
+                <Brain className="h-4 w-4" />
+                <span className="font-medium">Thoughts</span>
+                <span className="text-xs">({turn.thoughts.length})</span>
+              </summary>
+              <ul className="mt-2 space-y-1 pl-6 text-sm text-muted-foreground list-disc">
+                {turn.thoughts.map((thought, i) => (
+                  <li key={i} className="leading-relaxed">{thought}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+
+          {/* Tool Calls Section */}
+          {turn.toolCalls && turn.toolCalls.length > 0 && (
+            <details className="group/calls">
+              <summary className="flex items-center gap-2 text-sm cursor-pointer hover:text-foreground text-muted-foreground select-none py-1">
+                <Wrench className="h-4 w-4" />
+                <span className="font-medium">Tool Calls</span>
+                <span className="text-xs">({turn.toolCalls.length})</span>
+              </summary>
+              <div className="mt-2 space-y-2">
+                {turn.toolCalls.map((tc, i) => (
+                  <NativeToolCallItem key={i} toolCall={tc} index={i} />
+                ))}
+              </div>
+            </details>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+interface NativeTurnViewProps {
+  turns: NativeSessionTurn[];
+}
+
+/**
+ * NativeTurnView - Display native session turns with collapsible cards
+ */
+function NativeTurnView({ turns }: NativeTurnViewProps) {
+  // Default: only the latest turn is expanded
+  const [expandedTurns, setExpandedTurns] = React.useState<Set<number>>(() => {
+    if (turns.length === 0) return new Set();
+    return new Set([turns[turns.length - 1].turnNumber]);
+  });
+
+  const handleToggle = React.useCallback((turnNumber: number) => {
+    setExpandedTurns((prev) => {
+      const next = new Set(prev);
+      if (next.has(turnNumber)) {
+        next.delete(turnNumber);
+      } else {
+        next.add(turnNumber);
+      }
+      return next;
+    });
+  }, []);
+
+  if (turns.length === 0) {
+    return (
+      <div className="flex items-center justify-center py-8 text-muted-foreground">
+        No native session data available
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {turns.map((turn, idx) => (
+        <React.Fragment key={turn.turnNumber}>
+          <NativeTurnCard
+            turn={turn}
+            isLatest={idx === turns.length - 1}
+            isExpanded={expandedTurns.has(turn.turnNumber)}
+            onToggle={() => handleToggle(turn.turnNumber)}
+          />
+          {idx < turns.length - 1 && (
+            <div className="flex justify-center" aria-hidden="true">
+              <div className="w-px h-4 bg-border" />
+            </div>
+          )}
+        </React.Fragment>
+      ))}
+    </div>
+  );
+}
+
 // ========== Main Component ==========
 
 /**
  * CliStreamPanel component - Elegant turn-based conversation view
  *
  * Displays CLI execution details with:
- * - Per-turn view with timeline layout
+ * - Per-turn view with collapsible timeline layout
  * - Concatenated view for resume context
+ * - Native view for detailed CLI session data
  * - Format selection (Plain/YAML/JSON)
  */
 export function CliStreamPanel({
@@ -317,6 +580,11 @@ export function CliStreamPanel({
   const [concatFormat, setConcatFormat] = React.useState<ConcatFormat>('plain');
 
   const { data: execution, isLoading } = useCliExecutionDetail(open ? executionId : null);
+
+  // Load native session only when native view is selected
+  const { data: nativeSession, isLoading: nativeLoading } = useNativeSession(
+    viewMode === 'native' && open ? executionId : null
+  );
 
   // Build concatenated prompt
   const concatenatedPrompt = React.useMemo(() => {
@@ -386,18 +654,18 @@ export function CliStreamPanel({
           </div>
         ) : execution?.turns && execution.turns.length > 0 ? (
           <>
-            {/* View Toggle - Only show for multi-turn conversations */}
-            {execution.turns.length > 1 && (
-              <div className="flex items-center gap-2 px-6 py-3 border-b shrink-0">
-                <Button
-                  size="sm"
-                  variant={viewMode === 'per-turn' ? 'default' : 'outline'}
-                  onClick={() => setViewMode('per-turn')}
-                  className="h-8"
-                >
-                  <Layers className="h-4 w-4 mr-2" />
-                  {formatMessage({ id: 'cli-manager.streamPanel.perTurnView' })}
-                </Button>
+            {/* View Toggle - Show for all conversations */}
+            <div className="flex items-center gap-2 px-6 py-3 border-b shrink-0">
+              <Button
+                size="sm"
+                variant={viewMode === 'per-turn' ? 'default' : 'outline'}
+                onClick={() => setViewMode('per-turn')}
+                className="h-8"
+              >
+                <Layers className="h-4 w-4 mr-2" />
+                {formatMessage({ id: 'cli-manager.streamPanel.perTurnView' })}
+              </Button>
+              {execution.turns.length > 1 && (
                 <Button
                   size="sm"
                   variant={viewMode === 'concatenated' ? 'default' : 'outline'}
@@ -407,20 +675,42 @@ export function CliStreamPanel({
                   <Copy className="h-4 w-4 mr-2" />
                   {formatMessage({ id: 'cli-manager.streamPanel.concatenatedView' })}
                 </Button>
-              </div>
-            )}
+              )}
+              <Button
+                size="sm"
+                variant={viewMode === 'native' ? 'default' : 'outline'}
+                onClick={() => setViewMode('native')}
+                className="h-8"
+              >
+                <FileJson className="h-4 w-4 mr-2" />
+                {formatMessage({ id: 'cli-manager.streamPanel.nativeView' })}
+              </Button>
+            </div>
 
             {/* Content */}
             <div className="flex-1 overflow-y-auto px-6 py-4">
               {viewMode === 'per-turn' ? (
                 <PerTurnView turns={execution.turns} />
-              ) : (
+              ) : viewMode === 'concatenated' ? (
                 <ConcatenatedView
                   prompt={concatenatedPrompt}
                   format={concatFormat}
                   onFormatChange={setConcatFormat}
                 />
-              )}
+              ) : viewMode === 'native' ? (
+                nativeLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                    <span className="text-muted-foreground">Loading native session...</span>
+                  </div>
+                ) : nativeSession ? (
+                  <NativeTurnView turns={nativeSession.turns} />
+                ) : (
+                  <div className="flex items-center justify-center py-8 text-muted-foreground">
+                    No native session data available
+                  </div>
+                )
+              ) : null}
             </div>
 
             {/* Footer Actions */}

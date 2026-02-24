@@ -51,12 +51,26 @@ ccw/*.md
 
 # Python development files
 __pycache__/
+**/__pycache__/
 *.pyc
 *.pyo
 .venv/
 .pytest_cache/
 *.egg-info/
 .coverage
+
+# Development indexes and caches
+.ace-tool/
+**/.ace-tool/
+
+# Source maps (optional - remove if you want to ship them)
+# *.map
+
+# Workflow runtime data (reinforce)
+**/.workflow/
+*.db
+*.db-shm
+*.db-wal
 
 # codex-lens development files
 codex-lens/.venv/

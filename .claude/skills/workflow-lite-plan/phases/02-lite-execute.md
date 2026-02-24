@@ -2,8 +2,6 @@
 
 Complete execution engine: multi-mode input, task grouping, batch execution, code review, and development index update.
 
-**Source**: Converted from `.claude/commands/workflow/lite-execute.md` - all execution detail preserved verbatim.
-
 ---
 
 ## Overview
@@ -20,22 +18,19 @@ Flexible task execution command supporting three input modes: in-memory plan (fr
 
 ## Usage
 
-### Command Syntax
-```bash
-/workflow:lite-execute [FLAGS] <INPUT>
-
-# Flags
---in-memory                Use plan from memory (called by lite-plan)
-
-# Arguments
+### Input
+```
 <input>                    Task description string, or path to file (required)
 ```
+
+Mode 1 (In-Memory) is triggered by lite-plan direct handoff when `executionContext` is available.
+Workflow preferences (`autoYes`) are passed from SKILL.md via `workflowPreferences` context variable.
 
 ## Input Modes
 
 ### Mode 1: In-Memory Plan
 
-**Trigger**: Called by lite-plan after Phase 4 approval with `--in-memory` flag
+**Trigger**: Called by lite-plan direct handoff after Phase 4 approval (executionContext available)
 
 **Input Source**: `executionContext` global variable set by lite-plan
 
@@ -61,14 +56,13 @@ Flexible task execution command supporting three input modes: in-memory plan (fr
 
 **User Interaction**:
 ```javascript
-// Parse --yes flag
-const autoYes = $ARGUMENTS.includes('--yes') || $ARGUMENTS.includes('-y')
+const autoYes = workflowPreferences.autoYes
 
 let userSelection
 
 if (autoYes) {
   // Auto mode: Use defaults
-  console.log(`[--yes] Auto-confirming execution:`)
+  console.log(`[Auto] Auto-confirming execution:`)
   console.log(`  - Execution method: Auto`)
   console.log(`  - Code review: Skip`)
 
@@ -180,7 +174,7 @@ function getTasks(planObject) {
 ```
 Input Parsing:
    └─ Decision (mode detection):
-      ├─ --in-memory flag → Mode 1: Load executionContext → Skip user selection
+      ├─ executionContext exists → Mode 1: Load executionContext → Skip user selection
       ├─ Ends with .md/.json/.txt → Mode 3: Read file → Detect format
       │   ├─ Valid plan.json → Use planObject → User selects method + review
       │   └─ Not plan.json → Treat as prompt → User selects method + review
@@ -190,11 +184,11 @@ Execution:
    ├─ Step 1: Initialize result tracking (previousExecutionResults = [])
    ├─ Step 2: Task grouping & batch creation
    │   ├─ Extract explicit depends_on (no file/keyword inference)
-   │   ├─ Group: independent tasks → single parallel batch (maximize utilization)
+   │   ├─ Group: independent tasks → per-executor parallel batches (one CLI per batch)
    │   ├─ Group: dependent tasks → sequential phases (respect dependencies)
    │   └─ Create TodoWrite list for batches
    ├─ Step 3: Launch execution
-   │   ├─ Phase 1: All independent tasks (⚡ single batch, concurrent)
+   │   ├─ Phase 1: Independent tasks (⚡ per-executor batches, multi-CLI concurrent)
    │   └─ Phase 2+: Dependent tasks by dependency order
    ├─ Step 4: Track progress (TodoWrite updates per batch)
    └─ Step 5: Code review (if codeReviewTool ≠ "Skip")
@@ -247,26 +241,58 @@ function extractDependencies(tasks) {
   })
 }
 
-// Group into batches: maximize parallel execution
+// Executor Resolution (used by task grouping below)
+// 获取任务的 executor（优先使用 executorAssignments，fallback 到全局 executionMethod）
+function getTaskExecutor(task) {
+  const assignments = executionContext?.executorAssignments || {}
+  if (assignments[task.id]) {
+    return assignments[task.id].executor  // 'gemini' | 'codex' | 'agent'
+  }
+  // Fallback: 全局 executionMethod 映射
+  const method = executionContext?.executionMethod || 'Auto'
+  if (method === 'Agent') return 'agent'
+  if (method === 'Codex') return 'codex'
+  // Auto: 根据复杂度
+  return planObject.complexity === 'Low' ? 'agent' : 'codex'
+}
+
+// 按 executor 分组任务（核心分组组件）
+function groupTasksByExecutor(tasks) {
+  const groups = { gemini: [], codex: [], agent: [] }
+  tasks.forEach(task => {
+    const executor = getTaskExecutor(task)
+    groups[executor].push(task)
+  })
+  return groups
+}
+
+// Group into batches: per-executor parallel batches (one CLI per batch)
 function createExecutionCalls(tasks, executionMethod) {
   const tasksWithDeps = extractDependencies(tasks)
   const processed = new Set()
   const calls = []
 
-  // Phase 1: All independent tasks → single parallel batch (maximize utilization)
+  // Phase 1: Independent tasks → per-executor batches (multi-CLI concurrent)
   const independentTasks = tasksWithDeps.filter(t => t.dependencies.length === 0)
   if (independentTasks.length > 0) {
-    independentTasks.forEach(t => processed.add(t.taskIndex))
-    calls.push({
-      method: executionMethod,
-      executionType: "parallel",
-      groupId: "P1",
-      taskSummary: independentTasks.map(t => t.title).join(' | '),
-      tasks: independentTasks
-    })
+    const executorGroups = groupTasksByExecutor(independentTasks)
+    let parallelIndex = 1
+
+    for (const [executor, tasks] of Object.entries(executorGroups)) {
+      if (tasks.length === 0) continue
+      tasks.forEach(t => processed.add(t.taskIndex))
+      calls.push({
+        method: executionMethod,
+        executor: executor,          // 明确指定 executor
+        executionType: "parallel",
+        groupId: `P${parallelIndex++}`,
+        taskSummary: tasks.map(t => t.title).join(' | '),
+        tasks: tasks
+      })
+    }
   }
 
-  // Phase 2: Dependent tasks → sequential batches (respect dependencies)
+  // Phase 2: Dependent tasks → sequential/parallel batches (respect dependencies)
   let sequentialIndex = 1
   let remaining = tasksWithDeps.filter(t => !processed.has(t.taskIndex))
 
@@ -281,15 +307,33 @@ function createExecutionCalls(tasks, executionMethod) {
       ready.push(...remaining)
     }
 
-    // Group ready tasks (can run in parallel within this phase)
-    ready.forEach(t => processed.add(t.taskIndex))
-    calls.push({
-      method: executionMethod,
-      executionType: ready.length > 1 ? "parallel" : "sequential",
-      groupId: ready.length > 1 ? `P${calls.length + 1}` : `S${sequentialIndex++}`,
-      taskSummary: ready.map(t => t.title).join(ready.length > 1 ? ' | ' : ' → '),
-      tasks: ready
-    })
+    if (ready.length > 1) {
+      // Multiple ready tasks → per-executor batches (parallel within this phase)
+      const executorGroups = groupTasksByExecutor(ready)
+      for (const [executor, tasks] of Object.entries(executorGroups)) {
+        if (tasks.length === 0) continue
+        tasks.forEach(t => processed.add(t.taskIndex))
+        calls.push({
+          method: executionMethod,
+          executor: executor,
+          executionType: "parallel",
+          groupId: `P${calls.length + 1}`,
+          taskSummary: tasks.map(t => t.title).join(' | '),
+          tasks: tasks
+        })
+      }
+    } else {
+      // Single ready task → sequential batch
+      ready.forEach(t => processed.add(t.taskIndex))
+      calls.push({
+        method: executionMethod,
+        executor: getTaskExecutor(ready[0]),
+        executionType: "sequential",
+        groupId: `S${sequentialIndex++}`,
+        taskSummary: ready[0].title,
+        tasks: ready
+      })
+    }
 
     remaining = remaining.filter(t => !processed.has(t.taskIndex))
   }
@@ -310,32 +354,39 @@ TodoWrite({
 
 ### Step 3: Launch Execution
 
-**Executor Resolution** (任务级 executor 优先于全局设置):
-```javascript
-// 获取任务的 executor（优先使用 executorAssignments，fallback 到全局 executionMethod）
-function getTaskExecutor(task) {
-  const assignments = executionContext?.executorAssignments || {}
-  if (assignments[task.id]) {
-    return assignments[task.id].executor  // 'gemini' | 'codex' | 'agent'
-  }
-  // Fallback: 全局 executionMethod 映射
-  const method = executionContext?.executionMethod || 'Auto'
-  if (method === 'Agent') return 'agent'
-  if (method === 'Codex') return 'codex'
-  // Auto: 根据复杂度
-  return planObject.complexity === 'Low' ? 'agent' : 'codex'
-}
+**Executor Resolution**: `getTaskExecutor()` and `groupTasksByExecutor()` defined in Step 2 (Task Grouping).
 
-// 按 executor 分组任务
-function groupTasksByExecutor(tasks) {
-  const groups = { gemini: [], codex: [], agent: [] }
-  tasks.forEach(task => {
-    const executor = getTaskExecutor(task)
-    groups[executor].push(task)
-  })
-  return groups
+**Batch Execution Routing** (根据 batch.executor 字段路由):
+```javascript
+// executeBatch 根据 batch 自身的 executor 字段决定调用哪个 CLI
+function executeBatch(batch) {
+  const executor = batch.executor || getTaskExecutor(batch.tasks[0])
+  const sessionId = executionContext?.session?.id || 'standalone'
+  const fixedId = `${sessionId}-${batch.groupId}`
+
+  if (executor === 'agent') {
+    // Agent execution (synchronous)
+    return Task({
+      subagent_type: "code-developer",
+      run_in_background: false,
+      description: batch.taskSummary,
+      prompt: buildExecutionPrompt(batch)
+    })
+  } else if (executor === 'codex') {
+    // Codex CLI (background)
+    return Bash(`ccw cli -p "${buildExecutionPrompt(batch)}" --tool codex --mode write --id ${fixedId}`, { run_in_background: true })
+  } else if (executor === 'gemini') {
+    // Gemini CLI (background)
+    return Bash(`ccw cli -p "${buildExecutionPrompt(batch)}" --tool gemini --mode write --id ${fixedId}`, { run_in_background: true })
+  }
 }
 ```
+
+**并行执行原则**:
+- 每个 batch 对应一个独立的 CLI 实例或 Agent 调用
+- 并行 = 多个 Bash(run_in_background=true) 或多个 Task() 同时发出
+- 绝不将多个独立任务合并到同一个 CLI prompt 中
+- Agent 任务不可后台执行（run_in_background=false），但多个 Agent 任务可通过单条消息中的多个 Task() 调用并发
 
 **Execution Flow**: Parallel batches concurrently → Sequential batches in order
 ```javascript
@@ -665,14 +716,14 @@ console.log(`✓ Development index: [${category}] ${entry.title}`)
 ## Best Practices
 
 **Input Modes**: In-memory (lite-plan), prompt (standalone), file (JSON/text)
-**Task Grouping**: Based on explicit depends_on only; independent tasks run in single parallel batch
-**Execution**: All independent tasks launch concurrently via single Claude message with multiple tool calls
+**Task Grouping**: Based on explicit depends_on only; independent tasks split by executor, each batch runs as separate CLI instance
+**Execution**: Independent task batches launch concurrently via single Claude message with multiple tool calls (one tool call per batch)
 
 ## Error Handling
 
 | Error | Cause | Resolution |
 |-------|-------|------------|
-| Missing executionContext | --in-memory without context | Error: "No execution context found. Only available when called by lite-plan." |
+| Missing executionContext | In-memory mode without context | Error: "No execution context found. Only available when called by lite-plan." |
 | File not found | File path doesn't exist | Error: "File not found: {path}. Check file path." |
 | Empty file | File exists but no content | Error: "File is empty: {path}. Provide task description." |
 | Invalid Enhanced Task JSON | JSON missing required fields | Warning: "Missing required fields. Treating as plain text." |

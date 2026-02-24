@@ -1,6 +1,6 @@
 {
-  "title": "编排器",
-  "description": "管理和执行工作流",
+  "title": "工作流模板编辑器",
+  "description": "创建和编辑工作流模板",
   "flow": {
     "title": "流程",
     "flows": "流程列表",
@@ -28,6 +28,15 @@
     "paused": "已暂停",
     "completed": "已完成",
     "failed": "失败"
+  },
+  "controlPanel": {
+    "progress": "{completed}/{total} 步",
+    "noPlan": "未找到编排计划",
+    "completedMessage": "编排已成功完成",
+    "failedMessage": "编排已停止",
+    "cancelled": "已取消",
+    "retry": "重试",
+    "skip": "跳过"
   },
   "node": {
     "title": "节点",
@@ -89,6 +98,9 @@
     "couldNotDuplicate": "无法复制流程",
     "flowExported": "流程已导出为 JSON 文件",
     "noFlowToExport": "请先创建或加载流程",
+    "saveBeforeExecute": "请先保存流程",
+    "flowSent": "流程已发送",
+    "sentToTerminal": "\"{name}\" 已发送到终端执行",
     "executionFailed": "执行失败",
     "couldNotExecute": "无法启动流程执行"
   },
@@ -143,8 +155,7 @@
     "export": "导出流程",
     "templates": "模板",
     "importTemplate": "导入模板",
-    "runWorkflow": "运行流程",
-    "monitor": "监控",
+    "sendToTerminal": "发送到终端执行",
     "savedFlows": "已保存的流程 ({count})",
     "loading": "加载中...",
     "noSavedFlows": "无已保存的流程",

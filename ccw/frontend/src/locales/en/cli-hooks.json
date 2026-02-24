@@ -7,7 +7,14 @@
     "UserPromptSubmit": "User Prompt Submit",
     "PreToolUse": "Pre Tool Use",
     "PostToolUse": "Post Tool Use",
-    "Stop": "Stop"
+    "Stop": "Stop",
+    "Notification": "Notification",
+    "SubagentStart": "Subagent Start",
+    "SubagentStop": "Subagent Stop",
+    "PreCompact": "Pre Compact",
+    "SessionEnd": "Session End",
+    "PostToolUseFailure": "Post Tool Use Failure",
+    "PermissionRequest": "Permission Request"
   },
   "form": {
     "name": "Hook Name",
@@ -77,6 +84,34 @@
       "session-state-watch": {
         "name": "Session State Watch",
         "description": "Watch for session metadata file changes (workflow-session.json)"
+      },
+      "stop-notify": {
+        "name": "Stop Notify",
+        "description": "Notify dashboard when Claude finishes responding"
+      },
+      "auto-format-on-write": {
+        "name": "Auto Format on Write",
+        "description": "Auto-format files after Claude writes or edits them"
+      },
+      "auto-lint-on-write": {
+        "name": "Auto Lint on Write",
+        "description": "Auto-lint files after Claude writes or edits them"
+      },
+      "block-sensitive-files": {
+        "name": "Block Sensitive Files",
+        "description": "Block modifications to sensitive files (.env, secrets, credentials)"
+      },
+      "git-auto-stage": {
+        "name": "Git Auto Stage",
+        "description": "Auto stage all modified files when Claude finishes responding"
+      },
+      "post-edit-index": {
+        "name": "Post Edit Index",
+        "description": "Notify indexing service when files are modified"
+      },
+      "session-end-summary": {
+        "name": "Session End Summary",
+        "description": "Send session summary to dashboard on session end"
       }
     },
     "actions": {

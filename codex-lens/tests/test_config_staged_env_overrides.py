@@ -115,3 +115,22 @@ def test_staged_env_overrides_invalid_ignored(temp_config_dir: Path) -> None:
     assert config.staged_stage2_mode == "precomputed"
     assert config.staged_clustering_strategy == "auto"
     assert config.staged_realtime_lsp_timeout_s == 30.0
+
+
+def test_cascade_strategy_hybrid_alias_env_override(temp_config_dir: Path) -> None:
+    config = Config(data_dir=temp_config_dir)
+
+    env_path = temp_config_dir / ".env"
+    env_path.write_text(
+        "\n".join(
+            [
+                "CASCADE_STRATEGY=hybrid",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config.load_settings()
+
+    assert config.cascade_strategy == "binary_rerank"

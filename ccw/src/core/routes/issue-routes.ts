@@ -7,13 +7,16 @@
  * ├── queues/                   # Queue history directory
  * │   ├── index.json            # Queue index (active + history)
  * │   └── {queue-id}.json       # Individual queue files
- * └── solutions/
- *     ├── {issue-id}.jsonl      # Solutions for issue (one per line)
- *     └── ...
+ * ├── solutions/
+ * │   ├── {issue-id}.jsonl      # Solutions for issue (one per line)
+ * │   └── ...
+ * └── attachments/
+ *     └── {issue-id}/           # Attachments for issue
+ *         └── {filename}        # Uploaded files
  *
- * API Endpoints (8 total):
+ * API Endpoints:
  * - GET    /api/issues              - List all issues
- * - POST   /api/issues              - Create new issue
+ * - POST   /api/issues              - Create new issue (with Zod validation)
  * - GET    /api/issues/:id          - Get issue detail
  * - PATCH  /api/issues/:id          - Update issue (includes binding logic)
  * - DELETE /api/issues/:id          - Delete issue
@@ -21,10 +24,21 @@
  * - PATCH  /api/issues/:id/tasks/:taskId - Update task
  * - GET    /api/queue               - Get execution queue
  * - POST   /api/queue/reorder       - Reorder queue items
+ * - POST   /api/issues/:id/attachments - Upload attachment (multipart/form-data)
+ * - GET    /api/issues/:id/attachments - List attachments
+ * - DELETE /api/issues/:id/attachments/:attachmentId - Delete attachment
+ * - GET    /api/issues/files/:issueId/:filename - Download file
  */
-import { readFileSync, existsSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
-import { join, resolve, normalize } from 'path';
+import { readFileSync, existsSync, writeFileSync, mkdirSync, unlinkSync, createReadStream, statSync } from 'fs';
+import { join, resolve, normalize, basename } from 'path';
+import { randomUUID } from 'crypto';
 import type { RouteContext } from './types.js';
+import {
+  processCreateIssueRequest,
+  generateIssueId,
+  type CreateIssueResult,
+} from '../services/issue-service.js';
+import type { Issue, Attachment } from '../types/issue.js';
 
 // ========== JSONL Helper Functions ==========
 
@@ -83,6 +97,117 @@ function generateQueueFileId(): string {
   const now = new Date();
   const ts = now.toISOString().replace(/[-:T]/g, '').slice(0, 14);
   return `QUE-${ts}`;
+}
+
+// ========== Attachment Helper Functions ==========
+
+const ALLOWED_MIME_TYPES = [
+  // Images
+  'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml',
+  // Documents
+  'application/pdf',
+  'text/plain', 'text/markdown', 'text/csv',
+  // Code files
+  'application/json', 'text/javascript', 'text/typescript', 'text/html', 'text/css',
+  'application/xml', 'text/xml',
+  // Archives
+  'application/zip', 'application/x-gzip',
+];
+
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
+function getAttachmentsDir(issuesDir: string, issueId: string): string {
+  return join(issuesDir, 'attachments', issueId);
+}
+
+function sanitizeFilename(filename: string): string {
+  // Remove path traversal attempts and invalid characters
+  const sanitized = basename(filename)
+    .replace(/[<>:"|?*\x00-\x1f]/g, '')
+    .replace(/\.\./g, '');
+  // Add timestamp prefix to prevent collisions
+  const ext = sanitized.includes('.') ? `.${sanitized.split('.').pop()}` : '';
+  const base = ext ? sanitized.slice(0, -(ext.length)) : sanitized;
+  return `${Date.now()}-${base}${ext}`;
+}
+
+function isValidMimeType(mimeType: string): boolean {
+  // Allow common code file types that might not have standard MIME types
+  const additionalTypes = [
+    'application/octet-stream', // Generic binary, often used for various file types
+  ];
+  return ALLOWED_MIME_TYPES.includes(mimeType) || additionalTypes.includes(mimeType);
+}
+
+function parseMultipartFormData(req: any): Promise<{ fields: Record<string, string>; files: Array<{ name: string; data: Buffer; filename: string; type: string }> }> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    req.on('end', () => {
+      try {
+        const boundary = req.headers['content-type']?.match(/boundary=(.+)/)?.[1];
+        if (!boundary) {
+          reject(new Error('No boundary in content-type'));
+          return;
+        }
+
+        const buffer = Buffer.concat(chunks);
+        const boundaryBuffer = Buffer.from(`--${boundary}`);
+        const fields: Record<string, string> = {};
+        const files: Array<{ name: string; data: Buffer; filename: string; type: string }> = [];
+
+        // Split by boundary
+        let start = 0;
+        while (start < buffer.length) {
+          const boundaryIndex = buffer.indexOf(boundaryBuffer, start);
+          if (boundaryIndex === -1) break;
+
+          const nextBoundary = buffer.indexOf(boundaryBuffer, boundaryIndex + boundaryBuffer.length);
+          if (nextBoundary === -1) break;
+
+          const part = buffer.slice(boundaryIndex + boundaryBuffer.length + 2, nextBoundary - 2); // +2 for \r\n, -2 for \r\n before boundary
+
+          // Parse headers
+          const headerEnd = part.indexOf('\r\n\r\n');
+          if (headerEnd === -1) {
+            start = nextBoundary;
+            continue;
+          }
+
+          const headers = part.slice(0, headerEnd).toString();
+          const content = part.slice(headerEnd + 4);
+
+          // Extract content-disposition
+          const nameMatch = headers.match(/name="([^"]+)"/);
+          const filenameMatch = headers.match(/filename="([^"]+)"/);
+          const contentTypeMatch = headers.match(/Content-Type:\s*([^\r\n]+)/i);
+
+          if (nameMatch) {
+            const name = nameMatch[1];
+            if (filenameMatch) {
+              // It's a file
+              files.push({
+                name,
+                data: content,
+                filename: filenameMatch[1],
+                type: contentTypeMatch?.[1] || 'application/octet-stream',
+              });
+            } else {
+              // It's a field
+              fields[name] = content.toString().replace(/\r\n$/, '');
+            }
+          }
+
+          start = nextBoundary;
+        }
+
+        resolve({ fields, files });
+      } catch (err) {
+        reject(err);
+      }
+    });
+    req.on('error', reject);
+  });
 }
 
 function readQueue(issuesDir: string) {
@@ -1140,30 +1265,31 @@ export async function handleIssueRoutes(ctx: RouteContext): Promise<boolean> {
     return true;
   }
 
-  // POST /api/issues - Create issue
+  // POST /api/issues - Create issue (with Zod validation)
   if (pathname === '/api/issues' && req.method === 'POST') {
     handlePostRequest(req, res, async (body: any) => {
-      if (!body.id || !body.title) return { error: 'id and title required' };
+      // Use new validation service
+      const result: CreateIssueResult = processCreateIssueRequest(body);
 
+      if (!result.success) {
+        return { error: result.error.error.message, status: result.status, details: result.error.error };
+      }
+
+      // TypeScript narrowing: result is now { success: true; issue: Issue; status: 201 }
+      const { issue } = result;
       const issues = readIssuesJsonl(issuesDir);
-      if (issues.find(i => i.id === body.id)) return { error: `Issue ${body.id} exists` };
 
-      const newIssue = {
-        id: body.id,
-        title: body.title,
-        status: body.status || 'registered',
-        priority: body.priority || 3,
-        context: body.context || '',
-        source: body.source || 'text',
-        source_url: body.source_url || null,
-        tags: body.tags || [],
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
+      // Check for duplicate ID (auto-generated IDs should be unique)
+      if (issues.find((i: any) => i.id === issue.id)) {
+        return { error: `Issue ${issue.id} already exists`, status: 409 };
+      }
 
-      issues.push(newIssue);
+      // Store issue
+      issues.push(issue);
       writeIssuesJsonl(issuesDir, issues);
-      return { success: true, issue: newIssue };
+
+      // Return 201 Created response
+      return { success: true, data: { issue }, status: 201 };
     });
     return true;
   }
@@ -1623,6 +1749,234 @@ export async function handleIssueRoutes(ctx: RouteContext): Promise<boolean> {
       writeIssuesJsonl(issuesDir, issues);
       return { success: true, issueId, updated: updates };
     });
+    return true;
+  }
+
+  // ===== Attachment Routes =====
+
+  // POST /api/issues/:id/attachments - Upload attachment
+  const uploadAttachmentMatch = pathname.match(/^\/api\/issues\/([^/]+)\/attachments$/);
+  if (uploadAttachmentMatch && req.method === 'POST') {
+    const issueId = decodeURIComponent(uploadAttachmentMatch[1]);
+
+    // Check if issue exists
+    const issues = readIssuesJsonl(issuesDir);
+    const issueIndex = issues.findIndex(i => i.id === issueId);
+    if (issueIndex === -1) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Issue not found' }));
+      return true;
+    }
+
+    // Parse multipart form data
+    try {
+      const contentType = req.headers['content-type'] || '';
+      if (!contentType.includes('multipart/form-data')) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Content-Type must be multipart/form-data' }));
+        return true;
+      }
+
+      const { files } = await parseMultipartFormData(req);
+
+      if (files.length === 0) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'No files uploaded' }));
+        return true;
+      }
+
+      const uploadedAttachments: Attachment[] = [];
+      const attachmentsDir = getAttachmentsDir(issuesDir, issueId);
+      if (!existsSync(attachmentsDir)) {
+        mkdirSync(attachmentsDir, { recursive: true });
+      }
+
+      for (const file of files) {
+        // Validate file size
+        if (file.data.length > MAX_FILE_SIZE) {
+          continue; // Skip files that are too large
+        }
+
+        // Validate MIME type (allow common types)
+        if (!isValidMimeType(file.type)) {
+          continue; // Skip invalid file types
+        }
+
+        // Generate safe filename
+        const safeFilename = sanitizeFilename(file.filename);
+        const filePath = join(attachmentsDir, safeFilename);
+
+        // Save file
+        writeFileSync(filePath, file.data);
+
+        // Create attachment record
+        const attachment: Attachment = {
+          id: randomUUID(),
+          filename: file.filename,
+          path: `attachments/${issueId}/${safeFilename}`,
+          type: file.type,
+          size: file.data.length,
+          uploaded_at: new Date().toISOString(),
+        };
+
+        uploadedAttachments.push(attachment);
+      }
+
+      if (uploadedAttachments.length === 0) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'No valid files uploaded. Check file size (max 10MB) and type.' }));
+        return true;
+      }
+
+      // Update issue with attachments
+      if (!issues[issueIndex].attachments) {
+        issues[issueIndex].attachments = [];
+      }
+      issues[issueIndex].attachments!.push(...uploadedAttachments);
+      issues[issueIndex].updated_at = new Date().toISOString();
+      writeIssuesJsonl(issuesDir, issues);
+
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: true,
+        issueId,
+        attachments: uploadedAttachments,
+        count: uploadedAttachments.length,
+      }));
+    } catch (err: any) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message || 'Failed to upload attachments' }));
+    }
+    return true;
+  }
+
+  // GET /api/issues/:id/attachments - List attachments
+  const listAttachmentsMatch = pathname.match(/^\/api\/issues\/([^/]+)\/attachments$/);
+  if (listAttachmentsMatch && req.method === 'GET') {
+    const issueId = decodeURIComponent(listAttachmentsMatch[1]);
+
+    const issues = readIssuesJsonl(issuesDir);
+    const issue = issues.find(i => i.id === issueId);
+
+    if (!issue) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Issue not found' }));
+      return true;
+    }
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      success: true,
+      issueId,
+      attachments: issue.attachments || [],
+      count: (issue.attachments || []).length,
+    }));
+    return true;
+  }
+
+  // DELETE /api/issues/:id/attachments/:attachmentId - Delete attachment
+  const deleteAttachmentMatch = pathname.match(/^\/api\/issues\/([^/]+)\/attachments\/([^/]+)$/);
+  if (deleteAttachmentMatch && req.method === 'DELETE') {
+    const issueId = decodeURIComponent(deleteAttachmentMatch[1]);
+    const attachmentId = decodeURIComponent(deleteAttachmentMatch[2]);
+
+    const issues = readIssuesJsonl(issuesDir);
+    const issueIndex = issues.findIndex(i => i.id === issueId);
+
+    if (issueIndex === -1) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Issue not found' }));
+      return true;
+    }
+
+    const issue = issues[issueIndex];
+    if (!issue.attachments || issue.attachments.length === 0) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'No attachments found' }));
+      return true;
+    }
+
+    const attachmentIndex = issue.attachments.findIndex((a: Attachment) => a.id === attachmentId);
+    if (attachmentIndex === -1) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Attachment not found' }));
+      return true;
+    }
+
+    const attachment = issue.attachments[attachmentIndex];
+
+    // Delete file from disk
+    const filePath = join(issuesDir, attachment.path);
+    if (existsSync(filePath)) {
+      try {
+        unlinkSync(filePath);
+      } catch {
+        // Ignore file deletion errors
+      }
+    }
+
+    // Remove from issue
+    issue.attachments.splice(attachmentIndex, 1);
+    issue.updated_at = new Date().toISOString();
+    writeIssuesJsonl(issuesDir, issues);
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      success: true,
+      issueId,
+      deletedAttachmentId: attachmentId,
+    }));
+    return true;
+  }
+
+  // GET /api/issues/files/:issueId/:filename - Get/download file
+  const fileMatch = pathname.match(/^\/api\/issues\/files\/([^/]+)\/(.+)$/);
+  if (fileMatch && req.method === 'GET') {
+    const issueId = decodeURIComponent(fileMatch[1]);
+    const filename = decodeURIComponent(fileMatch[2]);
+
+    // Verify the file belongs to this issue
+    const issues = readIssuesJsonl(issuesDir);
+    const issue = issues.find(i => i.id === issueId);
+
+    if (!issue) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Issue not found' }));
+      return true;
+    }
+
+    // Find attachment by filename (check both original and sanitized name)
+    const attachment = (issue.attachments || []).find((a: Attachment) =>
+      a.path.endsWith(filename) ||
+      a.filename === filename
+    );
+
+    if (!attachment) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'File not found' }));
+      return true;
+    }
+
+    const filePath = join(issuesDir, attachment.path);
+    if (!existsSync(filePath)) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'File not found on disk' }));
+      return true;
+    }
+
+    try {
+      const stat = statSync(filePath);
+      res.writeHead(200, {
+        'Content-Type': attachment.type,
+        'Content-Length': stat.size,
+        'Content-Disposition': `attachment; filename="${encodeURIComponent(attachment.filename)}"`,
+      });
+      const fileStream = createReadStream(filePath);
+      fileStream.pipe(res);
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Failed to read file' }));
+    }
     return true;
   }
 

@@ -5,6 +5,7 @@
 
 import { CoreMemoryStore, SessionCluster, ClusterMember, SessionMetadataCache } from './core-memory-store.js';
 import { CliHistoryStore } from '../tools/cli-history-store.js';
+import { UnifiedVectorIndex, isUnifiedEmbedderAvailable } from './unified-vector-index.js';
 import { StoragePaths } from '../config/storage-paths.js';
 import { readdirSync, readFileSync, statSync, existsSync } from 'fs';
 import { join } from 'path';
@@ -21,6 +22,10 @@ const WEIGHTS = {
 // Clustering threshold (0.4 = moderate similarity required)
 const CLUSTER_THRESHOLD = 0.4;
 
+// Incremental clustering frequency control
+const MIN_CLUSTER_INTERVAL_HOURS = 6;
+const MIN_NEW_SESSIONS_FOR_CLUSTER = 5;
+
 export interface ClusteringOptions {
   scope?: 'all' | 'recent' | 'unclustered';
   timeRange?: { start: string; end: string };
@@ -33,15 +38,29 @@ export interface ClusteringResult {
   sessionsClustered: number;
 }
 
+export interface IncrementalClusterResult {
+  sessionId: string;
+  clusterId: string | null;
+  action: 'joined_existing' | 'created_new' | 'skipped';
+}
+
 export class SessionClusteringService {
   private coreMemoryStore: CoreMemoryStore;
   private cliHistoryStore: CliHistoryStore;
   private projectPath: string;
+  private vectorIndex: UnifiedVectorIndex | null = null;
+  /** Cache: sessionId -> list of nearby session source_ids from HNSW search */
+  private vectorNeighborCache: Map<string, Map<string, number>> = new Map();
 
   constructor(projectPath: string) {
     this.projectPath = projectPath;
     this.coreMemoryStore = new CoreMemoryStore(projectPath);
     this.cliHistoryStore = new CliHistoryStore(projectPath);
+
+    // Initialize vector index if available
+    if (isUnifiedEmbedderAvailable()) {
+      this.vectorIndex = new UnifiedVectorIndex(projectPath);
+    }
   }
 
   /**
@@ -331,19 +350,90 @@ export class SessionClusteringService {
   }
 
   /**
-   * Calculate vector similarity using pre-computed embeddings from memory_chunks
-   * Returns average cosine similarity of chunk embeddings
+   * Calculate vector similarity using HNSW index when available.
+   * Falls back to direct cosine similarity on pre-computed embeddings from memory_chunks.
+   *
+   * HNSW path: Uses cached neighbor lookup from vectorNeighborCache (populated by
+   * preloadVectorNeighbors). This replaces the O(N) full-table scan with O(1) cache lookup.
+   *
+   * Fallback path: Averages chunk embeddings from SQLite and computes cosine similarity directly.
    */
   private calculateVectorSimilarity(s1: SessionMetadataCache, s2: SessionMetadataCache): number {
+    // HNSW path: check if we have pre-loaded neighbor scores
+    const neighbors1 = this.vectorNeighborCache.get(s1.session_id);
+    if (neighbors1) {
+      const score = neighbors1.get(s2.session_id);
+      if (score !== undefined) return score;
+      // s2 is not a neighbor of s1 via HNSW - low similarity
+      return 0;
+    }
+
+    // Also check reverse direction
+    const neighbors2 = this.vectorNeighborCache.get(s2.session_id);
+    if (neighbors2) {
+      const score = neighbors2.get(s1.session_id);
+      if (score !== undefined) return score;
+      return 0;
+    }
+
+    // Fallback: direct cosine similarity on chunk embeddings
     const embedding1 = this.getSessionEmbedding(s1.session_id);
     const embedding2 = this.getSessionEmbedding(s2.session_id);
 
-    // Graceful fallback if no embeddings available
     if (!embedding1 || !embedding2) {
       return 0;
     }
 
     return this.cosineSimilarity(embedding1, embedding2);
+  }
+
+  /**
+   * Preload vector neighbors for a set of sessions using HNSW search.
+   * For each session, gets its average embedding and searches for nearby chunks,
+   * then aggregates scores by source_id to get session-level similarity scores.
+   *
+   * This replaces the O(N^2) full-table scan with O(N * topK) HNSW lookups.
+   */
+  async preloadVectorNeighbors(sessionIds: string[], topK: number = 20): Promise<void> {
+    if (!this.vectorIndex) return;
+
+    this.vectorNeighborCache.clear();
+
+    for (const sessionId of sessionIds) {
+      const avgEmbedding = this.getSessionEmbedding(sessionId);
+      if (!avgEmbedding) continue;
+
+      try {
+        const result = await this.vectorIndex.searchByVector(avgEmbedding, {
+          topK,
+          minScore: 0.1,
+        });
+
+        if (!result.success || !result.matches.length) continue;
+
+        // Aggregate scores by source_id (session-level similarity)
+        const neighborScores = new Map<string, number[]>();
+        for (const match of result.matches) {
+          const sourceId = match.source_id;
+          if (sourceId === sessionId) continue; // skip self
+          if (!neighborScores.has(sourceId)) {
+            neighborScores.set(sourceId, []);
+          }
+          neighborScores.get(sourceId)!.push(match.score);
+        }
+
+        // Average scores per neighbor session
+        const avgScores = new Map<string, number>();
+        for (const [neighborId, scores] of neighborScores) {
+          const avg = scores.reduce((sum, s) => sum + s, 0) / scores.length;
+          avgScores.set(neighborId, avg);
+        }
+
+        this.vectorNeighborCache.set(sessionId, avgScores);
+      } catch {
+        // HNSW search failed for this session, skip
+      }
+    }
   }
 
   /**
@@ -494,11 +584,16 @@ export class SessionClusteringService {
       this.coreMemoryStore.upsertSessionMetadata(session);
     }
 
-    // 4. Calculate relevance matrix
-    const n = sessions.length;
-    const relevanceMatrix: number[][] = Array(n).fill(0).map(() => Array(n).fill(0));
+    // 4. Preload HNSW vector neighbors for efficient similarity calculation
+    if (this.vectorIndex) {
+      const sessionIds = sessions.map(s => s.session_id);
+      await this.preloadVectorNeighbors(sessionIds);
+      console.log(`[Clustering] Preloaded HNSW vector neighbors for ${sessionIds.length} sessions`);
+    }
 
-    let maxScore = 0;
+    // 5. Calculate relevance matrix
+    const n = sessions.length;
+    const relevanceMatrix: number[][] = Array(n).fill(0).map(() => Array(n).fill(0));    let maxScore = 0;
     let avgScore = 0;
     let pairCount = 0;
 
@@ -519,7 +614,7 @@ export class SessionClusteringService {
       console.log(`[Clustering] Relevance stats: max=${maxScore.toFixed(3)}, avg=${avgScore.toFixed(3)}, pairs=${pairCount}, threshold=${CLUSTER_THRESHOLD}`);
     }
 
-    // 5. Agglomerative clustering
+    // 6. Agglomerative clustering
     const minClusterSize = options?.minClusterSize || 2;
 
     // Early return if not enough sessions
@@ -531,7 +626,7 @@ export class SessionClusteringService {
     const newPotentialClusters = this.agglomerativeClustering(sessions, relevanceMatrix, CLUSTER_THRESHOLD);
     console.log(`[Clustering] Generated ${newPotentialClusters.length} potential clusters`);
 
-    // 6. Process clusters: create new or merge with existing
+    // 7. Process clusters: create new or merge with existing
     let clustersCreated = 0;
     let clustersMerged = 0;
     let sessionsClustered = 0;
@@ -714,6 +809,145 @@ export class SessionClusteringService {
     console.log(`[Dedup] Complete: ${merged} merged, ${deleted} deleted, ${remaining} remaining`);
 
     return { merged, deleted, remaining };
+  }
+
+  /**
+   * Check whether clustering should run based on frequency control.
+   * Conditions: last clustering > MIN_CLUSTER_INTERVAL_HOURS ago AND
+   * new unclustered sessions >= MIN_NEW_SESSIONS_FOR_CLUSTER.
+   *
+   * Stores last_cluster_time in session_clusters metadata.
+   */
+  async shouldRunClustering(): Promise<boolean> {
+    // Check last cluster time from cluster metadata
+    const clusters = this.coreMemoryStore.listClusters('active');
+    let lastClusterTime = 0;
+
+    for (const cluster of clusters) {
+      const createdMs = new Date(cluster.created_at).getTime();
+      if (createdMs > lastClusterTime) {
+        lastClusterTime = createdMs;
+      }
+      const updatedMs = new Date(cluster.updated_at).getTime();
+      if (updatedMs > lastClusterTime) {
+        lastClusterTime = updatedMs;
+      }
+    }
+
+    // Check time interval
+    const now = Date.now();
+    const hoursSinceLastCluster = (now - lastClusterTime) / (1000 * 60 * 60);
+    if (lastClusterTime > 0 && hoursSinceLastCluster < MIN_CLUSTER_INTERVAL_HOURS) {
+      return false;
+    }
+
+    // Check number of unclustered sessions
+    const allSessions = await this.collectSessions({ scope: 'recent' });
+    const unclusteredCount = allSessions.filter(s => {
+      const sessionClusters = this.coreMemoryStore.getSessionClusters(s.session_id);
+      return sessionClusters.length === 0;
+    }).length;
+
+    return unclusteredCount >= MIN_NEW_SESSIONS_FOR_CLUSTER;
+  }
+
+  /**
+   * Incremental clustering: process only a single new session.
+   *
+   * Computes the new session's similarity against existing cluster centroids
+   * using HNSW search. If similarity >= CLUSTER_THRESHOLD, joins the best
+   * matching cluster. Otherwise, remains unclustered until enough sessions
+   * accumulate for a new cluster.
+   *
+   * @param sessionId - The session to incrementally cluster
+   * @returns Result indicating what action was taken
+   */
+  async incrementalCluster(sessionId: string): Promise<IncrementalClusterResult> {
+    // Get or create session metadata
+    let sessionMeta = this.coreMemoryStore.getSessionMetadata(sessionId);
+    if (!sessionMeta) {
+      // Try to build metadata from available sources
+      const allSessions = await this.collectSessions({ scope: 'all' });
+      sessionMeta = allSessions.find(s => s.session_id === sessionId) || null;
+
+      if (!sessionMeta) {
+        return { sessionId, clusterId: null, action: 'skipped' };
+      }
+      this.coreMemoryStore.upsertSessionMetadata(sessionMeta);
+    }
+
+    // Check if already clustered
+    const existingClusters = this.coreMemoryStore.getSessionClusters(sessionId);
+    if (existingClusters.length > 0) {
+      return { sessionId, clusterId: existingClusters[0].id, action: 'skipped' };
+    }
+
+    // Get all active clusters and their representative sessions
+    const activeClusters = this.coreMemoryStore.listClusters('active');
+
+    if (activeClusters.length === 0) {
+      return { sessionId, clusterId: null, action: 'skipped' };
+    }
+
+    // Use HNSW to find nearest neighbors for the new session
+    if (this.vectorIndex) {
+      await this.preloadVectorNeighbors([sessionId]);
+    }
+
+    // Calculate similarity against each cluster's member sessions
+    let bestCluster: SessionCluster | null = null;
+    let bestScore = 0;
+
+    for (const cluster of activeClusters) {
+      const members = this.coreMemoryStore.getClusterMembers(cluster.id);
+      if (members.length === 0) continue;
+
+      // Calculate average relevance against cluster members (sample up to 5)
+      const sampleMembers = members.slice(0, 5);
+      let totalScore = 0;
+      let validCount = 0;
+
+      for (const member of sampleMembers) {
+        const memberMeta = this.coreMemoryStore.getSessionMetadata(member.session_id);
+        if (!memberMeta) continue;
+
+        const score = this.calculateRelevance(sessionMeta, memberMeta);
+        totalScore += score;
+        validCount++;
+      }
+
+      if (validCount === 0) continue;
+
+      const avgScore = totalScore / validCount;
+      if (avgScore > bestScore) {
+        bestScore = avgScore;
+        bestCluster = cluster;
+      }
+    }
+
+    // Join best cluster if above threshold
+    if (bestCluster && bestScore >= CLUSTER_THRESHOLD) {
+      const existingMembers = this.coreMemoryStore.getClusterMembers(bestCluster.id);
+
+      this.coreMemoryStore.addClusterMember({
+        cluster_id: bestCluster.id,
+        session_id: sessionId,
+        session_type: sessionMeta.session_type as 'core_memory' | 'workflow' | 'cli_history' | 'native',
+        sequence_order: existingMembers.length + 1,
+        relevance_score: bestScore,
+      });
+
+      // Update cluster description
+      this.coreMemoryStore.updateCluster(bestCluster.id, {
+        description: `Auto-generated cluster with ${existingMembers.length + 1} sessions`
+      });
+
+      console.log(`[Clustering] Session ${sessionId} joined cluster '${bestCluster.name}' (score: ${bestScore.toFixed(3)})`);
+      return { sessionId, clusterId: bestCluster.id, action: 'joined_existing' };
+    }
+
+    // Not similar enough to any existing cluster
+    return { sessionId, clusterId: null, action: 'skipped' };
   }
 
   /**

@@ -22,19 +22,31 @@
   "tabs": {
     "memories": "Memories",
     "favorites": "Favorites",
-    "archived": "Archived"
+    "archived": "Archived",
+    "unifiedSearch": "Unified Search"
   },
   "stats": {
     "totalSize": "Total Size",
     "count": "Count",
     "claudeMdCount": "CLAUDE.md Files",
-    "totalEntries": "Total Entries"
+    "totalEntries": "Total Entries",
+    "vectorChunks": "Vector Chunks",
+    "hnswStatus": "HNSW Index",
+    "entities": "Entities",
+    "prompts": "Prompts"
   },
   "filters": {
     "search": "Search memories...",
+    "searchUnified": "Semantic search across all memory types...",
     "tags": "Tags",
     "clear": "Clear",
-    "all": "All"
+    "all": "All",
+    "categoryAll": "All Categories",
+    "categoryCoreMemory": "Core Memory",
+    "categoryCliHistory": "CLI History",
+    "categoryWorkflow": "Workflow",
+    "categoryEntity": "Entity",
+    "categoryPattern": "Pattern"
   },
   "card": {
     "id": "ID",
@@ -82,5 +94,20 @@
     "coreMemory": "Core Memory",
     "workflow": "Workflow",
     "cliHistory": "CLI History"
+  },
+  "unified": {
+    "score": "Score",
+    "noResults": "No results found. Try a different search query.",
+    "searching": "Searching...",
+    "resultCount": "{count} results",
+    "recommendations": "Related",
+    "noRecommendations": "No recommendations available",
+    "reindex": "Rebuild Index",
+    "reindexing": "Rebuilding...",
+    "reindexSuccess": "Index rebuilt successfully",
+    "reindexError": "Failed to rebuild index",
+    "vectorRank": "Vector #{rank}",
+    "ftsRank": "FTS #{rank}",
+    "heatScore": "Heat: {score}"
   }
 }

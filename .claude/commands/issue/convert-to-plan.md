@@ -55,7 +55,7 @@ Converts various planning artifact formats into issue workflow solutions with in
 | Get issue | `ccw issue status <id> --json` | Read issues.jsonl directly |
 | Create issue | `ccw issue init <id> --title "..."` | Write to issues.jsonl |
 | Bind solution | `ccw issue bind <id> <sol-id>` | Edit issues.jsonl |
-| List solutions | `ccw issue solutions --issue <id> --brief` | Read solutions/*.jsonl |
+| List solutions | `ccw issue solution <id> --brief` | Read solutions/*.jsonl |
 
 ## Solution Schema Reference
 

@@ -1,6 +1,26 @@
 /**
  * Hooks Routes Module
  * Handles all hooks-related API endpoints
+ *
+ * ## API Endpoints
+ *
+ * ### Active Endpoints
+ * - POST /api/hook - Main hook endpoint for Claude Code notifications
+ *   - Handles: session-start, context, CLI events, A2UI surfaces
+ * - POST /api/hook/ccw-exec - Execute CCW CLI commands and parse output
+ * - GET /api/hooks - Get hooks configuration from global and project settings
+ * - POST /api/hooks - Save a hook to settings
+ * - DELETE /api/hooks - Delete a hook from settings
+ *
+ * ### Deprecated Endpoints (will be removed in v2.0.0)
+ * - POST /api/hook/session-context - Use `ccw hook session-context --stdin` instead
+ * - POST /api/hook/ccw-status - Use /api/hook/ccw-exec with command=parse-status
+ *
+ * ## Service Layer
+ * All endpoints use unified services:
+ * - HookContextService: Context generation for session-start and per-prompt hooks
+ * - SessionStateService: Session state tracking and persistence
+ * - SessionEndService: Background task management for session-end events
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
@@ -8,6 +28,7 @@ import { homedir } from 'os';
 import { spawn } from 'child_process';
 
 import type { RouteContext } from './types.js';
+import { a2uiWebSocketHandler } from '../a2ui/A2UIWebSocketHandler.js';
 
 interface HooksRouteContext extends RouteContext {
   extractSessionIdFromPath: (filePath: string) => string | null;
@@ -234,26 +255,27 @@ export async function handleHooksRoutes(ctx: HooksRouteContext): Promise<boolean
       if (type === 'session-start' || type === 'context') {
         try {
           const projectPath = url.searchParams.get('path') || initialPath;
-          const { SessionClusteringService } = await import('../session-clustering-service.js');
-          const clusteringService = new SessionClusteringService(projectPath);
+
+          // Use HookContextService for unified context generation
+          const { HookContextService } = await import('../services/hook-context-service.js');
+          const contextService = new HookContextService({ projectPath });
 
           const format = url.searchParams.get('format') || 'markdown';
+          const prompt = typeof extraData.prompt === 'string' ? extraData.prompt : undefined;
 
-          // Pass type and prompt to getProgressiveIndex
-          // session-start: returns recent sessions by time
-          // context: returns intent-matched sessions based on prompt
-          const index = await clusteringService.getProgressiveIndex({
-            type: type as 'session-start' | 'context',
-            sessionId: resolvedSessionId,
-            prompt: typeof extraData.prompt === 'string' ? extraData.prompt : undefined // Pass user prompt for intent matching
+          // Build context using the service
+          const result = await contextService.buildPromptContext({
+            sessionId: resolvedSessionId || '',
+            prompt,
+            projectId: projectPath
           });
 
           // Return context directly
           return {
             success: true,
-            type: 'context',
+            type: result.type,
             format,
-            content: index,
+            content: result.content,
             sessionId: resolvedSessionId
           };
         } catch (error) {
@@ -313,6 +335,20 @@ export async function handleHooksRoutes(ctx: HooksRouteContext): Promise<boolean
         }
       };
 
+      // When an A2UI surface is forwarded from the MCP process, initialize
+      // selection tracking on the Dashboard so that submit actions resolve
+      // to the correct value type (single-select string vs multi-select array).
+      if (type === 'a2ui-surface' && extraData?.initialState) {
+        const initState = extraData.initialState as Record<string, unknown>;
+        const questionId = initState.questionId as string | undefined;
+        const questionType = initState.questionType as string | undefined;
+        if (questionId && questionType === 'select') {
+          a2uiWebSocketHandler.initSingleSelect(questionId);
+        } else if (questionId && questionType === 'multi-select') {
+          a2uiWebSocketHandler.initMultiSelect(questionId);
+        }
+      }
+
       broadcastToClients(notification);
 
       return { success: true, notification };
@@ -321,84 +357,56 @@ export async function handleHooksRoutes(ctx: HooksRouteContext): Promise<boolean
   }
 
   // API: Unified Session Context endpoint (Progressive Disclosure)
-  // DEPRECATED: Use CLI command `ccw hook session-context --stdin` instead.
-  // This endpoint now uses file-based state (shared with CLI) for consistency.
+  // @DEPRECATED - This endpoint is deprecated and will be removed in a future version.
+  // Migration: Use CLI command `ccw hook session-context --stdin` instead.
+  // This endpoint now uses HookContextService for consistency with CLI.
   // - First prompt: returns cluster-based session overview
   // - Subsequent prompts: returns intent-matched sessions based on prompt
   if (pathname === '/api/hook/session-context' && req.method === 'POST') {
+    // Add deprecation warning header
+    res.setHeader('X-Deprecated', 'true');
+    res.setHeader('X-Deprecation-Message', 'Use CLI command "ccw hook session-context --stdin" instead. This endpoint will be removed in v2.0.0');
+    res.setHeader('X-Migration-Guide', 'https://github.com/ccw-project/ccw/blob/main/docs/migration-hooks.md#session-context');
+
     handlePostRequest(req, res, async (body) => {
+      // Log deprecation warning
+      console.warn('[DEPRECATED] /api/hook/session-context is deprecated. Use "ccw hook session-context --stdin" instead.');
+
       const { sessionId, prompt } = body as { sessionId?: string; prompt?: string };
 
       if (!sessionId) {
         return {
           success: true,
           content: '',
-          error: 'sessionId is required'
+          error: 'sessionId is required',
+          _deprecated: true,
+          _migration: 'Use "ccw hook session-context --stdin"'
         };
       }
 
       try {
         const projectPath = url.searchParams.get('path') || initialPath;
-        const { SessionClusteringService } = await import('../session-clustering-service.js');
-        const clusteringService = new SessionClusteringService(projectPath);
 
-        // Use file-based session state (shared with CLI hook.ts)
-        const sessionStateDir = join(homedir(), '.claude', '.ccw-sessions');
-        const sessionStateFile = join(sessionStateDir, `session-${sessionId}.json`);
-        
-        let existingState: { firstLoad: string; loadCount: number; lastPrompt?: string } | null = null;
-        if (existsSync(sessionStateFile)) {
-          try {
-            existingState = JSON.parse(readFileSync(sessionStateFile, 'utf-8'));
-          } catch {
-            existingState = null;
-          }
-        }
-        
-        const isFirstPrompt = !existingState;
+        // Use HookContextService for unified context generation
+        const { HookContextService } = await import('../services/hook-context-service.js');
+        const contextService = new HookContextService({ projectPath });
 
-        // Update session state (file-based)
-        const newState = isFirstPrompt
-          ? { firstLoad: new Date().toISOString(), loadCount: 1, lastPrompt: prompt }
-          : { ...existingState!, loadCount: existingState!.loadCount + 1, lastPrompt: prompt };
-        
-        if (!existsSync(sessionStateDir)) {
-          mkdirSync(sessionStateDir, { recursive: true });
-        }
-        writeFileSync(sessionStateFile, JSON.stringify(newState, null, 2));
-
-        // Determine which type of context to return
-        let contextType: 'session-start' | 'context';
-        let content: string;
-
-        if (isFirstPrompt) {
-          // First prompt: return session overview with clusters
-          contextType = 'session-start';
-          content = await clusteringService.getProgressiveIndex({
-            type: 'session-start',
-            sessionId
-          });
-        } else if (prompt && prompt.trim().length > 0) {
-          // Subsequent prompts with content: return intent-matched sessions
-          contextType = 'context';
-          content = await clusteringService.getProgressiveIndex({
-            type: 'context',
-            sessionId,
-            prompt
-          });
-        } else {
-          // Subsequent prompts without content: return minimal context
-          contextType = 'context';
-          content = ''; // No context needed for empty prompts
-        }
+        // Build context using the service
+        const result = await contextService.buildPromptContext({
+          sessionId,
+          prompt,
+          projectId: projectPath
+        });
 
         return {
           success: true,
-          type: contextType,
-          isFirstPrompt,
-          loadCount: newState.loadCount,
-          content,
-          sessionId
+          type: result.type,
+          isFirstPrompt: result.isFirstPrompt,
+          loadCount: result.state.loadCount,
+          content: result.content,
+          sessionId,
+          _deprecated: true,
+          _migration: 'Use "ccw hook session-context --stdin"'
         };
       } catch (error) {
         console.error('[Hooks] Failed to generate session context:', error);
@@ -406,7 +414,9 @@ export async function handleHooksRoutes(ctx: HooksRouteContext): Promise<boolean
           success: true,
           content: '',
           sessionId,
-          error: (error as Error).message
+          error: (error as Error).message,
+          _deprecated: true,
+          _migration: 'Use "ccw hook session-context --stdin"'
         };
       }
     });
@@ -459,8 +469,16 @@ export async function handleHooksRoutes(ctx: HooksRouteContext): Promise<boolean
     return true;
   }
 
-  // API: Parse CCW status.json and return formatted status (fallback)
+  // API: Parse CCW status.json and return formatted status
+  // @DEPRECATED - Use /api/hook/ccw-exec with command=parse-status instead.
+  // This endpoint is kept for backward compatibility but will be removed.
   if (pathname === '/api/hook/ccw-status' && req.method === 'POST') {
+    // Add deprecation warning header
+    res.setHeader('X-Deprecated', 'true');
+    res.setHeader('X-Deprecation-Message', 'Use /api/hook/ccw-exec with command=parse-status instead. This endpoint will be removed in v2.0.0');
+
+    console.warn('[DEPRECATED] /api/hook/ccw-status is deprecated. Use /api/hook/ccw-exec instead.');
+
     handlePostRequest(req, res, async (body) => {
       if (typeof body !== 'object' || body === null) {
         return { error: 'Invalid request body', status: 400 };
@@ -472,51 +490,30 @@ export async function handleHooksRoutes(ctx: HooksRouteContext): Promise<boolean
         return { error: 'filePath is required', status: 400 };
       }
 
-      // Check if this is a CCW status.json file
-      if (!filePath.includes('status.json') ||
-          !filePath.match(/\.(ccw|ccw-coordinator|ccw-debug)\//)) {
-        return { success: false, message: 'Not a CCW status file' };
-      }
-
+      // Delegate to ccw-exec for unified handling
       try {
-        // Read and parse status.json
-        if (!existsSync(filePath)) {
-          return { success: false, message: 'Status file not found' };
+        const result = await executeCliCommand('ccw', ['hook', 'parse-status', filePath]);
+
+        if (result.success) {
+          return {
+            success: true,
+            message: result.output,
+            _deprecated: true,
+            _migration: 'Use /api/hook/ccw-exec with command=parse-status'
+          };
+        } else {
+          return {
+            success: false,
+            error: result.error,
+            _deprecated: true
+          };
         }
-
-        const statusContent = readFileSync(filePath, 'utf8');
-        const status = JSON.parse(statusContent);
-
-        // Extract key information
-        const sessionId = status.session_id || 'unknown';
-        const workflow = status.workflow || status.mode || 'unknown';
-
-        // Find current command (running or last completed)
-        let currentCommand = status.command_chain?.find((cmd: { status: string }) => cmd.status === 'running')?.command;
-        if (!currentCommand) {
-          const completed = status.command_chain?.filter((cmd: { status: string }) => cmd.status === 'completed');
-          currentCommand = completed?.[completed.length - 1]?.command || 'unknown';
-        }
-
-        // Find next command (first pending)
-        const nextCommand = status.command_chain?.find((cmd: { status: string }) => cmd.status === 'pending')?.command || '无';
-
-        // Format status message
-        const message = `📋 CCW Status [${sessionId}] (${workflow}): 当前处于 ${currentCommand}，下一个命令 ${nextCommand}`;
-
-        return {
-          success: true,
-          message,
-          sessionId,
-          workflow,
-          currentCommand,
-          nextCommand
-        };
       } catch (error) {
         console.error('[Hooks] Failed to parse CCW status:', error);
         return {
           success: false,
-          error: (error as Error).message
+          error: (error as Error).message,
+          _deprecated: true
         };
       }
     });

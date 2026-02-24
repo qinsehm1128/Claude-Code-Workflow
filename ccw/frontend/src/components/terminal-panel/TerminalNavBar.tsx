@@ -4,11 +4,14 @@
 // Left-side icon navigation bar (w-16) inside TerminalPanel.
 // Shows fixed queue entry icon + dynamic terminal icons with status badges.
 
+import { useState, useCallback } from 'react';
 import { useIntl } from 'react-intl';
-import { ClipboardList, Terminal, Loader2, CheckCircle, XCircle, Circle } from 'lucide-react';
+import { ClipboardList, Terminal, Loader2, CheckCircle, XCircle, Circle, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTerminalPanelStore } from '@/stores/terminalPanelStore';
 import { useCliSessionStore, type CliSessionMeta, type CliSessionOutputChunk } from '@/stores/cliSessionStore';
+import { useWorkflowStore, selectProjectPath } from '@/stores/workflowStore';
+import { createCliSession, sendCliSessionText } from '@/lib/api';
 
 // ========== Status Badge Mapping ==========
 
@@ -42,16 +45,65 @@ const StatusIcon: Record<SessionStatus, React.ComponentType<{ className?: string
   idle: Circle,
 };
 
+type LaunchMode = 'default' | 'yolo';
+
+const LAUNCH_COMMANDS: Record<string, Record<LaunchMode, string>> = {
+  claude:   { default: 'claude',   yolo: 'claude --permission-mode bypassPermissions' },
+  gemini:   { default: 'gemini',   yolo: 'gemini --approval-mode yolo' },
+  qwen:     { default: 'qwen',     yolo: 'qwen --approval-mode yolo' },
+  codex:    { default: 'codex',    yolo: 'codex --full-auto' },
+  opencode: { default: 'opencode', yolo: 'opencode' },
+};
+
 export function TerminalNavBar() {
   const panelView = useTerminalPanelStore((s) => s.panelView);
   const activeTerminalId = useTerminalPanelStore((s) => s.activeTerminalId);
   const terminalOrder = useTerminalPanelStore((s) => s.terminalOrder);
   const setPanelView = useTerminalPanelStore((s) => s.setPanelView);
   const setActiveTerminal = useTerminalPanelStore((s) => s.setActiveTerminal);
+  const openTerminal = useTerminalPanelStore((s) => s.openTerminal);
 
   const sessions = useCliSessionStore((s) => s.sessions);
   const outputChunks = useCliSessionStore((s) => s.outputChunks);
+  const upsertSession = useCliSessionStore((s) => s.upsertSession);
   const { formatMessage } = useIntl();
+
+  const projectPath = useWorkflowStore(selectProjectPath);
+  const [isCreating, setIsCreating] = useState(false);
+  const [showToolMenu, setShowToolMenu] = useState(false);
+  const [launchMode, setLaunchMode] = useState<LaunchMode>('yolo');
+
+  const CLI_TOOLS = ['claude', 'gemini', 'qwen', 'codex', 'opencode'] as const;
+
+  const handleCreateSession = useCallback(async (tool: string) => {
+    if (!projectPath || isCreating) return;
+    setIsCreating(true);
+    setShowToolMenu(false);
+    try {
+      const created = await createCliSession(
+        { workingDir: projectPath, tool },
+        projectPath
+      );
+      upsertSession(created.session);
+      openTerminal(created.session.sessionKey);
+
+      // Auto-launch CLI tool after PTY is ready
+      const command = LAUNCH_COMMANDS[tool]?.[launchMode] ?? tool;
+      setTimeout(() => {
+        sendCliSessionText(
+          created.session.sessionKey,
+          { text: command, appendNewline: true },
+          projectPath
+        ).catch((err) =>
+          console.error('[TerminalNavBar] auto-launch failed:', err)
+        );
+      }, 300);
+    } catch (err) {
+      console.error('[TerminalNavBar] createCliSession failed:', err);
+    } finally {
+      setIsCreating(false);
+    }
+  }, [projectPath, isCreating, launchMode, upsertSession, openTerminal]);
 
   const handleQueueClick = () => {
     setPanelView('queue');
@@ -119,6 +171,62 @@ export function TerminalNavBar() {
             </button>
           );
         })}
+      </div>
+
+      {/* New Terminal Button - Fixed at bottom */}
+      <div className="relative">
+        <div className="w-8 border-t border-border mb-2" />
+        <button
+          className={cn(
+            'w-10 h-10 rounded-md flex items-center justify-center transition-colors hover:bg-accent',
+            !projectPath && 'opacity-40 cursor-not-allowed'
+          )}
+          onClick={() => projectPath && setShowToolMenu(!showToolMenu)}
+          disabled={isCreating || !projectPath}
+          title={formatMessage({ id: 'home.terminalPanel.newSession' })}
+        >
+          {isCreating ? (
+            <Loader2 className="h-5 w-5 text-muted-foreground animate-spin" />
+          ) : (
+            <Plus className="h-5 w-5 text-muted-foreground" />
+          )}
+        </button>
+
+        {/* Tool Selection Popup */}
+        {showToolMenu && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setShowToolMenu(false)} />
+            <div className="absolute left-full bottom-0 ml-1 z-50 bg-card border border-border rounded-md shadow-lg min-w-[140px]">
+              {/* Mode Toggle */}
+              <div className="flex items-center gap-1 px-2 py-1.5 border-b border-border">
+                {(['default', 'yolo'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    className={cn(
+                      'flex-1 text-xs px-2 py-1 rounded transition-colors',
+                      launchMode === mode
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:bg-accent'
+                    )}
+                    onClick={() => setLaunchMode(mode)}
+                  >
+                    {mode === 'default' ? 'Default' : 'Yolo'}
+                  </button>
+                ))}
+              </div>
+              {/* Tool List */}
+              {CLI_TOOLS.map((tool) => (
+                <button
+                  key={tool}
+                  className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors"
+                  onClick={() => handleCreateSession(tool)}
+                >
+                  {tool}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

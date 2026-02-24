@@ -112,15 +112,22 @@
     "executionQueueDesc": "Execution Queue Management",
     "executionQueuePhase2": "Coming in Phase 2",
     "noTerminalSelected": "No terminal selected",
-    "selectTerminalHint": "Select a terminal from the sidebar",
+    "selectTerminalHint": "Select a terminal from the sidebar, or click + to create one",
     "commandPlaceholder": "Enter command... (Ctrl+Enter to execute)",
     "execute": "Execute",
     "openInPanel": "Open in Terminal Panel",
+    "newSession": "New Terminal",
     "status": {
       "running": "Running",
       "completed": "Completed",
       "failed": "Failed",
       "idle": "Idle"
+    },
+    "queueView": {
+      "session": "Session",
+      "orchestrator": "Orchestrator",
+      "emptyTitle": "No executions yet",
+      "emptyDesc": "Executions started from the issue queue will appear here"
     }
   }
 }

@@ -126,6 +126,21 @@ def index_init(
     no_embeddings: bool = typer.Option(False, "--no-embeddings", help="Skip automatic embedding generation (if semantic deps installed)."),
     backend: Optional[str] = typer.Option(None, "--backend", "-b", help="Embedding backend: fastembed (local) or litellm (remote API). Defaults to settings.json config."),
     model: Optional[str] = typer.Option(None, "--model", "-m", help="Embedding model: profile name for fastembed or model name for litellm. Defaults to settings.json config."),
+    use_astgrep: Optional[bool] = typer.Option(
+        None,
+        "--use-astgrep/--no-use-astgrep",
+        help="Prefer ast-grep parsers when available (experimental). Overrides settings.json config.",
+    ),
+    static_graph: Optional[bool] = typer.Option(
+        None,
+        "--static-graph/--no-static-graph",
+        help="Persist global relationships during indexing for static graph expansion. Overrides settings.json config.",
+    ),
+    static_graph_types: Optional[str] = typer.Option(
+        None,
+        "--static-graph-types",
+        help="Comma-separated relationship types to persist: imports,inherits,calls. Overrides settings.json config.",
+    ),
     max_workers: int = typer.Option(1, "--max-workers", min=1, help="Max concurrent API calls for embedding generation. Recommended: 4-8 for litellm backend."),
     json_mode: bool = typer.Option(False, "--json", help="Output JSON response."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging."),
@@ -154,6 +169,33 @@ def index_init(
 
     # Fallback to settings.json config if CLI params not provided
     config.load_settings()  # Ensure settings are loaded
+
+    # Apply CLI overrides for parsing/indexing behavior
+    if use_astgrep is not None:
+        config.use_astgrep = bool(use_astgrep)
+    if static_graph is not None:
+        config.static_graph_enabled = bool(static_graph)
+    if static_graph_types is not None:
+        allowed = {"imports", "inherits", "calls"}
+        parsed = [
+            t.strip().lower()
+            for t in static_graph_types.split(",")
+            if t.strip()
+        ]
+        invalid = [t for t in parsed if t not in allowed]
+        if invalid:
+            msg = (
+                "Invalid --static-graph-types. Must be a comma-separated list of: "
+                f"{', '.join(sorted(allowed))}. Got: {invalid}"
+            )
+            if json_mode:
+                print_json(success=False, error=msg)
+            else:
+                console.print(f"[red]Error:[/red] {msg}")
+            raise typer.Exit(code=1)
+        if parsed:
+            config.static_graph_relationship_types = parsed
+
     actual_backend = backend or config.embedding_backend
     actual_model = model or config.embedding_model
 
@@ -412,8 +454,10 @@ def watch(
 
     manager: WatcherManager | None = None
     try:
+        watch_config = Config.load()
         manager = WatcherManager(
             root_path=base_path,
+            config=watch_config,
             watcher_config=watcher_config,
             on_indexed=on_indexed,
         )
@@ -459,7 +503,7 @@ def search(
         None,
         "--staged-stage2-mode",
         hidden=True,
-        help="[Advanced] Stage 2 expansion mode for cascade strategy 'staged': precomputed | realtime.",
+        help="[Advanced] Stage 2 expansion mode for cascade strategy 'staged': precomputed | realtime | static_global_graph.",
     ),
     # Hidden deprecated parameter for backward compatibility
     mode: Optional[str] = typer.Option(None, "--mode", hidden=True, help="[DEPRECATED] Use --method instead."),
@@ -615,8 +659,8 @@ def search(
         # Optional staged cascade overrides (only meaningful for cascade strategy 'staged')
         if staged_stage2_mode is not None:
             stage2 = staged_stage2_mode.strip().lower()
-            if stage2 not in {"precomputed", "realtime"}:
-                msg = "Invalid --staged-stage2-mode. Must be: precomputed | realtime."
+            if stage2 not in {"precomputed", "realtime", "static_global_graph"}:
+                msg = "Invalid --staged-stage2-mode. Must be: precomputed | realtime | static_global_graph."
                 if json_mode:
                     print_json(success=False, error=msg)
                 else:
@@ -810,7 +854,7 @@ def inspect(
 ) -> None:
     """Analyze a single file and display symbols."""
     _configure_logging(verbose, json_mode)
-    config = Config()
+    config = Config.load()
     factory = ParserFactory(config)
 
     file_path = file.expanduser().resolve()
@@ -3145,8 +3189,10 @@ def watch(
         console.print("[dim]Press Ctrl+C to stop[/dim]\n")
 
         # Create and start watcher manager
+        watch_config = Config.load()
         manager = WatcherManager(
             root_path=watch_path,
+            config=watch_config,
             watcher_config=watcher_config,
             on_indexed=lambda result: _display_index_result(result),
         )
@@ -3681,7 +3727,7 @@ def index_update(
         registry = RegistryStore()
         registry.initialize()
         mapper = PathMapper()
-        config = Config()
+        config = Config.load()
 
         resolved_path = file_path.resolve()
 
@@ -3776,7 +3822,7 @@ def index_all(
         from codexlens.config import Config
         from codexlens.storage.index_tree import IndexTreeBuilder
 
-        config = Config()
+        config = Config.load()
         languages = _parse_languages(language)
         registry = RegistryStore()
         registry.initialize()

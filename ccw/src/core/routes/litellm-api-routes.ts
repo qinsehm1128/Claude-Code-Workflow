@@ -2,14 +2,11 @@
  * LiteLLM API Routes Module
  * Handles LiteLLM provider management, endpoint configuration, and cache management
  */
-import { fileURLToPath } from 'url';
-import { dirname, join as pathJoin } from 'path';
 import { z } from 'zod';
+import { spawn } from 'child_process';
 import { getSystemPython } from '../../utils/python-utils.js';
 import {
-  UvManager,
   isUvAvailable,
-  ensureUvInstalled,
   createCodexLensUvManager
 } from '../../utils/uv-manager.js';
 import { ensureLiteLLMEmbedderReady } from '../../tools/codex-lens.js';
@@ -40,11 +37,6 @@ const ModelPoolConfigSchema = z.object({
  */
 const ModelPoolConfigUpdateSchema = ModelPoolConfigSchema.partial();
 
-// Get current module path for package-relative lookups
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-// Package root: routes -> core -> src -> ccw -> package root
-const PACKAGE_ROOT = pathJoin(__dirname, '..', '..', '..', '..');
 
 import {
   getAllProviders,
@@ -103,24 +95,6 @@ let ccwLitellmStatusCache: {
 export function clearCcwLitellmStatusCache() {
   ccwLitellmStatusCache.data = null;
   ccwLitellmStatusCache.timestamp = 0;
-}
-
-/**
- * Install ccw-litellm using UV package manager
- * Delegates to ensureLiteLLMEmbedderReady for consistent dependency handling
- * This ensures ccw-litellm installation doesn't break fastembed's onnxruntime dependencies
- * @param _packagePath - Ignored, ensureLiteLLMEmbedderReady handles path discovery
- * @returns Installation result
- */
-async function installCcwLitellmWithUv(_packagePath: string | null): Promise<{ success: boolean; message?: string; error?: string }> {
-  // Delegate to the robust installation logic in codex-lens.ts
-  // This ensures consistent dependency handling within the shared venv,
-  // preventing onnxruntime conflicts that would break fastembed
-  const result = await ensureLiteLLMEmbedderReady();
-  if (result.success) {
-    clearCcwLitellmStatusCache();
-  }
-  return result;
 }
 
 function sanitizeProviderForResponse(provider: any): any {
@@ -877,28 +851,41 @@ export async function handleLiteLLMApiRoutes(ctx: RouteContext): Promise<boolean
 
     // Async check - use CodexLens venv Python for reliable detection
     try {
-      const { exec } = await import('child_process');
-      const { promisify } = await import('util');
-      const execAsync = promisify(exec);
-
       let result: { installed: boolean; version?: string; error?: string } = { installed: false };
 
       // Check ONLY in CodexLens venv (where UV installs packages)
       // Do NOT fallback to system pip - we want isolated venv dependencies
       const uv = createCodexLensUvManager();
       const venvPython = uv.getVenvPython();
+      const statusTimeout = process.platform === 'win32' ? 15000 : 10000;
 
       if (uv.isVenvValid()) {
         try {
-          const { stdout } = await execAsync(`"${venvPython}" -c "import ccw_litellm; print(ccw_litellm.__version__)"`, {
-            timeout: 10000,
-            windowsHide: true,
+          result = await new Promise<{ installed: boolean; version?: string }>((resolve) => {
+            const child = spawn(venvPython, ['-c', 'import ccw_litellm; print(ccw_litellm.__version__)'], {
+              stdio: ['ignore', 'pipe', 'pipe'],
+              timeout: statusTimeout,
+              windowsHide: true,
+            });
+            let stdout = '';
+            child.stdout.on('data', (data: Buffer) => { stdout += data.toString(); });
+            child.on('close', (code: number | null) => {
+              if (code === 0) {
+                const version = stdout.trim();
+                if (version) {
+                  console.log(`[ccw-litellm status] Found in CodexLens venv: ${version}`);
+                  resolve({ installed: true, version });
+                  return;
+                }
+              }
+              console.log('[ccw-litellm status] Not found in CodexLens venv');
+              resolve({ installed: false });
+            });
+            child.on('error', () => {
+              console.log('[ccw-litellm status] Spawn error checking venv');
+              resolve({ installed: false });
+            });
           });
-          const version = stdout.trim();
-          if (version) {
-            result = { installed: true, version };
-            console.log(`[ccw-litellm status] Found in CodexLens venv: ${version}`);
-          }
         } catch (venvErr) {
           console.log('[ccw-litellm status] Not found in CodexLens venv');
           result = { installed: false };
@@ -1320,95 +1307,19 @@ export async function handleLiteLLMApiRoutes(ctx: RouteContext): Promise<boolean
   if (pathname === '/api/litellm-api/ccw-litellm/install' && req.method === 'POST') {
     handlePostRequest(req, res, async () => {
       try {
-        const { spawn } = await import('child_process');
-        const path = await import('path');
-        const fs = await import('fs');
+        // Delegate entirely to ensureLiteLLMEmbedderReady for consistent installation
+        // This uses unified package discovery and handles UV → pip fallback
+        const result = await ensureLiteLLMEmbedderReady();
 
-        // Try to find ccw-litellm package in distribution
-        const possiblePaths = [
-          path.join(initialPath, 'ccw-litellm'),
-          path.join(initialPath, '..', 'ccw-litellm'),
-          path.join(process.cwd(), 'ccw-litellm'),
-          path.join(PACKAGE_ROOT, 'ccw-litellm'), // npm package internal path
-        ];
-
-        let packagePath = '';
-        for (const p of possiblePaths) {
-          const pyproject = path.join(p, 'pyproject.toml');
-          if (fs.existsSync(pyproject)) {
-            packagePath = p;
-            break;
-          }
-        }
-
-        // Priority: Use UV if available
-        if (await isUvAvailable()) {
-          const uvResult = await installCcwLitellmWithUv(packagePath || null);
-          if (uvResult.success) {
-            // Broadcast installation event
-            broadcastToClients({
-              type: 'CCW_LITELLM_INSTALLED',
-              payload: { timestamp: new Date().toISOString(), method: 'uv' }
-            });
-            return { ...uvResult, path: packagePath || undefined };
-          }
-          // UV install failed, fall through to pip fallback
-          console.log('[ccw-litellm install] UV install failed, falling back to pip:', uvResult.error);
-        }
-
-        // Fallback: Use pip for installation
-        // Use shared Python detection for consistent cross-platform behavior
-        const pythonCmd = getSystemPython();
-
-        if (!packagePath) {
-          // Try pip install from PyPI as fallback
-          return new Promise((resolve) => {
-            const proc = spawn(pythonCmd, ['-m', 'pip', 'install', 'ccw-litellm'], { shell: true, timeout: 300000 });
-            let output = '';
-            let error = '';
-            proc.stdout?.on('data', (data) => { output += data.toString(); });
-            proc.stderr?.on('data', (data) => { error += data.toString(); });
-            proc.on('close', (code) => {
-              if (code === 0) {
-                // Clear status cache after successful installation
-                clearCcwLitellmStatusCache();
-                broadcastToClients({
-                  type: 'CCW_LITELLM_INSTALLED',
-                  payload: { timestamp: new Date().toISOString(), method: 'pip' }
-                });
-                resolve({ success: true, message: 'ccw-litellm installed from PyPI' });
-              } else {
-                resolve({ success: false, error: error || 'Installation failed' });
-              }
-            });
-            proc.on('error', (err) => resolve({ success: false, error: err.message }));
+        if (result.success) {
+          clearCcwLitellmStatusCache();
+          broadcastToClients({
+            type: 'CCW_LITELLM_INSTALLED',
+            payload: { timestamp: new Date().toISOString(), method: 'unified' }
           });
         }
 
-        // Install from local package
-        return new Promise((resolve) => {
-          const proc = spawn(pythonCmd, ['-m', 'pip', 'install', '-e', packagePath], { shell: true, timeout: 300000 });
-          let output = '';
-          let error = '';
-          proc.stdout?.on('data', (data) => { output += data.toString(); });
-          proc.stderr?.on('data', (data) => { error += data.toString(); });
-          proc.on('close', (code) => {
-            if (code === 0) {
-              // Clear status cache after successful installation
-              clearCcwLitellmStatusCache();
-
-              // Broadcast installation event
-              broadcastToClients({
-                type: 'CCW_LITELLM_INSTALLED',
-                payload: { timestamp: new Date().toISOString(), method: 'pip' }
-              });
-              resolve({ success: true, message: 'ccw-litellm installed successfully', path: packagePath });
-            } else {
-              resolve({ success: false, error: error || output || 'Installation failed' });
-            }
-          });
-          proc.on('error', (err) => resolve({ success: false, error: err.message }));
-        });
+        return result;
       } catch (err) {
         return { success: false, error: (err as Error).message };
       }
@@ -1441,7 +1352,6 @@ export async function handleLiteLLMApiRoutes(ctx: RouteContext): Promise<boolean
 
         // Priority 2: Fallback to system pip uninstall
         console.log('[ccw-litellm uninstall] Using pip fallback...');
-        const { spawn } = await import('child_process');
         const pythonCmd = getSystemPython();
 
         return new Promise((resolve) => {

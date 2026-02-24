@@ -519,6 +519,7 @@ class IndexTreeBuilder:
             "global_symbol_index_enabled": self.config.global_symbol_index_enabled,
             "static_graph_enabled": self.config.static_graph_enabled,
             "static_graph_relationship_types": self.config.static_graph_relationship_types,
+            "use_astgrep": getattr(self.config, "use_astgrep", False),
         }
 
         worker_args = [
@@ -984,6 +985,7 @@ def _build_dir_worker(args: tuple) -> DirBuildResult:
         global_symbol_index_enabled=bool(config_dict.get("global_symbol_index_enabled", True)),
         static_graph_enabled=bool(config_dict.get("static_graph_enabled", False)),
         static_graph_relationship_types=list(config_dict.get("static_graph_relationship_types", ["imports", "inherits"])),
+        use_astgrep=bool(config_dict.get("use_astgrep", False)),
     )
 
     parser_factory = ParserFactory(config)

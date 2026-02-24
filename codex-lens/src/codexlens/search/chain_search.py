@@ -694,13 +694,14 @@ class ChainSearchEngine:
         k: int = 10,
         coarse_k: int = 100,
         options: Optional[SearchOptions] = None,
-        strategy: Optional[Literal["binary", "binary_rerank", "dense_rerank", "staged"]] = None,
+        strategy: Optional[Literal["binary", "binary_rerank", "dense_rerank", "staged", "hybrid"]] = None,
     ) -> ChainSearchResult:
         """Unified cascade search entry point with strategy selection.
 
         Provides a single interface for cascade search with configurable strategy:
         - "binary": Uses binary vector coarse ranking + dense fine ranking (fastest)
         - "binary_rerank": Uses binary vector coarse ranking + cross-encoder reranking (best balance)
+        - "hybrid": Alias for "binary_rerank" (backward compat)
         - "dense_rerank": Uses dense vector coarse ranking + cross-encoder reranking
         - "staged": 4-stage pipeline: binary -> LSP expand -> clustering -> optional rerank
 
@@ -731,7 +732,7 @@ class ChainSearchEngine:
         """
         # Strategy priority: parameter > config > default
         effective_strategy = strategy
-        valid_strategies = ("binary", "binary_rerank", "dense_rerank", "staged")
+        valid_strategies = ("binary", "binary_rerank", "dense_rerank", "staged", "hybrid")
         if effective_strategy is None:
             # Not passed via parameter, check config
             if self._config is not None:
@@ -742,6 +743,10 @@ class ChainSearchEngine:
         # If still not set, apply default
         if effective_strategy not in valid_strategies:
             effective_strategy = "binary"
+
+        # Normalize backward-compat alias
+        if effective_strategy == "hybrid":
+            effective_strategy = "binary_rerank"
 
         if effective_strategy == "binary":
             return self.binary_cascade_search(query, source_path, k, coarse_k, options)

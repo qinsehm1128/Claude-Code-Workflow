@@ -24,11 +24,16 @@ class Parser(Protocol):
 @dataclass
 class SimpleRegexParser:
     language_id: str
+    config: Optional[Config] = None
 
     def parse(self, text: str, path: Path) -> IndexedFile:
         # Try tree-sitter first for supported languages
         if self.language_id in {"python", "javascript", "typescript"}:
-            ts_parser = TreeSitterSymbolParser(self.language_id, path)
+            ts_parser = TreeSitterSymbolParser(
+                self.language_id,
+                path,
+                config=self.config,
+            )
             if ts_parser.is_available():
                 indexed = ts_parser.parse(text, path)
                 if indexed is not None:
@@ -73,7 +78,10 @@ class ParserFactory:
 
     def get_parser(self, language_id: str) -> Parser:
         if language_id not in self._parsers:
-            self._parsers[language_id] = SimpleRegexParser(language_id)
+            self._parsers[language_id] = SimpleRegexParser(
+                language_id,
+                config=self.config,
+            )
         return self._parsers[language_id]
 
 

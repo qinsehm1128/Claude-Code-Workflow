@@ -10,7 +10,8 @@
     "systemStatus": "System Status",
     "hooks": "Git Hooks",
     "rules": "Rules",
-    "about": "About"
+    "about": "About",
+    "a2ui": "A2UI Preferences"
   },
   "appearance": {
     "title": "Appearance",
@@ -40,7 +41,12 @@
     "saveToConfig": "Save to Config",
     "saving": "Saving...",
     "configSaved": "Configuration saved to ~/.claude/cli-tools.json",
-    "configSaveError": "Failed to save configuration"
+    "configSaveError": "Failed to save configuration",
+    "effort": "Effort Level",
+    "effortHint": "Controls thinking effort for Claude sessions. Default: high.",
+    "effortLow": "Low",
+    "effortMedium": "Medium",
+    "effortHigh": "High"
   },
   "display": {
     "title": "Display Settings",
@@ -114,6 +120,76 @@
     "on": "On",
     "off": "Off"
   },
+  "remoteNotifications": {
+    "title": "Remote Notifications",
+    "description": "Send notifications to external platforms like Discord, Telegram, or custom webhooks when events occur.",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "platforms": "Platform Configuration",
+    "events": "Event Triggers",
+    "selectPlatforms": "Select which platforms to notify for this event:",
+    "noPlatforms": "No platforms",
+    "configured": "Configured",
+    "save": "Save",
+    "saving": "Saving...",
+    "saved": "Configuration saved",
+    "saveError": "Failed to save configuration",
+    "reset": "Reset to Defaults",
+    "resetConfirm": "Reset all remote notification settings to defaults?",
+    "resetSuccess": "Settings reset to defaults",
+    "resetError": "Failed to reset settings",
+    "testConnection": "Test Connection",
+    "testSuccess": "Test notification sent successfully",
+    "testFailed": "Test notification failed",
+    "testError": "Failed to send test notification",
+    "discord": {
+      "webhookUrl": "Webhook URL",
+      "webhookUrlHint": "Create a webhook in your Discord channel settings",
+      "username": "Custom Username (optional)"
+    },
+    "telegram": {
+      "botToken": "Bot Token",
+      "botTokenHint": "Get from @BotFather on Telegram",
+      "chatId": "Chat ID",
+      "chatIdHint": "User or group chat ID (use @userinfobot to find it)"
+    },
+    "webhook": {
+      "url": "Webhook URL",
+      "method": "HTTP Method",
+      "headers": "Custom Headers (JSON)",
+      "headersHint": "Optional JSON object with custom headers"
+    },
+    "feishu": {
+      "webhookUrl": "Webhook URL",
+      "webhookUrlHint": "Get from Feishu robot settings",
+      "useCard": "Use Card Format",
+      "useCardHint": "Send as rich interactive card",
+      "title": "Card Title (optional)"
+    },
+    "dingtalk": {
+      "webhookUrl": "Webhook URL",
+      "webhookUrlHint": "Get from DingTalk robot settings",
+      "keywords": "Security Keywords",
+      "keywordsHint": "Comma-separated keywords for security check"
+    },
+    "wecom": {
+      "webhookUrl": "Webhook URL",
+      "webhookUrlHint": "Get from WeCom robot settings",
+      "mentionedList": "Mention Users",
+      "mentionedListHint": "User IDs to mention, use '@all' for everyone"
+    },
+    "email": {
+      "host": "SMTP Host",
+      "hostHint": "e.g., smtp.gmail.com",
+      "port": "Port",
+      "secure": "Use TLS",
+      "username": "Username",
+      "password": "Password",
+      "from": "Sender Email",
+      "to": "Recipients",
+      "toHint": "Comma-separated email addresses"
+    }
+  },
   "versionCheck": {
     "title": "Version Update",
     "currentVersion": "Current Version",
@@ -140,5 +216,28 @@
     "description": "Reset all user preferences to their default values. This cannot be undone.",
     "confirm": "Reset all settings to defaults?",
     "button": "Reset to Defaults"
+  },
+  "a2ui": {
+    "title": "A2UI Preferences",
+    "dialogStyle": "Dialog Style",
+    "dialogStyleDesc": "Choose how A2UI dialogs are displayed",
+    "styleModal": "Modal",
+    "styleModalDesc": "Centered",
+    "styleDrawer": "Drawer",
+    "styleDrawerDesc": "Side panel",
+    "styleSheet": "Sheet",
+    "styleSheetDesc": "Bottom",
+    "styleFullscreen": "Fullscreen",
+    "styleFullscreenDesc": "Full screen",
+    "smartMode": "Smart Mode",
+    "smartModeDesc": "Auto-select style based on question type",
+    "autoSelectionDuration": "Auto-Selection Duration",
+    "autoSelectionDurationDesc": "Countdown before auto-selecting default option",
+    "pauseOnInteraction": "Pause on Interaction",
+    "pauseOnInteractionDesc": "Pause countdown when you interact with the dialog",
+    "soundNotification": "Sound Notification",
+    "soundNotificationDesc": "Play sound before auto-submit (3 seconds before)",
+    "showToolbarButton": "Show Toolbar Button",
+    "showToolbarButtonDesc": "Show A2UI quick action button in the toolbar"
   }
 }

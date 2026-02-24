@@ -227,6 +227,7 @@
     "turns": "turns",
     "perTurnView": "Per-Turn View",
     "concatenatedView": "Concatenated View",
+    "nativeView": "Native View",
     "userPrompt": "User Prompt",
     "assistantResponse": "Assistant Response",
     "errors": "Errors",

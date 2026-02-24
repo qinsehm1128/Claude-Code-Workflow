@@ -91,10 +91,21 @@ export async function handleMemoryRoutes(ctx: RouteContext): Promise<boolean> {
   // API: Memory Module - Get all memories (core memory list)
   if (pathname === '/api/memory' && req.method === 'GET') {
     const projectPath = url.searchParams.get('path') || initialPath;
+    const tagsParam = url.searchParams.get('tags');
 
     try {
       const store = getCoreMemoryStore(projectPath);
-      const memories = store.getMemories({ archived: false, limit: 100 });
+
+      // Use tag filter if tags query parameter is provided
+      let memories;
+      if (tagsParam) {
+        const tags = tagsParam.split(',').map(t => t.trim()).filter(Boolean);
+        memories = tags.length > 0
+          ? store.getMemoriesByTags(tags, { archived: false, limit: 100 })
+          : store.getMemories({ archived: false, limit: 100 });
+      } else {
+        memories = store.getMemories({ archived: false, limit: 100 });
+      }
 
       // Calculate total size
       const totalSize = memories.reduce((sum, m) => sum + (m.content?.length || 0), 0);
@@ -109,7 +120,7 @@ export async function handleMemoryRoutes(ctx: RouteContext): Promise<boolean> {
         createdAt: m.created_at,
         updatedAt: m.updated_at,
         source: m.metadata || undefined,
-        tags: [], // TODO: Extract tags from metadata if available
+        tags: m.tags || [],
         size: m.content?.length || 0
       }));
 
@@ -139,7 +150,7 @@ export async function handleMemoryRoutes(ctx: RouteContext): Promise<boolean> {
 
       try {
         const store = getCoreMemoryStore(basePath);
-        const memory = store.upsertMemory({ content });
+        const memory = store.upsertMemory({ content, tags });
 
         // Broadcast update event
         broadcastToClients({
@@ -156,7 +167,7 @@ export async function handleMemoryRoutes(ctx: RouteContext): Promise<boolean> {
           createdAt: memory.created_at,
           updatedAt: memory.updated_at,
           source: memory.metadata || undefined,
-          tags: tags || [],
+          tags: memory.tags || [],
           size: memory.content?.length || 0
         };
       } catch (error: unknown) {
@@ -175,7 +186,7 @@ export async function handleMemoryRoutes(ctx: RouteContext): Promise<boolean> {
 
       try {
         const store = getCoreMemoryStore(basePath);
-        const memory = store.upsertMemory({ id: memoryId, content });
+        const memory = store.upsertMemory({ id: memoryId, content, tags });
 
         // Broadcast update event
         broadcastToClients({
@@ -192,7 +203,7 @@ export async function handleMemoryRoutes(ctx: RouteContext): Promise<boolean> {
           createdAt: memory.created_at,
           updatedAt: memory.updated_at,
           source: memory.metadata || undefined,
-          tags: tags || [],
+          tags: memory.tags || [],
           size: memory.content?.length || 0
         };
       } catch (error: unknown) {

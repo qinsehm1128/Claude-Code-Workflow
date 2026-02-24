@@ -12,11 +12,9 @@
 import { z } from 'zod';
 import type { ToolSchema, ToolResult } from '../types/tool.js';
 import { spawn, execSync, exec } from 'child_process';
-import { existsSync, mkdirSync } from 'fs';
-import { join, dirname } from 'path';
-import { homedir } from 'os';
-import { fileURLToPath } from 'url';
-import { getSystemPython } from '../utils/python-utils.js';
+import { existsSync, mkdirSync, rmSync } from 'fs';
+import { join } from 'path';
+import { getSystemPython, parsePythonVersion, isPythonVersionCompatible } from '../utils/python-utils.js';
 import { EXEC_TIMEOUTS } from '../utils/exec-constants.js';
 import {
   UvManager,
@@ -30,94 +28,15 @@ import {
   getCodexLensPython,
   getCodexLensPip,
 } from '../utils/codexlens-path.js';
-
-// Get directory of this module
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-/**
- * Check if a path is inside node_modules (unstable for editable installs)
- * Paths inside node_modules will change when npm reinstalls packages,
- * breaking editable (-e) pip installs that reference them.
- */
-function isInsideNodeModules(pathToCheck: string): boolean {
-  const normalizedPath = pathToCheck.replace(/\\/g, '/').toLowerCase();
-  return normalizedPath.includes('/node_modules/');
-}
-
-/**
- * Check if we're running in a development environment (not from node_modules)
- * Also detects Yarn PnP (Plug'n'Play) which doesn't use node_modules.
- */
-function isDevEnvironment(): boolean {
-  // Yarn PnP detection: if pnp version exists, it's a managed production environment
-  if ((process.versions as any).pnp) {
-    return false;
-  }
-  return !isInsideNodeModules(__dirname);
-}
-
-/**
- * Find valid local package path for development installs.
- * Returns null if running from node_modules (should use PyPI instead).
- *
- * IMPORTANT: When running from node_modules, local paths are unstable
- * because npm reinstall will delete and recreate the node_modules directory,
- * breaking any editable (-e) pip installs that reference them.
- */
-function findLocalPackagePath(packageName: string): string | null {
-  // Always try to find local paths first, even when running from node_modules.
-  // codex-lens is a local development package not published to PyPI,
-  // so we must find it locally regardless of execution context.
-
-  const possiblePaths = [
-    join(process.cwd(), packageName),
-    join(__dirname, '..', '..', '..', packageName), // ccw/src/tools -> project root
-    join(homedir(), packageName),
-  ];
-
-  // Also check common workspace locations
-  const cwd = process.cwd();
-  const cwdParent = dirname(cwd);
-  if (cwdParent !== cwd) {
-    possiblePaths.push(join(cwdParent, packageName));
-  }
-
-  // First pass: prefer non-node_modules paths (development environment)
-  for (const localPath of possiblePaths) {
-    if (isInsideNodeModules(localPath)) {
-      continue;
-    }
-    if (existsSync(join(localPath, 'pyproject.toml'))) {
-      console.log(`[CodexLens] Found local ${packageName} at: ${localPath}`);
-      return localPath;
-    }
-  }
-
-  // Second pass: allow node_modules paths (NPM global install)
-  for (const localPath of possiblePaths) {
-    if (existsSync(join(localPath, 'pyproject.toml'))) {
-      console.log(`[CodexLens] Found ${packageName} in node_modules at: ${localPath}`);
-      return localPath;
-    }
-  }
-
-  return null;
-}
-
-/**
- * Find valid local codex-lens package path for development installs.
- */
-function findLocalCodexLensPath(): string | null {
-  return findLocalPackagePath('codex-lens');
-}
-
-/**
- * Find valid local ccw-litellm package path for development installs.
- */
-function findLocalCcwLitellmPath(): string | null {
-  return findLocalPackagePath('ccw-litellm');
-}
+import {
+  findCodexLensPath,
+  findCcwLitellmPath,
+  formatSearchResults,
+  isDevEnvironment,
+  isInsideNodeModules,
+  type PackageDiscoveryResult,
+  type SearchAttempt,
+} from '../utils/package-discovery.js';
 
 // Bootstrap status cache
 let bootstrapChecked = false;
@@ -142,6 +61,62 @@ const SEMANTIC_STATUS_TTL = 5 * 60 * 1000; // 5 minutes TTL
 // Track running indexing process for cancellation
 let currentIndexingProcess: ReturnType<typeof spawn> | null = null;
 let currentIndexingAborted = false;
+
+// Spawn timeout for checkVenvStatus (Windows cold start is slower)
+const VENV_CHECK_TIMEOUT = process.platform === 'win32' ? 15000 : 10000;
+
+/**
+ * Pre-flight check: verify Python 3.9+ is available before attempting bootstrap.
+ * Returns an error message if Python is not suitable, or null if OK.
+ */
+function preFlightCheck(): string | null {
+  try {
+    const pythonCmd = getSystemPython();
+    const version = execSync(`${pythonCmd} --version 2>&1`, {
+      encoding: 'utf8',
+      timeout: EXEC_TIMEOUTS.PYTHON_VERSION,
+    }).trim();
+    const parsed = parsePythonVersion(version);
+    if (!parsed) {
+      return `Cannot parse Python version from: "${version}". Ensure Python 3.9+ is installed.`;
+    }
+    if (parsed.major !== 3 || parsed.minor < 9) {
+      return `Python ${parsed.major}.${parsed.minor} found, but 3.9+ is required. Install Python 3.9-3.12 or set CCW_PYTHON.`;
+    }
+    return null;
+  } catch (err) {
+    return `Python not found: ${(err as Error).message}. Install Python 3.9-3.12 and ensure it is in PATH.`;
+  }
+}
+
+/**
+ * Detect and repair a corrupted venv.
+ * A venv is considered corrupted if the directory exists but the Python executable is missing.
+ * @returns true if venv was repaired (deleted), false if no repair needed
+ */
+function repairVenvIfCorrupted(): boolean {
+  const venvPath = getCodexLensVenvDir();
+  if (!existsSync(venvPath)) {
+    return false; // No venv at all — nothing to repair
+  }
+
+  const pythonPath = getCodexLensPython();
+  if (existsSync(pythonPath)) {
+    return false; // Venv looks healthy
+  }
+
+  // Venv dir exists but python is missing — corrupted
+  console.warn(`[CodexLens] Corrupted venv detected: ${venvPath} exists but Python executable missing. Removing for recreation...`);
+  try {
+    rmSync(venvPath, { recursive: true, force: true });
+    clearVenvStatusCache();
+    console.log('[CodexLens] Corrupted venv removed successfully.');
+    return true;
+  } catch (err) {
+    console.error(`[CodexLens] Failed to remove corrupted venv: ${(err as Error).message}`);
+    return false;
+  }
+}
 
 // Define Zod schema for validation
 const ParamsSchema = z.object({
@@ -194,6 +169,15 @@ interface BootstrapResult {
   success: boolean;
   error?: string;
   message?: string;
+  warnings?: string[];
+  diagnostics?: {
+    pythonVersion?: string;
+    venvPath?: string;
+    packagePath?: string;
+    installer?: 'uv' | 'pip';
+    editable?: boolean;
+    searchedPaths?: SearchAttempt[];
+  };
 }
 
 interface ExecuteResult {
@@ -276,7 +260,7 @@ async function checkVenvStatus(force = false): Promise<ReadyStatus> {
   return new Promise((resolve) => {
     const child = spawn(pythonPath, ['-c', 'import sys; import codexlens; import watchdog; print(f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"); print(codexlens.__version__)'], {
       stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 10000,
+      timeout: VENV_CHECK_TIMEOUT,
     });
 
     let stdout = '';
@@ -476,13 +460,16 @@ async function ensureLiteLLMEmbedderReady(): Promise<BootstrapResult> {
   });
 
   if (importStatus.ok) {
-    return { success: true };
+    return { success: true, diagnostics: { venvPath: getCodexLensVenvDir() } };
   }
 
   console.log('[CodexLens] Installing ccw-litellm for LiteLLM embedding backend...');
 
-  // Find local ccw-litellm package path (only in development, not from node_modules)
-  const localPath = findLocalCcwLitellmPath();
+  // Find local ccw-litellm package path using unified discovery
+  const discovery = findCcwLitellmPath();
+  const localPath = discovery.path;
+  const editable = localPath ? (isDevEnvironment() && !discovery.insideNodeModules) : false;
+  const warnings: string[] = [];
 
   // Priority: Use UV if available (faster, better dependency resolution)
   if (await isUvAvailable()) {
@@ -495,6 +482,7 @@ async function ensureLiteLLMEmbedderReady(): Promise<BootstrapResult> {
         const venvResult = await uv.createVenv();
         if (!venvResult.success) {
           console.log('[CodexLens] UV venv creation failed, falling back to pip:', venvResult.error);
+          warnings.push(`UV venv creation failed: ${venvResult.error}`);
           // Fall through to pip fallback
         }
       }
@@ -502,20 +490,26 @@ async function ensureLiteLLMEmbedderReady(): Promise<BootstrapResult> {
       if (uv.isVenvValid()) {
         let uvResult;
         if (localPath) {
-          console.log(`[CodexLens] Installing ccw-litellm from local path with UV: ${localPath}`);
-          uvResult = await uv.installFromProject(localPath);
+          console.log(`[CodexLens] Installing ccw-litellm from local path with UV: ${localPath} (editable: ${editable})`);
+          uvResult = await uv.installFromProject(localPath, undefined, editable);
         } else {
           console.log('[CodexLens] Installing ccw-litellm from PyPI with UV...');
           uvResult = await uv.install(['ccw-litellm']);
         }
 
         if (uvResult.success) {
-          return { success: true };
+          return {
+            success: true,
+            diagnostics: { packagePath: localPath || undefined, venvPath: getCodexLensVenvDir(), installer: 'uv', editable },
+            warnings: warnings.length > 0 ? warnings : undefined,
+          };
         }
         console.log('[CodexLens] UV install failed, falling back to pip:', uvResult.error);
+        warnings.push(`UV install failed: ${uvResult.error}`);
       }
     } catch (uvErr) {
       console.log('[CodexLens] UV error, falling back to pip:', (uvErr as Error).message);
+      warnings.push(`UV error: ${(uvErr as Error).message}`);
     }
   }
 
@@ -524,16 +518,33 @@ async function ensureLiteLLMEmbedderReady(): Promise<BootstrapResult> {
 
   try {
     if (localPath) {
-      console.log(`[CodexLens] Installing ccw-litellm from local path with pip: ${localPath}`);
-      execSync(`"${pipPath}" install -e "${localPath}"`, { stdio: 'inherit', timeout: EXEC_TIMEOUTS.PACKAGE_INSTALL });
+      const pipFlag = editable ? '-e' : '';
+      const pipInstallSpec = editable ? `"${localPath}"` : `"${localPath}"`;
+      console.log(`[CodexLens] Installing ccw-litellm from local path with pip: ${localPath} (editable: ${editable})`);
+      execSync(`"${pipPath}" install ${pipFlag} ${pipInstallSpec}`.replace(/  +/g, ' '), { stdio: 'inherit', timeout: EXEC_TIMEOUTS.PACKAGE_INSTALL });
     } else {
       console.log('[CodexLens] Installing ccw-litellm from PyPI with pip...');
       execSync(`"${pipPath}" install ccw-litellm`, { stdio: 'inherit', timeout: EXEC_TIMEOUTS.PACKAGE_INSTALL });
     }
 
-    return { success: true };
+    return {
+      success: true,
+      diagnostics: { packagePath: localPath || undefined, venvPath: getCodexLensVenvDir(), installer: 'pip', editable },
+      warnings: warnings.length > 0 ? warnings : undefined,
+    };
   } catch (err) {
-    return { success: false, error: `Failed to install ccw-litellm: ${(err as Error).message}` };
+    return {
+      success: false,
+      error: `Failed to install ccw-litellm: ${(err as Error).message}`,
+      diagnostics: {
+        packagePath: localPath || undefined,
+        venvPath: getCodexLensVenvDir(),
+        installer: 'pip',
+        editable,
+        searchedPaths: !localPath ? discovery.searchedPaths : undefined,
+      },
+      warnings: warnings.length > 0 ? warnings : undefined,
+    };
   }
 }
 
@@ -660,6 +671,15 @@ async function detectGpuSupport(): Promise<{ mode: GpuMode; available: GpuMode[]
 async function bootstrapWithUv(gpuMode: GpuMode = 'cpu'): Promise<BootstrapResult> {
   console.log('[CodexLens] Bootstrapping with UV package manager...');
 
+  // Pre-flight: verify Python is available and compatible
+  const preFlightError = preFlightCheck();
+  if (preFlightError) {
+    return { success: false, error: `Pre-flight failed: ${preFlightError}` };
+  }
+
+  // Auto-repair corrupted venv before proceeding
+  repairVenvIfCorrupted();
+
   // Ensure UV is installed
   const uvInstalled = await ensureUvInstalled();
   if (!uvInstalled) {
@@ -678,49 +698,42 @@ async function bootstrapWithUv(gpuMode: GpuMode = 'cpu'): Promise<BootstrapResul
     }
   }
 
-  // Find local codex-lens package (only in development, not from node_modules)
-  const codexLensPath = findLocalCodexLensPath();
+  // Find local codex-lens package using unified discovery
+  const discovery = findCodexLensPath();
 
   // Determine extras based on GPU mode
   const extras = GPU_MODE_EXTRAS[gpuMode];
 
-  if (!codexLensPath) {
-    // codex-lens is a local-only package, not published to PyPI
-    // Generate dynamic paths for error message (cross-platform)
-    const possiblePaths = [
-      join(process.cwd(), 'codex-lens'),
-      join(__dirname, '..', '..', '..', 'codex-lens'),
-      join(homedir(), 'codex-lens'),
-    ];
-    const cwd = process.cwd();
-    const cwdParent = dirname(cwd);
-    if (cwdParent !== cwd) {
-      possiblePaths.push(join(cwdParent, 'codex-lens'));
-    }
-    const pathsList = possiblePaths.map(p => `   - ${p}`).join('\n');
-
-    const errorMsg = `Cannot find codex-lens directory for local installation.\n\n` +
-      `codex-lens is a local development package (not published to PyPI) and must be installed from local files.\n\n` +
-      `To fix this:\n` +
-      `1. Ensure 'codex-lens' directory exists at one of these locations:\n${pathsList}\n` +
-      `2. Verify pyproject.toml exists in the codex-lens directory\n` +
-      `3. Run ccw from the correct working directory\n` +
-      `4. Or manually install: cd /path/to/codex-lens && pip install -e .[${extras.join(',')}]`;
-    return { success: false, error: errorMsg };
+  if (!discovery.path) {
+    return {
+      success: false,
+      error: formatSearchResults(discovery, 'codex-lens'),
+      diagnostics: { searchedPaths: discovery.searchedPaths, venvPath: getCodexLensVenvDir(), installer: 'uv' },
+    };
   }
 
-  console.log(`[CodexLens] Installing from local path with UV: ${codexLensPath}`);
+  // Use non-editable install for production stability (editable only in dev)
+  const editable = isDevEnvironment() && !discovery.insideNodeModules;
+  console.log(`[CodexLens] Installing from local path with UV: ${discovery.path} (editable: ${editable})`);
   console.log(`[CodexLens] Extras: ${extras.join(', ')}`);
-  const installResult = await uv.installFromProject(codexLensPath, extras);
+  const installResult = await uv.installFromProject(discovery.path, extras, editable);
   if (!installResult.success) {
-    return { success: false, error: `Failed to install codex-lens: ${installResult.error}` };
+    return {
+      success: false,
+      error: `Failed to install codex-lens: ${installResult.error}`,
+      diagnostics: { packagePath: discovery.path, venvPath: getCodexLensVenvDir(), installer: 'uv', editable },
+    };
   }
 
   // Clear cache after successful installation
   clearVenvStatusCache();
   clearSemanticStatusCache();
   console.log(`[CodexLens] Bootstrap with UV complete (${gpuMode} mode)`);
-  return { success: true, message: `Installed with UV (${gpuMode} mode)` };
+  return {
+    success: true,
+    message: `Installed with UV (${gpuMode} mode)`,
+    diagnostics: { packagePath: discovery.path, venvPath: getCodexLensVenvDir(), installer: 'uv', editable },
+  };
 }
 
 /**
@@ -754,8 +767,8 @@ async function installSemanticWithUv(gpuMode: GpuMode = 'cpu'): Promise<Bootstra
   // Create UV manager
   const uv = createCodexLensUvManager();
 
-  // Find local codex-lens package (only in development, not from node_modules)
-  const codexLensPath = findLocalCodexLensPath();
+  // Find local codex-lens package using unified discovery
+  const discovery = findCodexLensPath();
 
   // Determine extras based on GPU mode
   const extras = GPU_MODE_EXTRAS[gpuMode];
@@ -770,33 +783,13 @@ async function installSemanticWithUv(gpuMode: GpuMode = 'cpu'): Promise<Bootstra
   console.log(`[CodexLens] Extras: ${extras.join(', ')}`);
 
   // Install with extras - UV handles dependency conflicts automatically
-  if (!codexLensPath) {
-    // codex-lens is a local-only package, not published to PyPI
-    // Generate dynamic paths for error message (cross-platform)
-    const possiblePaths = [
-      join(process.cwd(), 'codex-lens'),
-      join(__dirname, '..', '..', '..', 'codex-lens'),
-      join(homedir(), 'codex-lens'),
-    ];
-    const cwd = process.cwd();
-    const cwdParent = dirname(cwd);
-    if (cwdParent !== cwd) {
-      possiblePaths.push(join(cwdParent, 'codex-lens'));
-    }
-    const pathsList = possiblePaths.map(p => `   - ${p}`).join('\n');
-
-    const errorMsg = `Cannot find codex-lens directory for local installation.\n\n` +
-      `codex-lens is a local development package (not published to PyPI) and must be installed from local files.\n\n` +
-      `To fix this:\n` +
-      `1. Ensure 'codex-lens' directory exists at one of these locations:\n${pathsList}\n` +
-      `2. Verify pyproject.toml exists in the codex-lens directory\n` +
-      `3. Run ccw from the correct working directory\n` +
-      `4. Or manually install: cd /path/to/codex-lens && pip install -e .[${extras.join(',')}]`;
-    return { success: false, error: errorMsg };
+  if (!discovery.path) {
+    return { success: false, error: formatSearchResults(discovery, 'codex-lens') };
   }
 
-  console.log(`[CodexLens] Reinstalling from local path with semantic extras...`);
-  const installResult = await uv.installFromProject(codexLensPath, extras);
+  const editable = isDevEnvironment() && !discovery.insideNodeModules;
+  console.log(`[CodexLens] Reinstalling from local path with semantic extras (editable: ${editable})...`);
+  const installResult = await uv.installFromProject(discovery.path, extras, editable);
   if (!installResult.success) {
     return { success: false, error: `Installation failed: ${installResult.error}` };
   }
@@ -959,11 +952,38 @@ async function installSemantic(gpuMode: GpuMode = 'cpu'): Promise<BootstrapResul
  * @returns Bootstrap result
  */
 async function bootstrapVenv(): Promise<BootstrapResult> {
+  const warnings: string[] = [];
+
   // Prefer UV if available (faster package resolution and installation)
   if (await isUvAvailable()) {
     console.log('[CodexLens] Using UV for bootstrap...');
-    return bootstrapWithUv();
+    try {
+      const uvResult = await bootstrapWithUv();
+      if (uvResult.success) {
+        return uvResult;
+      }
+
+      console.log('[CodexLens] UV bootstrap failed, falling back to pip:', uvResult.error);
+      warnings.push(`UV bootstrap failed: ${uvResult.error || 'Unknown error'}`);
+    } catch (uvErr) {
+      const message = uvErr instanceof Error ? uvErr.message : String(uvErr);
+      console.log('[CodexLens] UV bootstrap error, falling back to pip:', message);
+      warnings.push(`UV bootstrap error: ${message}`);
+    }
   }
+
+  // Pre-flight: verify Python is available and compatible
+  const preFlightError = preFlightCheck();
+  if (preFlightError) {
+    return {
+      success: false,
+      error: `Pre-flight failed: ${preFlightError}`,
+      warnings: warnings.length > 0 ? warnings : undefined,
+    };
+  }
+
+  // Auto-repair corrupted venv before proceeding
+  repairVenvIfCorrupted();
 
   // Fall back to pip logic...
   // Ensure data directory exists
@@ -974,50 +994,47 @@ async function bootstrapVenv(): Promise<BootstrapResult> {
   }
 
   // Create venv if not exists
-  if (!existsSync(venvDir)) {
-    try {
-      console.log('[CodexLens] Creating virtual environment...');
-      const pythonCmd = getSystemPython();
-      execSync(`${pythonCmd} -m venv "${venvDir}"`, { stdio: 'inherit', timeout: EXEC_TIMEOUTS.PROCESS_SPAWN });
-    } catch (err) {
-      return { success: false, error: `Failed to create venv: ${(err as Error).message}` };
+    if (!existsSync(venvDir)) {
+      try {
+        console.log('[CodexLens] Creating virtual environment...');
+        const pythonCmd = getSystemPython();
+        execSync(`${pythonCmd} -m venv "${venvDir}"`, { stdio: 'inherit', timeout: EXEC_TIMEOUTS.PROCESS_SPAWN });
+      } catch (err) {
+        return {
+          success: false,
+          error: `Failed to create venv: ${(err as Error).message}`,
+          warnings: warnings.length > 0 ? warnings : undefined,
+        };
+      }
     }
-  }
 
-  // Install codex-lens
-  try {
-    console.log('[CodexLens] Installing codex-lens package...');
+    // Install codex-lens
+    try {
+      console.log('[CodexLens] Installing codex-lens package...');
     const pipPath = getCodexLensPip();
 
-    // Try local path - codex-lens is local-only, not published to PyPI
-    const codexLensPath = findLocalCodexLensPath();
+    // Try local path using unified discovery
+    const discovery = findCodexLensPath();
 
-    if (!codexLensPath) {
-      // codex-lens is a local-only package, not published to PyPI
-      const errorMsg = `Cannot find codex-lens directory for local installation.\n\n` +
-        `codex-lens is a local development package (not published to PyPI) and must be installed from local files.\n\n` +
-        `To fix this:\n` +
-        `1. Ensure the 'codex-lens' directory exists in your project root\n` +
-        `2. Verify pyproject.toml exists in codex-lens directory\n` +
-        `3. Run ccw from the correct working directory\n` +
-        `4. Or manually install: cd codex-lens && pip install -e .`;
-      throw new Error(errorMsg);
+    if (!discovery.path) {
+      throw new Error(formatSearchResults(discovery, 'codex-lens'));
     }
 
-    console.log(`[CodexLens] Installing from local path: ${codexLensPath}`);
-    execSync(`"${pipPath}" install -e "${codexLensPath}"`, { stdio: 'inherit', timeout: EXEC_TIMEOUTS.PACKAGE_INSTALL });
+    const editable = isDevEnvironment() && !discovery.insideNodeModules;
+    const pipFlag = editable ? ' -e' : '';
+    console.log(`[CodexLens] Installing from local path: ${discovery.path} (editable: ${editable})`);
+    execSync(`"${pipPath}" install${pipFlag} "${discovery.path}"`, { stdio: 'inherit', timeout: EXEC_TIMEOUTS.PACKAGE_INSTALL });
 
     // Clear cache after successful installation
     clearVenvStatusCache();
     clearSemanticStatusCache();
-    return { success: true };
+    return { success: true, warnings: warnings.length > 0 ? warnings : undefined };
   } catch (err) {
-    const errorMsg = `Failed to install codex-lens: ${(err as Error).message}\n\n` +
-      `codex-lens is a local development package. To fix this:\n` +
-      `1. Ensure the 'codex-lens' directory exists in your project root\n` +
-      `2. Run the installation from the correct working directory\n` +
-      `3. Or manually install: cd codex-lens && pip install -e .`;
-    return { success: false, error: errorMsg };
+    return {
+      success: false,
+      error: `Failed to install codex-lens: ${(err as Error).message}`,
+      warnings: warnings.length > 0 ? warnings : undefined,
+    };
   }
 }
 

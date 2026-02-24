@@ -109,7 +109,7 @@ export function useFileExplorer(options: UseFileExplorerOptions = {}): UseFileEx
   const {
     rootPath = '/',
     maxDepth = 5,
-    includeHidden = false,
+    // includeHidden is now controlled by internal showHiddenFiles state
     excludePatterns,
     staleTime,
     enabled = true,
@@ -126,10 +126,10 @@ export function useFileExplorer(options: UseFileExplorerOptions = {}): UseFileEx
   const [filter, setFilterState] = useState('');
   const [searchResults, setSearchResults] = useState<SearchFilesResponse | undefined>();
 
-  // Fetch file tree
+  // Fetch file tree - use showHiddenFiles state instead of options.includeHidden
   const treeQuery = useQuery({
-    queryKey: fileExplorerKeys.tree(rootPath),
-    queryFn: () => fetchFileTree(rootPath, { maxDepth, includeHidden, excludePatterns }),
+    queryKey: [...fileExplorerKeys.tree(rootPath), { showHidden: showHiddenFiles }],
+    queryFn: () => fetchFileTree(rootPath, { maxDepth, includeHidden: showHiddenFiles, excludePatterns }),
     staleTime: staleTime ?? TREE_STALE_TIME,
     enabled,
     retry: 2,

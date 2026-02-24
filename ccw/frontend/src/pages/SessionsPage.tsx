@@ -13,6 +13,8 @@ import {
   AlertCircle,
   FolderKanban,
   X,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import {
   useSessions,
@@ -43,6 +45,7 @@ import {
 import { TabsNavigation } from '@/components/ui/TabsNavigation';
 import { cn } from '@/lib/utils';
 import type { SessionMetadata } from '@/types/store';
+import { useAppStore, selectIsImmersiveMode } from '@/stores/appStore';
 
 type LocationFilter = 'all' | 'active' | 'archived';
 
@@ -70,6 +73,10 @@ export function SessionsPage() {
   // Dialog state
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
   const [sessionToDelete, setSessionToDelete] = React.useState<string | null>(null);
+
+  // Immersive mode (fullscreen)
+  const isImmersiveMode = useAppStore(selectIsImmersiveMode);
+  const toggleImmersiveMode = useAppStore((s) => s.toggleImmersiveMode);
 
   // Build filter object
   const filter: SessionsFilter = React.useMemo(
@@ -149,7 +156,7 @@ export function SessionsPage() {
   const hasActiveFilters = statusFilter.length > 0 || searchQuery.length > 0;
 
   return (
-    <div className="space-y-6">
+    <div className={cn("space-y-6", isImmersiveMode && "h-screen overflow-hidden")}>
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -168,6 +175,18 @@ export function SessionsPage() {
             <RefreshCw className={cn('h-4 w-4 mr-2', isFetching && 'animate-spin')} />
             {formatMessage({ id: 'common.actions.refresh' })}
           </Button>
+          <button
+            onClick={toggleImmersiveMode}
+            className={cn(
+              'p-2 rounded-md transition-colors',
+              isImmersiveMode
+                ? 'bg-primary/10 text-primary'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+            )}
+            title={isImmersiveMode ? formatMessage({ id: 'common.exitFullscreen', defaultMessage: 'Exit Fullscreen' }) : formatMessage({ id: 'common.fullscreen', defaultMessage: 'Fullscreen' })}
+          >
+            {isImmersiveMode ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+          </button>
         </div>
       </div>
 

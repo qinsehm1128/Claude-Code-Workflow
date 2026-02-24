@@ -35,10 +35,22 @@ export interface TeamMember {
   messageCount: number;
 }
 
+export type TeamStatus = 'active' | 'completed' | 'archived';
+
 export interface TeamSummary {
   name: string;
   messageCount: number;
   lastActivity: string;
+}
+
+export interface TeamSummaryExtended extends TeamSummary {
+  status: TeamStatus;
+  created_at: string;
+  updated_at: string;
+  archived_at?: string;
+  pipeline_mode?: string;
+  memberCount: number;
+  members: string[];  // Always provided by backend
 }
 
 export interface TeamMessagesResponse {
@@ -53,7 +65,7 @@ export interface TeamStatusResponse {
 }
 
 export interface TeamsListResponse {
-  teams: TeamSummary[];
+  teams: TeamSummaryExtended[];
 }
 
 export interface TeamMessageFilter {
@@ -64,3 +76,33 @@ export interface TeamMessageFilter {
 
 export type PipelineStage = 'plan' | 'impl' | 'test' | 'review';
 export type PipelineStageStatus = 'completed' | 'in_progress' | 'pending' | 'blocked';
+
+// ========================================
+// Team Artifacts Types
+// ========================================
+// Types for team artifacts tree visualization
+
+export type ArtifactNodeType = 'file' | 'directory';
+
+export type ContentType = 'markdown' | 'json' | 'text' | 'unknown';
+
+export interface ArtifactNode {
+  type: ArtifactNodeType;
+  name: string;
+  path: string;
+  contentType: ContentType;  // Always provided by backend
+  size?: number;
+  modifiedAt?: string;
+  children?: ArtifactNode[];
+}
+
+export interface TeamArtifactsResponse {
+  teamName: string;
+  sessionId: string;
+  sessionPath: string;
+  pipelineMode?: string;
+  tree: ArtifactNode[];
+  totalFiles: number;
+  totalDirectories: number;
+  totalSize: number;
+}

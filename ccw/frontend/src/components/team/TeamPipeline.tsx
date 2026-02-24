@@ -109,32 +109,34 @@ export function TeamPipeline({ messages }: TeamPipelineProps) {
   const stageStatus = derivePipelineStatus(messages);
 
   return (
-    <div className="space-y-3">
-      <h3 className="text-sm font-medium text-muted-foreground">
-        {formatMessage({ id: 'team.pipeline.title' })}
-      </h3>
+    <div className="flex flex-col h-full">
+      <div className="space-y-3 flex-1">
+        <h3 className="text-sm font-medium text-muted-foreground">
+          {formatMessage({ id: 'team.pipeline.title' })}
+        </h3>
 
-      {/* Desktop: horizontal layout */}
-      <div className="hidden sm:flex items-center gap-0">
-        <StageNode stage="plan" status={stageStatus.plan} />
-        <Arrow />
-        <StageNode stage="impl" status={stageStatus.impl} />
-        <Arrow />
-        <div className="flex flex-col gap-2">
-          <StageNode stage="test" status={stageStatus.test} />
-          <StageNode stage="review" status={stageStatus.review} />
+        {/* Desktop: horizontal layout */}
+        <div className="hidden sm:flex items-center gap-0">
+          <StageNode stage="plan" status={stageStatus.plan} />
+          <Arrow />
+          <StageNode stage="impl" status={stageStatus.impl} />
+          <Arrow />
+          <div className="flex flex-col gap-2">
+            <StageNode stage="test" status={stageStatus.test} />
+            <StageNode stage="review" status={stageStatus.review} />
+          </div>
+        </div>
+
+        {/* Mobile: vertical layout */}
+        <div className="flex sm:hidden flex-col items-center gap-2">
+          {STAGES.map((stage) => (
+            <StageNode key={stage} stage={stage} status={stageStatus[stage]} />
+          ))}
         </div>
       </div>
 
-      {/* Mobile: vertical layout */}
-      <div className="flex sm:hidden flex-col items-center gap-2">
-        {STAGES.map((stage) => (
-          <StageNode key={stage} stage={stage} status={stageStatus[stage]} />
-        ))}
-      </div>
-
-      {/* Legend */}
-      <div className="flex flex-wrap gap-3 text-[10px] text-muted-foreground pt-1">
+      {/* Legend - pinned to bottom */}
+      <div className="flex flex-wrap gap-3 text-[10px] text-muted-foreground mt-auto pt-3 border-t border-border">
         {(['completed', 'in_progress', 'pending', 'blocked'] as PipelineStageStatus[]).map((s) => {
           const cfg = statusConfig[s];
           const Icon = cfg.icon;

@@ -10,6 +10,14 @@ import { useFlowStore } from '@/stores';
 import { useCliStreamStore } from '@/stores/cliStreamStore';
 import { useCliSessionStore } from '@/stores/cliSessionStore';
 import {
+  handleSessionLockedMessage,
+  handleSessionUnlockedMessage,
+} from '@/stores/sessionManagerStore';
+import {
+  useExecutionMonitorStore,
+  type ExecutionWSMessage,
+} from '@/stores/executionMonitorStore';
+import {
   OrchestratorMessageSchema,
   type OrchestratorWebSocketMessage,
   type ExecutionLog,
@@ -63,6 +71,7 @@ function getStoreState() {
     upsertCliSession: cliSessions.upsertSession,
     removeCliSession: cliSessions.removeSession,
     appendCliSessionOutput: cliSessions.appendOutput,
+    updateCliSessionPausedState: cliSessions.updateSessionPausedState,
   };
 }
 
@@ -195,6 +204,46 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
               break;
             }
 
+            case 'CLI_SESSION_PAUSED': {
+              const { sessionKey } = data.payload ?? {};
+              if (typeof sessionKey === 'string') {
+                stores.updateCliSessionPausedState(sessionKey, true);
+              }
+              break;
+            }
+
+            case 'CLI_SESSION_RESUMED': {
+              const { sessionKey } = data.payload ?? {};
+              if (typeof sessionKey === 'string') {
+                stores.updateCliSessionPausedState(sessionKey, false);
+              }
+              break;
+            }
+
+            case 'CLI_SESSION_LOCKED': {
+              const { sessionKey, reason, executionId, timestamp } = data.payload ?? {};
+              if (typeof sessionKey === 'string') {
+                handleSessionLockedMessage({
+                  sessionKey,
+                  reason: reason ?? 'Workflow execution',
+                  executionId,
+                  timestamp: timestamp ?? new Date().toISOString(),
+                });
+              }
+              break;
+            }
+
+            case 'CLI_SESSION_UNLOCKED': {
+              const { sessionKey, timestamp } = data.payload ?? {};
+              if (typeof sessionKey === 'string') {
+                handleSessionUnlockedMessage({
+                  sessionKey,
+                  timestamp: timestamp ?? new Date().toISOString(),
+                });
+              }
+              break;
+            }
+
             case 'CLI_OUTPUT': {
               const { executionId, chunkType, data: outputData, unit } = data.payload;
 
@@ -282,6 +331,13 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
               break;
             }
           }
+          return;
+        }
+
+        // Handle EXECUTION messages (from orchestrator execution-in-session)
+        if (data.type?.startsWith('EXECUTION_')) {
+          const handleExecutionMessage = useExecutionMonitorStore.getState().handleExecutionMessage;
+          handleExecutionMessage(data as ExecutionWSMessage);
           return;
         }
 
@@ -423,6 +479,12 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         s.setWsStatus('connected');
         s.resetReconnectAttempts();
         reconnectDelayRef.current = RECONNECT_DELAY_BASE;
+
+        // Request any pending questions from backend
+        ws.send(JSON.stringify({
+          type: 'FRONTEND_READY',
+          payload: { action: 'requestPendingQuestions' }
+        }));
       };
 
       ws.onmessage = handleMessage;
@@ -434,8 +496,8 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         scheduleReconnect();
       };
 
-      ws.onerror = (error) => {
-        console.error('[WebSocket] Error:', error);
+      ws.onerror = () => {
+        console.warn('[WebSocket] Connection error');
         getStoreState().setWsStatus('error');
       };
     } catch (error) {

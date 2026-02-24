@@ -4,6 +4,7 @@
 // Zustand store for managing CLI Viewer layout and tab state
 
 import { create } from 'zustand';
+import { useShallow } from 'zustand/react/shallow';
 import { devtools, persist } from 'zustand/middleware';
 
 // ========== Types ==========
@@ -72,7 +73,7 @@ export interface ViewerState {
   nextTabIdCounter: number;
 
   // Actions
-  setLayout: (newLayout: AllotmentLayout) => void;
+  setLayout: (newLayout: AllotmentLayout | ((prev: AllotmentLayout) => AllotmentLayout)) => void;
   addPane: (parentPaneId?: PaneId, direction?: 'horizontal' | 'vertical') => PaneId;
   removePane: (paneId: PaneId) => void;
   addTab: (paneId: PaneId, executionId: CliExecutionId, title: string) => TabId;
@@ -372,8 +373,14 @@ export const useViewerStore = create<ViewerState>()(
 
         // ========== Layout Actions ==========
 
-        setLayout: (newLayout: AllotmentLayout) => {
-          set({ layout: newLayout }, false, 'viewer/setLayout');
+        setLayout: (newLayout: AllotmentLayout | ((prev: AllotmentLayout) => AllotmentLayout)) => {
+          if (typeof newLayout === 'function') {
+            const currentLayout = get().layout;
+            const result = newLayout(currentLayout);
+            set({ layout: result }, false, 'viewer/setLayout');
+          } else {
+            set({ layout: newLayout }, false, 'viewer/setLayout');
+          }
         },
 
         addPane: (parentPaneId?: PaneId, direction: 'horizontal' | 'vertical' = 'horizontal') => {
@@ -484,6 +491,31 @@ export const useViewerStore = create<ViewerState>()(
             return existingTab.id;
           }
 
+          // FIX-004: Global executionId deduplication (VSCode parity)
+          // Check all panes for existing tab with same executionId
+          for (const [pid, p] of Object.entries(state.panes)) {
+            if (pid === paneId) continue; // Already checked above
+            const existingInOtherPane = p.tabs.find((t) => t.executionId === executionId);
+            if (existingInOtherPane) {
+              // Activate the existing tab in its pane and focus that pane
+              set(
+                {
+                  panes: {
+                    ...state.panes,
+                    [pid]: {
+                      ...p,
+                      activeTabId: existingInOtherPane.id,
+                    },
+                  },
+                  focusedPaneId: pid,
+                },
+                false,
+                'viewer/addTab-existing-global'
+              );
+              return existingInOtherPane.id;
+            }
+          }
+
           const newTabId = generateTabId(state.nextTabIdCounter);
           const maxOrder = pane.tabs.reduce((max, t) => Math.max(max, t.order), 0);
 
@@ -568,6 +600,21 @@ export const useViewerStore = create<ViewerState>()(
             false,
             'viewer/removeTab'
           );
+
+          // FIX-003: Auto-cleanup empty panes after tab removal (VSCode parity)
+          if (newTabs.length === 0) {
+            const allPaneIds = getAllPaneIds(get().layout);
+            // Don't remove if it's the last pane
+            if (allPaneIds.length > 1) {
+              // Use queueMicrotask to avoid state mutation during current transaction
+              queueMicrotask(() => {
+                const currentState = get();
+                if (currentState.panes[paneId]?.tabs.length === 0) {
+                  currentState.removePane(paneId);
+                }
+              });
+            }
+          }
         },
 
         setActiveTab: (paneId: PaneId, tabId: TabId) => {
@@ -713,6 +760,22 @@ export const useViewerStore = create<ViewerState>()(
             false,
             'viewer/moveTab'
           );
+
+          // FIX-003: Auto-cleanup empty panes after tab movement (VSCode parity)
+          // Only cleanup when moving to a different pane and source becomes empty
+          if (sourcePaneId !== targetPaneId && newSourceTabs.length === 0) {
+            const allPaneIds = getAllPaneIds(get().layout);
+            // Don't remove if it's the last pane
+            if (allPaneIds.length > 1) {
+              // Use queueMicrotask to avoid state mutation during current transaction
+              queueMicrotask(() => {
+                const currentState = get();
+                if (currentState.panes[sourcePaneId]?.tabs.length === 0) {
+                  currentState.removePane(sourcePaneId);
+                }
+              });
+            }
+          }
         },
 
         togglePinTab: (tabId: TabId) => {
@@ -909,6 +972,9 @@ export const useViewerStore = create<ViewerState>()(
 
 // ========== Selectors ==========
 
+/** Stable empty array to avoid new references */
+const EMPTY_TABS: TabState[] = [];
+
 /**
  * Select the current layout
  */
@@ -940,11 +1006,12 @@ export const selectPane = (state: ViewerState, paneId: PaneId) => state.panes[pa
 export const selectTab = (state: ViewerState, tabId: TabId) => state.tabs[tabId];
 
 /**
- * Select tabs for a specific pane, sorted by order
+ * Select tabs for a specific pane, sorted by order.
+ * WARNING: Returns new array each call — use with useMemo or useShallow in components.
  */
 export const selectPaneTabs = (state: ViewerState, paneId: PaneId): TabState[] => {
   const pane = state.panes[paneId];
-  if (!pane) return [];
+  if (!pane) return EMPTY_TABS;
   return [...pane.tabs].sort((a, b) => a.order - b.order);
 };
 
@@ -964,7 +1031,7 @@ export const selectActiveTab = (state: ViewerState, paneId: PaneId): TabState | 
  * Useful for components that only need actions, not the full state
  */
 export const useViewerActions = () => {
-  return useViewerStore((state) => ({
+  return useViewerStore(useShallow((state) => ({
     setLayout: state.setLayout,
     addPane: state.addPane,
     removePane: state.removePane,
@@ -976,5 +1043,5 @@ export const useViewerActions = () => {
     setFocusedPane: state.setFocusedPane,
     initializeDefaultLayout: state.initializeDefaultLayout,
     reset: state.reset,
-  }));
+  })));
 };

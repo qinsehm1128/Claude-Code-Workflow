@@ -4,6 +4,8 @@ import path from 'path';
 export type CliSessionAuditEventType =
   | 'session_created'
   | 'session_closed'
+  | 'session_paused'
+  | 'session_resumed'
   | 'session_send'
   | 'session_execute'
   | 'session_resize'

@@ -13,6 +13,7 @@ import queryClient from './lib/query-client';
 import type { Locale } from './lib/i18n';
 import { useWorkflowStore } from '@/stores/workflowStore';
 import { useActiveCliExecutions } from '@/hooks/useActiveCliExecutions';
+import { DialogStyleProvider } from '@/contexts/DialogStyleContext';
 
 interface AppProps {
   locale: Locale;
@@ -27,10 +28,12 @@ function App({ locale, messages }: AppProps) {
   return (
     <IntlProvider locale={locale} messages={messages}>
       <QueryClientProvider client={queryClient}>
-        <QueryInvalidator />
-        <CliExecutionSync />
-        <RouterProvider router={router} />
-        <Toaster richColors position="top-right" />
+        <DialogStyleProvider>
+          <QueryInvalidator />
+          <CliExecutionSync />
+          <RouterProvider router={router} />
+          <Toaster richColors position="top-right" />
+        </DialogStyleProvider>
       </QueryClientProvider>
     </IntlProvider>
   );

@@ -14,13 +14,7 @@ import { useWorkflowStore, selectProjectPath } from '@/stores/workflowStore';
 import { useNotifications } from './useNotifications';
 import { sanitizeErrorMessage } from '@/utils/errorSanitizer';
 import { formatMessage } from '@/lib/i18n';
-
-// Query key factory
-export const commandsKeys = {
-  all: ['commands'] as const,
-  lists: () => [...commandsKeys.all, 'list'] as const,
-  list: (filters?: CommandsFilter) => [...commandsKeys.lists(), filters] as const,
-};
+import { workspaceQueryKeys } from '@/lib/queryKeys';
 
 // Default stale time: 10 minutes (commands are static)
 const STALE_TIME = 10 * 60 * 1000;
@@ -84,7 +78,7 @@ export function useCommandMutations(): UseCommandMutationsReturn {
       const { loadingId } = context ?? { loadingId: '' };
       if (loadingId) removeToast(loadingId);
       success(formatMessage('feedback.commandToggle.success'));
-      queryClient.invalidateQueries({ queryKey: commandsKeys.all });
+      queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.commands(projectPath) });
     },
     onError: (err, __, context) => {
       const { loadingId } = context ?? { loadingId: '' };
@@ -105,7 +99,7 @@ export function useCommandMutations(): UseCommandMutationsReturn {
       const { loadingId } = context ?? { loadingId: '' };
       if (loadingId) removeToast(loadingId);
       success(formatMessage('feedback.commandToggle.success'));
-      queryClient.invalidateQueries({ queryKey: commandsKeys.all });
+      queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.commands(projectPath) });
     },
     onError: (err, __, context) => {
       const { loadingId } = context ?? { loadingId: '' };
@@ -129,10 +123,10 @@ export function useCommands(options: UseCommandsOptions = {}): UseCommandsReturn
   const projectPath = useWorkflowStore(selectProjectPath);
 
   const query = useQuery({
-    queryKey: commandsKeys.list(filter),
+    queryKey: workspaceQueryKeys.commandsList(projectPath),
     queryFn: () => fetchCommands(projectPath),
     staleTime,
-    enabled: enabled, // Remove projectPath requirement
+    enabled: enabled,
     retry: 2,
   });
 
@@ -213,7 +207,7 @@ export function useCommands(options: UseCommandsOptions = {}): UseCommandsReturn
   };
 
   const invalidate = async () => {
-    await queryClient.invalidateQueries({ queryKey: commandsKeys.all });
+    await queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.commands(projectPath) });
   };
 
   return {

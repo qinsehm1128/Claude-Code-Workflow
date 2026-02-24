@@ -2,11 +2,9 @@
 
 Complete multi-CLI collaborative planning pipeline with ACE context gathering and iterative cross-verification. This phase document preserves the full content of the original `workflow:multi-cli-plan` command.
 
-> **Source**: Converted from `.claude/commands/workflow/multi-cli-plan.md`. Frontmatter moved to SKILL.md.
-
 ## Auto Mode
 
-When `--yes` or `-y`: Auto-approve plan, use recommended solution and execution method (Agent, Skip review).
+When `workflowPreferences.autoYes` is true: Auto-approve plan, use recommended solution and execution method (Agent, Skip review).
 
 # Multi-CLI Collaborative Planning Command
 
@@ -448,8 +446,9 @@ executionContext = {
 
 **Step 4: Hand off to Execution**:
 ```javascript
-// Execute to lite-execute with in-memory context
-Skill(skill="workflow:lite-execute", args="--in-memory")
+// Direct phase handoff: Read and execute Phase 2 (lite-execute) with in-memory context
+Read("phases/02-lite-execute.md")
+// Execute Phase 2 with executionContext (Mode 1: In-Memory Plan)
 ```
 
 ## Output File Structure

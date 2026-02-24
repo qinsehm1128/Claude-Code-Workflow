@@ -373,7 +373,7 @@ brainstorm-with-file
 ## Related Commands
 
 - `/workflow:brainstorm-with-file` - Generate brainstorm sessions
-- `/workflow:brainstorm:synthesis` - Add clarifications to brainstorm
+- `brainstorm` skill - Add clarifications to brainstorm
 - `/issue:new` - Create issues from GitHub or text
 - `/issue:plan` - Generate solutions via exploration
 - `/issue:queue` - Form execution queue

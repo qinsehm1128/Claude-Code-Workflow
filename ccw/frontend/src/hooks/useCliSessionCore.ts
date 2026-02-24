@@ -23,7 +23,7 @@ export interface UseCliSessionCoreOptions {
   /** Default resumeKey used when creating sessions via ensureSession/handleCreateSession. */
   resumeKey?: string;
   /** Shell to use when creating new sessions. Defaults to 'bash'. */
-  preferredShell?: string;
+  preferredShell?: 'bash' | 'pwsh';
   /** Additional createCliSession fields (cols, rows, tool, model). */
   createSessionDefaults?: {
     cols?: number;

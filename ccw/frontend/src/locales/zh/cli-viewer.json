@@ -21,7 +21,14 @@
   "toolbar": {
     "refresh": "刷新",
     "clearAll": "清空所有",
-    "settings": "设置"
+    "settings": "设置",
+    "back": "返回",
+    "addExecution": "添加",
+    "running": "运行中",
+    "executions": "执行",
+    "executionsList": "最近执行",
+    "fullscreen": "全屏",
+    "exitFullscreen": "退出全屏"
   },
   "emptyState": {
     "title": "暂无 CLI 执行",

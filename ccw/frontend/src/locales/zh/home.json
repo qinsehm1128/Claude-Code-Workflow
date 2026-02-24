@@ -112,15 +112,22 @@
     "executionQueueDesc": "执行队列管理",
     "executionQueuePhase2": "将在 Phase 2 实现",
     "noTerminalSelected": "未选择终端",
-    "selectTerminalHint": "从侧边栏选择一个终端",
+    "selectTerminalHint": "从侧边栏选择一个终端，或点击 + 新建",
     "commandPlaceholder": "输入命令... (Ctrl+Enter 执行)",
     "execute": "执行",
     "openInPanel": "在终端面板中查看",
+    "newSession": "新建终端",
     "status": {
       "running": "运行中",
       "completed": "已完成",
       "failed": "失败",
       "idle": "空闲"
+    },
+    "queueView": {
+      "session": "会话",
+      "orchestrator": "编排器",
+      "emptyTitle": "暂无执行任务",
+      "emptyDesc": "从问题队列发起执行后将在此显示"
     }
   }
 }

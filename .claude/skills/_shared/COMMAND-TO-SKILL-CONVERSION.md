@@ -122,7 +122,7 @@
 | **Frontmatter** | 移除，在 SKILL.md 中统一定义 | `argument-hint`、`examples` → 移除 |
 | **命令调用语法** | 转换为 Phase 文件的相对路径 | `/workflow:session:start` → `phases/01-session-discovery.md` |
 | **命令路径引用** | 转换为 Skill 目录内路径 | `commands/workflow/tools/` → `phases/` |
-| **跨命令引用** | 转换为 Phase 间文件引用 | `/workflow:tools:context-gather` → `phases/02-context-gathering.md` |
+| **跨命令引用** | 转换为 Phase 间文件引用 | `workflow-plan` skill (context-gather phase) → `phases/02-context-gathering.md` |
 | **命令参数说明** | 移除或转为 Phase Prerequisites | `usage: /workflow:plan [session-id]` → Phase Prerequisites 中说明 |
 
 **转换示例**：
@@ -131,7 +131,7 @@
 ```markdown
 ## Related Commands
 - `/workflow:session:start` - Start new session
-- `/workflow:tools:context-gather` - Gather context
+- `workflow-plan` skill (context-gather phase) - Gather context
 ```
 
 转换后 Phase 文件中（使用文件路径引用）：

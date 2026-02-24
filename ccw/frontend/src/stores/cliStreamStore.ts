@@ -356,15 +356,21 @@ export const useCliStreamStore = create<CliStreamState>()(
         // Also update in executions
         const state = get();
         if (state.executions[executionId]) {
-          set((state) => ({
-            executions: {
-              ...state.executions,
-              [executionId]: {
-                ...state.executions[executionId],
-                output: [...state.executions[executionId].output, line],
+          set((state) => {
+            const currentOutput = state.executions[executionId].output;
+            const updatedOutput = [...currentOutput, line];
+            return {
+              executions: {
+                ...state.executions,
+                [executionId]: {
+                  ...state.executions[executionId],
+                  output: updatedOutput.length > MAX_OUTPUT_LINES
+                    ? updatedOutput.slice(-MAX_OUTPUT_LINES)
+                    : updatedOutput,
+                },
               },
-            },
-          }), false, 'cliStream/updateExecutionOutput');
+            };
+          }, false, 'cliStream/updateExecutionOutput');
         }
       },
 
@@ -529,11 +535,14 @@ export const useCliStreamStore = create<CliStreamState>()(
 
 // ========== Selectors ==========
 
+/** Stable empty array to avoid new references */
+const EMPTY_OUTPUTS: CliOutputLine[] = [];
+
 /**
  * Selector for getting outputs by execution ID
  */
 export const selectOutputs = (state: CliStreamState, executionId: string) =>
-  state.outputs[executionId] || [];
+  state.outputs[executionId] || EMPTY_OUTPUTS;
 
 /**
  * Selector for getting addOutput action

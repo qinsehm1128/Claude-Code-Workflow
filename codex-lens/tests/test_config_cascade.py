@@ -84,13 +84,72 @@ class TestConfigCascadeDefaults:
         # Should keep the default "binary" strategy
         assert config.cascade_strategy == "binary"
 
+    def test_hybrid_cascade_strategy_alias_maps_to_binary_rerank(self, temp_config_dir):
+        """Hybrid is a backward-compat alias for binary_rerank."""
+        config = Config(data_dir=temp_config_dir)
+        settings = {"cascade": {"strategy": "hybrid"}}
+
+        settings_path = config.settings_path
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(settings_path, "w", encoding="utf-8") as f:
+            json.dump(settings, f)
+
+        with patch.object(config, "_apply_env_overrides"):
+            config.load_settings()
+
+        assert config.cascade_strategy == "binary_rerank"
+
     def test_staged_config_defaults(self, temp_config_dir):
         """Staged cascade settings should have correct defaults."""
         config = Config(data_dir=temp_config_dir)
         assert config.staged_coarse_k == 200
         assert config.staged_lsp_depth == 2
+        assert config.staged_stage2_mode == "precomputed"
         assert config.staged_clustering_strategy == "auto"
         assert config.staged_clustering_min_size == 3
         assert config.enable_staged_rerank is True
         assert config.cascade_coarse_k == 100
         assert config.cascade_fine_k == 10
+
+    def test_staged_settings_load_from_settings_json(self, temp_config_dir):
+        """load_settings should load staged.* settings when present."""
+        config = Config(data_dir=temp_config_dir)
+        settings = {
+            "staged": {
+                "coarse_k": 250,
+                "lsp_depth": 3,
+                "stage2_mode": "static_global_graph",
+                "realtime_lsp_timeout_s": 11.0,
+                "realtime_lsp_depth": 2,
+                "realtime_lsp_max_nodes": 42,
+                "realtime_lsp_max_seeds": 2,
+                "realtime_lsp_max_concurrent": 4,
+                "realtime_lsp_warmup_s": 0.5,
+                "realtime_lsp_resolve_symbols": True,
+                "clustering_strategy": "path",
+                "clustering_min_size": 7,
+                "enable_rerank": False,
+            }
+        }
+
+        settings_path = config.settings_path
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(settings_path, "w", encoding="utf-8") as f:
+            json.dump(settings, f)
+
+        with patch.object(config, "_apply_env_overrides"):
+            config.load_settings()
+
+        assert config.staged_coarse_k == 250
+        assert config.staged_lsp_depth == 3
+        assert config.staged_stage2_mode == "static_global_graph"
+        assert config.staged_realtime_lsp_timeout_s == 11.0
+        assert config.staged_realtime_lsp_depth == 2
+        assert config.staged_realtime_lsp_max_nodes == 42
+        assert config.staged_realtime_lsp_max_seeds == 2
+        assert config.staged_realtime_lsp_max_concurrent == 4
+        assert config.staged_realtime_lsp_warmup_s == 0.5
+        assert config.staged_realtime_lsp_resolve_symbols is True
+        assert config.staged_clustering_strategy == "path"
+        assert config.staged_clustering_min_size == 7
+        assert config.enable_staged_rerank is False

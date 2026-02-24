@@ -22,6 +22,9 @@ export type { SkillDetailPanelProps } from './SkillDetailPanel';
 export { SkillCreateDialog } from './SkillCreateDialog';
 export type { SkillCreateDialogProps } from './SkillCreateDialog';
 
+export { SkillHubCard } from './SkillHubCard';
+export type { SkillHubCardProps } from './SkillHubCard';
+
 export { StatCard, StatCardSkeleton } from './StatCard';
 export type { StatCardProps } from './StatCard';
 

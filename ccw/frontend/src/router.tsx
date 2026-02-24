@@ -13,7 +13,6 @@ import {
   SessionDetailPage,
   HistoryPage,
   OrchestratorPage,
-  LoopMonitorPage,
   IssueHubPage,
   SkillsManagerPage,
   CommandsManagerPage,
@@ -36,6 +35,7 @@ import {
   CliViewerPage,
   CliSessionSharePage,
   TeamPage,
+  TerminalDashboardPage,
 } from '@/pages';
 
 /**
@@ -90,7 +90,7 @@ const routes: RouteObject[] = [
       },
       {
         path: 'loops',
-        element: <LoopMonitorPage />,
+        element: <Navigate to="/terminal-dashboard" replace />,
       },
       {
         path: 'cli-viewer',
@@ -169,6 +169,14 @@ const routes: RouteObject[] = [
         path: 'teams',
         element: <TeamPage />,
       },
+      {
+        path: 'terminal-dashboard',
+        element: <TerminalDashboardPage />,
+      },
+      {
+        path: 'skill-hub',
+        element: <Navigate to="/skills?tab=hub" replace />,
+      },
       // Catch-all route for 404
       {
         path: '*',
@@ -202,6 +210,7 @@ export const ROUTES = {
   PROJECT: '/project',
   HISTORY: '/history',
   ORCHESTRATOR: '/orchestrator',
+  /** @deprecated Redirects to /terminal-dashboard */
   LOOPS: '/loops',
   CLI_VIEWER: '/cli-viewer',
   ISSUES: '/issues',
@@ -223,6 +232,8 @@ export const ROUTES = {
   EXPLORER: '/explorer',
   GRAPH: '/graph',
   TEAMS: '/teams',
+  TERMINAL_DASHBOARD: '/terminal-dashboard',
+  SKILL_HUB: '/skill-hub',
 } as const;
 
 export type RoutePath = (typeof ROUTES)[keyof typeof ROUTES];

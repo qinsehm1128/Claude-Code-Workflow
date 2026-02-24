@@ -22,7 +22,6 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
-import { useMutation } from '@tanstack/react-query';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
@@ -40,12 +39,19 @@ interface HooksByTrigger {
   PreToolUse: HookCardData[];
   PostToolUse: HookCardData[];
   Stop: HookCardData[];
+  Notification: HookCardData[];
+  SubagentStart: HookCardData[];
+  SubagentStop: HookCardData[];
+  PreCompact: HookCardData[];
+  SessionEnd: HookCardData[];
+  PostToolUseFailure: HookCardData[];
+  PermissionRequest: HookCardData[];
 }
 
 // ========== Helper Functions ==========
 
 function isHookTriggerType(value: string): value is HookTriggerType {
-  return ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop'].includes(value);
+  return ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop', 'Notification', 'SubagentStart', 'SubagentStop', 'PreCompact', 'SessionEnd', 'PostToolUseFailure', 'PermissionRequest'].includes(value);
 }
 
 function toHookCardData(hook: { name: string; description?: string; enabled: boolean; trigger: string; matcher?: string; command?: string; script?: string }): HookCardData | null {
@@ -69,6 +75,13 @@ function groupHooksByTrigger(hooks: HookCardData[]): HooksByTrigger {
     PreToolUse: hooks.filter((h) => h.trigger === 'PreToolUse'),
     PostToolUse: hooks.filter((h) => h.trigger === 'PostToolUse'),
     Stop: hooks.filter((h) => h.trigger === 'Stop'),
+    Notification: hooks.filter((h) => h.trigger === 'Notification'),
+    SubagentStart: hooks.filter((h) => h.trigger === 'SubagentStart'),
+    SubagentStop: hooks.filter((h) => h.trigger === 'SubagentStop'),
+    PreCompact: hooks.filter((h) => h.trigger === 'PreCompact'),
+    SessionEnd: hooks.filter((h) => h.trigger === 'SessionEnd'),
+    PostToolUseFailure: hooks.filter((h) => h.trigger === 'PostToolUseFailure'),
+    PermissionRequest: hooks.filter((h) => h.trigger === 'PermissionRequest'),
   };
 }
 
@@ -93,6 +106,34 @@ function getTriggerStats(hooksByTrigger: HooksByTrigger) {
     Stop: {
       total: hooksByTrigger.Stop.length,
       enabled: hooksByTrigger.Stop.filter((h) => h.enabled).length,
+    },
+    Notification: {
+      total: hooksByTrigger.Notification.length,
+      enabled: hooksByTrigger.Notification.filter((h) => h.enabled).length,
+    },
+    SubagentStart: {
+      total: hooksByTrigger.SubagentStart.length,
+      enabled: hooksByTrigger.SubagentStart.filter((h) => h.enabled).length,
+    },
+    SubagentStop: {
+      total: hooksByTrigger.SubagentStop.length,
+      enabled: hooksByTrigger.SubagentStop.filter((h) => h.enabled).length,
+    },
+    PreCompact: {
+      total: hooksByTrigger.PreCompact.length,
+      enabled: hooksByTrigger.PreCompact.filter((h) => h.enabled).length,
+    },
+    SessionEnd: {
+      total: hooksByTrigger.SessionEnd.length,
+      enabled: hooksByTrigger.SessionEnd.filter((h) => h.enabled).length,
+    },
+    PostToolUseFailure: {
+      total: hooksByTrigger.PostToolUseFailure.length,
+      enabled: hooksByTrigger.PostToolUseFailure.filter((h) => h.enabled).length,
+    },
+    PermissionRequest: {
+      total: hooksByTrigger.PermissionRequest.length,
+      enabled: hooksByTrigger.PermissionRequest.filter((h) => h.enabled).length,
     },
   };
 }
@@ -214,26 +255,31 @@ export function HookManagerPage() {
   // Determine which templates are already installed
   const installedTemplates = useMemo(() => {
     return HOOK_TEMPLATES.filter(template => {
-      return hooks.some(hook => {
-        // Check if hook name contains template ID
-        return hook.name.includes(template.id) ||
-               (hook.command && hook.command.includes(template.command));
-      });
+      return hooks.some(hook => hook.templateId === template.id);
     }).map(t => t.id);
   }, [hooks]);
 
-  // Mutation for installing templates
-  const installMutation = useMutation({
-    mutationFn: async (templateId: string) => {
-      return await installHookTemplate(templateId);
-    },
-    onSuccess: () => {
-      refetch();
-    },
-  });
+  // Track per-template installing state
+  const [installingTemplateId, setInstallingTemplateId] = useState<string | null>(null);
 
   const handleInstallTemplate = async (templateId: string) => {
-    await installMutation.mutateAsync(templateId);
+    const template = HOOK_TEMPLATES.find(t => t.id === templateId);
+    if (!template) return;
+
+    setInstallingTemplateId(templateId);
+    try {
+      await installHookTemplate(template.trigger, {
+        id: template.id,
+        command: template.command,
+        args: template.args ? [...template.args] : undefined,
+        matcher: template.matcher,
+      });
+      await refetch();
+    } catch (error) {
+      console.error('Failed to install template:', error);
+    } finally {
+      setInstallingTemplateId(null);
+    }
   };
 
   const FILTER_OPTIONS: Array<{ type: HookTriggerType | 'all'; icon: typeof Zap; label: string }> = [
@@ -376,7 +422,8 @@ export function HookManagerPage() {
             <HookQuickTemplates
               onInstallTemplate={handleInstallTemplate}
               installedTemplates={installedTemplates}
-              isLoading={installMutation.isPending}
+              isLoading={!!installingTemplateId}
+              installingTemplateId={installingTemplateId}
             />
           </div>
         )}

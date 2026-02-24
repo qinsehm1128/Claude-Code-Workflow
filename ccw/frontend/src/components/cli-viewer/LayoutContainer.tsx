@@ -3,7 +3,7 @@
 // ========================================
 // Manages allotment-based split panes for CLI viewer
 
-import { useCallback, useMemo } from 'react';
+import { useMemo, useRef, useEffect, useCallback } from 'react';
 import { Allotment } from 'allotment';
 import 'allotment/dist/style.css';
 import { cn } from '@/lib/utils';
@@ -46,13 +46,6 @@ function isPaneId(child: PaneId | AllotmentLayoutGroup): child is PaneId {
 function LayoutGroupRenderer({ group, minSize, onSizeChange }: LayoutGroupRendererProps) {
   const panes = useViewerPanes();
 
-  const handleChange = useCallback(
-    (sizes: number[]) => {
-      onSizeChange(sizes);
-    },
-    [onSizeChange]
-  );
-
   // Check if all panes in this group exist
   const validChildren = useMemo(() => {
     return group.children.filter(child => {
@@ -71,7 +64,7 @@ function LayoutGroupRenderer({ group, minSize, onSizeChange }: LayoutGroupRender
     <Allotment
       vertical={group.direction === 'vertical'}
       defaultSizes={group.sizes}
-      onChange={handleChange}
+      onChange={onSizeChange}
       className="h-full"
     >
       {validChildren.map((child, index) => (
@@ -105,14 +98,46 @@ function LayoutGroupRenderer({ group, minSize, onSizeChange }: LayoutGroupRender
 export function LayoutContainer({ className }: LayoutContainerProps) {
   const layout = useViewerLayout();
   const panes = useViewerPanes();
-  const setLayout = useViewerStore((state) => state.setLayout);
 
+  // Use ref to track if we're currently updating to prevent infinite loops
+  const isUpdatingRef = useRef(false);
+  // Track previous sizes to avoid unnecessary updates
+  const prevSizesRef = useRef<number[] | undefined>(layout.sizes);
+
+  // Update prevSizesRef when layout.sizes changes from external sources
+  useEffect(() => {
+    if (!isUpdatingRef.current) {
+      prevSizesRef.current = layout.sizes;
+    }
+  }, [layout.sizes]);
+
+  // Stable callback with no dependencies - prevents Allotment onChange infinite loop
   const handleSizeChange = useCallback(
     (sizes: number[]) => {
-      // Update the root layout with new sizes
-      setLayout({ ...layout, sizes });
+      // Skip if sizes haven't actually changed (compare by value)
+      if (
+        prevSizesRef.current &&
+        sizes.length === prevSizesRef.current.length &&
+        sizes.every((s, i) => Math.abs(s - prevSizesRef.current![i]) < 0.1)
+      ) {
+        return;
+      }
+
+      // Use functional update to avoid dependency on layout
+      isUpdatingRef.current = true;
+      prevSizesRef.current = sizes;
+
+      useViewerStore.getState().setLayout((prev) => ({
+        ...prev,
+        sizes,
+      }));
+
+      // Reset updating flag after a microtask
+      queueMicrotask(() => {
+        isUpdatingRef.current = false;
+      });
     },
-    [layout, setLayout]
+    [] // No dependencies - uses getState() and refs to prevent infinite loops
   );
 
   // Render based on layout type

@@ -18,15 +18,7 @@ import {
   type InsightsHistoryResponse,
 } from '../lib/api';
 import { useWorkflowStore, selectProjectPath } from '@/stores/workflowStore';
-
-// Query key factory
-export const promptHistoryKeys = {
-  all: ['promptHistory'] as const,
-  lists: () => [...promptHistoryKeys.all, 'list'] as const,
-  list: (filters?: PromptHistoryFilter) => [...promptHistoryKeys.lists(), filters] as const,
-  insights: () => [...promptHistoryKeys.all, 'insights'] as const,
-  insightsHistory: () => [...promptHistoryKeys.all, 'insightsHistory'] as const,
-};
+import { workspaceQueryKeys } from '@/lib/queryKeys';
 
 // Default stale time: 30 seconds (prompts update less frequently)
 const STALE_TIME = 30 * 1000;
@@ -78,7 +70,7 @@ export function usePromptHistory(options: UsePromptHistoryOptions = {}): UseProm
   const queryEnabled = enabled && !!projectPath;
 
   const query = useQuery({
-    queryKey: promptHistoryKeys.list(filter),
+    queryKey: workspaceQueryKeys.promptsList(projectPath),
     queryFn: () => fetchPrompts(projectPath),
     staleTime,
     enabled: queryEnabled,
@@ -179,7 +171,7 @@ export function usePromptHistory(options: UsePromptHistoryOptions = {}): UseProm
   };
 
   const invalidate = async () => {
-    await queryClient.invalidateQueries({ queryKey: promptHistoryKeys.all });
+    await queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.prompts(projectPath) });
   };
 
   return {
@@ -214,7 +206,7 @@ export function usePromptInsights(options: { enabled?: boolean; staleTime?: numb
   const queryEnabled = enabled && !!projectPath;
 
   return useQuery({
-    queryKey: promptHistoryKeys.insights(),
+    queryKey: workspaceQueryKeys.promptsInsights(projectPath),
     queryFn: () => fetchPromptInsights(projectPath),
     staleTime,
     enabled: queryEnabled,
@@ -236,7 +228,7 @@ export function useInsightsHistory(options: {
   const queryEnabled = enabled && !!projectPath;
 
   return useQuery({
-    queryKey: promptHistoryKeys.insightsHistory(),
+    queryKey: workspaceQueryKeys.promptsInsightsHistory(projectPath),
     queryFn: () => fetchInsightsHistory(projectPath, limit),
     staleTime,
     enabled: queryEnabled,
@@ -254,12 +246,12 @@ export interface UseAnalyzePromptsReturn {
 
 export function useAnalyzePrompts(): UseAnalyzePromptsReturn {
   const queryClient = useQueryClient();
+  const projectPath = useWorkflowStore(selectProjectPath);
 
   const mutation = useMutation({
     mutationFn: analyzePrompts,
     onSuccess: () => {
-      // Invalidate insights query after analysis
-      queryClient.invalidateQueries({ queryKey: promptHistoryKeys.insights() });
+      queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.promptsInsights(projectPath) });
     },
   });
 
@@ -278,14 +270,15 @@ export interface UseDeletePromptReturn {
 
 export function useDeletePrompt(): UseDeletePromptReturn {
   const queryClient = useQueryClient();
+  const projectPath = useWorkflowStore(selectProjectPath);
 
   const mutation = useMutation({
     mutationFn: deletePrompt,
     onMutate: async (promptId) => {
-      await queryClient.cancelQueries({ queryKey: promptHistoryKeys.all });
-      const previousPrompts = queryClient.getQueryData<PromptsResponse>(promptHistoryKeys.list());
+      await queryClient.cancelQueries({ queryKey: workspaceQueryKeys.prompts(projectPath) });
+      const previousPrompts = queryClient.getQueryData<PromptsResponse>(workspaceQueryKeys.promptsList(projectPath));
 
-      queryClient.setQueryData<PromptsResponse>(promptHistoryKeys.list(), (old) => {
+      queryClient.setQueryData<PromptsResponse>(workspaceQueryKeys.promptsList(projectPath), (old) => {
         if (!old) return old;
         return {
           ...old,
@@ -298,11 +291,11 @@ export function useDeletePrompt(): UseDeletePromptReturn {
     },
     onError: (_error, _promptId, context) => {
       if (context?.previousPrompts) {
-        queryClient.setQueryData(promptHistoryKeys.list(), context.previousPrompts);
+        queryClient.setQueryData(workspaceQueryKeys.promptsList(projectPath), context.previousPrompts);
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: promptHistoryKeys.all });
+      queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.prompts(projectPath) });
     },
   });
 
@@ -321,14 +314,15 @@ export interface UseBatchDeletePromptsReturn {
 
 export function useBatchDeletePrompts(): UseBatchDeletePromptsReturn {
   const queryClient = useQueryClient();
+  const projectPath = useWorkflowStore(selectProjectPath);
 
   const mutation = useMutation({
     mutationFn: batchDeletePrompts,
     onMutate: async (promptIds) => {
-      await queryClient.cancelQueries({ queryKey: promptHistoryKeys.all });
-      const previousPrompts = queryClient.getQueryData<PromptsResponse>(promptHistoryKeys.list());
+      await queryClient.cancelQueries({ queryKey: workspaceQueryKeys.prompts(projectPath) });
+      const previousPrompts = queryClient.getQueryData<PromptsResponse>(workspaceQueryKeys.promptsList(projectPath));
 
-      queryClient.setQueryData<PromptsResponse>(promptHistoryKeys.list(), (old) => {
+      queryClient.setQueryData<PromptsResponse>(workspaceQueryKeys.promptsList(projectPath), (old) => {
         if (!old) return old;
         return {
           ...old,
@@ -341,11 +335,11 @@ export function useBatchDeletePrompts(): UseBatchDeletePromptsReturn {
     },
     onError: (_error, _promptIds, context) => {
       if (context?.previousPrompts) {
-        queryClient.setQueryData(promptHistoryKeys.list(), context.previousPrompts);
+        queryClient.setQueryData(workspaceQueryKeys.promptsList(projectPath), context.previousPrompts);
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: promptHistoryKeys.all });
+      queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.prompts(projectPath) });
     },
   });
 
@@ -369,10 +363,10 @@ export function useDeleteInsight(): UseDeleteInsightReturn {
   const mutation = useMutation({
     mutationFn: (insightId: string) => deleteInsight(insightId, projectPath),
     onMutate: async (insightId) => {
-      await queryClient.cancelQueries({ queryKey: promptHistoryKeys.insightsHistory() });
-      const previousInsights = queryClient.getQueryData<InsightsHistoryResponse>(promptHistoryKeys.insightsHistory());
+      await queryClient.cancelQueries({ queryKey: workspaceQueryKeys.promptsInsightsHistory(projectPath) });
+      const previousInsights = queryClient.getQueryData<InsightsHistoryResponse>(workspaceQueryKeys.promptsInsightsHistory(projectPath));
 
-      queryClient.setQueryData<InsightsHistoryResponse>(promptHistoryKeys.insightsHistory(), (old) => {
+      queryClient.setQueryData<InsightsHistoryResponse>(workspaceQueryKeys.promptsInsightsHistory(projectPath), (old) => {
         if (!old) return old;
         return {
           ...old,
@@ -384,11 +378,11 @@ export function useDeleteInsight(): UseDeleteInsightReturn {
     },
     onError: (_error, _insightId, context) => {
       if (context?.previousInsights) {
-        queryClient.setQueryData(promptHistoryKeys.insightsHistory(), context.previousInsights);
+        queryClient.setQueryData(workspaceQueryKeys.promptsInsightsHistory(projectPath), context.previousInsights);
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: promptHistoryKeys.insightsHistory() });
+      queryClient.invalidateQueries({ queryKey: workspaceQueryKeys.promptsInsightsHistory(projectPath) });
     },
   });
 
