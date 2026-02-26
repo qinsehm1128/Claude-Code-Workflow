@@ -68,6 +68,8 @@
     "ccw/bin/",
     "ccw/dist/",
     "ccw/scripts/",
+    "ccw/frontend/dist/",
+    "ccw/frontend/package.json",
     ".claude/agents/",
     ".claude/commands/",
     ".claude/output-styles/",

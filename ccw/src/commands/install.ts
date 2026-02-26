@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, statSync, copyFileSync, readFileSync, writeFileSync, unlinkSync, rmdirSync, appendFileSync, renameSync } from 'fs';
+import { existsSync, mkdirSync, readdirSync, statSync, copyFileSync, readFileSync, writeFileSync, unlinkSync, rmdirSync, appendFileSync, renameSync, cpSync } from 'fs';
 import { join, dirname, basename } from 'path';
 import { homedir, platform } from 'os';
 import { fileURLToPath } from 'url';
