@@ -1,6 +1,10 @@
 {
   "title": "CLI Execution History",
   "description": "View and manage your CLI execution history",
+  "tabs": {
+    "executions": "Executions",
+    "observability": "Session Audit"
+  },
   "searchPlaceholder": "Search executions...",
   "filterAllTools": "All Tools",
   "deleteOptions": "Delete Options",
@@ -9,9 +13,13 @@
   "deleteAll": "Delete All History",
   "actions": {
     "view": "View Details",
+    "viewNative": "View Native Session",
     "delete": "Delete",
     "copyId": "Copy ID",
     "copied": "Copied!"
+  },
+  "badge": {
+    "native": "native"
   },
   "dialog": {
     "deleteTitle": "Confirm Delete",

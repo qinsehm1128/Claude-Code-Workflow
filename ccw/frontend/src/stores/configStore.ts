@@ -14,40 +14,30 @@ import type {
   A2UIPreferences,
 } from '../types/store';
 
-// Default CLI tools configuration
+// Default CLI tools configuration - no model defaults, models come from user's cli-tools.json
 const defaultCliTools: Record<string, CliToolConfig> = {
   gemini: {
     enabled: true,
-    primaryModel: 'gemini-2.5-pro',
-    secondaryModel: 'gemini-2.5-flash',
     tags: ['analysis', 'debug'],
     type: 'builtin',
   },
   qwen: {
     enabled: true,
-    primaryModel: 'coder-model',
-    secondaryModel: 'coder-model',
     tags: [],
     type: 'builtin',
   },
   codex: {
     enabled: true,
-    primaryModel: 'gpt-5.2',
-    secondaryModel: 'gpt-5.2',
     tags: [],
     type: 'builtin',
   },
   claude: {
     enabled: true,
-    primaryModel: 'sonnet',
-    secondaryModel: 'haiku',
     tags: [],
     type: 'builtin',
   },
   opencode: {
     enabled: true,
-    primaryModel: 'opencode/glm-4.7-free',
-    secondaryModel: 'opencode/glm-4.7-free',
     tags: [],
     type: 'builtin',
   },
@@ -100,6 +90,9 @@ const initialState: ConfigState = {
     darkModeEnabled: true,
     notificationsEnabled: true,
     experimentalFeatures: false,
+    dashboardQueuePanelEnabled: false,
+    dashboardInspectorEnabled: false,
+    dashboardExecutionMonitorEnabled: false,
   },
 };
 

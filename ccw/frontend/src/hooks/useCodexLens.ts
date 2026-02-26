@@ -547,7 +547,7 @@ export function useUpdateCodexLensConfig(): UseUpdateCodexLensConfigReturn {
     mutationFn: updateCodexLensConfig,
     onMutate: () => {
       info(
-        formatMessage({ id: 'status.inProgress' }),
+        formatMessage({ id: 'common.status.inProgress' }),
         formatMessage({ id: 'common.feedback.codexLensConfigUpdate.success' })
       );
     },
@@ -780,7 +780,7 @@ export function useDeleteModel(): UseDeleteModelReturn {
     },
     onMutate: () => {
       info(
-        formatMessage({ id: 'status.deleting' }),
+        formatMessage({ id: 'common.actions.deleting' }),
         formatMessage({ id: 'common.feedback.codexLensDeleteModel.success' })
       );
     },
@@ -825,7 +825,7 @@ export function useUpdateCodexLensEnv(): UseUpdateCodexLensEnvReturn {
     mutationFn: (request: CodexLensUpdateEnvRequest) => updateCodexLensEnv(request),
     onMutate: () => {
       info(
-        formatMessage({ id: 'status.inProgress' }),
+        formatMessage({ id: 'common.status.inProgress' }),
         formatMessage({ id: 'common.feedback.codexLensUpdateEnv.success' })
       );
     },
@@ -872,7 +872,7 @@ export function useSelectGpu(): UseSelectGpuReturn {
     mutationFn: (deviceId: string | number) => selectCodexLensGpu(deviceId),
     onMutate: () => {
       info(
-        formatMessage({ id: 'status.inProgress' }),
+        formatMessage({ id: 'common.status.inProgress' }),
         formatMessage({ id: 'common.feedback.codexLensSelectGpu.success' })
       );
     },
@@ -895,7 +895,7 @@ export function useSelectGpu(): UseSelectGpuReturn {
     mutationFn: () => resetCodexLensGpu(),
     onMutate: () => {
       info(
-        formatMessage({ id: 'status.inProgress' }),
+        formatMessage({ id: 'common.status.inProgress' }),
         formatMessage({ id: 'common.feedback.codexLensResetGpu.success' })
       );
     },
@@ -941,7 +941,7 @@ export function useUpdateIgnorePatterns(): UseUpdateIgnorePatternsReturn {
     mutationFn: updateCodexLensIgnorePatterns,
     onMutate: () => {
       info(
-        formatMessage({ id: 'status.inProgress' }),
+        formatMessage({ id: 'common.status.inProgress' }),
         formatMessage({ id: 'common.feedback.codexLensUpdatePatterns.success' })
       );
     },
@@ -1070,7 +1070,7 @@ export function useRebuildIndex(): UseRebuildIndexReturn {
     }) => rebuildCodexLensIndex(projectPath, options),
     onMutate: () => {
       info(
-        formatMessage({ id: 'status.inProgress' }),
+        formatMessage({ id: 'common.status.inProgress' }),
         formatMessage({ id: 'common.feedback.codexLensRebuildIndex.success' })
       );
     },
@@ -1132,7 +1132,7 @@ export function useUpdateIndex(): UseUpdateIndexReturn {
     }) => updateCodexLensIndex(projectPath, options),
     onMutate: () => {
       info(
-        formatMessage({ id: 'status.inProgress' }),
+        formatMessage({ id: 'common.status.inProgress' }),
         formatMessage({ id: 'common.feedback.codexLensUpdateIndex.success' })
       );
     },
@@ -1178,7 +1178,7 @@ export function useCancelIndexing(): UseCancelIndexingReturn {
     mutationFn: cancelCodexLensIndexing,
     onMutate: () => {
       info(
-        formatMessage({ id: 'status.inProgress' }),
+        formatMessage({ id: 'common.status.inProgress' }),
         formatMessage({ id: 'common.feedback.codexLensCancelIndexing.success' })
       );
     },

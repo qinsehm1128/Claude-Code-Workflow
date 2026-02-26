@@ -1,16 +1,16 @@
 ---
 name: issue-devpipeline
 description: |
-  Plan-and-Execute pipeline with Wave Pipeline pattern.
+  Plan-and-Execute pipeline with per-issue beat pattern.
   Orchestrator coordinates planner (Deep Interaction) and executors (Parallel Fan-out).
-  Planner produces wave queues, executors implement solutions concurrently.
-agents: 4
+  Planner outputs per-issue solutions, executors implement solutions concurrently.
+agents: 3
 phases: 4
 ---
 
 # Issue DevPipeline
 
-边规划边执行流水线。编排器通过 Wave Pipeline 协调 planner 和 executor(s)：planner 完成一个 wave 的规划后输出执行队列，编排器立即为该 wave 派发 executor agents，同时 planner 继续规划下一 wave。
+边规划边执行流水线。编排器通过逐 Issue 节拍流水线协调 planner 和 executor(s)：planner 每完成一个 issue 的规划后立即输出，编排器即时为该 issue 派发 executor agent，同时 planner 继续规划下一 issue。
 
 ## Architecture Overview
 
@@ -24,24 +24,23 @@ phases: 4
      │  Planner    │                    │  Executors (N)      │
      │  (Deep      │                    │  (Parallel Fan-out) │
      │  Interaction│                    │                     │
-     │  multi-round│                    │  exec-1  exec-2 ... │
+     │  per-issue) │                    │  exec-1  exec-2 ... │
      └──────┬──────┘                    └──────────┬──────────┘
             │                                      │
      ┌──────┴──────┐                    ┌──────────┴──────────┐
      │ issue-plan  │                    │  code-developer     │
-     │ issue-queue │                    │  (role reference)   │
-     │ (existing)  │                    │                     │
+     │ (existing)  │                    │  (role reference)   │
      └─────────────┘                    └─────────────────────┘
 ```
 
-**Wave Pipeline Flow**:
+**Per-Issue Beat Pipeline Flow**:
 ```
-Planner Round 1 → Wave 1 queue
-  ↓ (spawn executors for wave 1)
-  ↓ send_input → Planner Round 2 → Wave 2 queue
-  ↓ (spawn executors for wave 2)
+Planner → Issue 1 solution → ISSUE_READY
+  ↓ (spawn executor for issue 1)
+  ↓ send_input → Planner → Issue 2 solution → ISSUE_READY
+  ↓ (spawn executor for issue 2)
   ...
-  ↓ Planner outputs "ALL_PLANNED"
+  ↓ Planner outputs "all_planned"
   ↓ wait for all executor agents
   ↓ Aggregate results → Done
 ```
@@ -50,10 +49,9 @@ Planner Round 1 → Wave 1 queue
 
 | Agent | Role File | Responsibility | New/Existing |
 |-------|-----------|----------------|--------------|
-| `planex-planner` | `~/.codex/agents/planex-planner.md` | 需求拆解 → issue 创建 → 方案设计 → 队列编排 | New |
+| `planex-planner` | `~/.codex/agents/planex-planner.md` | 需求拆解 → issue 创建 → 方案设计 → 冲突检查 → 逐 issue 输出 | New |
 | `planex-executor` | `~/.codex/agents/planex-executor.md` | 加载 solution → 代码实现 → 测试 → 提交 | New |
 | `issue-plan-agent` | `~/.codex/agents/issue-plan-agent.md` | Closed-loop: ACE 探索 + solution 生成 | Existing |
-| `issue-queue-agent` | `~/.codex/agents/issue-queue-agent.md` | Solution 排序 + 冲突检测 → 执行队列 | Existing |
 
 ## Input Types
 
@@ -88,9 +86,16 @@ const inputPayload = {
   text: textMatch ? textMatch[1] : args,
   planFile: planMatch ? planMatch[1] : null
 }
+
+// Initialize session directory for artifacts
+const slug = (issueIds[0] || 'batch').replace(/[^a-zA-Z0-9-]/g, '')
+const dateStr = new Date().toISOString().slice(0,10).replace(/-/g,'')
+const sessionId = `PEX-${slug}-${dateStr}`
+const sessionDir = `.workflow/.team/${sessionId}`
+shell(`mkdir -p "${sessionDir}/artifacts/solutions"`)
 ```
 
-### Phase 2: Planning (Deep Interaction with Planner)
+### Phase 2: Planning (Deep Interaction with Planner — Per-Issue Beat)
 
 ```javascript
 // Track all agents for cleanup
@@ -108,45 +113,42 @@ const plannerId = spawn_agent({
 
 ---
 
-Goal: 分析需求并完成第一波 (Wave 1) 的规划。输出执行队列。
+Goal: 分析需求并逐 issue 输出规划结果。每完成一个 issue 立即输出。
 
 Input:
 ${JSON.stringify(inputPayload, null, 2)}
 
+Session Dir: ${sessionDir}
+
 Scope:
-- Include: 需求分析、issue 创建、方案设计、队列编排
+- Include: 需求分析、issue 创建、方案设计、inline 冲突检查、写中间产物
 - Exclude: 代码实现、测试执行、git 操作
 
 Deliverables:
-输出严格遵循以下 JSON 格式：
+每个 issue 输出严格遵循以下 JSON 格式：
 \`\`\`json
 {
-  "wave": 1,
-  "status": "wave_ready" | "all_planned",
-  "issues": ["ISS-xxx", ...],
-  "queue": [
-    {
-      "issue_id": "ISS-xxx",
-      "solution_id": "SOL-xxx",
-      "title": "描述",
-      "priority": "normal",
-      "depends_on": []
-    }
-  ],
+  "status": "issue_ready" | "all_planned",
+  "issue_id": "ISS-xxx",
+  "solution_id": "SOL-xxx",
+  "title": "描述",
+  "priority": "normal",
+  "depends_on": [],
+  "solution_file": "${sessionDir}/artifacts/solutions/ISS-xxx.json",
   "remaining_issues": ["ISS-yyy", ...],
-  "summary": "本波次规划摘要"
+  "summary": "本 issue 规划摘要"
 }
 \`\`\`
 
 Quality bar:
 - 每个 issue 必须有绑定的 solution
-- 队列必须按依赖排序
-- 每波最多 5 个 issues
+- Solution 写入中间产物文件
+- Inline 冲突检查标记 depends_on
 `
 })
 allAgentIds.push(plannerId)
 
-// Wait for planner Wave 1 output
+// Wait for planner first issue output
 let plannerResult = wait({ ids: [plannerId], timeout_ms: 900000 })
 
 if (plannerResult.timed_out) {
@@ -155,21 +157,21 @@ if (plannerResult.timed_out) {
 }
 
 // Parse planner output
-let waveData = parseWaveOutput(plannerResult.status[plannerId].completed)
+let issueData = parseIssueOutput(plannerResult.status[plannerId].completed)
 ```
 
-### Phase 3: Wave Execution Loop
+### Phase 3: Per-Issue Execution Loop
 
 ```javascript
 const executorResults = []
-let waveNum = 0
+let issueCount = 0
 
 while (true) {
-  waveNum++
+  issueCount++
 
-  // ─── Dispatch executors for current wave (Parallel Fan-out) ───
-  const waveExecutors = waveData.queue.map(entry =>
-    spawn_agent({
+  // ─── Dispatch executor for current issue (if valid) ───
+  if (issueData && issueData.issue_id) {
+    const executorId = spawn_agent({
       message: `
 ## TASK ASSIGNMENT
 
@@ -180,23 +182,25 @@ while (true) {
 
 ---
 
-Goal: 实现 ${entry.issue_id} 的 solution
+Goal: 实现 ${issueData.issue_id} 的 solution
 
-Issue: ${entry.issue_id}
-Solution: ${entry.solution_id}
-Title: ${entry.title}
-Priority: ${entry.priority}
-Dependencies: ${entry.depends_on?.join(', ') || 'none'}
+Issue: ${issueData.issue_id}
+Solution: ${issueData.solution_id}
+Title: ${issueData.title}
+Priority: ${issueData.priority}
+Dependencies: ${issueData.depends_on?.join(', ') || 'none'}
+Solution File: ${issueData.solution_file}
+Session Dir: ${sessionDir}
 
 Scope:
 - Include: 加载 solution plan、代码实现、测试运行、git commit
-- Exclude: issue 创建、方案修改、队列变更
+- Exclude: issue 创建、方案修改
 
 Deliverables:
 输出严格遵循以下格式：
 \`\`\`json
 {
-  "issue_id": "${entry.issue_id}",
+  "issue_id": "${issueData.issue_id}",
   "status": "success" | "failed",
   "files_changed": ["path/to/file", ...],
   "tests_passed": true | false,
@@ -214,64 +218,56 @@ Quality bar:
 - 每个变更必须 commit
 `
     })
-  )
-  allAgentIds.push(...waveExecutors)
-
-  // ─── Check if more waves needed ───
-  if (waveData.status === 'all_planned') {
-    // No more waves — wait for current executors and finish
-    const execResults = wait({ ids: waveExecutors, timeout_ms: 1200000 })
-    waveExecutors.forEach((id, i) => {
-      executorResults.push({
-        wave: waveNum,
-        issue: waveData.queue[i].issue_id,
-        result: execResults.status[id]?.completed || 'timeout'
-      })
+    allAgentIds.push(executorId)
+    executorResults.push({
+      id: executorId,
+      issueId: issueData.issue_id,
+      index: issueCount
     })
+  }
+
+  // ─── Check if all planned ───
+  if (issueData?.status === 'all_planned') {
     break
   }
 
-  // ─── Request next wave from planner (while executors run) ───
+  // ─── Request next issue from planner ───
   send_input({
     id: plannerId,
-    message: `
-## WAVE ${waveNum} 已派发
-
-已为 Wave ${waveNum} 创建 ${waveExecutors.length} 个 executor agents。
-
-## NEXT
-请继续规划下一波 (Wave ${waveNum + 1})。
-剩余 issues: ${JSON.stringify(waveData.remaining_issues)}
-
-输出格式同前。如果所有 issues 已规划完毕，status 设为 "all_planned"。
-`
+    message: `Issue ${issueData?.issue_id || 'unknown'} dispatched. Continue to next issue.`
   })
 
-  // ─── Wait for both: executors (current wave) + planner (next wave) ───
-  const allWaiting = [...waveExecutors, plannerId]
-  const batchResult = wait({ ids: allWaiting, timeout_ms: 1200000 })
+  // ─── Wait for planner next issue ───
+  const nextResult = wait({ ids: [plannerId], timeout_ms: 900000 })
 
-  // Collect executor results
-  waveExecutors.forEach((id, i) => {
-    executorResults.push({
-      wave: waveNum,
-      issue: waveData.queue[i].issue_id,
-      result: batchResult.status[id]?.completed || 'timeout'
-    })
-  })
-
-  // Parse next wave from planner
-  if (batchResult.status[plannerId]?.completed) {
-    waveData = parseWaveOutput(batchResult.status[plannerId].completed)
+  if (nextResult.timed_out) {
+    send_input({ id: plannerId, message: "请尽快输出当前已完成的规划结果。" })
+    const retryResult = wait({ ids: [plannerId], timeout_ms: 120000 })
+    if (retryResult.timed_out) break
+    issueData = parseIssueOutput(retryResult.status[plannerId].completed)
   } else {
-    // Planner timed out — wait more
-    const plannerRetry = wait({ ids: [plannerId], timeout_ms: 300000 })
-    if (plannerRetry.timed_out) {
-      // Abort pipeline
-      break
-    }
-    waveData = parseWaveOutput(plannerRetry.status[plannerId].completed)
+    issueData = parseIssueOutput(nextResult.status[plannerId].completed)
   }
+}
+
+// ─── Wait for all executor agents ───
+const executorIds = executorResults.map(e => e.id)
+if (executorIds.length > 0) {
+  const execResults = wait({ ids: executorIds, timeout_ms: 1200000 })
+
+  // Handle timeouts
+  if (execResults.timed_out) {
+    const pending = executorIds.filter(id => !execResults.status[id]?.completed)
+    pending.forEach(id => {
+      send_input({ id, message: "Please finalize current task and output results." })
+    })
+    wait({ ids: pending, timeout_ms: 120000 })
+  }
+
+  // Collect results
+  executorResults.forEach(entry => {
+    entry.result = execResults.status[entry.id]?.completed || 'timeout'
+  })
 }
 ```
 
@@ -297,19 +293,18 @@ const failed = executorResults.filter(r => {
 const report = `
 ## PlanEx Pipeline Complete
 
-**Waves**: ${waveNum}
 **Total Issues**: ${executorResults.length}
 **Succeeded**: ${succeeded.length}
 **Failed**: ${failed.length}
 
-### Results by Wave
-${executorResults.map(r => `- Wave ${r.wave} | ${r.issue} | ${(() => {
+### Results
+${executorResults.map(r => `- ${r.issueId} | ${(() => {
   try { return JSON.parse(r.result).status } catch { return 'error' }
 })()}`).join('\n')}
 
 ${failed.length > 0 ? `### Failed Issues
-${failed.map(r => `- ${r.issue}: ${(() => {
-  try { return JSON.parse(r.result).error } catch { return r.result.slice(0, 200) }
+${failed.map(r => `- ${r.issueId}: ${(() => {
+  try { return JSON.parse(r.result).error } catch { return r.result?.slice(0, 200) || 'unknown' }
 })()}`).join('\n')}` : ''}
 `
 
@@ -324,7 +319,7 @@ allAgentIds.forEach(id => {
 ## Helper Functions
 
 ```javascript
-function parseWaveOutput(output) {
+function parseIssueOutput(output) {
   // Extract JSON block from agent output
   const jsonMatch = output.match(/```json\s*([\s\S]*?)```/)
   if (jsonMatch) {
@@ -332,8 +327,8 @@ function parseWaveOutput(output) {
   }
   // Fallback: try parsing entire output as JSON
   try { return JSON.parse(output) } catch {}
-  // Last resort: return empty wave with all_planned
-  return { wave: 0, status: 'all_planned', queue: [], remaining_issues: [], summary: 'Parse failed' }
+  // Last resort: return empty with all_planned
+  return { status: 'all_planned', issue_id: null, remaining_issues: [], summary: 'Parse failed' }
 }
 ```
 
@@ -342,11 +337,11 @@ function parseWaveOutput(output) {
 ```javascript
 const CONFIG = {
   sessionDir: ".workflow/.team/PEX-{slug}-{date}/",
+  artifactsDir: ".workflow/.team/PEX-{slug}-{date}/artifacts/",
   issueDataDir: ".workflow/issues/",
-  maxWaveSize: 5,
   plannerTimeout: 900000,   // 15 min
   executorTimeout: 1200000, // 20 min
-  maxWaves: 10
+  maxIssues: 50
 }
 ```
 
@@ -356,10 +351,10 @@ const CONFIG = {
 
 | Scenario | Action |
 |----------|--------|
-| Planner wave timeout | send_input 催促收敛，retry wait 120s |
+| Planner issue timeout | send_input 催促收敛，retry wait 120s |
 | Executor timeout | 标记为 failed，继续其他 executor |
 | Batch wait partial timeout | 收集已完成结果，继续 pipeline |
-| Pipeline stall (> 2 waves timeout) | 中止 pipeline，输出部分结果 |
+| Pipeline stall (> 3 issues timeout) | 中止 pipeline，输出部分结果 |
 
 ### Cleanup Protocol
 
@@ -379,5 +374,5 @@ allAgentIds.forEach(id => {
 | No issues created | Report error, abort pipeline |
 | Solution planning failure | Skip issue, report in final results |
 | Executor implementation failure | Mark as failed, continue with other executors |
-| All executors in wave fail | Report wave failure, continue to next wave |
-| Planner exits early | Treat as all_planned, finish current wave |
+| Inline conflict check failure | Use empty depends_on, continue |
+| Planner exits early | Treat as all_planned, finish current executors |

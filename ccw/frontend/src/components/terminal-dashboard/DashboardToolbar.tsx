@@ -35,6 +35,7 @@ import { useWorkflowStore, selectProjectPath } from '@/stores/workflowStore';
 import { toast } from '@/stores/notificationStore';
 import { useExecutionMonitorStore, selectActiveExecutionCount } from '@/stores/executionMonitorStore';
 import { useSessionManagerStore } from '@/stores/sessionManagerStore';
+import { useConfigStore } from '@/stores/configStore';
 import { CliConfigModal, type CliSessionConfig } from './CliConfigModal';
 
 // ========== Types ==========
@@ -94,6 +95,12 @@ export function DashboardToolbar({ activePanel, onTogglePanel, isFileSidebarOpen
   // Execution monitor count
   const executionCount = useExecutionMonitorStore(selectActiveExecutionCount);
 
+  // Feature flags for panel visibility
+  const featureFlags = useConfigStore((s) => s.featureFlags);
+  const showQueue = featureFlags.dashboardQueuePanelEnabled;
+  const showInspector = featureFlags.dashboardInspectorEnabled;
+  const showExecution = featureFlags.dashboardExecutionMonitorEnabled;
+
   // Layout preset handler
   const resetLayout = useTerminalGridStore((s) => s.resetLayout);
   const handlePreset = useCallback(
@@ -141,6 +148,7 @@ export function DashboardToolbar({ activePanel, onTogglePanel, isFileSidebarOpen
           tool: config.tool,
           model: config.model,
           launchMode: config.launchMode,
+          settingsEndpointId: config.settingsEndpointId,
         },
         projectPath
       );
@@ -209,27 +217,33 @@ export function DashboardToolbar({ activePanel, onTogglePanel, isFileSidebarOpen
           onClick={() => onTogglePanel('issues')}
           badge={openCount > 0 ? openCount : undefined}
         />
-        <ToolbarButton
-          icon={ListChecks}
-          label={formatMessage({ id: 'terminalDashboard.toolbar.queue' })}
-          isActive={activePanel === 'queue'}
-          onClick={() => onTogglePanel('queue')}
-          badge={queueCount > 0 ? queueCount : undefined}
-        />
-        <ToolbarButton
-          icon={Info}
-          label={formatMessage({ id: 'terminalDashboard.toolbar.inspector' })}
-          isActive={activePanel === 'inspector'}
-          onClick={() => onTogglePanel('inspector')}
-          dot={hasChain}
-        />
-        <ToolbarButton
-          icon={Activity}
-          label={formatMessage({ id: 'terminalDashboard.toolbar.executionMonitor', defaultMessage: 'Execution Monitor' })}
-          isActive={activePanel === 'execution'}
-          onClick={() => onTogglePanel('execution')}
-          badge={executionCount > 0 ? executionCount : undefined}
-        />
+        {showQueue && (
+          <ToolbarButton
+            icon={ListChecks}
+            label={formatMessage({ id: 'terminalDashboard.toolbar.queue' })}
+            isActive={activePanel === 'queue'}
+            onClick={() => onTogglePanel('queue')}
+            badge={queueCount > 0 ? queueCount : undefined}
+          />
+        )}
+        {showInspector && (
+          <ToolbarButton
+            icon={Info}
+            label={formatMessage({ id: 'terminalDashboard.toolbar.inspector' })}
+            isActive={activePanel === 'inspector'}
+            onClick={() => onTogglePanel('inspector')}
+            dot={hasChain}
+          />
+        )}
+        {showExecution && (
+          <ToolbarButton
+            icon={Activity}
+            label={formatMessage({ id: 'terminalDashboard.toolbar.executionMonitor', defaultMessage: 'Execution Monitor' })}
+            isActive={activePanel === 'execution'}
+            onClick={() => onTogglePanel('execution')}
+            badge={executionCount > 0 ? executionCount : undefined}
+          />
+        )}
         <ToolbarButton
           icon={FolderOpen}
           label={formatMessage({ id: 'terminalDashboard.toolbar.files', defaultMessage: 'Files' })}

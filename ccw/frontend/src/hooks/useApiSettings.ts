@@ -699,8 +699,8 @@ export interface UseCliSettingsReturn {
   cliSettings: CliSettingsEndpoint[];
   totalCount: number;
   enabledCount: number;
-  providerBasedCount: number;
-  directCount: number;
+  /** Count per provider type */
+  providerCounts: Record<string, number>;
   isLoading: boolean;
   isFetching: boolean;
   error: Error | null;
@@ -723,13 +723,12 @@ export function useCliSettings(options: UseCliSettingsOptions = {}): UseCliSetti
   const cliSettings = query.data?.endpoints ?? [];
   const enabledCliSettings = cliSettings.filter((s) => s.enabled);
 
-  // Determine mode based on whether settings have providerId in description or env vars
-  const providerBasedCount = cliSettings.filter((s) => {
-    // Provider-based: has ANTHROPIC_BASE_URL set to provider's apiBase
-    return s.settings.env.ANTHROPIC_BASE_URL && !s.settings.env.ANTHROPIC_BASE_URL.includes('api.anthropic.com');
-  }).length;
-
-  const directCount = cliSettings.length - providerBasedCount;
+  // Count settings per provider type
+  const providerCounts = cliSettings.reduce<Record<string, number>>((acc, s) => {
+    const provider = s.provider || 'claude';
+    acc[provider] = (acc[provider] || 0) + 1;
+    return acc;
+  }, {});
 
   const refetch = async () => {
     await query.refetch();
@@ -743,8 +742,7 @@ export function useCliSettings(options: UseCliSettingsOptions = {}): UseCliSetti
     cliSettings,
     totalCount: cliSettings.length,
     enabledCount: enabledCliSettings.length,
-    providerBasedCount,
-    directCount,
+    providerCounts,
     isLoading: query.isLoading,
     isFetching: query.isFetching,
     error: query.error,

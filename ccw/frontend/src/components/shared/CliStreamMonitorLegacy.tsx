@@ -24,45 +24,16 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/Tabs';
 import { Badge } from '@/components/ui/Badge';
 import { LogBlockList } from '@/components/shared/LogBlock';
 import { useCliStreamStore, type CliOutputLine } from '@/stores/cliStreamStore';
-import { useNotificationStore, selectWsLastMessage } from '@/stores';
-import { useActiveCliExecutions, useInvalidateActiveCliExecutions } from '@/hooks/useActiveCliExecutions';
+import { useActiveCliExecutions } from '@/hooks/useActiveCliExecutions';
+import { useCliStreamWebSocket } from '@/hooks/useCliStreamWebSocket';
 
 // New components for Tab + JSON Cards
 import { ExecutionTab } from './CliStreamMonitor/components/ExecutionTab';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-// ========== Types for CLI WebSocket Messages ==========
-
-interface CliStreamStartedPayload {
-  executionId: string;
-  tool: string;
-  mode: string;
-  timestamp: string;
-}
-
-interface CliStreamOutputPayload {
-  executionId: string;
-  chunkType: string;
-  data: unknown;
-  unit?: {
-    content: unknown;
-    type?: string;
-  };
-}
-
-interface CliStreamCompletedPayload {
-  executionId: string;
-  success: boolean;
-  duration?: number;
-  timestamp: string;
-}
-
-interface CliStreamErrorPayload {
-  executionId: string;
-  error?: string;
-  timestamp: string;
-}
+// ========== Types ==========
+// WebSocket message types are now handled centrally in useCliStreamWebSocket hook
 
 // ========== Helper Functions ==========
 
@@ -209,9 +180,6 @@ export function CliStreamMonitor({ isOpen, onClose }: CliStreamMonitorProps) {
   // Track last output length to detect new output
   const lastOutputLengthRef = useRef<Record<string, number>>({});
 
-  // Track last processed WebSocket message to prevent duplicate processing
-  const lastProcessedMsgRef = useRef<unknown>(null);
-
   // Store state
   const executions = useCliStreamStore((state) => state.executions);
   const currentExecutionId = useCliStreamStore((state) => state.currentExecutionId);
@@ -221,105 +189,9 @@ export function CliStreamMonitor({ isOpen, onClose }: CliStreamMonitorProps) {
 
   // Active execution sync
   const { isLoading: isSyncing, refetch } = useActiveCliExecutions(isOpen);
-  const invalidateActive = useInvalidateActiveCliExecutions();
 
-  // WebSocket last message from notification store
-  const lastMessage = useNotificationStore(selectWsLastMessage);
-
-  // Handle WebSocket messages for CLI stream
-  useEffect(() => {
-    // Skip if no message or same message already processed (prevents React strict mode double-execution)
-    if (!lastMessage || lastMessage === lastProcessedMsgRef.current) return;
-    lastProcessedMsgRef.current = lastMessage;
-
-    const { type, payload } = lastMessage;
-
-    if (type === 'CLI_STARTED') {
-      const p = payload as CliStreamStartedPayload;
-      const startTime = p.timestamp ? new Date(p.timestamp).getTime() : Date.now();
-      useCliStreamStore.getState().upsertExecution(p.executionId, {
-        tool: p.tool || 'cli',
-        mode: p.mode || 'analysis',
-        status: 'running',
-        startTime,
-        output: [
-          {
-            type: 'system',
-            content: `[${new Date(startTime).toLocaleTimeString()}] CLI execution started: ${p.tool} (${p.mode} mode)`,
-            timestamp: startTime
-          }
-        ]
-      });
-      // Set as current if none selected
-      if (!currentExecutionId) {
-        setCurrentExecution(p.executionId);
-      }
-      invalidateActive();
-    } else if (type === 'CLI_OUTPUT') {
-      const p = payload as CliStreamOutputPayload;
-      const unitContent = p.unit?.content ?? p.data;
-      const unitType = p.unit?.type || p.chunkType;
-
-      let content: string;
-      if (unitType === 'tool_call' && typeof unitContent === 'object' && unitContent !== null) {
-        const toolCall = unitContent as { action?: string; toolName?: string; parameters?: unknown; status?: string; output?: string };
-        if (toolCall.action === 'invoke') {
-          const params = toolCall.parameters ? JSON.stringify(toolCall.parameters) : '';
-          content = `[Tool] ${toolCall.toolName}(${params})`;
-        } else if (toolCall.action === 'result') {
-          const status = toolCall.status || 'unknown';
-          const output = toolCall.output ? `: ${toolCall.output.substring(0, 200)}${toolCall.output.length > 200 ? '...' : ''}` : '';
-          content = `[Tool Result] ${status}${output}`;
-        } else {
-          content = JSON.stringify(unitContent);
-        }
-      } else {
-        content = typeof unitContent === 'string' ? unitContent : JSON.stringify(unitContent);
-      }
-
-      const lines = content.split('\n');
-      const addOutput = useCliStreamStore.getState().addOutput;
-      lines.forEach(line => {
-        if (line.trim() || lines.length === 1) {
-          addOutput(p.executionId, {
-            type: (unitType as CliOutputLine['type']) || 'stdout',
-            content: line,
-            timestamp: Date.now()
-          });
-        }
-      });
-    } else if (type === 'CLI_COMPLETED') {
-      const p = payload as CliStreamCompletedPayload;
-      const endTime = p.timestamp ? new Date(p.timestamp).getTime() : Date.now();
-      useCliStreamStore.getState().upsertExecution(p.executionId, {
-        status: p.success ? 'completed' : 'error',
-        endTime,
-        output: [
-          {
-            type: 'system',
-            content: `[${new Date(endTime).toLocaleTimeString()}] CLI execution ${p.success ? 'completed successfully' : 'failed'}${p.duration ? ` (${formatDuration(p.duration)})` : ''}`,
-            timestamp: endTime
-          }
-        ]
-      });
-      invalidateActive();
-    } else if (type === 'CLI_ERROR') {
-      const p = payload as CliStreamErrorPayload;
-      const endTime = p.timestamp ? new Date(p.timestamp).getTime() : Date.now();
-      useCliStreamStore.getState().upsertExecution(p.executionId, {
-        status: 'error',
-        endTime,
-        output: [
-          {
-            type: 'stderr',
-            content: `[ERROR] ${p.error || 'Unknown error occurred'}`,
-            timestamp: endTime
-          }
-        ]
-      });
-      invalidateActive();
-    }
-  }, [lastMessage, invalidateActive]);
+  // CENTRALIZED WebSocket handler - processes each message only once globally
+  useCliStreamWebSocket();
 
   // Auto-scroll to bottom when new output arrives (optimized - only scroll when output length changes)
   useEffect(() => {

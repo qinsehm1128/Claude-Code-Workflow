@@ -471,10 +471,25 @@ ${recommendations.map(r => \`- ${r}\`).join('\\n')}
 
 2. **Build Execution Context**
 
+   **Load Project Context** (from init.md products):
+   ```javascript
+   // Read project-tech.json (if exists)
+   const projectTech = file_exists('.workflow/project-tech.json')
+     ? JSON.parse(Read('.workflow/project-tech.json')) : null
+   // Read project-guidelines.json (if exists)
+   const projectGuidelines = file_exists('.workflow/project-guidelines.json')
+     ? JSON.parse(Read('.workflow/project-guidelines.json')) : null
+   ```
+
    ```javascript
    const executionContext = `
    ⚠️ Execution Notes from Previous Tasks
    ${relevantNotes}  // Categorized notes with severity
+
+   📋 Project Context (from init.md)
+   - Tech Stack: ${projectTech?.technology_analysis?.technology_stack || 'N/A'}
+   - Architecture: ${projectTech?.technology_analysis?.architecture?.style || 'N/A'}
+   - Constraints: ${projectGuidelines?.constraints || 'None defined'}
 
    Current Task: ${task.id}
    - Original ID: ${task.original_id}

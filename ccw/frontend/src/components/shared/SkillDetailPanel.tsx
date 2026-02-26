@@ -3,7 +3,7 @@
 // ========================================
 // Right-side slide-out panel for viewing skill details
 
-import { useEffect } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useIntl } from 'react-intl';
 import {
   X,
@@ -15,12 +15,21 @@ import {
   Tag,
   MapPin,
   Code,
+  ChevronRight,
+  ChevronDown,
+  Eye,
+  Loader2,
+  Maximize2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
 import type { Skill } from '@/lib/api';
+import { buildSkillFileTree, getDefaultExpandedPaths } from '@/utils/skill-files';
+import type { FileSystemNode } from '@/types/file-explorer';
+import { readSkillFile } from '@/lib/api';
+import { useWorkflowStore, selectProjectPath } from '@/stores/workflowStore';
 
 export interface SkillDetailPanelProps {
   skill: Skill | null;
@@ -42,6 +51,15 @@ export function SkillDetailPanel({
   isLoading = false,
 }: SkillDetailPanelProps) {
   const { formatMessage } = useIntl();
+  const projectPath = useWorkflowStore(selectProjectPath);
+  const [cliMode] = useState<'claude' | 'codex'>('claude');
+
+  // Tree view state
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [previewContent, setPreviewContent] = useState<string | null>(null);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [showPreviewPanel, setShowPreviewPanel] = useState(false);
 
   // Prevent body scroll when panel is open
   useEffect(() => {
@@ -55,6 +73,56 @@ export function SkillDetailPanel({
     };
   }, [isOpen]);
 
+  // Build file tree from supportingFiles
+  const fileTree = useMemo(() => {
+    if (!skill?.supportingFiles) return [];
+    return buildSkillFileTree(skill.supportingFiles);
+  }, [skill?.supportingFiles]);
+
+  // Initialize expanded paths when skill changes
+  useEffect(() => {
+    if (fileTree.length > 0) {
+      setExpandedPaths(getDefaultExpandedPaths(fileTree));
+    }
+  }, [fileTree]);
+
+  // Load file content for preview
+  const loadFilePreview = useCallback(async (filePath: string) => {
+    if (!skill) return;
+
+    setIsPreviewLoading(true);
+    setShowPreviewPanel(true);
+    setSelectedFile(filePath);
+    setPreviewContent(null);
+
+    try {
+      const data = await readSkillFile({
+        skillName: skill.folderName || skill.name,
+        fileName: filePath,
+        location: skill.location || 'project',
+        projectPath: projectPath,
+        cliType: cliMode,
+      });
+      setPreviewContent(data.content);
+    } catch (error) {
+      console.error('Failed to load file preview:', error);
+      setPreviewContent(`Error loading preview: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setIsPreviewLoading(false);
+    }
+  }, [skill, projectPath, cliMode]);
+
+  const handleClosePreview = () => {
+    setShowPreviewPanel(false);
+  };
+
+  // Close preview on panel close
+  useEffect(() => {
+    if (!isOpen) {
+      handleClosePreview();
+    }
+  }, [isOpen]);
+
   if (!isOpen || !skill) {
     return null;
   }
@@ -65,6 +133,19 @@ export function SkillDetailPanel({
 
   const handleEditFile = (fileName: string) => {
     onEditFile?.(folderName, fileName, skill.location || 'project');
+  };
+
+  // Toggle directory expanded state
+  const togglePath = (path: string) => {
+    setExpandedPaths(prev => {
+      const next = new Set(prev);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
   };
 
   return (
@@ -206,57 +287,66 @@ export function SkillDetailPanel({
                   <Folder className="w-4 h-4 text-muted-foreground" />
                   {formatMessage({ id: 'skills.files' })}
                 </h4>
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {/* SKILL.md (main file) */}
                   <div className="flex items-center justify-between p-3 bg-primary/5 border border-primary/20 rounded-lg hover:bg-primary/10 transition-colors">
                     <div className="flex items-center gap-2">
                       <FileText className="w-4 h-4 text-primary" />
                       <span className="text-sm font-mono text-foreground font-medium">SKILL.md</span>
                     </div>
-                    {onEditFile && (
+                    <div className="flex items-center gap-1">
                       <Button
                         variant="ghost"
                         size="sm"
                         className="h-7 px-2 text-primary hover:bg-primary/20"
-                        onClick={() => handleEditFile('SKILL.md')}
+                        onClick={() => loadFilePreview('SKILL.md')}
                       >
-                        <Edit className="w-3.5 h-3.5" />
+                        <Eye className="w-3.5 h-3.5" />
                       </Button>
-                    )}
+                      {onEditFile && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-primary hover:bg-primary/20"
+                          onClick={() => handleEditFile('SKILL.md')}
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                        </Button>
+                      )}
+                    </div>
                   </div>
 
-                  {/* Supporting Files */}
-                  {hasSupportingFiles && skill.supportingFiles!.map((file) => {
-                    const isDir = file.endsWith('/');
-                    const displayName = isDir ? file.slice(0, -1) : file;
-                    return (
-                      <div
-                        key={file}
-                        className="flex items-center justify-between p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors"
-                      >
-                        <div className="flex items-center gap-2">
-                          {isDir ? (
-                            <Folder className="w-4 h-4 text-muted-foreground" />
-                          ) : (
-                            <FileText className="w-4 h-4 text-muted-foreground" />
-                          )}
-                          <span className="text-sm font-mono text-foreground">{displayName}</span>
-                        </div>
-                        {!isDir && onEditFile && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2"
-                            onClick={() => handleEditFile(file)}
-                          >
-                            <Edit className="w-3.5 h-3.5" />
-                          </Button>
-                        )}
-                      </div>
-                    );
-                  })}
+                  {/* Supporting Files Tree */}
+                  {hasSupportingFiles && fileTree.length > 0 && (
+                    <div className="border border-border rounded-lg p-2 bg-muted/30">
+                      <SkillFileTree
+                        nodes={fileTree}
+                        expandedPaths={expandedPaths}
+                        onTogglePath={togglePath}
+                        onEditFile={handleEditFile}
+                        onPreviewFile={loadFilePreview}
+                        depth={0}
+                      />
+                    </div>
+                  )}
+
+                  {/* Empty state */}
+                  {hasSupportingFiles && fileTree.length === 0 && (
+                    <div className="text-sm text-muted-foreground p-3">
+                      {formatMessage({ id: 'skills.files.empty' })}
+                    </div>
+                  )}
                 </div>
               </section>
+
+              {/* File Preview Modal */}
+              <FilePreviewModal
+                fileName={selectedFile}
+                content={previewContent}
+                isLoading={isPreviewLoading}
+                isOpen={showPreviewPanel}
+                onClose={handleClosePreview}
+              />
 
               {/* Path */}
               {skill.path && (
@@ -299,6 +389,245 @@ export function SkillDetailPanel({
                 {formatMessage({ id: 'common.actions.edit' })}
               </Button>
             )}
+            <Button onClick={onClose}>
+              {formatMessage({ id: 'common.actions.close' })}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ========================================
+// SkillFileTree Component
+// ========================================
+// Recursive tree view for skill files
+
+interface SkillFileTreeNodeProps {
+  node: FileSystemNode;
+  depth: number;
+  expandedPaths: Set<string>;
+  onTogglePath: (path: string) => void;
+  onEditFile: (fileName: string) => void;
+  onPreviewFile: (fileName: string) => void;
+}
+
+function SkillFileTreeNode({
+  node,
+  depth,
+  expandedPaths,
+  onTogglePath,
+  onEditFile,
+  onPreviewFile,
+}: SkillFileTreeNodeProps) {
+  const isDirectory = node.type === 'directory';
+  const isExpanded = expandedPaths.has(node.path);
+  const hasChildren = node.children && node.children.length > 0;
+
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isDirectory) {
+      onTogglePath(node.path);
+    } else {
+      // Preview file on click
+      onPreviewFile(node.path);
+    }
+  };
+
+  return (
+    <div className="select-none group">
+      <div
+        className={cn(
+          'flex items-center gap-2 px-2 py-1.5 rounded-sm hover:bg-muted transition-colors cursor-pointer',
+          isDirectory && 'font-medium'
+        )}
+        style={{ paddingLeft: `${depth * 16 + 8}px` }}
+        onClick={handleClick}
+      >
+        {/* Chevron for directories */}
+        {isDirectory && (
+          <span className="w-4 h-4 flex items-center justify-center text-muted-foreground">
+            {hasChildren && (
+              isExpanded ? (
+                <ChevronDown className="w-3.5 h-3.5" />
+              ) : (
+                <ChevronRight className="w-3.5 h-3.5" />
+              )
+            )}
+          </span>
+        )}
+
+        {/* Icon */}
+        {isDirectory ? (
+          <Folder className={cn(
+            'w-4 h-4 flex-shrink-0',
+            isExpanded ? 'text-blue-500' : 'text-blue-400'
+          )} />
+        ) : (
+          <FileText className="w-4 h-4 flex-shrink-0 text-muted-foreground" />
+        )}
+
+        {/* Name */}
+        <span className="text-sm font-mono flex-1 truncate">{node.name}</span>
+
+        {/* Preview button for files */}
+        {!isDirectory && (
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0 hover:bg-primary/20 hover:text-primary"
+              onClick={(e) => {
+                e.stopPropagation();
+                onPreviewFile(node.path);
+              }}
+              title="Preview file"
+            >
+              <Eye className="w-3.5 h-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0 hover:bg-primary/20 hover:text-primary"
+              onClick={(e) => {
+                e.stopPropagation();
+                onEditFile(node.path);
+              }}
+              title="Edit file"
+            >
+              <Edit className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* Children */}
+      {isDirectory && isExpanded && hasChildren && (
+        <div className="border-l border-border ml-4">
+          {node.children!.map((child) => (
+            <SkillFileTreeNode
+              key={child.path}
+              node={child}
+              depth={depth + 1}
+              expandedPaths={expandedPaths}
+              onTogglePath={onTogglePath}
+              onEditFile={onEditFile}
+              onPreviewFile={onPreviewFile}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface SkillFileTreeProps {
+  nodes: FileSystemNode[];
+  expandedPaths: Set<string>;
+  onTogglePath: (path: string) => void;
+  onEditFile: (fileName: string) => void;
+  onPreviewFile: (fileName: string) => void;
+  depth: number;
+}
+
+function SkillFileTree({
+  nodes,
+  expandedPaths,
+  onTogglePath,
+  onEditFile,
+  onPreviewFile,
+  depth,
+}: SkillFileTreeProps) {
+  return (
+    <div className="space-y-0.5" role="tree">
+      {nodes.map((node) => (
+        <SkillFileTreeNode
+          key={node.path}
+          node={node}
+          depth={depth}
+          expandedPaths={expandedPaths}
+          onTogglePath={onTogglePath}
+          onEditFile={onEditFile}
+          onPreviewFile={onPreviewFile}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ========================================
+// File Preview Modal Component
+// ========================================
+
+interface FilePreviewModalProps {
+  fileName: string | null;
+  content: string | null;
+  isLoading: boolean;
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+function FilePreviewModal({ fileName, content, isLoading, isOpen, onClose }: FilePreviewModalProps) {
+  const { formatMessage } = useIntl();
+
+  if (!isOpen) return null;
+
+  return (
+    <>
+      {/* Overlay */}
+      <div
+        className="fixed inset-0 bg-black/50 z-50 transition-opacity"
+        onClick={onClose}
+      />
+
+      {/* Modal */}
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="bg-background rounded-lg shadow-2xl w-full max-w-3xl max-h-[80vh] flex flex-col animate-in fade-in zoom-in duration-200">
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+            <div className="flex items-center gap-2">
+              <FileText className="w-4 h-4 text-primary" />
+              <span className="text-sm font-mono font-medium">{fileName}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  // Full screen toggle could be implemented here
+                }}
+                className="h-8 w-8 p-0"
+              >
+                <Maximize2 className="w-4 h-4" />
+              </Button>
+              <Button variant="ghost" size="sm" onClick={onClose} className="h-8 w-8 p-0">
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+
+          {/* Content */}
+          <div className="flex-1 overflow-auto p-4 min-h-[300px]">
+            {isLoading ? (
+              <div className="flex items-center justify-center h-full">
+                <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+              </div>
+            ) : content ? (
+              <Card className="p-4 bg-muted/30">
+                <pre className="text-xs font-mono whitespace-pre-wrap break-words text-foreground">
+                  {content}
+                </pre>
+              </Card>
+            ) : (
+              <div className="text-sm text-muted-foreground py-8 text-center">
+                {formatMessage({ id: 'skills.files.preview.empty' })}
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="px-4 py-3 border-t border-border flex justify-end">
             <Button onClick={onClose}>
               {formatMessage({ id: 'common.actions.close' })}
             </Button>

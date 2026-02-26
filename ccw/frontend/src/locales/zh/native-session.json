@@ -1,0 +1,47 @@
+{
+  "title": "原生会话",
+  "tokens": {
+    "total": "总 Token 数",
+    "input": "输入 Token",
+    "output": "输出 Token",
+    "cached": "缓存 Token"
+  },
+  "timeline": {
+    "turnNumber": "第 {number} 轮",
+    "tokens": {
+      "input": "输入: {count}",
+      "output": "输出: {count}",
+      "cached": "缓存: {count}"
+    },
+    "toolCall": {
+      "completed": "已完成",
+      "running": "运行中",
+      "error": "错误",
+      "noData": "无数据"
+    }
+  },
+  "turn": {
+    "latest": "最新",
+    "thoughts": "思考过程",
+    "toolCalls": "工具调用"
+  },
+  "toolCall": {
+    "input": "输入",
+    "output": "输出"
+  },
+  "meta": {
+    "startTime": "开始时间",
+    "workingDir": "工作目录",
+    "projectHash": "项目哈希",
+    "turns": "轮次"
+  },
+  "tokenSummary": "总 Token",
+  "loading": "加载会话中...",
+  "error": "加载会话失败",
+  "empty": "无会话数据",
+  "footer": {
+    "copied": "已复制！",
+    "copySessionId": "复制会话 ID",
+    "exportJson": "导出 JSON"
+  }
+}

@@ -59,7 +59,7 @@ export function FloatingPanel({
         style={{ top: '40px', bottom: 0, left: 0, right: 0 }}
         onClick={handleBackdropClick}
       >
-        <div className="absolute inset-0 bg-black/20" />
+        <div className="absolute inset-0 bg-black/20 pointer-events-none" />
       </div>
 
       {/* Panel */}

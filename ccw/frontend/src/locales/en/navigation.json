@@ -12,7 +12,7 @@
     "sessions": "Sessions",
     "liteTasks": "Lite Tasks",
     "project": "Project",
-    "history": "History",
+    "history": "CLI History",
     "orchestrator": "Orchestrator",
     "coordinator": "Coordinator",
     "loops": "Loop Monitor",

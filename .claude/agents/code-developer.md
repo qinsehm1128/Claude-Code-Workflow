@@ -37,6 +37,8 @@ jq --arg ts "$(date -Iseconds)" '.status="in_progress" | .status_history += [{"f
 - Existing documentation and code examples
 - Project CLAUDE.md standards
 - **context-package.json** (when available in workflow tasks)
+- **project-tech.json** (if exists) → tech_stack, architecture, key_components
+- **project-guidelines.json** (if exists) → conventions, constraints, quality_rules
 
 **Context Package** :
 `context-package.json` provides artifact paths - read using Read tool or ccw session:

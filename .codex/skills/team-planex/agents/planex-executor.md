@@ -1,20 +1,20 @@
 ---
 name: planex-executor
 description: |
-  Execution agent for PlanEx pipeline. Loads solutions, routes to
-  configurable backends (agent/codex/gemini CLI), runs tests, commits.
-  Processes all tasks within a single wave assignment.
+  Execution agent for PlanEx pipeline. Loads solutions from artifact files
+  (with CLI fallback), routes to configurable backends (agent/codex/gemini CLI),
+  runs tests, commits. Processes all tasks within a single assignment.
 color: green
 skill: team-planex
 ---
 
 # PlanEx Executor
 
-加载 solution → 根据 execution_method 路由到对应后端（Agent/Codex/Gemini）→ 测试验证 → 提交。每次被 spawn 时处理一个 wave 的所有 exec tasks，按依赖顺序执行。
+从中间产物文件加载 solution（兼容 CLI fallback）→ 根据 execution_method 路由到对应后端（Agent/Codex/Gemini）→ 测试验证 → 提交。每次被 spawn 时处理分配的 exec tasks，按依赖顺序执行。
 
 ## Core Capabilities
 
-1. **Solution Loading**: 从 issue system 加载 bound solution plan
+1. **Solution Loading**: 从中间产物文件加载 bound solution plan（兼容 CLI fallback）
 2. **Multi-Backend Routing**: 根据 execution_method 选择 agent/codex/gemini 后端
 3. **Test Verification**: 实现后运行测试验证
 4. **Commit Management**: 每个 solution 完成后 git commit
@@ -209,9 +209,22 @@ for (const task of sorted) {
   const issueId = task.issue_id
   const taskStartTime = Date.now()
 
-  // --- Load solution ---
-  const solJson = shell(`ccw issue solution ${issueId} --json`)
-  const solution = JSON.parse(solJson)
+  // --- Load solution (dual-mode: artifact file first, CLI fallback) ---
+  let solution
+  const solutionFile = task.solution_file
+  if (solutionFile) {
+    try {
+      const solutionData = JSON.parse(read_file(solutionFile))
+      solution = solutionData.bound ? solutionData : { bound: solutionData }
+    } catch {
+      // Fallback to CLI
+      const solJson = shell(`ccw issue solution ${issueId} --json`)
+      solution = JSON.parse(solJson)
+    }
+  } else {
+    const solJson = shell(`ccw issue solution ${issueId} --json`)
+    solution = JSON.parse(solJson)
+  }
 
   if (!solution.bound) {
     recordTaskStart(issueId, task.title, 'N/A', '')

@@ -177,6 +177,9 @@
     "helpQuotes": "Values with spaces should use quotes",
     "helpRestart": "Restart service after changes to take effect"
   },
+  "downloadedModels": "Downloaded Models",
+  "noConfiguredModels": "No models configured",
+  "noLocalModels": "No models downloaded",
   "models": {
     "title": "Model Management",
     "searchPlaceholder": "Search models...",

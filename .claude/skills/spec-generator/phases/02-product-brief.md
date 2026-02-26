@@ -13,6 +13,7 @@ Generate a product brief through multi-perspective CLI analysis, establishing "w
 ## Input
 
 - Dependency: `{workDir}/spec-config.json`
+- Primary: `{workDir}/refined-requirements.json` (Phase 1.5 output, preferred over raw seed_analysis)
 - Optional: `{workDir}/discovery-context.json`
 - Config: `{workDir}/spec-config.json`
 - Template: `templates/product-brief.md`
@@ -25,6 +26,14 @@ Generate a product brief through multi-perspective CLI analysis, establishing "w
 const specConfig = JSON.parse(Read(`${workDir}/spec-config.json`));
 const { seed_analysis, seed_input, has_codebase, depth, focus_areas } = specConfig;
 
+// Load refined requirements (Phase 1.5 output) - preferred over raw seed_analysis
+let refinedReqs = null;
+try {
+  refinedReqs = JSON.parse(Read(`${workDir}/refined-requirements.json`));
+} catch (e) {
+  // No refined requirements, fall back to seed_analysis
+}
+
 let discoveryContext = null;
 if (has_codebase) {
   try {
@@ -35,13 +44,25 @@ if (has_codebase) {
 }
 
 // Build shared context string for CLI prompts
+// Prefer refined requirements over raw seed_analysis
+const problem = refinedReqs?.clarified_problem_statement || seed_analysis.problem_statement;
+const users = refinedReqs?.confirmed_target_users?.map(u => u.name || u).join(', ')
+  || seed_analysis.target_users.join(', ');
+const domain = refinedReqs?.confirmed_domain || seed_analysis.domain;
+const constraints = refinedReqs?.boundary_conditions?.constraints?.join(', ')
+  || seed_analysis.constraints.join(', ');
+const features = refinedReqs?.confirmed_features?.map(f => f.name).join(', ') || '';
+const nfrs = refinedReqs?.non_functional_requirements?.map(n => `${n.type}: ${n.details}`).join('; ') || '';
+
 const sharedContext = `
 SEED: ${seed_input}
-PROBLEM: ${seed_analysis.problem_statement}
-TARGET USERS: ${seed_analysis.target_users.join(', ')}
-DOMAIN: ${seed_analysis.domain}
-CONSTRAINTS: ${seed_analysis.constraints.join(', ')}
+PROBLEM: ${problem}
+TARGET USERS: ${users}
+DOMAIN: ${domain}
+CONSTRAINTS: ${constraints}
 FOCUS AREAS: ${focus_areas.join(', ')}
+${features ? `CONFIRMED FEATURES: ${features}` : ''}
+${nfrs ? `NON-FUNCTIONAL REQUIREMENTS: ${nfrs}` : ''}
 ${discoveryContext ? `
 CODEBASE CONTEXT:
 - Existing patterns: ${discoveryContext.existing_patterns?.slice(0,5).join(', ') || 'none'}

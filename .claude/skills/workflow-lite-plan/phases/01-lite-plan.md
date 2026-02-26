@@ -202,13 +202,8 @@ Execute **${angle}** exploration for task planning context. Analyze codebase fro
 - **Task Description**: ${task_description}
 - **Exploration Index**: ${index + 1} of ${selectedAngles.length}
 
-## MANDATORY FIRST STEPS (Execute by Agent)
-**You (cli-explore-agent) MUST execute these steps in order:**
-1. Run: ccw tool exec get_modules_by_depth '{}' (project structure)
-2. Run: rg -l "{keyword_from_task}" --type ts (locate relevant files)
-3. Execute: cat ~/.ccw/workflows/cli-templates/schemas/explore-json-schema.json (get output schema reference)
-4. Read: .workflow/project-tech.json (technology stack and architecture context)
-5. Read: .workflow/project-guidelines.json (user-defined constraints and conventions)
+## Agent Initialization
+cli-explore-agent autonomously handles: project structure discovery, schema loading, project context loading (project-tech.json, project-guidelines.json), and keyword search. These steps execute automatically.
 
 ## Exploration Strategy (${angle} focus)
 
@@ -228,27 +223,16 @@ Execute **${angle}** exploration for task planning context. Analyze codebase fro
 
 ## Expected Output
 
-**Schema Reference**: Schema obtained in MANDATORY FIRST STEPS step 3, follow schema exactly
+**Schema Reference**: explore-json-schema.json (auto-loaded by agent during initialization)
 
 **Required Fields** (all ${angle} focused):
-- project_structure: Modules/architecture relevant to ${angle}
-- relevant_files: Files affected from ${angle} perspective
-  **MANDATORY**: Every file MUST use structured object format with ALL required fields:
-  \`[{path: "src/file.ts", relevance: 0.85, rationale: "Contains AuthService.login() - entry point for JWT token generation", role: "modify_target", discovery_source: "bash-scan", key_symbols: ["AuthService", "login"]}]\`
-  - **rationale** (required): Specific selection basis tied to ${angle} topic (>10 chars, not generic)
-  - **role** (required): modify_target|dependency|pattern_reference|test_target|type_definition|integration_point|config|context_only
-  - **discovery_source** (recommended): bash-scan|cli-analysis|ace-search|dependency-trace|manual
-  - **key_symbols** (recommended): Key functions/classes/types in the file relevant to the task
-  - Scores: 0.7+ high priority, 0.5-0.7 medium, <0.5 low
-- patterns: ${angle}-related patterns to follow
-- dependencies: Dependencies relevant to ${angle}
-- integration_points: Where to integrate from ${angle} viewpoint (include file:line locations)
-- constraints: ${angle}-specific limitations/conventions
-- clarification_needs: ${angle}-related ambiguities (options array + recommended index)
+- Follow explore-json-schema.json exactly (auto-loaded by agent)
+- All fields scoped to ${angle} perspective
+- Ensure rationale is specific and >10 chars (not generic)
+- Include file:line locations in integration_points
 - _metadata.exploration_angle: "${angle}"
 
 ## Success Criteria
-- [ ] Schema obtained via cat explore-json-schema.json
 - [ ] get_modules_by_depth.sh executed
 - [ ] At least 3 relevant files identified with specific rationale + role
 - [ ] Every file has rationale >10 chars (not generic like "Related to ${angle}")
@@ -528,9 +512,9 @@ Generate plan.json and .task/*.json following the schema obtained above. Key con
 - plan.json: Overview with task_ids[] referencing .task/ files (NO tasks[] array)
 - .task/TASK-*.json: Independent task files following task-schema.json
 
-plan.json required fields: summary, approach, task_ids, task_count, _metadata (with plan_type: "feature")
-Each task file required fields: id, title, description, depends_on, convergence (with criteria[])
-Task fields use: files[].change (not modification_points), convergence.criteria (not acceptance), test (not verification)
+Follow plan-overview-base-schema.json (loaded via cat command above) for plan.json structure.
+Follow task-schema.json for .task/TASK-*.json structure.
+Note: Use files[].change (not modification_points), convergence.criteria (not acceptance).
 
 ## Task Grouping Rules
 1. **Group by feature**: All changes for one feature = one task (even if 3-5 files)

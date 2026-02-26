@@ -69,13 +69,14 @@ Bash(`echo '${JSON.stringify({ from: "scanner", to: "coordinator", type: "scan_c
 
 | Agent Type | Used By | Purpose |
 |------------|---------|---------|
-| `cli-explore-agent` | scan-debt.md | 代码库结构探索 |
+| `cli-explore-agent` | scan-debt.md | 并行代码库结构探索（多角度 fan-out） |
 
 ### CLI Capabilities
 
 | CLI Tool | Mode | Used By | Purpose |
 |----------|------|---------|---------|
-| `gemini` | analysis | scan-debt.md | 多维度代码分析 |
+| `gemini` | analysis | scan-debt.md | 多维度代码分析（dimension fan-out） |
+| `gemini` | analysis | scan-debt.md | 多视角深度分析（perspective fan-out） |
 
 ## Execution (5-Phase)
 
@@ -116,6 +117,19 @@ const hasGoMod = Bash(`test -f go.mod && echo "yes" || echo "no"`).trim() === 'y
 // 5 个扫描维度
 const dimensions = ["code", "architecture", "testing", "dependency", "documentation"]
 
+// 多视角 Gemini 分析（自动检测任务关键词）
+function detectPerspectives(desc) {
+  const perspectives = []
+  if (/security|auth|inject|xss|漏洞|安全/.test(desc)) perspectives.push("security")
+  if (/performance|speed|optimize|memory|性能|优化/.test(desc)) perspectives.push("performance")
+  if (/quality|clean|maintain|debt|质量|代码/.test(desc)) perspectives.push("code-quality")
+  if (/architect|pattern|structure|架构|结构/.test(desc)) perspectives.push("architecture")
+  // 默认至少 2 个视角
+  if (perspectives.length === 0) perspectives.push("code-quality", "architecture")
+  return perspectives
+}
+const perspectives = detectPerspectives(task.description)
+
 // 评估复杂度
 function assessComplexity(desc) {
   let score = 0
@@ -134,7 +148,7 @@ const complexity = assessComplexity(task.description)
 Read("commands/scan-debt.md")
 ```
 
-**核心策略**: 按维度并行执行 CLI 分析
+**核心策略**: 三层并行 Fan-out（subagent 探索 + CLI 维度分析 + 多视角 Gemini）
 
 ```javascript
 if (complexity === 'Low') {
@@ -144,11 +158,11 @@ if (complexity === 'Low') {
     query: "code smells, TODO/FIXME, deprecated APIs, complex functions, missing tests"
   })
 } else {
-  // CLI Fan-out: 每个维度一个 CLI 调用
-  for (const dimension of dimensions) {
-    Bash(`ccw cli -p "..." --tool gemini --mode analysis`, { run_in_background: true })
-  }
-  // 等待所有 CLI 完成
+  // Fan-out A: 并行 subagent 探索（codebase 结构理解）
+  // Fan-out B: 每个维度一个 CLI 调用（并行 gemini 分析）
+  // Fan-out C: 多视角 Gemini 深度分析（并行 perspective 分析）
+  // → Fan-in: 聚合 + 去重 + 交叉引用
+  Read("commands/scan-debt.md")
 }
 ```
 

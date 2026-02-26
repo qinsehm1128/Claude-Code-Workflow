@@ -34,6 +34,9 @@
 | Type | Direction | Trigger | Description |
 |------|-----------|---------|-------------|
 | `mode_selected` | coordinator → all | 模式确定 | scan/remediate/targeted |
+| `plan_approval` | coordinator → user | TDPLAN 完成 | 呈现治理方案供审批（批准/修订/终止） |
+| `worktree_created` | coordinator → user | TDFIX 前 | Worktree 和分支已创建 |
+| `pr_created` | coordinator → user | TDVAL 通过 | PR 已创建，worktree 已清理 |
 | `quality_gate` | coordinator → user | 质量评估 | 通过/不通过/有条件通过 |
 | `task_unblocked` | coordinator → worker | 依赖解除 | 任务可执行 |
 | `error` | coordinator → user | 协调错误 | 阻塞性问题 |
@@ -190,9 +193,9 @@ Read("commands/monitor.md")
 |----------|--------|--------|
 | TDSCAN-001 | scanner | → 启动 TDEVAL |
 | TDEVAL-001 | assessor | → 启动 TDPLAN |
-| TDPLAN-001 | planner | → 启动 TDFIX |
-| TDFIX-001 | executor | → 启动 TDVAL |
-| TDVAL-001 | validator | → 评估质量门控 |
+| TDPLAN-001 | planner | → [Plan Approval Gate] → [Create Worktree] → 启动 TDFIX |
+| TDFIX-001 | executor (worktree) | → 启动 TDVAL |
+| TDVAL-001 | validator (worktree) | → 评估质量门控 → [Commit+PR] |
 
 **Fix-Verify 循环**（TDVAL 阶段发现回归时）:
 ```javascript
@@ -209,11 +212,63 @@ if (regressionFound && fixVerifyIteration < 3) {
 }
 ```
 
-### Phase 5: Report + Debt Reduction Metrics
+### Phase 5: Report + Debt Reduction Metrics + PR
 
 ```javascript
 // 读取 shared memory 汇总结果
 const memory = JSON.parse(Read(`${sessionFolder}/shared-memory.json`))
+
+// PR 创建（worktree 执行模式下，验证通过后）
+if (memory.worktree && memory.validation_results?.passed) {
+  const { path: wtPath, branch } = memory.worktree
+
+  // Commit all changes in worktree
+  Bash(`cd "${wtPath}" && git add -A && git commit -m "$(cat <<'EOF'
+tech-debt: ${taskDescription}
+
+Automated tech debt cleanup via team-tech-debt pipeline.
+Mode: ${pipelineMode}
+EOF
+)"`)
+
+  // Push + Create PR
+  Bash(`cd "${wtPath}" && git push -u origin "${branch}"`)
+
+  const prBody = `## Tech Debt Cleanup
+
+**Mode**: ${pipelineMode}
+**Items fixed**: ${memory.fix_results?.items_fixed || 0}
+**Debt score**: ${memory.debt_score_before} → ${memory.debt_score_after}
+
+### Validation
+- Tests: ${memory.validation_results?.checks?.test_suite?.status || 'N/A'}
+- Types: ${memory.validation_results?.checks?.type_check?.status || 'N/A'}
+- Lint: ${memory.validation_results?.checks?.lint_check?.status || 'N/A'}
+
+### Session
+${sessionFolder}`
+
+  Bash(`cd "${wtPath}" && gh pr create --title "Tech Debt: ${taskDescription.slice(0, 50)}" --body "$(cat <<'EOF'
+${prBody}
+EOF
+)"`)
+
+  mcp__ccw-tools__team_msg({
+    operation: "log", team: teamName, from: "coordinator",
+    to: "user", type: "pr_created",
+    summary: `[coordinator] PR 已创建: branch ${branch}`
+  })
+
+  // Cleanup worktree
+  Bash(`git worktree remove "${wtPath}" 2>/dev/null || true`)
+} else if (memory.worktree && !memory.validation_results?.passed) {
+  // 验证未通过，保留 worktree 供手动检查
+  mcp__ccw-tools__team_msg({
+    operation: "log", team: teamName, from: "coordinator",
+    to: "user", type: "quality_gate",
+    summary: `[coordinator] 验证未通过，worktree 保留于 ${memory.worktree.path}，请手动检查`
+  })
+}
 
 const report = {
   mode: pipelineMode,

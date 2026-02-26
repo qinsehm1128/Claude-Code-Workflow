@@ -125,15 +125,17 @@ export function StreamingOutput({
 
       {/* Scroll to bottom button */}
       {isUserScrolling && outputs.length > 0 && (
-        <Button
-          size="sm"
-          variant="secondary"
-          className="absolute bottom-3 right-3"
-          onClick={scrollToBottom}
-        >
-          <ArrowDownToLine className="h-4 w-4 mr-1" />
-          Scroll to bottom
-        </Button>
+        <div className="sticky bottom-3 flex justify-end">
+          <Button
+            size="sm"
+            variant="secondary"
+            className="shadow-lg"
+            onClick={scrollToBottom}
+          >
+            <ArrowDownToLine className="h-4 w-4 mr-1" />
+            Scroll to bottom
+          </Button>
+        </div>
       )}
     </div>
   );

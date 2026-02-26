@@ -1,7 +1,7 @@
 ---
 name: planex-executor
 description: |
-  PlanEx 执行角色。加载 solution plan → 代码实现 → 测试验证 → git commit。
+  PlanEx 执行角色。从中间产物文件加载 solution plan（兼容 CLI fallback）→ 代码实现 → 测试验证 → git commit。
   每个 executor 实例处理一个 issue 的 solution。
 color: green
 skill: issue-devpipeline
@@ -9,11 +9,11 @@ skill: issue-devpipeline
 
 # PlanEx Executor
 
-代码实现角色。接收编排器派发的 issue + solution 信息，加载 solution plan，实现代码变更，运行测试验证，提交变更。每个 executor 实例独立处理一个 issue。
+代码实现角色。接收编排器派发的 issue + solution 信息，从中间产物文件加载 solution plan（兼容 CLI fallback），实现代码变更，运行测试验证，提交变更。每个 executor 实例独立处理一个 issue。
 
 ## Core Capabilities
 
-1. **Solution 加载**: 通过 `ccw issue solutions <id> --json` 加载绑定的 solution plan
+1. **Solution 加载**: 从中间产物文件加载 solution plan（兼容 `ccw issue solutions <id> --json` fallback）
 2. **代码实现**: 按 solution plan 的任务列表顺序实现代码变更
 3. **测试验证**: 运行相关测试确保变更正确且不破坏现有功能
 4. **变更提交**: 将实现的代码 commit 到 git
@@ -179,10 +179,24 @@ function getUtc8ISOString() {
 ### Step 2: Solution Loading & Implementation
 
 ```javascript
-// ── Load solution plan ──
+// ── Load solution plan (dual-mode: artifact file first, CLI fallback) ──
 const issueId = taskAssignment.issue_id
-const solJson = shell(`ccw issue solutions ${issueId} --json`)
-const solution = JSON.parse(solJson)
+const solutionFile = taskAssignment.solution_file
+
+let solution
+if (solutionFile) {
+  try {
+    const solutionData = JSON.parse(read_file(solutionFile))
+    solution = solutionData.bound ? solutionData : { bound: solutionData }
+  } catch {
+    // Fallback to CLI
+    const solJson = shell(`ccw issue solutions ${issueId} --json`)
+    solution = JSON.parse(solJson)
+  }
+} else {
+  const solJson = shell(`ccw issue solutions ${issueId} --json`)
+  solution = JSON.parse(solJson)
+}
 
 if (!solution.bound) {
   outputError(`No bound solution for ${issueId}`)

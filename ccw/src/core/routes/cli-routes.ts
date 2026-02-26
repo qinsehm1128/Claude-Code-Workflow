@@ -49,6 +49,68 @@ import {
   getCodeIndexMcp
 } from '../../tools/claude-cli-tools.js';
 import type { RouteContext } from './types.js';
+import { resolve, normalize } from 'path';
+import { homedir } from 'os';
+
+// ========== Path Security Utilities ==========
+// Allowed directories for session file access (path traversal protection)
+const ALLOWED_SESSION_DIRS: string[] = [
+  resolve(homedir(), '.claude', 'projects'),
+  resolve(homedir(), '.local', 'share', 'opencode', 'storage'),
+  resolve(homedir(), '.gemini', 'sessions'),
+  resolve(homedir(), '.qwen', 'sessions'),
+  resolve(homedir(), '.codex')
+];
+
+/**
+ * Validates that an absolute path is within one of the allowed directories.
+ * Prevents path traversal attacks by checking the resolved path.
+ *
+ * @param absolutePath - The absolute path to validate
+ * @param allowedDirs - Array of allowed directory paths
+ * @returns true if path is within an allowed directory, false otherwise
+ */
+function isPathWithinAllowedDirs(absolutePath: string, allowedDirs: string[]): boolean {
+  // Normalize the path to resolve any remaining . or .. sequences
+  const normalizedPath = normalize(absolutePath);
+
+  // Check if the path starts with any of the allowed directories
+  for (const allowedDir of allowedDirs) {
+    const normalizedAllowedDir = normalize(allowedDir);
+    // Ensure path is within allowed dir (starts with allowedDir + separator)
+    if (normalizedPath.startsWith(normalizedAllowedDir + '/') ||
+        normalizedPath.startsWith(normalizedAllowedDir + '\\') ||
+        normalizedPath === normalizedAllowedDir) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Validates a file path parameter to prevent path traversal attacks.
+ * Returns validated absolute path or throws an error.
+ *
+ * @param inputPath - The user-provided path (may be relative or absolute)
+ * @param allowedDirs - Array of allowed directory paths
+ * @returns Object with resolved path or error
+ */
+function validatePath(inputPath: string, allowedDirs: string[]): { valid: true; path: string } | { valid: false; error: string } {
+  if (!inputPath || typeof inputPath !== 'string') {
+    return { valid: false, error: 'Path parameter is required' };
+  }
+
+  // Resolve to absolute path (handles relative paths and .. sequences)
+  const resolvedPath = resolve(inputPath);
+
+  // Validate the resolved path is within allowed directories
+  if (!isPathWithinAllowedDirs(resolvedPath, allowedDirs)) {
+    console.warn(`[Security] Path traversal attempt blocked: ${inputPath} resolved to ${resolvedPath}`);
+    return { valid: false, error: 'Invalid path: access denied' };
+  }
+
+  return { valid: true, path: resolvedPath };
+}
 
 // ========== Active Executions State ==========
 // Stores running CLI executions for state recovery when view is opened/refreshed
@@ -559,30 +621,92 @@ export async function handleCliRoutes(ctx: RouteContext): Promise<boolean> {
   }
 
   // API: Get Native Session Content
+  // Supports: ?id=<executionId> (existing), ?path=<filepath>&tool=<tool> (new direct path query)
   if (pathname === '/api/cli/native-session') {
     const projectPath = url.searchParams.get('path') || initialPath;
     const executionId = url.searchParams.get('id');
+    const filePath = url.searchParams.get('filePath');  // New: direct file path
+    const toolParam = url.searchParams.get('tool') || 'auto';  // New: tool type for path query
     const format = url.searchParams.get('format') || 'json';
 
-    if (!executionId) {
+    // Priority: filePath > id (backward compatible)
+    if (!executionId && !filePath) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Execution ID is required' }));
+      res.end(JSON.stringify({ error: 'Either execution ID (id) or file path (filePath) is required' }));
       return true;
+    }
+
+    // Security: Validate filePath is within allowed session directories
+    if (filePath) {
+      const pathValidation = validatePath(filePath, ALLOWED_SESSION_DIRS);
+      if (!pathValidation.valid) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid path: access denied' }));
+        return true;
+      }
     }
 
     try {
       let result;
-      if (format === 'text') {
-        result = await getFormattedNativeConversation(projectPath, executionId, {
-          includeThoughts: url.searchParams.get('thoughts') === 'true',
-          includeToolCalls: url.searchParams.get('tools') === 'true',
-          includeTokens: url.searchParams.get('tokens') === 'true'
-        });
-      } else if (format === 'pairs') {
-        const enriched = await getEnrichedConversation(projectPath, executionId);
-        result = enriched?.merged || null;
+
+      // Direct file path query (new)
+      if (filePath) {
+        const { parseSessionFile } = await import('../../tools/session-content-parser.js');
+
+        // Determine tool type
+        let tool = toolParam;
+        if (tool === 'auto') {
+          // Auto-detect tool from file path
+          if (filePath.includes('.claude') as boolean || filePath.includes('claude-session')) {
+            tool = 'claude';
+          } else if (filePath.includes('.opencode') as boolean || filePath.includes('opencode')) {
+            tool = 'opencode';
+          } else if (filePath.includes('.codex') as boolean || filePath.includes('rollout-')) {
+            tool = 'codex';
+          } else if (filePath.includes('.qwen') as boolean) {
+            tool = 'qwen';
+          } else if (filePath.includes('.gemini') as boolean) {
+            tool = 'gemini';
+          } else {
+            // Default to claude for unknown paths
+            tool = 'claude';
+          }
+        }
+
+        const session = await parseSessionFile(filePath, tool);
+        if (!session) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Native session not found at path: ' + filePath }));
+          return true;
+        }
+
+        if (format === 'text') {
+          const { formatConversation } = await import('../../tools/session-content-parser.js');
+          result = formatConversation(session, {
+            includeThoughts: url.searchParams.get('thoughts') === 'true',
+            includeToolCalls: url.searchParams.get('tools') === 'true',
+            includeTokens: url.searchParams.get('tokens') === 'true'
+          });
+        } else if (format === 'pairs') {
+          const { extractConversationPairs } = await import('../../tools/session-content-parser.js');
+          result = extractConversationPairs(session);
+        } else {
+          result = session;
+        }
       } else {
-        result = await getNativeSessionContent(projectPath, executionId);
+        // Existing: query by execution ID
+        if (format === 'text') {
+          result = await getFormattedNativeConversation(projectPath, executionId!, {
+            includeThoughts: url.searchParams.get('thoughts') === 'true',
+            includeToolCalls: url.searchParams.get('tools') === 'true',
+            includeTokens: url.searchParams.get('tokens') === 'true'
+          });
+        } else if (format === 'pairs') {
+          const enriched = await getEnrichedConversation(projectPath, executionId!);
+          result = enriched?.merged || null;
+        } else {
+          result = await getNativeSessionContent(projectPath, executionId!);
+        }
       }
 
       if (!result) {
@@ -593,6 +717,83 @@ export async function handleCliRoutes(ctx: RouteContext): Promise<boolean> {
 
       res.writeHead(200, { 'Content-Type': format === 'text' ? 'text/plain' : 'application/json' });
       res.end(format === 'text' ? result : JSON.stringify(result));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: (err as Error).message }));
+    }
+    return true;
+  }
+
+  // API: List Native Sessions (new endpoint)
+  // Supports: ?tool=<gemini|qwen|codex|claude|opencode> & ?project=<projectPath>
+  if (pathname === '/api/cli/native-sessions' && req.method === 'GET') {
+    const toolFilter = url.searchParams.get('tool');
+    const projectPath = url.searchParams.get('project') || initialPath;
+
+    try {
+      const {
+        getDiscoverer,
+        getNativeSessions
+      } = await import('../../tools/native-session-discovery.js');
+
+      const sessions: Array<{
+        id: string;
+        tool: string;
+        path: string;
+        title?: string;
+        startTime: string;
+        updatedAt: string;
+        projectHash?: string;
+      }> = [];
+
+      // Define supported tools
+      const supportedTools = ['gemini', 'qwen', 'codex', 'claude', 'opencode'] as const;
+      const toolsToQuery = toolFilter && supportedTools.includes(toolFilter as typeof supportedTools[number])
+        ? [toolFilter as typeof supportedTools[number]]
+        : [...supportedTools];
+
+      for (const tool of toolsToQuery) {
+        const discoverer = getDiscoverer(tool);
+        if (!discoverer) continue;
+
+        const nativeSessions = getNativeSessions(tool, {
+          workingDir: projectPath,
+          limit: 100
+        });
+
+        for (const session of nativeSessions) {
+          // Try to extract title from session
+          let title: string | undefined;
+          try {
+            const firstUserMessage = (discoverer as any).extractFirstUserMessage?.(session.filePath);
+            if (firstUserMessage) {
+              // Truncate to first 100 chars as title
+              title = firstUserMessage.substring(0, 100).trim();
+              if (firstUserMessage.length > 100) {
+                title += '...';
+              }
+            }
+          } catch {
+            // Ignore errors extracting title
+          }
+
+          sessions.push({
+            id: session.sessionId,
+            tool: session.tool,
+            path: session.filePath,
+            title,
+            startTime: session.createdAt.toISOString(),
+            updatedAt: session.updatedAt.toISOString(),
+            projectHash: session.projectHash
+          });
+        }
+      }
+
+      // Sort by updatedAt descending
+      sessions.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ sessions, count: sessions.length }));
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: (err as Error).message }));
@@ -657,6 +858,15 @@ export async function handleCliRoutes(ctx: RouteContext): Promise<boolean> {
 
       if (!tool || !prompt) {
         return { error: 'tool and prompt are required', status: 400 };
+      }
+
+      // Security: Validate toFile path is within project directory
+      if (toFile) {
+        const projectDir = resolve(dir || initialPath);
+        const pathValidation = validatePath(toFile, [projectDir]);
+        if (!pathValidation.valid) {
+          return { error: 'Invalid path: access denied', status: 400 };
+        }
       }
 
       // Generate smart context if enabled

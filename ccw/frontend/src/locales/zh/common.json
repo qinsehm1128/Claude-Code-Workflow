@@ -245,7 +245,7 @@
       "coordinator": "协调器",
       "executions": "执行监控",
       "loops": "循环",
-      "history": "历史",
+      "history": "CLI执行历史",
       "memory": "记忆",
       "prompts": "提示词",
       "skills": "技能",

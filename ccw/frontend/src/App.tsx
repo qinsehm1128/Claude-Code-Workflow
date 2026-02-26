@@ -14,6 +14,7 @@ import type { Locale } from './lib/i18n';
 import { useWorkflowStore } from '@/stores/workflowStore';
 import { useActiveCliExecutions } from '@/hooks/useActiveCliExecutions';
 import { DialogStyleProvider } from '@/contexts/DialogStyleContext';
+import { initializeCsrfToken } from './lib/api';
 
 interface AppProps {
   locale: Locale;
@@ -25,6 +26,11 @@ interface AppProps {
  * Provides routing and global providers
  */
 function App({ locale, messages }: AppProps) {
+  // Initialize CSRF token on app mount
+  useEffect(() => {
+    initializeCsrfToken().catch(console.error);
+  }, []);
+
   return (
     <IntlProvider locale={locale} messages={messages}>
       <QueryClientProvider client={queryClient}>

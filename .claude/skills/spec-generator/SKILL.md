@@ -11,21 +11,23 @@ Structured specification document generator producing a complete specification p
 ## Architecture Overview
 
 ```
-Phase 0: Specification Study (Read specs/ + templates/ - mandatory prerequisite)
-         |
-Phase 1: Discovery           -> spec-config.json + discovery-context.json
-         |
-Phase 2: Product Brief       -> product-brief.md  (multi-CLI parallel analysis)
-         |
-Phase 3: Requirements (PRD)  -> requirements/  (_index.md + REQ-*.md + NFR-*.md)
-         |
-Phase 4: Architecture        -> architecture/  (_index.md + ADR-*.md, multi-CLI review)
-         |
-Phase 5: Epics & Stories     -> epics/  (_index.md + EPIC-*.md)
-         |
-Phase 6: Readiness Check     -> readiness-report.md + spec-summary.md
-         |
-         Handoff to execution workflows
+Phase 0:   Specification Study (Read specs/ + templates/ - mandatory prerequisite)
+           |
+Phase 1:   Discovery               -> spec-config.json + discovery-context.json
+           |
+Phase 1.5: Req Expansion           -> refined-requirements.json (interactive discussion + CLI gap analysis)
+           |                           (-y auto mode: auto-expansion, skip interaction)
+Phase 2:   Product Brief            -> product-brief.md  (multi-CLI parallel analysis)
+           |
+Phase 3:   Requirements (PRD)      -> requirements/  (_index.md + REQ-*.md + NFR-*.md)
+           |
+Phase 4:   Architecture            -> architecture/  (_index.md + ADR-*.md, multi-CLI review)
+           |
+Phase 5:   Epics & Stories         -> epics/  (_index.md + EPIC-*.md)
+           |
+Phase 6:   Readiness Check         -> readiness-report.md + spec-summary.md
+           |
+           Handoff to execution workflows
 ```
 
 ## Key Design Principles
@@ -78,6 +80,16 @@ Phase 1: Discovery & Seed Analysis
    |- Codebase exploration (conditional, if project detected)
    |- User confirmation (interactive, -y skips)
    |- Output: spec-config.json, discovery-context.json (optional)
+
+Phase 1.5: Requirement Expansion & Clarification
+   |- Ref: phases/01-5-requirement-clarification.md
+   |- CLI gap analysis: completeness scoring, missing dimensions detection
+   |- Multi-round interactive discussion (max 5 rounds)
+   |  |- Round 1: present gap analysis + expansion suggestions
+   |  |- Round N: follow-up refinement based on user responses
+   |- User final confirmation of requirements
+   |- Auto mode (-y): CLI auto-expansion without interaction
+   |- Output: refined-requirements.json
 
 Phase 2: Product Brief
    |- Ref: phases/02-product-brief.md
@@ -148,6 +160,7 @@ Bash(`mkdir -p "${workDir}"`);
 .workflow/.spec/SPEC-{slug}-{YYYY-MM-DD}/
 ├── spec-config.json              # Session configuration + phase state
 ├── discovery-context.json        # Codebase exploration results (optional)
+├── refined-requirements.json     # Phase 1.5: Confirmed requirements after discussion
 ├── product-brief.md              # Phase 2: Product brief
 ├── requirements/                 # Phase 3: Detailed PRD (directory)
 │   ├── _index.md                 #   Summary, MoSCoW table, traceability, links
@@ -184,8 +197,10 @@ Bash(`mkdir -p "${workDir}"`);
     "dimensions": []
   },
   "has_codebase": false,
+  "refined_requirements_file": "refined-requirements.json",
   "phasesCompleted": [
     { "phase": 1, "name": "discovery", "output_file": "spec-config.json", "completed_at": "ISO8601" },
+    { "phase": 1.5, "name": "requirement-clarification", "output_file": "refined-requirements.json", "discussion_rounds": 2, "completed_at": "ISO8601" },
     { "phase": 3, "name": "requirements", "output_dir": "requirements/", "output_index": "requirements/_index.md", "file_count": 8, "completed_at": "ISO8601" }
   ]
 }
@@ -210,6 +225,12 @@ Bash(`mkdir -p "${workDir}"`);
 |----------|---------|-------------|
 | [phases/01-discovery.md](phases/01-discovery.md) | Seed analysis and session setup | Phase start |
 | [specs/document-standards.md](specs/document-standards.md) | Frontmatter format for spec-config.json | Config generation |
+
+### Phase 1.5: Requirement Expansion & Clarification
+| Document | Purpose | When to Use |
+|----------|---------|-------------|
+| [phases/01-5-requirement-clarification.md](phases/01-5-requirement-clarification.md) | Interactive requirement discussion workflow | Phase start |
+| [specs/quality-gates.md](specs/quality-gates.md) | Quality criteria for refined requirements | Validation |
 
 ### Phase 2: Product Brief
 | Document | Purpose | When to Use |
@@ -254,6 +275,9 @@ Bash(`mkdir -p "${workDir}"`);
 |-------|-------|-----------|--------|
 | Phase 1 | Empty input | Yes | Error and exit |
 | Phase 1 | CLI seed analysis fails | No | Use basic parsing fallback |
+| Phase 1.5 | Gap analysis CLI fails | No | Skip to user questions with basic prompts |
+| Phase 1.5 | User skips discussion | No | Proceed with seed_analysis as-is |
+| Phase 1.5 | Max rounds reached (5) | No | Force confirmation with current state |
 | Phase 2 | Single CLI perspective fails | No | Continue with available perspectives |
 | Phase 2 | All CLI calls fail | No | Generate basic brief from seed analysis |
 | Phase 3 | Gemini CLI fails | No | Use codex fallback |

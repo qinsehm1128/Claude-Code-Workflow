@@ -182,6 +182,15 @@ export const HOOK_TEMPLATES: readonly HookTemplate[] = [
       '-e',
       'const p=JSON.parse(process.env.HOOK_INPUT||"{}");const cp=require("child_process");const payload=JSON.stringify({type:"SESSION_SUMMARY",transcript:p.transcript_path||"",project:process.env.CLAUDE_PROJECT_DIR||process.cwd(),timestamp:Date.now()});cp.spawnSync("curl",["-s","-X","POST","-H","Content-Type: application/json","-d",payload,"http://localhost:3456/api/hook"],{stdio:"inherit",shell:true})'
     ]
+  },
+  {
+    id: 'project-state-inject',
+    name: 'Project State Inject',
+    description: 'Inject project guidelines and recent dev history at session start',
+    category: 'indexing',
+    trigger: 'SessionStart',
+    command: 'ccw',
+    args: ['hook', 'project-state', '--stdin']
   }
 ] as const;
 
@@ -205,6 +214,7 @@ const TEMPLATE_ICONS: Record<string, typeof Bell> = {
   'git-auto-stage': GitBranch,
   'post-edit-index': Database,
   'session-end-summary': FileBarChart,
+  'project-state-inject': FileBarChart,
 };
 
 // ========== Category Names ==========
@@ -226,7 +236,7 @@ function getCategoryName(category: TemplateCategory, formatMessage: ReturnType<t
 export function HookQuickTemplates({
   onInstallTemplate,
   installedTemplates,
-  isLoading = false,
+  isLoading: _isLoading = false,
   installingTemplateId = null
 }: HookQuickTemplatesProps) {
   const { formatMessage } = useIntl();

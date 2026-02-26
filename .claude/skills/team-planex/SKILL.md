@@ -6,7 +6,7 @@ allowed-tools: TeamCreate(*), TeamDelete(*), SendMessage(*), TaskCreate(*), Task
 
 # Team PlanEx
 
-2 成员边规划边执行团队。通过 Wave Pipeline（波次流水线）实现 planner 和 executor 并行工作：planner 完成一个 wave 的 queue 后立即创建 EXEC-* 任务，同时进入下一 wave 规划。所有成员通过 `--role=xxx` 路由。
+2 成员边规划边执行团队。通过逐 Issue 节拍流水线实现 planner 和 executor 并行工作：planner 每完成一个 issue 的 solution 后立即创建 EXEC-* 任务（含中间产物文件路径），executor 从文件加载 solution 开始实现。所有成员通过 `--role=xxx` 路由。
 
 ## Architecture Overview
 
@@ -63,7 +63,7 @@ Read(VALID_ROLES[role].file)
 
 | Role | Task Prefix | Responsibility | Reuses Agent | Role File |
 |------|-------------|----------------|--------------|-----------|
-| `planner` | PLAN-* | 需求拆解 → issue 创建 → 方案设计 → 队列编排 → EXEC 任务派发 | issue-plan-agent, issue-queue-agent | [roles/planner.md](roles/planner.md) |
+| `planner` | PLAN-* | 需求拆解 → issue 创建 → 方案设计 → 冲突检查 → EXEC 任务逐个派发 | issue-plan-agent | [roles/planner.md](roles/planner.md) |
 | `executor` | EXEC-* | 加载 solution → 代码实现 → 测试 → 提交 | code-developer | [roles/executor.md](roles/executor.md) |
 
 ## Input Types
@@ -93,7 +93,7 @@ mcp__ccw-tools__team_msg({ summary: `[${role}] ...` })
 |------|------|
 | 需求拆解 (issue 创建) | ❌ 直接编写/修改代码 |
 | 方案设计 (issue-plan-agent) | ❌ 调用 code-developer |
-| 队列编排 (issue-queue-agent) | ❌ 运行测试 |
+| 冲突检查 (inline files_touched) | ❌ 运行测试 |
 | 创建 EXEC-* 任务 | ❌ git commit |
 | 监控进度 (消息总线) | |
 
@@ -113,7 +113,7 @@ mcp__ccw-tools__team_msg({ summary: `[${role}] ...` })
 const TEAM_CONFIG = {
   name: "planex",
   sessionDir: ".workflow/.team/PEX-{slug}-{date}/",
-  msgDir: ".workflow/.team-msg/planex/",
+  artifactsDir: ".workflow/.team/PEX-{slug}-{date}/artifacts/",
   issueDataDir: ".workflow/issues/"
 }
 ```
@@ -136,7 +136,7 @@ mcp__ccw-tools__team_msg({
 
 | Role | Types |
 |------|-------|
-| planner | `wave_ready`, `queue_ready`, `all_planned`, `error` |
+| planner | `wave_ready`, `issue_ready`, `all_planned`, `error` |
 | executor | `impl_complete`, `impl_failed`, `wave_done`, `error` |
 
 ### CLI Fallback
@@ -162,22 +162,22 @@ TaskUpdate({ taskId: task.id, status: 'in_progress' })
 // Phase 5: Report + Loop
 ```
 
-## Wave Pipeline
+## Wave Pipeline (逐 Issue 节拍)
 
 ```
-Wave 1:  planner 创建 issues + 规划 solutions + 形成 queue
-                ↓ (queue ready → 创建 EXEC-* 任务)
-Wave 1 执行:  executor 开始实现  ←→  planner 继续规划 Wave 2
-                                         ↓
-Wave 2 执行:  executor 实现 Wave 2  ←→  planner 规划 Wave 3
-                ...
-Final:   planner 发送 all_planned → executor 完成剩余 EXEC-* → 结束
+Issue 1:  planner 规划 solution → 写中间产物 → 冲突检查 → 创建 EXEC-* → issue_ready
+                ↓ (executor 立即开始)
+Issue 2:  planner 规划 solution → 写中间产物 → 冲突检查 → 创建 EXEC-* → issue_ready
+                ↓ (executor 并行消费)
+Issue N:  ...
+Final:    planner 发送 all_planned → executor 完成剩余 EXEC-* → 结束
 ```
 
-**波次规则**:
-- planner 每完成一个 wave 的 queue 后，立即创建 EXEC-* 任务供 executor 消费
-- planner 不等待 executor 完成当前 wave，直接进入下一 wave
-- executor 持续轮询并消费可用的 EXEC-* 任务
+**节拍规则**:
+- planner 每完成一个 issue 的 solution 后，**立即**创建 EXEC-* 任务并发送 `issue_ready` 信号
+- solution 写入中间产物文件（`artifacts/solutions/{issueId}.json`），EXEC-* 任务包含 `solution_file` 路径
+- executor 从文件加载 solution（无需再调 `ccw issue solution`），fallback 兼容旧模式
+- planner 不等待 executor，持续推进下一个 issue
 - 当 planner 发送 `all_planned` 消息后，executor 完成所有剩余任务即可结束
 
 ## Execution Method Selection
@@ -266,6 +266,13 @@ Skill(skill="team-planex", args="-y --text '添加日志'")
 // 1. 创建团队
 TeamCreate({ team_name: teamName })
 
+// 1.5 初始化 sessionDir + artifacts 目录
+const slug = (issueIds[0] || 'batch').replace(/[^a-zA-Z0-9-]/g, '')
+const dateStr = new Date().toISOString().slice(0,10).replace(/-/g,'')
+const sessionId = `PEX-${slug}-${dateStr}`
+const sessionDir = `.workflow/.team/${sessionId}`
+Bash(`mkdir -p "${sessionDir}/artifacts/solutions"`)
+
 // 2. 解析输入参数
 const issueIds = args.match(/ISS-\d{8}-\d{6}/g) || []
 const textMatch = args.match(/--text\s+['"]([^'"]+)['"]/)
@@ -299,11 +306,17 @@ executor 的执行方式已确定: ${executionConfig.executionMethod}
   execution_method: ${executionConfig.executionMethod}
   code_review: ${executionConfig.codeReviewTool}
 
+## 中间产物（必须）
+sessionDir: ${sessionDir}
+每个 issue 的 solution 写入: ${sessionDir}/artifacts/solutions/{issueId}.json
+EXEC-* 任务 description 必须包含 solution_file 字段指向该文件
+每完成一个 issue 立即发送 issue_ready 消息并创建 EXEC-* 任务
+
 ## 角色准则（强制）
 - 你只能处理 PLAN-* 前缀的任务
 - 所有输出必须带 [planner] 标识前缀
-- 完成每个 wave 后立即创建 EXEC-* 任务供 executor 消费
-- EXEC-* 任务 description 中必须包含 execution_method 字段
+- 每完成一个 issue 的 solution 后立即创建 EXEC-* 任务（逐 issue 派发，不等 wave 完成）
+- EXEC-* 任务 description 中必须包含 execution_method 和 solution_file 字段
 
 ## 消息总线（必须）
 每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
@@ -327,6 +340,10 @@ Task({
 默认执行方式: ${executionConfig.executionMethod}
 代码审查: ${executionConfig.codeReviewTool}
 （每个 EXEC-* 任务 description 中可能包含 execution_method 覆盖）
+
+## Solution 加载
+优先从 EXEC-* 任务 description 中的 solution_file 路径读取 solution JSON 文件
+无 solution_file 时 fallback 到 ccw issue solution 命令
 
 ## 角色准则（强制）
 - 你只能处理 EXEC-* 前缀的任务
@@ -352,7 +369,7 @@ Task({
 | Unknown --role value | Error with available role list |
 | Missing --role arg | Enter orchestration mode |
 | Role file not found | Error with expected path (roles/{name}.md) |
-| Planner wave failure | Retry once, then report error and halt pipeline |
+| Planner issue planning failure | Retry once, then report error and skip to next issue |
 | Executor impl failure | Report to planner, continue with next EXEC-* task |
 | No EXEC-* tasks yet | Executor idles, polls for new tasks |
 | Pipeline stall | Planner monitors — if executor blocked > 2 tasks, escalate to user |

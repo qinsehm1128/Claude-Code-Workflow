@@ -51,25 +51,29 @@ const modifiedFiles = fixLog.files_modified || []
 // 获取原始债务分数
 const debtScoreBefore = sharedMemory.debt_score_before || 0
 
-// 检测可用的验证工具
-const hasNpm = Bash(`which npm 2>/dev/null && echo "yes" || echo "no"`).trim() === 'yes'
-const hasTsc = Bash(`which npx 2>/dev/null && npx tsc --version 2>/dev/null && echo "yes" || echo "no"`).includes('yes')
-const hasEslint = Bash(`npx eslint --version 2>/dev/null && echo "yes" || echo "no"`).includes('yes')
-const hasPytest = Bash(`which pytest 2>/dev/null && echo "yes" || echo "no"`).trim() === 'yes'
+// Worktree 路径（从 shared memory 加载）
+const worktreePath = sharedMemory.worktree?.path || null
+const cmdPrefix = worktreePath ? `cd "${worktreePath}" && ` : ''
+
+// 检测可用的验证工具（在 worktree 中检测）
+const hasNpm = Bash(`${cmdPrefix}which npm 2>/dev/null && echo "yes" || echo "no"`).trim() === 'yes'
+const hasTsc = Bash(`${cmdPrefix}which npx 2>/dev/null && npx tsc --version 2>/dev/null && echo "yes" || echo "no"`).includes('yes')
+const hasEslint = Bash(`${cmdPrefix}npx eslint --version 2>/dev/null && echo "yes" || echo "no"`).includes('yes')
+const hasPytest = Bash(`${cmdPrefix}which pytest 2>/dev/null && echo "yes" || echo "no"`).trim() === 'yes'
 ```
 
 ### Step 2: Execute Strategy
 
 ```javascript
-// === Check 1: Test Suite ===
+// === Check 1: Test Suite（worktree 中执行） ===
 let testOutput = ''
 let testsPassed = true
 let testRegressions = 0
 
 if (hasNpm) {
-  testOutput = Bash(`npm test 2>&1 || true`)
+  testOutput = Bash(`${cmdPrefix}npm test 2>&1 || true`)
 } else if (hasPytest) {
-  testOutput = Bash(`python -m pytest 2>&1 || true`)
+  testOutput = Bash(`${cmdPrefix}python -m pytest 2>&1 || true`)
 } else {
   testOutput = 'no-test-runner'
 }
@@ -79,17 +83,17 @@ if (testOutput !== 'no-test-runner') {
   testRegressions = testsPassed ? 0 : (testOutput.match(/(\d+) failed/)?.[1] || 1) * 1
 }
 
-// === Check 2: Type Checking ===
+// === Check 2: Type Checking（worktree 中执行） ===
 let typeErrors = 0
 if (hasTsc) {
-  const tscOutput = Bash(`npx tsc --noEmit 2>&1 || true`)
+  const tscOutput = Bash(`${cmdPrefix}npx tsc --noEmit 2>&1 || true`)
   typeErrors = (tscOutput.match(/error TS/g) || []).length
 }
 
-// === Check 3: Linting ===
+// === Check 3: Linting（worktree 中执行） ===
 let lintErrors = 0
 if (hasEslint && modifiedFiles.length > 0) {
-  const lintOutput = Bash(`npx eslint --no-error-on-unmatched-pattern ${modifiedFiles.join(' ')} 2>&1 || true`)
+  const lintOutput = Bash(`${cmdPrefix}npx eslint --no-error-on-unmatched-pattern ${modifiedFiles.join(' ')} 2>&1 || true`)
   lintErrors = (lintOutput.match(/(\d+) error/)?.[0]?.match(/\d+/)?.[0] || 0) * 1
 }
 
@@ -103,7 +107,7 @@ CONTEXT: ${modifiedFiles.map(f => `@${f}`).join(' ')}
 EXPECTED: Quality comparison with: metrics_before, metrics_after, improvement_score (0-100), new_issues_found
 CONSTRAINTS: Focus on the specific changes, not overall project quality`
 
-  Bash(`ccw cli -p "${prompt}" --tool gemini --mode analysis --rule analysis-review-code-quality`, {
+  Bash(`ccw cli -p "${prompt}" --tool gemini --mode analysis --rule analysis-review-code-quality${worktreePath ? ' --cd "' + worktreePath + '"' : ''}`, {
     run_in_background: true
   })
   // 等待 CLI 完成，解析质量改善分数
@@ -137,7 +141,7 @@ if (totalRegressions > 0 && totalRegressions <= 3) {
     description: `Fix ${totalRegressions} regressions from debt cleanup`,
     prompt: `## Goal
 Fix regressions introduced by tech debt cleanup.
-
+${worktreePath ? `\n## Worktree（强制）\n- 工作目录: ${worktreePath}\n- **所有文件操作必须在 ${worktreePath} 下进行**\n- Bash 命令使用 cd "${worktreePath}" && ... 前缀\n` : ''}
 ## Regressions
 ${regressionDetails.join('\n')}
 

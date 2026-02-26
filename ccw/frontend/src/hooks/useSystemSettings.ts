@@ -16,11 +16,15 @@ import {
   fetchCliToolStatus,
   fetchCcwInstallations,
   upgradeCcwInstallation,
+  exportSettings,
+  importSettings,
   type ChineseResponseStatus,
   type WindowsPlatformStatus,
   type CodexCliEnhancementStatus,
   type CcwInstallStatus,
   type CcwInstallationManifest,
+  type ExportedSettings,
+  type ImportOptions,
 } from '../lib/api';
 
 // Query key factory
@@ -32,6 +36,7 @@ export const systemSettingsKeys = {
   aggregatedStatus: () => [...systemSettingsKeys.all, 'aggregatedStatus'] as const,
   cliToolStatus: () => [...systemSettingsKeys.all, 'cliToolStatus'] as const,
   ccwInstallations: () => [...systemSettingsKeys.all, 'ccwInstallations'] as const,
+  exportSettings: () => [...systemSettingsKeys.all, 'exportSettings'] as const,
 };
 
 const STALE_TIME = 60 * 1000; // 1 minute
@@ -281,6 +286,42 @@ export function useUpgradeCcwInstallation() {
 
   return {
     upgrade: mutation.mutateAsync,
+    isPending: mutation.isPending,
+    error: mutation.error,
+  };
+}
+
+// ========================================
+// Settings Export/Import Hooks
+// ========================================
+
+export function useExportSettings() {
+  const mutation = useMutation({
+    mutationFn: exportSettings,
+  });
+
+  return {
+    exportSettings: mutation.mutateAsync,
+    isPending: mutation.isPending,
+    error: mutation.error,
+  };
+}
+
+export function useImportSettings() {
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: ({ data, options }: { data: ExportedSettings; options?: ImportOptions }) =>
+      importSettings(data, options),
+    onSuccess: () => {
+      // Invalidate all system settings queries to refresh the UI
+      queryClient.invalidateQueries({ queryKey: systemSettingsKeys.all });
+    },
+  });
+
+  return {
+    importSettings: (data: ExportedSettings, options?: ImportOptions) =>
+      mutation.mutateAsync({ data, options }),
     isPending: mutation.isPending,
     error: mutation.error,
   };

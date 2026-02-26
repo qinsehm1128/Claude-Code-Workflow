@@ -361,6 +361,8 @@ if (autoYes) {
 
 ### Post-Completion Expansion
 
+**Auto-sync**: 执行 `/workflow:session:sync -y "{summary}"` 更新 project-guidelines + project-tech。
+
 完成后询问用户是否扩展为issue(test/enhance/refactor/doc)，选中项调用 `/issue:new "{summary} - {dimension}"`
 
 ## Execution Strategy (IMPL_PLAN-Driven)

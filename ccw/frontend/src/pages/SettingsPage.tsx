@@ -3,7 +3,7 @@
 // ========================================
 // Application settings and configuration with CLI tools management
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useIntl } from 'react-intl';
 import {
   Settings,
@@ -30,6 +30,8 @@ import {
   File,
   ArrowUpCircle,
   Save,
+  Download,
+  Upload,
 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -54,7 +56,10 @@ import {
   useCliToolStatus,
   useCcwInstallations,
   useUpgradeCcwInstallation,
+  useExportSettings,
+  useImportSettings,
 } from '@/hooks/useSystemSettings';
+import type { ExportedSettings } from '@/lib/api';
 import { RemoteNotificationSection } from '@/components/settings/RemoteNotificationSection';
 import { A2UIPreferencesSection } from '@/components/settings/A2UIPreferencesSection';
 
@@ -520,6 +525,72 @@ function ResponseLanguageSection() {
   const { data: cliEnhStatus, isLoading: cliEnhLoading } = useCodexCliEnhancementStatus();
   const { toggle: toggleCliEnh, isPending: cliEnhToggling } = useToggleCodexCliEnhancement();
   const { refresh: refreshCliEnh, isPending: refreshing } = useRefreshCodexCliEnhancement();
+  const { exportSettings: doExport, isPending: exporting } = useExportSettings();
+  const { importSettings: doImport, isPending: importing } = useImportSettings();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleExport = useCallback(async () => {
+    try {
+      const data = await doExport();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      a.href = url;
+      a.download = `ccw-settings-${timestamp}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success(formatMessage({ id: 'settings.responseLanguage.exportSuccess' }));
+    } catch (error) {
+      toast.error(formatMessage({ id: 'settings.responseLanguage.exportError' }));
+    }
+  }, [doExport, formatMessage]);
+
+  const handleFileImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Reset file input so the same file can be re-selected
+    e.target.value = '';
+
+    // Validate file type
+    if (!file.name.endsWith('.json') && file.type !== 'application/json') {
+      toast.error(formatMessage({ id: 'settings.responseLanguage.importInvalidFile' }));
+      return;
+    }
+
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text) as ExportedSettings;
+
+      // Validate basic structure
+      if (!data.version || !data.settings) {
+        toast.error(formatMessage({ id: 'settings.responseLanguage.importInvalidStructure' }));
+        return;
+      }
+
+      const result = await doImport(data);
+
+      if (result.success) {
+        toast.success(
+          formatMessage(
+            { id: 'settings.responseLanguage.importSuccess' },
+            { imported: result.imported, skipped: result.skipped }
+          )
+        );
+      } else {
+        toast.error(formatMessage({ id: 'settings.responseLanguage.importError' }));
+      }
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        toast.error(formatMessage({ id: 'settings.responseLanguage.importInvalidJson' }));
+      } else {
+        toast.error(formatMessage({ id: 'settings.responseLanguage.importError' }));
+      }
+    }
+  }, [doImport, formatMessage]);
 
   return (
     <Card className="p-6">
@@ -542,9 +613,17 @@ function ResponseLanguageSection() {
               disabled={chineseLoading || chineseToggling}
               onClick={() => toggleChinese(!chineseStatus?.claudeEnabled, 'claude')}
             >
-              {chineseStatus?.claudeEnabled
-                ? formatMessage({ id: 'settings.responseLanguage.enabled' })
-                : formatMessage({ id: 'settings.responseLanguage.disabled' })}
+              {chineseStatus?.claudeEnabled ? (
+                <>
+                  <Check className="w-4 h-4 mr-1" />
+                  {formatMessage({ id: 'settings.responseLanguage.enabled' })}
+                </>
+              ) : (
+                <>
+                  <X className="w-4 h-4 mr-1" />
+                  {formatMessage({ id: 'settings.responseLanguage.disabled' })}
+                </>
+              )}
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
@@ -566,9 +645,17 @@ function ResponseLanguageSection() {
               disabled={chineseLoading || chineseToggling}
               onClick={() => toggleChinese(!chineseStatus?.codexEnabled, 'codex')}
             >
-              {chineseStatus?.codexEnabled
-                ? formatMessage({ id: 'settings.responseLanguage.enabled' })
-                : formatMessage({ id: 'settings.responseLanguage.disabled' })}
+              {chineseStatus?.codexEnabled ? (
+                <>
+                  <Check className="w-4 h-4 mr-1" />
+                  {formatMessage({ id: 'settings.responseLanguage.enabled' })}
+                </>
+              ) : (
+                <>
+                  <X className="w-4 h-4 mr-1" />
+                  {formatMessage({ id: 'settings.responseLanguage.disabled' })}
+                </>
+              )}
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
@@ -596,9 +683,17 @@ function ResponseLanguageSection() {
               disabled={windowsLoading || windowsToggling}
               onClick={() => toggleWindows(!windowsStatus?.enabled)}
             >
-              {windowsStatus?.enabled
-                ? formatMessage({ id: 'settings.responseLanguage.enabled' })
-                : formatMessage({ id: 'settings.responseLanguage.disabled' })}
+              {windowsStatus?.enabled ? (
+                <>
+                  <Check className="w-4 h-4 mr-1" />
+                  {formatMessage({ id: 'settings.responseLanguage.enabled' })}
+                </>
+              ) : (
+                <>
+                  <X className="w-4 h-4 mr-1" />
+                  {formatMessage({ id: 'settings.responseLanguage.disabled' })}
+                </>
+              )}
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
@@ -634,9 +729,17 @@ function ResponseLanguageSection() {
                 disabled={cliEnhLoading || cliEnhToggling}
                 onClick={() => toggleCliEnh(!cliEnhStatus?.enabled)}
               >
-                {cliEnhStatus?.enabled
-                  ? formatMessage({ id: 'settings.responseLanguage.enabled' })
-                  : formatMessage({ id: 'settings.responseLanguage.disabled' })}
+                {cliEnhStatus?.enabled ? (
+                  <>
+                    <Check className="w-4 h-4 mr-1" />
+                    {formatMessage({ id: 'settings.responseLanguage.enabled' })}
+                  </>
+                ) : (
+                  <>
+                    <X className="w-4 h-4 mr-1" />
+                    {formatMessage({ id: 'settings.responseLanguage.disabled' })}
+                  </>
+                )}
               </Button>
             </div>
           </div>
@@ -648,6 +751,62 @@ function ResponseLanguageSection() {
               {formatMessage({ id: 'settings.responseLanguage.cliEnhancementHint' })}
             </p>
           )}
+        </div>
+      </div>
+
+      {/* Export/Import Actions */}
+      <div className="mt-4 pt-4 border-t border-border">
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-muted-foreground">
+            {formatMessage({ id: 'settings.responseLanguage.exportImportHint' })}
+          </p>
+          <div className="flex items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json,application/json"
+              onChange={handleFileImport}
+              className="hidden"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7"
+              disabled={importing}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {importing ? (
+                <>
+                  <div className="w-3.5 h-3.5 border-2 border-border border-t-accent rounded-full animate-spin mr-1" />
+                  {formatMessage({ id: 'settings.responseLanguage.importing' })}
+                </>
+              ) : (
+                <>
+                  <Upload className="w-3.5 h-3.5 mr-1" />
+                  {formatMessage({ id: 'settings.responseLanguage.import' })}
+                </>
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7"
+              disabled={exporting}
+              onClick={handleExport}
+            >
+              {exporting ? (
+                <>
+                  <div className="w-3.5 h-3.5 border-2 border-border border-t-accent rounded-full animate-spin mr-1" />
+                  {formatMessage({ id: 'settings.responseLanguage.exporting' })}
+                </>
+              ) : (
+                <>
+                  <Download className="w-3.5 h-3.5 mr-1" />
+                  {formatMessage({ id: 'settings.responseLanguage.export' })}
+                </>
+              )}
+            </Button>
+          </div>
         </div>
       </div>
     </Card>

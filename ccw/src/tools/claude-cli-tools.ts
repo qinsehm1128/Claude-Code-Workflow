@@ -136,46 +136,32 @@ export interface ClaudeCliCombinedConfig extends ClaudeCliToolsConfig {
 
 // ========== Default Config ==========
 
+// Default tools config - no model defaults, models come from user's cli-tools.json
 const DEFAULT_TOOLS_CONFIG: ClaudeCliToolsConfig = {
   version: '3.4.0',
   tools: {
     gemini: {
       enabled: true,
-      primaryModel: 'gemini-2.5-pro',
-      secondaryModel: 'gemini-2.5-flash',
-      availableModels: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-thinking', 'gemini-1.5-pro'],
       tags: [],
       type: 'builtin'
     },
     qwen: {
       enabled: true,
-      primaryModel: 'coder-model',
-      secondaryModel: 'coder-model',
-      availableModels: ['coder-model', 'vision-model', 'qwen-2.5-coder', 'qwen-2.5-72b'],
       tags: [],
       type: 'builtin'
     },
     codex: {
       enabled: true,
-      primaryModel: 'gpt-5.2',
-      secondaryModel: 'gpt-5.2',
-      availableModels: ['gpt-5.2', 'gpt-5', 'gpt5-codex', 'o3', 'o1'],
       tags: [],
       type: 'builtin'
     },
     claude: {
       enabled: true,
-      primaryModel: 'sonnet',
-      secondaryModel: 'haiku',
-      availableModels: ['opus', 'sonnet', 'haiku'],
       tags: [],
       type: 'builtin'
     },
     opencode: {
       enabled: true,
-      primaryModel: 'opencode/glm-4.7-free',
-      secondaryModel: 'opencode/glm-4.7-free',
-      availableModels: ['opencode/glm-4.7-free', 'opencode/deepseek-v3-free'],
       tags: [],
       type: 'builtin'
     }
@@ -859,12 +845,12 @@ export function removeClaudeApiEndpoint(
 }
 
 /**
- * @deprecated Use addClaudeApiEndpoint instead
- * Adds tool to config based on tags:
+ * Add a custom CLI settings endpoint tool to cli-tools.json
+ * Adds tool based on tags:
  * - cli-wrapper tag -> type: 'cli-wrapper'
  * - others -> type: 'api-endpoint'
  */
-export function addClaudeCustomEndpoint(
+export function addCustomEndpoint(
   projectDir: string,
   endpoint: { id: string; name: string; enabled: boolean; tags?: string[]; availableModels?: string[]; settingsFile?: string }
 ): ClaudeCliToolsConfig {
@@ -895,10 +881,13 @@ export function addClaudeCustomEndpoint(
   return config;
 }
 
+/** @deprecated Use addCustomEndpoint instead */
+export const addClaudeCustomEndpoint = addCustomEndpoint;
+
 /**
  * Remove endpoint tool (cli-wrapper or api-endpoint)
  */
-export function removeClaudeCustomEndpoint(
+export function removeCustomEndpoint(
   projectDir: string,
   endpointId: string
 ): ClaudeCliToolsConfig {
@@ -917,6 +906,9 @@ export function removeClaudeCustomEndpoint(
   saveClaudeCliTools(projectDir, config);
   return config;
 }
+
+/** @deprecated Use removeCustomEndpoint instead */
+export const removeClaudeCustomEndpoint = removeCustomEndpoint;
 
 /**
  * Get config source info

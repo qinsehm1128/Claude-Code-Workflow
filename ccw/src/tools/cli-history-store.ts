@@ -1063,7 +1063,7 @@ export class CliHistoryStore {
    * Get parsed native session content by CCW ID
    * Returns full conversation with all turns from native session file
    */
-  getNativeSessionContent(ccwId: string): ParsedSession | null {
+  async getNativeSessionContent(ccwId: string): Promise<ParsedSession | null> {
     const mapping = this.getNativeSessionMapping(ccwId);
     if (!mapping || !mapping.native_session_path) {
       return null;
@@ -1075,13 +1075,13 @@ export class CliHistoryStore {
   /**
    * Get formatted conversation text from native session
    */
-  getFormattedNativeConversation(ccwId: string, options?: {
+  async getFormattedNativeConversation(ccwId: string, options?: {
     includeThoughts?: boolean;
     includeToolCalls?: boolean;
     includeTokens?: boolean;
     maxContentLength?: number;
-  }): string | null {
-    const session = this.getNativeSessionContent(ccwId);
+  }): Promise<string | null> {
+    const session = await this.getNativeSessionContent(ccwId);
     if (!session) {
       return null;
     }
@@ -1091,13 +1091,13 @@ export class CliHistoryStore {
   /**
    * Get conversation pairs (user prompt + assistant response) from native session
    */
-  getNativeConversationPairs(ccwId: string): Array<{
+  async getNativeConversationPairs(ccwId: string): Promise<Array<{
     turn: number;
     userPrompt: string;
     assistantResponse: string;
     timestamp: string;
-  }> | null {
-    const session = this.getNativeSessionContent(ccwId);
+  }> | null> {
+    const session = await this.getNativeSessionContent(ccwId);
     if (!session) {
       return null;
     }
@@ -1108,7 +1108,7 @@ export class CliHistoryStore {
    * Get conversation with enriched native session data
    * Merges CCW history with native session content
    */
-  getEnrichedConversation(ccwId: string): {
+  async getEnrichedConversation(ccwId: string): Promise<{
     ccw: ConversationRecord | null;
     native: ParsedSession | null;
     merged: Array<{
@@ -1121,9 +1121,9 @@ export class CliHistoryStore {
       nativeThoughts?: string[];
       nativeToolCalls?: Array<{ name: string; arguments?: string; output?: string }>;
     }>;
-  } | null {
+  } | null> {
     const ccwConv = this.getConversation(ccwId);
-    const nativeSession = this.getNativeSessionContent(ccwId);
+    const nativeSession = await this.getNativeSessionContent(ccwId);
 
     if (!ccwConv && !nativeSession) {
       return null;

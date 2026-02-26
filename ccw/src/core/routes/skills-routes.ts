@@ -279,27 +279,37 @@ function parseSkillFrontmatter(content: string): ParsedSkillFrontmatter {
 }
 
 /**
- * Get list of supporting files for a skill
+ * Get list of supporting files for a skill (recursive)
  * @param {string} skillDir
- * @returns {string[]}
+ * @returns {string[]} Array of relative paths (directories end with '/')
  */
 function getSupportingFiles(skillDir: string): string[] {
   const files: string[] = [];
-  try {
-    const entries = readdirSync(skillDir, { withFileTypes: true });
-    for (const entry of entries) {
-      // Exclude SKILL.md and SKILL.md.disabled from supporting files
-      if (entry.name !== 'SKILL.md' && entry.name !== 'SKILL.md.disabled') {
-        if (entry.isFile()) {
-          files.push(entry.name);
-        } else if (entry.isDirectory()) {
-          files.push(entry.name + '/');
+
+  function readDirRecursive(dirPath: string, relativePath: string = '') {
+    try {
+      const entries = readdirSync(dirPath, { withFileTypes: true });
+      for (const entry of entries) {
+        // Exclude SKILL.md and SKILL.md.disabled from supporting files
+        if (entry.name !== 'SKILL.md' && entry.name !== 'SKILL.md.disabled') {
+          const entryRelativePath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
+
+          if (entry.isFile()) {
+            files.push(entryRelativePath);
+          } else if (entry.isDirectory()) {
+            // Add directory marker
+            files.push(entryRelativePath + '/');
+            // Recurse into subdirectory
+            readDirRecursive(join(dirPath, entry.name), entryRelativePath);
+          }
         }
       }
+    } catch (e) {
+      // Ignore errors
     }
-  } catch (e) {
-    // Ignore errors
   }
+
+  readDirRecursive(skillDir);
   return files;
 }
 

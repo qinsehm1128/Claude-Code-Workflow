@@ -8,6 +8,14 @@
     "title": "Disable Skill?",
     "message": "Are you sure you want to disable \"{name}\"?"
   },
+  "deleteConfirm": {
+    "title": "Delete Skill?",
+    "message": "Are you sure you want to delete \"{name}\"? This action cannot be undone."
+  },
+  "delete": {
+    "success": "Skill \"{name}\" has been deleted",
+    "error": "Failed to delete skill: {error}"
+  },
   "location": {
     "project": "Project",
     "user": "Global",
@@ -25,8 +33,10 @@
     "disable": "Disable",
     "toggle": "Toggle",
     "install": "Install Skill",
+    "delete": "Delete",
     "cancel": "Cancel",
-    "confirmDisable": "Disable"
+    "confirmDisable": "Disable",
+    "confirmDelete": "Delete"
   },
   "state": {
     "enabled": "Enabled",

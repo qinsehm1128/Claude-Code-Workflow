@@ -72,7 +72,7 @@
 ```javascript
 // 从任务描述中解析 execution_method
 function resolveExecutor(taskDesc, solutionTaskCount) {
-  const methodMatch = taskDesc.match(/execution_method:\s*(Agent|Codex|Gemini|Auto)/i)
+  const methodMatch = taskDesc.match(/execution_method[:\s]*\s*(Agent|Codex|Gemini|Auto)/i)
   const method = methodMatch ? methodMatch[1] : 'Auto'
 
   if (method.toLowerCase() === 'auto') {
@@ -165,9 +165,20 @@ if (!issueId) {
   return
 }
 
-// Load solution plan
-const solJson = Bash(`ccw issue solution ${issueId} --json`)
-const solution = JSON.parse(solJson)
+// Load solution plan — dual mode: file-first, CLI fallback
+const solutionFileMatch = task.description.match(/solution_file[:\s]*\s*(\S+\.json)/)
+
+let solution
+if (solutionFileMatch) {
+  // 新模式：从中间产物文件加载
+  const solutionData = JSON.parse(Read(solutionFileMatch[1]))
+  // 保持 solution.bound 结构兼容
+  solution = solutionData.bound ? solutionData : { bound: solutionData }
+} else {
+  // 兼容模式：从 ccw issue solution 加载
+  const solJson = Bash(`ccw issue solution ${issueId} --json`)
+  solution = JSON.parse(solJson)
+}
 
 if (!solution.bound) {
   mcp__ccw-tools__team_msg({

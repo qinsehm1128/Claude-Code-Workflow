@@ -205,6 +205,11 @@ Task(
 1. **Prioritize Latest Documentation**: Search for and reference latest README, design docs, architecture guides when available
 2. **Handle Ambiguities**: When requirement ambiguities exist, ask user for clarification (use AskUserQuestion) instead of assuming interpretations
 
+### Project Context (MANDATORY)
+Read and incorporate:
+- \`.workflow/project-tech.json\` (if exists): Technology stack, architecture
+- \`.workflow/project-guidelines.json\` (if exists): Constraints, conventions -- apply as HARD CONSTRAINTS on sub-domain splitting and plan structure
+
 ### Input Requirements
 ${taskDescription}
 
@@ -349,20 +354,18 @@ subDomains.map(sub =>
 **TASK ID Range**: ${sub.task_id_range[0]}-${sub.task_id_range[1]}
 **Session**: ${sessionId}
 
+### Project Context (MANDATORY)
+Read and incorporate:
+- \`.workflow/project-tech.json\` (if exists): Technology stack, architecture
+- \`.workflow/project-guidelines.json\` (if exists): Constraints, conventions -- apply as HARD CONSTRAINTS
+
 ## Dual Output Tasks
 
 ### Task 1: Generate Two-Layer Plan Output
-Output: ${sessionFolder}/agents/${sub.focus_area}/plan.json (overview with task_ids[])
-Output: ${sessionFolder}/agents/${sub.focus_area}/.task/TASK-*.json (independent task files)
+Output: ${sessionFolder}/agents/${sub.focus_area}/plan.json
+Output: ${sessionFolder}/agents/${sub.focus_area}/.task/TASK-*.json
 Schema (plan): ~/.ccw/workflows/cli-templates/schemas/plan-overview-base-schema.json
 Schema (tasks): ~/.ccw/workflows/cli-templates/schemas/task-schema.json
-
-**Two-Layer Output Format**:
-- plan.json: Overview with task_ids[] referencing .task/ files (NO tasks[] array)
-- .task/TASK-*.json: Independent task files following task-schema.json
-- plan.json required: summary, approach, task_ids, task_count, _metadata (with plan_type)
-- Task files required: id, title, description, depends_on, convergence (with criteria[])
-- Task fields: files[].change (not modification_points), convergence.criteria (not acceptance), test (not verification)
 
 ### Task 2: Sync Summary to plan-note.md
 

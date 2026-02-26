@@ -25,6 +25,7 @@ import { ExecutionMonitorPanel } from '@/components/terminal-dashboard/Execution
 import { FileSidebarPanel } from '@/components/terminal-dashboard/FileSidebarPanel';
 import { useWorkflowStore, selectProjectPath } from '@/stores/workflowStore';
 import { useAppStore, selectIsImmersiveMode } from '@/stores/appStore';
+import { useConfigStore } from '@/stores/configStore';
 
 // ========== Main Page Component ==========
 
@@ -35,6 +36,9 @@ export function TerminalDashboardPage() {
   const [isSessionSidebarOpen, setIsSessionSidebarOpen] = useState(true);
 
   const projectPath = useWorkflowStore(selectProjectPath);
+
+  // Feature flags for panel visibility
+  const featureFlags = useConfigStore((s) => s.featureFlags);
 
   // Use global immersive mode state (only affects AppShell chrome)
   const isImmersiveMode = useAppStore(selectIsImmersiveMode);
@@ -106,35 +110,41 @@ export function TerminalDashboardPage() {
           <IssuePanel />
         </FloatingPanel>
 
-        <FloatingPanel
-          isOpen={activePanel === 'queue'}
-          onClose={closePanel}
-          title={formatMessage({ id: 'terminalDashboard.toolbar.queue' })}
-          side="right"
-          width={400}
-        >
-          <QueuePanel />
-        </FloatingPanel>
+        {featureFlags.dashboardQueuePanelEnabled && (
+          <FloatingPanel
+            isOpen={activePanel === 'queue'}
+            onClose={closePanel}
+            title={formatMessage({ id: 'terminalDashboard.toolbar.queue' })}
+            side="right"
+            width={400}
+          >
+            <QueuePanel />
+          </FloatingPanel>
+        )}
 
-        <FloatingPanel
-          isOpen={activePanel === 'inspector'}
-          onClose={closePanel}
-          title={formatMessage({ id: 'terminalDashboard.toolbar.inspector' })}
-          side="right"
-          width={360}
-        >
-          <InspectorContent />
-        </FloatingPanel>
+        {featureFlags.dashboardInspectorEnabled && (
+          <FloatingPanel
+            isOpen={activePanel === 'inspector'}
+            onClose={closePanel}
+            title={formatMessage({ id: 'terminalDashboard.toolbar.inspector' })}
+            side="right"
+            width={360}
+          >
+            <InspectorContent />
+          </FloatingPanel>
+        )}
 
-        <FloatingPanel
-          isOpen={activePanel === 'execution'}
-          onClose={closePanel}
-          title={formatMessage({ id: 'terminalDashboard.toolbar.executionMonitor', defaultMessage: 'Execution Monitor' })}
-          side="right"
-          width={380}
-        >
-          <ExecutionMonitorPanel />
-        </FloatingPanel>
+        {featureFlags.dashboardExecutionMonitorEnabled && (
+          <FloatingPanel
+            isOpen={activePanel === 'execution'}
+            onClose={closePanel}
+            title={formatMessage({ id: 'terminalDashboard.toolbar.executionMonitor', defaultMessage: 'Execution Monitor' })}
+            side="right"
+            width={380}
+          >
+            <ExecutionMonitorPanel />
+          </FloatingPanel>
+        )}
       </AssociationHighlightProvider>
     </div>
   );

@@ -26,8 +26,10 @@ import {
   SelectValue,
 } from '@/components/ui/Select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/RadioGroup';
+import { useConfigStore, selectCliTools } from '@/stores/configStore';
+import { useCliSettings } from '@/hooks/useApiSettings';
 
-export type CliTool = 'claude' | 'gemini' | 'qwen' | 'codex' | 'opencode';
+export type CliTool = string;
 export type LaunchMode = 'default' | 'yolo';
 export type ShellKind = 'bash' | 'pwsh' | 'cmd';
 
@@ -39,6 +41,8 @@ export interface CliSessionConfig {
   workingDir: string;
   /** Session tag for grouping (auto-generated if not provided) */
   tag: string;
+  /** CLI Settings endpoint ID for custom API configuration */
+  settingsEndpointId?: string;
 }
 
 export interface CliConfigModalProps {
@@ -48,23 +52,13 @@ export interface CliConfigModalProps {
   onCreateSession: (config: CliSessionConfig) => Promise<void>;
 }
 
-const CLI_TOOLS: CliTool[] = ['claude', 'gemini', 'qwen', 'codex', 'opencode'];
-
-const MODEL_OPTIONS: Record<CliTool, string[]> = {
-  claude: ['sonnet', 'haiku'],
-  gemini: ['gemini-2.5-pro', 'gemini-2.5-flash'],
-  qwen: ['coder-model'],
-  codex: ['gpt-5.2'],
-  opencode: ['opencode/glm-4.7-free'],
-};
-
 const AUTO_MODEL_VALUE = '__auto__';
 
 /**
  * Generate a tag name: {tool}-{HHmmss}
  * Example: gemini-143052
  */
-function generateTag(tool: CliTool): string {
+function generateTag(tool: string): string {
   const now = new Date();
   const time = now.toTimeString().slice(0, 8).replace(/:/g, '');
   return `${tool}-${time}`;
@@ -78,8 +72,18 @@ export function CliConfigModal({
 }: CliConfigModalProps) {
   const { formatMessage } = useIntl();
 
+  // Dynamic tool data from configStore
+  const cliTools = useConfigStore(selectCliTools);
+  const enabledTools = React.useMemo(
+    () =>
+      Object.entries(cliTools)
+        .filter(([, config]) => config.enabled)
+        .map(([key]) => key),
+    [cliTools]
+  );
+
   const [tool, setTool] = React.useState<CliTool>('gemini');
-  const [model, setModel] = React.useState<string | undefined>(MODEL_OPTIONS.gemini[0]);
+  const [model, setModel] = React.useState<string | undefined>(undefined);
   const [launchMode, setLaunchMode] = React.useState<LaunchMode>('yolo');
   // Default to 'cmd' on Windows for better compatibility with npm CLI tools (.cmd files)
   const [preferredShell, setPreferredShell] = React.useState<ShellKind>(
@@ -91,7 +95,48 @@ export function CliConfigModal({
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  const modelOptions = React.useMemo(() => MODEL_OPTIONS[tool] ?? [], [tool]);
+  // CLI Settings integration (for all tools)
+  const { cliSettings } = useCliSettings({ enabled: true });
+
+  // Map tool names to provider types for filtering
+  const toolProviderMap: Record<string, string> = {
+    claude: 'claude',
+    codex: 'codex',
+    gemini: 'gemini',
+  };
+  const currentProvider = toolProviderMap[tool] || tool;
+
+  const enabledCliSettings = React.useMemo(
+    () => (cliSettings || []).filter((s) => s.enabled && (s.provider || 'claude') === currentProvider),
+    [cliSettings, currentProvider]
+  );
+  const [settingsEndpointId, setSettingsEndpointId] = React.useState<string | undefined>(undefined);
+
+  // Reset settingsEndpointId when tool changes
+  React.useEffect(() => {
+    setSettingsEndpointId(undefined);
+  }, [tool]);
+
+  // Derive model options from configStore + CLI Settings profile override
+  const modelOptions = React.useMemo(() => {
+    // If a CLI Settings profile is selected and has availableModels, use those
+    if (settingsEndpointId) {
+      const endpoint = enabledCliSettings.find((s) => s.id === settingsEndpointId);
+      if (endpoint?.settings.availableModels?.length) {
+        return endpoint.settings.availableModels;
+      }
+    }
+    const toolConfig = cliTools[tool];
+    if (!toolConfig) return [];
+    if (toolConfig.availableModels?.length) return toolConfig.availableModels;
+    // Build models from primaryModel/secondaryModel, filtering out undefined
+    const models: string[] = [];
+    if (toolConfig.primaryModel) models.push(toolConfig.primaryModel);
+    if (toolConfig.secondaryModel && toolConfig.secondaryModel !== toolConfig.primaryModel) {
+      models.push(toolConfig.secondaryModel);
+    }
+    return models;
+  }, [cliTools, tool, settingsEndpointId, enabledCliSettings]);
 
   // Generate new tag when modal opens or tool changes
   const regenerateTag = React.useCallback(() => {
@@ -104,6 +149,7 @@ export function CliConfigModal({
     const nextWorkingDir = defaultWorkingDir ?? '';
     setWorkingDir(nextWorkingDir);
     setError(null);
+    setSettingsEndpointId(undefined);
     regenerateTag();
   }, [isOpen, defaultWorkingDir, regenerateTag]);
 
@@ -113,12 +159,23 @@ export function CliConfigModal({
       const suffix = tag.split('-').pop() || '';
       setTag(`${tool}-${suffix}`);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when tool changes, reading tag intentionally stale
   }, [tool]);
 
+  // Sync initial model when tool/modelOptions change
+  React.useEffect(() => {
+    if (modelOptions.length > 0 && (!model || !modelOptions.includes(model))) {
+      setModel(modelOptions[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when modelOptions changes
+  }, [modelOptions]);
+
   const handleToolChange = (nextTool: string) => {
-    const next = nextTool as CliTool;
-    setTool(next);
-    const nextModels = MODEL_OPTIONS[next] ?? [];
+    setTool(nextTool as CliTool);
+    const nextConfig = cliTools[nextTool];
+    const nextModels = nextConfig?.availableModels?.length
+      ? nextConfig.availableModels
+      : [nextConfig?.primaryModel, nextConfig?.secondaryModel].filter(Boolean) as string[];
     if (!model || !nextModels.includes(model)) {
       setModel(nextModels[0]);
     }
@@ -148,6 +205,7 @@ export function CliConfigModal({
         preferredShell,
         workingDir: dir,
         tag: finalTag,
+        settingsEndpointId,
       });
       onClose();
     } catch (err) {
@@ -209,7 +267,7 @@ export function CliConfigModal({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {CLI_TOOLS.map((t) => (
+                  {enabledTools.map((t) => (
                     <SelectItem key={t} value={t}>
                       {t}
                     </SelectItem>
@@ -244,6 +302,45 @@ export function CliConfigModal({
               </Select>
             </div>
           </div>
+
+          {/* Config Profile (all tools with settings) */}
+          {enabledCliSettings.length > 0 && (
+            <div className="space-y-2">
+              <Label htmlFor="cli-config-profile">
+                {formatMessage({ id: 'terminalDashboard.cliConfig.configProfile', defaultMessage: 'Config Profile' })}
+              </Label>
+              <Select
+                value={settingsEndpointId ?? '__default__'}
+                onValueChange={(v) => {
+                  const id = v === '__default__' ? undefined : v;
+                  setSettingsEndpointId(id);
+                  // If profile has availableModels, use those for model dropdown
+                  if (id) {
+                    const endpoint = enabledCliSettings.find((s) => s.id === id);
+                    if (endpoint?.settings.availableModels?.length) {
+                      setModel(endpoint.settings.availableModels[0]);
+                    }
+                  }
+                }}
+                disabled={isSubmitting}
+              >
+                <SelectTrigger id="cli-config-profile">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__default__">
+                    {formatMessage({ id: 'terminalDashboard.cliConfig.defaultProfile', defaultMessage: 'Default' })}
+                  </SelectItem>
+                  {enabledCliSettings.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {formatMessage({ id: 'terminalDashboard.cliConfig.configProfileHint', defaultMessage: 'Select a CLI Settings profile for custom API configuration.' })}
+              </p>
+            </div>
+          )}
 
           {/* Mode */}
           <div className="space-y-2">

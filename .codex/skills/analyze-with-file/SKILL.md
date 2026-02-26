@@ -109,13 +109,15 @@ Step 4: Synthesis & Conclusion
    ├─ Update discussion.md with final synthesis
    └─ Offer options: quick execute / create issue / generate task / export / done
 
-Step 5: Quick Execute (Optional - user selects)
-   ├─ Convert conclusions.recommendations → .task/TASK-*.json (individual task files with convergence)
-   ├─ Pre-execution analysis (dependencies, file conflicts, execution order)
-   ├─ User confirmation
-   ├─ Direct inline execution (Read/Edit/Write/Grep/Glob/Bash)
-   ├─ Record events → execution-events.md, update execution.md
-   └─ Report completion summary
+Step 5: Execute (Optional - user selects, routes by complexity)
+   ├─ Simple (≤2 recs): Direct inline execution → summary in discussion.md
+   └─ Complex (≥3 recs): EXECUTE.md pipeline
+      ├─ Enrich recommendations → generate .task/TASK-*.json
+      ├─ Pre-execution analysis (dependencies, file conflicts, execution order)
+      ├─ User confirmation
+      ├─ Direct inline execution (Read/Edit/Write/Grep/Glob/Bash)
+      ├─ Record events → execution-events.md, update execution.md
+      └─ Report completion summary
 ```
 
 ## Configuration
@@ -564,7 +566,12 @@ const conclusions = {
     { point: '...', evidence: '...', confidence: 'high|medium|low' }
   ],
   recommendations: [                 // Actionable recommendations
-    { action: '...', rationale: '...', priority: 'high|medium|low' }
+    {
+      action: '...',                    // What to do (imperative verb + target)
+      rationale: '...',                 // Why this matters
+      priority: 'high|medium|low',
+      evidence_refs: ['file:line', ...] // Supporting evidence locations
+    }
   ],
   open_questions: [...],             // Unresolved questions
   follow_up_suggestions: [           // Next steps
@@ -607,30 +614,62 @@ Append conclusions section and finalize:
 
 ##### Step 4.3: Post-Completion Options
 
+**Complexity Assessment** — determine whether .task/*.json generation is warranted:
+
+```javascript
+// Assess recommendation complexity to decide available options
+const recs = conclusions.recommendations || []
+const complexity = assessComplexity(recs)
+
+function assessComplexity(recs) {
+  if (recs.length === 0) return 'none'
+  if (recs.length <= 2 && recs.every(r => r.priority === 'low')) return 'simple'
+  if (recs.length >= 3 || recs.some(r => r.priority === 'high')) return 'complex'
+  return 'moderate'  // 1-2 medium-priority recommendations
+}
+
+// Complexity → available options mapping:
+//   none:    Done | Create Issue | Export Report
+//   simple:  Done | Create Issue | Export Report (no task generation — overkill)
+//   moderate: Done | Generate Task | Create Issue | Export Report
+//   complex:  Quick Execute | Generate Task | Create Issue | Export Report | Done
+```
+
 ```javascript
 if (!autoYes) {
+  const options = buildOptionsForComplexity(complexity)
   AskUserQuestion({
     questions: [{
-      question: "Analysis complete. Next step:",
+      question: `Analysis complete (${recs.length} recommendations, complexity: ${complexity}). Next step:`,
       header: "Next Step",
       multiSelect: false,
-      options: [
-        { label: "Quick Execute", description: "Convert recommendations to tasks and execute serially" },
-        { label: "Create Issue", description: "Create GitHub Issue from conclusions" },
-        { label: "Generate Task", description: "Launch lite-plan for implementation planning" },
-        { label: "Export Report", description: "Generate standalone analysis report" },
-        { label: "Done", description: "Save analysis only, no further action" }
-      ]
+      options: options
     }]
   })
+} else {
+  // Auto mode: generate .task/*.json only for moderate/complex, skip for simple/none
+  if (complexity === 'complex' || complexity === 'moderate') {
+    // → Phase 5 Step 5.1-5.2 (task generation only, no execution)
+  } else {
+    // → Done (conclusions.json is sufficient output)
+  }
 }
 ```
 
+**Options by Complexity**:
+
+| Complexity | Available Options | Rationale |
+|------------|-------------------|-----------|
+| `none` | Done, Create Issue, Export Report | No actionable recommendations |
+| `simple` | Done, Create Issue, Export Report | 1-2 low-priority items don't warrant formal task JSON |
+| `moderate` | Generate Task, Create Issue, Export Report, Done | Task structure helpful but execution not urgent |
+| `complex` | Quick Execute, Generate Task, Create Issue, Export Report, Done | Full pipeline justified |
+
 | Selection | Action |
 |-----------|--------|
-| Quick Execute | Jump to Phase 5 |
+| Quick Execute | Jump to Phase 5 (routes by complexity) |
 | Create Issue | `Skill(skill="issue:new", args="...")` |
-| Generate Task | `Skill(skill="workflow:lite-plan", args="...")` |
+| Generate Task | Jump to Phase 5 Step 5.1-5.2 only (generate .task/*.json, no execution) |
 | Export Report | Copy discussion.md + conclusions.json to user-specified location |
 | Done | Display artifact paths, end |
 
@@ -640,134 +679,96 @@ if (!autoYes) {
 - User offered meaningful next step options
 - **Complete decision trail** documented and traceable from initial scoping to final conclusions
 
-### Phase 5: Quick Execute (Optional)
+### Phase 5: Execute (Optional)
 
-**Objective**: Convert analysis conclusions into individual task JSON files with convergence criteria, then execute tasks directly inline.
+**Objective**: Execute analysis recommendations — route by complexity.
 
-**Trigger**: User selects "Quick Execute" in Phase 4.
+**Trigger**: User selects "Quick Execute" in Phase 4. In auto mode, triggered only for `moderate`/`complex` recommendations.
 
-**Key Principle**: No additional exploration — analysis phase has already collected all necessary context. No CLI delegation — execute directly using tools.
+**Routing Logic**:
 
-**Flow**: `conclusions.json → .task/*.json → User Confirmation → Direct Inline Execution → execution.md + execution-events.md`
+```
+complexity assessment (from Phase 4.3)
+  ├─ simple/moderate (≤2 recommendations, clear changes)
+  │   └─ Direct inline execution — no .task/*.json overhead
+  └─ complex (≥3 recommendations, or high-priority with dependencies)
+      └─ Route to EXECUTE.md — full pipeline (task generation → execution)
+```
 
-**Full specification**: See `EXECUTE.md` for detailed step-by-step implementation.
-
-**Schema**: `cat ~/.ccw/workflows/cli-templates/schemas/task-schema.json`
-
-##### Step 5.1: Generate .task/*.json
-
-Convert `conclusions.recommendations` into individual task JSON files. Each file is a self-contained task with convergence criteria:
+##### Step 5.1: Route by Complexity
 
 ```javascript
-const conclusions = JSON.parse(Read(`${sessionFolder}/conclusions.json`))
-const explorations = file_exists(`${sessionFolder}/explorations.json`)
-  ? JSON.parse(Read(`${sessionFolder}/explorations.json`))
-  : file_exists(`${sessionFolder}/perspectives.json`)
-    ? JSON.parse(Read(`${sessionFolder}/perspectives.json`))
-    : null
+const recs = conclusions.recommendations || []
 
-const tasks = conclusions.recommendations.map((rec, index) => ({
-  id: `TASK-${String(index + 1).padStart(3, '0')}`,
-  title: rec.action,
-  description: rec.rationale,
-  type: inferTaskType(rec),  // fix | refactor | feature | enhancement | testing
-  priority: rec.priority,
-  effort: inferEffort(rec),  // small | medium | large
-  files: extractFilesFromEvidence(rec, explorations).map(f => ({
-    path: f,
-    action: 'modify'
-  })),
-  depends_on: [],
-  convergence: {
-    criteria: generateCriteria(rec),         // Testable conditions
-    verification: generateVerification(rec), // Executable command or steps
-    definition_of_done: generateDoD(rec)     // Business language
-  },
-  evidence: rec.evidence || [],
-  source: {
-    tool: 'analyze-with-file',
-    session_id: sessionId,
-    original_id: `TASK-${String(index + 1).padStart(3, '0')}`
-  }
-}))
+if (recs.length >= 3 || recs.some(r => r.priority === 'high')) {
+  // COMPLEX PATH → EXECUTE.md pipeline
+  // Full specification: EXECUTE.md
+  // Flow: load all context → generate .task/*.json → pre-execution analysis → serial execution → finalize
+} else {
+  // SIMPLE PATH → direct inline execution (below)
+}
+```
 
-// Validate convergence quality (same as req-plan-with-file)
-// Write each task as individual JSON file
-Bash(`mkdir -p ${sessionFolder}/.task`)
-tasks.forEach(task => {
-  Write(`${sessionFolder}/.task/${task.id}.json`, JSON.stringify(task, null, 2))
+##### Step 5.2: Simple Path — Direct Inline Execution
+
+For simple/moderate recommendations, execute directly without .task/*.json ceremony:
+
+```javascript
+// For each recommendation:
+recs.forEach((rec, index) => {
+  // 1. Locate relevant files from evidence_refs or codebase search
+  const files = rec.evidence_refs
+    ?.filter(ref => ref.includes(':'))
+    .map(ref => ref.split(':')[0]) || []
+
+  // 2. Read each target file
+  files.forEach(filePath => Read(filePath))
+
+  // 3. Apply changes based on rec.action + rec.rationale
+  //    Use Edit (preferred) for modifications, Write for new files
+
+  // 4. Log to discussion.md — append execution summary
 })
+
+// Append execution summary to discussion.md
+appendToDiscussion(`
+## Quick Execution Summary
+
+- **Recommendations executed**: ${recs.length}
+- **Completed**: ${getUtc8ISOString()}
+
+${recs.map((rec, i) => `### ${i+1}. ${rec.action}
+- **Status**: completed/failed
+- **Rationale**: ${rec.rationale}
+- **Evidence**: ${rec.evidence_refs?.join(', ') || 'N/A'}
+`).join('\n')}
+`)
 ```
 
-##### Step 5.2: Pre-Execution Analysis
+**Simple path characteristics**:
+- No `.task/*.json` generation
+- No `execution.md` / `execution-events.md`
+- Execution summary appended directly to `discussion.md`
+- Suitable for 1-2 clear, low-risk recommendations
 
-Validate feasibility: dependency detection, circular dependency check (DFS), topological sort for execution order, file conflict analysis.
+##### Step 5.3: Complex Path — EXECUTE.md Pipeline
 
-##### Step 5.3: Initialize Execution Artifacts
+For complex recommendations, follow the full specification in `EXECUTE.md`:
 
-Create `execution.md` (overview with task table, pre-execution analysis, execution timeline placeholder) and `execution-events.md` (chronological event log header).
+1. **Load context sources**: Reuse in-memory artifacts or read from disk
+2. **Enrich recommendations**: Resolve target files, generate implementation steps, build convergence criteria
+3. **Generate `.task/*.json`**: Individual task files with full execution context
+4. **Pre-execution analysis**: Dependency validation, file conflicts, topological sort
+5. **User confirmation**: Present task list, allow adjustment
+6. **Serial execution**: Execute each task following generated implementation steps
+7. **Finalize**: Update task states, write execution artifacts
 
-##### Step 5.4: User Confirmation
-
-```javascript
-if (!autoYes) {
-  AskUserQuestion({
-    questions: [{
-      question: `Execute ${tasks.length} tasks directly?\n\nExecution: Direct inline, serial`,
-      header: "Confirm",
-      multiSelect: false,
-      options: [
-        { label: "Start Execution", description: "Execute all tasks serially" },
-        { label: "Adjust Tasks", description: "Modify, reorder, or remove tasks" },
-        { label: "Cancel", description: "Cancel execution, keep .task/" }
-      ]
-    }]
-  })
-}
-```
-
-##### Step 5.5: Direct Inline Execution
-
-Execute tasks one by one directly using tools (Read, Edit, Write, Grep, Glob, Bash). **No CLI delegation**.
-
-For each task in execution order:
-1. Check dependencies satisfied
-2. Record START event to `execution-events.md`
-3. Execute: read files → analyze changes → apply modifications → verify convergence
-4. Record COMPLETE/FAIL event with convergence verification checklist
-5. Update `execution.md` task status
-6. Auto-commit if enabled (conventional commit format)
-
-##### Step 5.6: Finalize & Follow-up
-
-- Update `execution.md` with final summary (statistics, task results table)
-- Finalize `execution-events.md` with session footer
-- Update `.task/*.json` with `_execution` state per task
-
-```javascript
-if (!autoYes) {
-  AskUserQuestion({
-    questions: [{
-      question: `Execution complete: ${completedTasks.size}/${tasks.length} succeeded.\nNext step:`,
-      header: "Post-Execute",
-      multiSelect: false,
-      options: [
-        { label: "Retry Failed", description: `Re-execute ${failedTasks.size} failed tasks` },
-        { label: "View Events", description: "Display execution-events.md" },
-        { label: "Create Issue", description: "Create issue from failed tasks" },
-        { label: "Done", description: "End workflow" }
-      ]
-    }]
-  })
-}
-```
+**Full specification**: `EXECUTE.md`
 
 **Success Criteria**:
-- `.task/*.json` generated with convergence criteria and source provenance per task
-- `execution.md` contains plan overview, task table, pre-execution analysis, final summary
-- `execution-events.md` contains chronological event stream with convergence verification
-- All tasks executed (or explicitly skipped) via direct inline execution
-- User informed of results and next steps
+- Simple path: recommendations executed, summary in discussion.md
+- Complex path: `.task/*.json` generated with quality validation, execution tracked via execution.md + execution-events.md
+- Execution route chosen correctly based on complexity assessment
 
 ## Output Structure
 
@@ -781,26 +782,19 @@ if (!autoYes) {
 │   └── ...
 ├── explorations.json          # Phase 2: Single perspective aggregated findings
 ├── perspectives.json          # Phase 2: Multi-perspective findings with synthesis
-├── conclusions.json           # Phase 4: Final synthesis with recommendations
-├── .task/                     # Phase 5: Individual task JSON files (if quick execute)
-│   ├── TASK-001.json          #   One file per task with convergence + source
-│   ├── TASK-002.json
-│   └── ...
-├── execution.md               # Phase 5: Execution overview + task table + summary (if quick execute)
-└── execution-events.md        # Phase 5: Chronological event log (if quick execute)
+└── conclusions.json           # Phase 4: Final synthesis with recommendations
 ```
+
+> **Phase 5 complex path** adds `.task/`, `execution.md`, `execution-events.md` — see `EXECUTE.md` for structure.
 
 | File | Phase | Description |
 |------|-------|-------------|
-| `discussion.md` | 1 | Initialized with session metadata, finalized in Phase 4 |
+| `discussion.md` | 1-4 | Session metadata → discussion timeline → conclusions. Simple execution summary appended here. |
 | `exploration-codebase.json` | 2 | Codebase context: relevant files, patterns, constraints |
 | `explorations/*.json` | 2 | Per-perspective exploration results (multi only) |
 | `explorations.json` | 2 | Single perspective aggregated findings |
 | `perspectives.json` | 2 | Multi-perspective findings with cross-perspective synthesis |
 | `conclusions.json` | 4 | Final synthesis: conclusions, recommendations, open questions |
-| `.task/*.json` | 5 | Individual task files from recommendations, each with convergence criteria and source provenance |
-| `execution.md` | 5 | Execution overview: plan source, task table, pre-execution analysis, final summary |
-| `execution-events.md` | 5 | Chronological event stream with task details and convergence verification |
 
 ## Analysis Dimensions Reference
 
@@ -949,9 +943,10 @@ Remaining questions or areas for investigation
 | User timeout in discussion | Save state, show resume command | Use `--continue` to resume |
 | Max rounds reached (5) | Force synthesis phase | Highlight remaining questions in conclusions |
 | Session folder conflict | Append timestamp suffix | Create unique folder and continue |
-| Quick execute: task fails | Record failure in execution-events.md | User can retry, skip, or abort |
-| Quick execute: verification fails | Mark criterion as unverified, continue | Note in events, manual check |
-| Quick execute: no recommendations | Cannot generate .task/*.json | Suggest using lite-plan instead |
+| Quick execute: task fails | Record failure, ask user | Retry, skip, or abort (see EXECUTE.md) |
+| Quick execute: verification fails | Mark as unverified | Note in events, manual check |
+| Quick execute: no recommendations | Cannot generate .task/*.json | Inform user, suggest lite-plan |
+| Quick execute: simple recommendations | Complexity too low for .task/*.json | Direct inline execution (no task generation) |
 
 ## Best Practices
 
@@ -996,9 +991,8 @@ Remaining questions or areas for investigation
 
 **Use Quick Execute (Phase 5) when:**
 - Analysis conclusions contain clear, actionable recommendations
-- Context is already sufficient — no additional exploration needed
-- Want a streamlined analyze → .task/*.json plan → direct execute pipeline
-- Tasks are relatively independent and can be executed serially
+- Simple: 1-2 clear changes → direct inline execution (no .task/ overhead)
+- Complex: 3+ recommendations with dependencies → EXECUTE.md pipeline (.task/*.json → serial execution)
 
 **Consider alternatives when:**
 - Specific bug diagnosis needed → use `debug-with-file`

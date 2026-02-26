@@ -322,6 +322,7 @@
   "ccwLitellm": {
     "title": "CCW-LiteLLM 包",
     "description": "管理 ccw-litellm Python 包安装",
+    "systemPythonMismatch": "检测到 ccw-litellm 已安装在系统 Python 中，但未安装到 CodexLens 虚拟环境（~/.codexlens/venv）里，所以这里显示未安装。点击“安装”即可安装到虚拟环境中。",
     "status": {
       "installed": "已安装",
       "notInstalled": "未安装",

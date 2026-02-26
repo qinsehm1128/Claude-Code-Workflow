@@ -22,6 +22,8 @@ export interface TerminalPaneState {
   id: PaneId;
   /** Bound terminal session key (null = empty pane awaiting assignment) */
   sessionId: string | null;
+  /** CLI tool used by the bound session (e.g. 'claude', 'gemini') */
+  cliTool: string | null;
   /** Display mode: 'terminal' for terminal output, 'file' for file preview */
   displayMode: 'terminal' | 'file';
   /** File path for file preview mode (null when in terminal mode) */
@@ -40,7 +42,7 @@ export interface TerminalGridActions {
   updateLayoutSizes: (sizes: number[]) => void;
   splitPane: (paneId: PaneId, direction: 'horizontal' | 'vertical') => PaneId;
   closePane: (paneId: PaneId) => void;
-  assignSession: (paneId: PaneId, sessionId: string | null) => void;
+  assignSession: (paneId: PaneId, sessionId: string | null, cliTool?: string | null) => void;
   setFocused: (paneId: PaneId) => void;
   resetLayout: (preset: 'single' | 'split-h' | 'split-v' | 'grid-2x2') => void;
   /** Create a new CLI session and assign it to a new pane (auto-split from specified pane) */
@@ -69,6 +71,7 @@ const GRID_STORAGE_VERSION = 2;
 interface LegacyPaneState {
   id: PaneId;
   sessionId: string | null;
+  cliTool?: string | null;
   displayMode?: 'terminal' | 'file';
   filePath?: string | null;
 }
@@ -84,6 +87,7 @@ function migratePaneState(pane: LegacyPaneState): TerminalPaneState {
   return {
     id: pane.id,
     sessionId: pane.sessionId,
+    cliTool: pane.cliTool ?? null,
     displayMode: pane.displayMode ?? 'terminal',
     filePath: pane.filePath ?? null,
   };
@@ -117,7 +121,7 @@ function createInitialLayout(): { layout: AllotmentLayoutGroup; panes: Record<Pa
   const paneId = generatePaneId(1);
   return {
     layout: { direction: 'horizontal', sizes: [100], children: [paneId] },
-    panes: { [paneId]: { id: paneId, sessionId: null, displayMode: 'terminal', filePath: null } },
+    panes: { [paneId]: { id: paneId, sessionId: null, cliTool: null, displayMode: 'terminal', filePath: null } },
     focusedPaneId: paneId,
     nextPaneIdCounter: 2,
   };
@@ -162,7 +166,7 @@ export const useTerminalGridStore = create<TerminalGridStore>()(
               layout: newLayout,
               panes: {
                 ...state.panes,
-                [newPaneId]: { id: newPaneId, sessionId: null, displayMode: 'terminal', filePath: null },
+                [newPaneId]: { id: newPaneId, sessionId: null, cliTool: null, displayMode: 'terminal', filePath: null },
               },
               focusedPaneId: newPaneId,
               nextPaneIdCounter: state.nextPaneIdCounter + 1,
@@ -200,7 +204,7 @@ export const useTerminalGridStore = create<TerminalGridStore>()(
           );
         },
 
-        assignSession: (paneId, sessionId) => {
+        assignSession: (paneId, sessionId, cliTool) => {
           const state = get();
           const pane = state.panes[paneId];
           if (!pane) return;
@@ -209,7 +213,12 @@ export const useTerminalGridStore = create<TerminalGridStore>()(
             {
               panes: {
                 ...state.panes,
-                [paneId]: { ...pane, sessionId },
+                [paneId]: {
+                  ...pane,
+                  sessionId,
+                  // Update cliTool when explicitly provided; clear when session is unassigned
+                  cliTool: cliTool !== undefined ? (cliTool ?? null) : (sessionId ? pane.cliTool : null),
+                },
               },
             },
             false,
@@ -228,7 +237,7 @@ export const useTerminalGridStore = create<TerminalGridStore>()(
 
           const createPane = (): TerminalPaneState => {
             const id = generatePaneId(counter++);
-            return { id, sessionId: null, displayMode: 'terminal', filePath: null };
+            return { id, sessionId: null, cliTool: null, displayMode: 'terminal', filePath: null };
           };
 
           let layout: AllotmentLayoutGroup;
@@ -312,7 +321,7 @@ export const useTerminalGridStore = create<TerminalGridStore>()(
                 {
                   panes: {
                     ...state.panes,
-                    [paneId]: { ...currentPane, sessionId: session.sessionKey },
+                    [paneId]: { ...currentPane, sessionId: session.sessionKey, cliTool: session.tool ?? config.tool ?? null },
                   },
                   focusedPaneId: paneId,
                 },
@@ -331,7 +340,7 @@ export const useTerminalGridStore = create<TerminalGridStore>()(
                 layout: newLayout,
                 panes: {
                   ...state.panes,
-                  [newPaneId]: { id: newPaneId, sessionId: session.sessionKey, displayMode: 'terminal', filePath: null },
+                  [newPaneId]: { id: newPaneId, sessionId: session.sessionKey, cliTool: session.tool ?? config.tool ?? null, displayMode: 'terminal', filePath: null },
                 },
                 focusedPaneId: newPaneId,
                 nextPaneIdCounter: state.nextPaneIdCounter + 1,

@@ -1,6 +1,10 @@
 {
   "title": "CLI 执行历史",
   "description": "查看和管理 CLI 执行历史",
+  "tabs": {
+    "executions": "执行历史",
+    "observability": "会话审计"
+  },
   "searchPlaceholder": "搜索执行记录...",
   "filterAllTools": "全部工具",
   "deleteOptions": "删除选项",
@@ -9,9 +13,13 @@
   "deleteAll": "删除全部历史",
   "actions": {
     "view": "查看详情",
+    "viewNative": "查看原生会话",
     "delete": "删除",
     "copyId": "复制 ID",
     "copied": "已复制！"
+  },
+  "badge": {
+    "native": "原生"
   },
   "dialog": {
     "deleteTitle": "确认删除",

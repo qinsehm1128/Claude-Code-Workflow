@@ -186,9 +186,10 @@ export function TerminalPane({ paneId }: TerminalPaneProps) {
   const handleSessionChange = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
       const value = e.target.value;
-      assignSession(paneId, value || null);
+      const session = value ? sessions[value] : null;
+      assignSession(paneId, value || null, session?.cliTool ?? session?.tool ?? null);
     },
-    [paneId, assignSession]
+    [paneId, assignSession, sessions]
   );
 
   const handleClear = useCallback(() => {

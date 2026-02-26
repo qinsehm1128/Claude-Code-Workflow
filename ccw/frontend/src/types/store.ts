@@ -387,8 +387,8 @@ export type WorkflowStore = WorkflowState & WorkflowActions;
 
 export interface CliToolConfig {
   enabled: boolean;
-  primaryModel: string;
-  secondaryModel: string;
+  primaryModel?: string;
+  secondaryModel?: string;
   tags: string[];
   type: 'builtin' | 'cli-wrapper' | 'api-endpoint';
   /** Path to .env file for environment variables (gemini/qwen/opencode) */

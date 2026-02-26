@@ -20,7 +20,7 @@ import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/Tabs';
-import { StatCard } from '@/components/shared';
+import { StatCard, SkillHubDetailPanel } from '@/components/shared';
 import { SkillHubCard } from '@/components/shared/SkillHubCard';
 import {
   useSkillHub,
@@ -136,6 +136,8 @@ export function SkillHubPage() {
   const [activeTab, setActiveTab] = useState<TabValue>('remote');
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const [selectedSkill, setSelectedSkill] = useState<{ skill: RemoteSkill | LocalSkill; source: SkillSource } | null>(null);
+  const [isDetailPanelOpen, setIsDetailPanelOpen] = useState(false);
 
   // Fetch data
   const {
@@ -221,8 +223,15 @@ export function SkillHubPage() {
     }
   };
 
-  const handleViewDetails = () => {
-    toast.info(formatMessage({ id: 'skillHub.details.comingSoon' }));
+  const handleViewDetails = (skill: RemoteSkill | LocalSkill) => {
+    const source: SkillSource = 'downloadUrl' in skill ? 'remote' : 'local';
+    setSelectedSkill({ skill, source });
+    setIsDetailPanelOpen(true);
+  };
+
+  const handleCloseDetailPanel = () => {
+    setIsDetailPanelOpen(false);
+    setSelectedSkill(null);
   };
 
   const handleRefresh = () => {
@@ -378,7 +387,7 @@ export function SkillHubPage() {
                   source={skillSource}
                   onInstall={handleInstall}
                   onUninstall={handleUninstall}
-                  onViewDetails={handleViewDetails}
+                  onViewDetails={() => handleViewDetails(skill as RemoteSkill | LocalSkill)}
                   isInstalling={installMutation.isPending}
                 />
               );
@@ -386,6 +395,20 @@ export function SkillHubPage() {
           </div>
         )}
       </div>
+
+      {/* Detail Panel */}
+      {selectedSkill && (
+        <SkillHubDetailPanel
+          skill={selectedSkill.skill}
+          isOpen={isDetailPanelOpen}
+          onClose={handleCloseDetailPanel}
+          source={selectedSkill.source}
+          installedInfo={installedMap.get(selectedSkill.skill.id)}
+          onInstall={handleInstall}
+          onUninstall={handleUninstall}
+          isInstalling={installMutation.isPending}
+        />
+      )}
     </div>
   );
 }

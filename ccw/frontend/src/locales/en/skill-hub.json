@@ -1,42 +1,83 @@
 {
-  "skillHub.title": "Skill Hub",
-  "skillHub.description": "Discover and install shared skills from the community",
-  "skillHub.source.remote": "Remote",
-  "skillHub.source.local": "Local",
-  "skillHub.status.installed": "Installed",
-  "skillHub.status.updateAvailable": "Update Available",
-  "skillHub.tabs.remote": "Remote",
-  "skillHub.tabs.local": "Local",
-  "skillHub.tabs.installed": "Installed",
-  "skillHub.stats.remote": "Remote Skills",
-  "skillHub.stats.remoteDesc": "Available from community",
-  "skillHub.stats.local": "Local Skills",
-  "skillHub.stats.localDesc": "Shared locally",
-  "skillHub.stats.installed": "Installed",
-  "skillHub.stats.installedDesc": "Skills in use",
-  "skillHub.stats.updates": "Updates",
-  "skillHub.stats.updatesDesc": "New versions available",
-  "skillHub.search.placeholder": "Search skills...",
-  "skillHub.filter.allCategories": "All Categories",
-  "skillHub.actions.refresh": "Refresh",
-  "skillHub.actions.install": "Install",
-  "skillHub.actions.installing": "Installing...",
-  "skillHub.actions.update": "Update",
-  "skillHub.actions.uninstall": "Uninstall",
-  "skillHub.actions.viewDetails": "View Details",
-  "skillHub.card.tags": "Tags",
-  "skillHub.card.updated": "Updated: {date}",
-  "skillHub.install.success": "Skill '{name}' installed successfully",
-  "skillHub.install.error": "Failed to install skill: {error}",
-  "skillHub.uninstall.success": "Skill '{name}' uninstalled",
-  "skillHub.uninstall.error": "Failed to uninstall skill: {error}",
-  "skillHub.refresh.success": "Skill list refreshed",
-  "skillHub.details.comingSoon": "Details view coming soon",
-  "skillHub.error.loadFailed": "Failed to load skills. Check network connection.",
-  "skillHub.empty.remote.title": "No Remote Skills",
-  "skillHub.empty.remote.description": "Remote skill repository is empty or unreachable.",
-  "skillHub.empty.local.title": "No Local Skills",
-  "skillHub.empty.local.description": "Add skills to ~/.ccw/skill-hub/local/ to share them.",
-  "skillHub.empty.installed.title": "No Installed Skills",
-  "skillHub.empty.installed.description": "Install skills from Remote or Local tabs to use them."
+  "title": "Skill Hub",
+  "description": "Discover and install shared skills from the community",
+  "links": "Links",
+  "homepage": "Homepage",
+  "license": "License",
+  "source": {
+    "remote": "Remote",
+    "local": "Local"
+  },
+  "status": {
+    "installed": "Installed",
+    "updateAvailable": "Update Available"
+  },
+  "tabs": {
+    "remote": "Remote",
+    "local": "Local",
+    "installed": "Installed"
+  },
+  "stats": {
+    "remote": "Remote Skills",
+    "remoteDesc": "Available from community",
+    "local": "Local Skills",
+    "localDesc": "Shared locally",
+    "installed": "Installed",
+    "installedDesc": "Skills in use",
+    "updates": "Updates",
+    "updatesDesc": "New versions available"
+  },
+  "search": {
+    "placeholder": "Search skills..."
+  },
+  "filter": {
+    "allCategories": "All Categories"
+  },
+  "actions": {
+    "refresh": "Refresh",
+    "install": "Install",
+    "installing": "Installing...",
+    "update": "Update",
+    "uninstall": "Uninstall",
+    "viewDetails": "View Details"
+  },
+  "card": {
+    "tags": "Tags",
+    "updated": "Updated: {date}"
+  },
+  "install": {
+    "success": "Skill '{name}' installed successfully",
+    "error": "Failed to install skill: {error}"
+  },
+  "uninstall": {
+    "success": "Skill '{name}' uninstalled",
+    "error": "Failed to uninstall skill: {error}"
+  },
+  "refresh": {
+    "success": "Skill list refreshed"
+  },
+  "details": {
+    "comingSoon": "Details view coming soon"
+  },
+  "error": {
+    "loadFailed": "Failed to load skills. Check network connection."
+  },
+  "empty": {
+    "remote": {
+      "title": "No Remote Skills",
+      "description": "Remote skill repository is empty or unreachable."
+    },
+    "local": {
+      "title": "No Local Skills",
+      "description": "Add skills to ~/.ccw/skill-hub/local/ to share them."
+    },
+    "installed": {
+      "title": "No Installed Skills",
+      "description": "Install skills from Remote or Local tabs to use them."
+    }
+  },
+  "installationInfo": "Installation Info",
+  "installedTo": "Installed To",
+  "installedAt": "Installed At",
+  "latestVersion": "Latest Version"
 }

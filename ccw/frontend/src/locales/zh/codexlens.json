@@ -177,6 +177,9 @@
     "helpQuotes": "包含空格的值建议使用引号",
     "helpRestart": "修改后需要重启服务才能生效"
   },
+  "downloadedModels": "已下载模型",
+  "noConfiguredModels": "无已配置模型",
+  "noLocalModels": "无已下载模型",
   "models": {
     "title": "模型管理",
     "searchPlaceholder": "搜索模型...",

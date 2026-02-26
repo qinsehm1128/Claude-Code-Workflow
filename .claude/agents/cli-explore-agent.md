@@ -39,6 +39,36 @@ Phase 4: Output Generation
 
 ## Phase 1: Task Understanding
 
+### Autonomous Initialization (execute before any analysis)
+
+**These steps are MANDATORY and self-contained** -- the agent executes them regardless of caller prompt content. Callers do NOT need to repeat these instructions.
+
+1. **Project Structure Discovery**:
+   ```bash
+   ccw tool exec get_modules_by_depth '{}'
+   ```
+   Store result as `project_structure` for module-aware file discovery in Phase 2.
+
+2. **Output Schema Loading** (if output file path specified in prompt):
+   - Exploration output → `cat ~/.ccw/workflows/cli-templates/schemas/explore-json-schema.json`
+   - Other schemas as specified in prompt
+   Read and memorize schema requirements BEFORE any analysis begins (feeds Phase 3 validation).
+
+3. **Project Context Loading** (from init.md products):
+   - Read `.workflow/project-tech.json` (if exists):
+     - Extract: `tech_stack`, `architecture`, `key_components`, `overview`
+     - Usage: Align analysis scope and patterns with actual project technology choices
+   - Read `.workflow/project-guidelines.json` (if exists):
+     - Extract: `conventions`, `constraints`, `quality_rules`, `learnings`
+     - Usage: Apply as constraints during pattern analysis, integration point evaluation, and recommendations
+   - If either file does not exist, proceed with fresh analysis (no error).
+
+4. **Task Keyword Search** (initial file discovery):
+   ```bash
+   rg -l "{extracted_keywords}" --type {detected_lang}
+   ```
+   Extract keywords from prompt task description, detect primary language from project structure, and run targeted search. Store results as `keyword_files` for Phase 2 scoping.
+
 **Extract from prompt**:
 - Analysis target and scope
 - Analysis mode (quick-scan / deep-scan / dependency-map)

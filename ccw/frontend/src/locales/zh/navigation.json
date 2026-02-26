@@ -12,7 +12,7 @@
     "sessions": "会话",
     "liteTasks": "轻量任务",
     "project": "项目",
-    "history": "历史",
+    "history": "CLI执行历史",
     "orchestrator": "编排器",
     "coordinator": "协调器",
     "loops": "循环监控",

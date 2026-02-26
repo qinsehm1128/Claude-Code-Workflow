@@ -1,4 +1,42 @@
-"""Embedding Manager - Manage semantic embeddings for code indexes."""
+"""Embedding Manager - Manage semantic embeddings for code indexes.
+
+This module provides functions for generating and managing semantic embeddings
+for code indexes, supporting both fastembed and litellm backends.
+
+Example Usage:
+    Generate embeddings for a single index:
+
+    >>> from pathlib import Path
+    >>> from codexlens.cli.embedding_manager import generate_embeddings
+    >>> result = generate_embeddings(
+    ...     index_path=Path("path/to/_index.db"),
+    ...     force=True
+    ... )
+    >>> if result["success"]:
+    ...     print(f"Generated {result['total_chunks_created']} embeddings")
+
+    Generate embeddings for an entire project with centralized index:
+
+    >>> from codexlens.cli.embedding_manager import generate_dense_embeddings_centralized
+    >>> result = generate_dense_embeddings_centralized(
+    ...     index_root=Path("path/to/project"),
+    ...     force=True,
+    ...     progress_callback=lambda msg: print(msg)
+    ... )
+
+    Check if embeddings exist:
+
+    >>> from codexlens.cli.embedding_manager import check_index_embeddings
+    >>> status = check_index_embeddings(Path("path/to/_index.db"))
+    >>> print(status["result"]["has_embeddings"])
+
+Backward Compatibility:
+    The deprecated `discover_all_index_dbs()` function is maintained for compatibility.
+    `generate_embeddings_recursive()` is deprecated but functional; use
+    `generate_dense_embeddings_centralized()` instead.
+    The `EMBEDDING_BATCH_SIZE` constant is kept as a reference but actual batch size
+    is calculated dynamically via `calculate_dynamic_batch_size()`.
+"""
 
 import gc
 import json
@@ -53,11 +91,11 @@ def calculate_dynamic_batch_size(config, embedder) -> int:
     - Utilization factor (default 80% to leave headroom)
 
     Args:
-        config: Config object with api_batch_size_* settings
-        embedder: Embedding model object with max_tokens property
+        config: Config object with api_batch_size_* settings.
+        embedder: Embedding model object with max_tokens property.
 
     Returns:
-        Calculated batch size, clamped to [1, api_batch_size_max]
+        int: Calculated batch size, clamped to [1, api_batch_size_max].
     """
     # If dynamic calculation is disabled, return static value
     if not getattr(config, 'api_batch_size_dynamic', False):
@@ -147,8 +185,12 @@ def _cleanup_fastembed_resources() -> None:
     try:
         from codexlens.semantic.embedder import clear_embedder_cache
         clear_embedder_cache()
-    except Exception:
+    except (ImportError, AttributeError):
+        # Expected when semantic module unavailable or cache function doesn't exist
         pass
+    except Exception as exc:
+        # Log unexpected errors but don't fail cleanup
+        logger.debug(f"Unexpected error during fastembed cleanup: {exc}")
 
 
 def _generate_chunks_from_cursor(
@@ -201,9 +243,18 @@ def _generate_chunks_from_cursor(
                     total_files += 1
                     for chunk in chunks:
                         yield (chunk, file_path)
+            except (OSError, UnicodeDecodeError) as e:
+                # File access or encoding errors
+                logger.error(f"Failed to read file {file_path}: {e}")
+                failed_files.append((file_path, f"File read error: {e}"))
+            except ValueError as e:
+                # Chunking configuration errors
+                logger.error(f"Chunking config error for {file_path}: {e}")
+                failed_files.append((file_path, f"Chunking error: {e}"))
             except Exception as e:
-                logger.error(f"Failed to chunk {file_path}: {e}")
-                failed_files.append((file_path, str(e)))
+                # Other unexpected errors
+                logger.error(f"Unexpected error processing {file_path}: {e}")
+                failed_files.append((file_path, f"Unexpected error: {e}"))
 
 
 def _create_token_aware_batches(
@@ -371,8 +422,153 @@ def _get_embedding_defaults() -> tuple[str, str, bool, List, str, float]:
             config.embedding_strategy,
             config.embedding_cooldown,
         )
-    except Exception:
+    except (ImportError, AttributeError, OSError, ValueError) as exc:
+        # Config not available or malformed - use defaults
+        logger.debug(f"Using default embedding config (config load failed): {exc}")
         return "fastembed", "code", True, [], "latency_aware", 60.0
+    except Exception as exc:
+        # Unexpected error - still use defaults but log
+        logger.warning(f"Unexpected error loading embedding config: {exc}")
+        return "fastembed", "code", True, [], "latency_aware", 60.0
+
+
+def _apply_embedding_config_defaults(
+    embedding_backend: Optional[str],
+    model_profile: Optional[str],
+    use_gpu: Optional[bool],
+    endpoints: Optional[List],
+    strategy: Optional[str],
+    cooldown: Optional[float],
+) -> tuple[str, str, bool, List, str, float]:
+    """Apply config defaults to embedding parameters.
+
+    This helper function reduces code duplication across embedding generation
+    functions by centralizing the default value application logic.
+
+    Args:
+        embedding_backend: Embedding backend (fastembed/litellm) or None for default
+        model_profile: Model profile/name or None for default
+        use_gpu: GPU flag or None for default
+        endpoints: API endpoints list or None for default
+        strategy: Selection strategy or None for default
+        cooldown: Cooldown seconds or None for default
+
+    Returns:
+        Tuple of (backend, model, use_gpu, endpoints, strategy, cooldown) with
+        defaults applied where None was passed.
+    """
+    (default_backend, default_model, default_gpu,
+     default_endpoints, default_strategy, default_cooldown) = _get_embedding_defaults()
+
+    backend = embedding_backend if embedding_backend is not None else default_backend
+    model = model_profile if model_profile is not None else default_model
+    gpu = use_gpu if use_gpu is not None else default_gpu
+    eps = endpoints if endpoints is not None else default_endpoints
+    strat = strategy if strategy is not None else default_strategy
+    cool = cooldown if cooldown is not None else default_cooldown
+
+    return backend, model, gpu, eps, strat, cool
+
+
+def _calculate_max_workers(
+    embedding_backend: str,
+    endpoints: Optional[List],
+    max_workers: Optional[int],
+) -> int:
+    """Calculate optimal max_workers based on backend and endpoint count.
+
+    Args:
+        embedding_backend: The embedding backend being used
+        endpoints: List of API endpoints (for litellm multi-endpoint mode)
+        max_workers: Explicitly specified max_workers or None for auto-calculation
+
+    Returns:
+        Calculated or specified max_workers value
+    """
+    if max_workers is not None:
+        return max_workers
+
+    endpoint_count = len(endpoints) if endpoints else 1
+
+    # Set dynamic max_workers default based on backend type and endpoint count
+    # - FastEmbed: CPU-bound, sequential is optimal (1 worker)
+    # - LiteLLM single endpoint: 4 workers default
+    # - LiteLLM multi-endpoint: workers = endpoint_count * 2 (to saturate all APIs)
+    if embedding_backend == "litellm":
+        if endpoint_count > 1:
+            return endpoint_count * 2  # No cap, scale with endpoints
+        else:
+            return 4
+    else:
+        return 1
+
+
+def _initialize_embedder_and_chunker(
+    embedding_backend: str,
+    model_profile: str,
+    use_gpu: bool,
+    endpoints: Optional[List],
+    strategy: str,
+    cooldown: float,
+    chunk_size: int,
+    overlap: int,
+) -> tuple:
+    """Initialize embedder and chunker for embedding generation.
+
+    This helper function reduces code duplication by centralizing embedder
+    and chunker initialization logic.
+
+    Args:
+        embedding_backend: The embedding backend (fastembed/litellm)
+        model_profile: Model profile or name
+        use_gpu: Whether to use GPU acceleration
+        endpoints: Optional API endpoints for load balancing
+        strategy: Selection strategy for multi-endpoint mode
+        cooldown: Cooldown seconds for rate-limited endpoints
+        chunk_size: Maximum chunk size in characters
+        overlap: Overlap size in characters
+
+    Returns:
+        Tuple of (embedder, chunker, endpoint_count)
+
+    Raises:
+        ValueError: If embedding_backend is invalid
+    """
+    from codexlens.semantic.factory import get_embedder as get_embedder_factory
+    from codexlens.semantic.chunker import Chunker, ChunkConfig
+    from codexlens.config import Config
+
+    # Initialize embedder using factory (supports fastembed, litellm, and rotational)
+    # For fastembed: model_profile is a profile name (fast/code/multilingual/balanced)
+    # For litellm: model_profile is a model name (e.g., qwen3-embedding)
+    # For multi-endpoint: endpoints list enables load balancing
+    if embedding_backend == "fastembed":
+        embedder = get_embedder_factory(backend="fastembed", profile=model_profile, use_gpu=use_gpu)
+    elif embedding_backend == "litellm":
+        embedder = get_embedder_factory(
+            backend="litellm",
+            model=model_profile,
+            endpoints=endpoints if endpoints else None,
+            strategy=strategy,
+            cooldown=cooldown,
+        )
+    else:
+        raise ValueError(f"Invalid embedding backend: {embedding_backend}. Must be 'fastembed' or 'litellm'.")
+
+    # skip_token_count=True: Use fast estimation (len/4) instead of expensive tiktoken
+    # This significantly reduces CPU usage with minimal impact on metadata accuracy
+    # Load chunk stripping config from settings
+    chunk_cfg = Config.load()
+    chunker = Chunker(config=ChunkConfig(
+        max_chunk_size=chunk_size,
+        overlap=overlap,
+        skip_token_count=True,
+        strip_comments=getattr(chunk_cfg, 'chunk_strip_comments', True),
+        strip_docstrings=getattr(chunk_cfg, 'chunk_strip_docstrings', True),
+    ))
+
+    endpoint_count = len(endpoints) if endpoints else 1
+    return embedder, chunker, endpoint_count
 
 
 def generate_embeddings(
@@ -397,16 +593,16 @@ def generate_embeddings(
     LiteLLM backend to improve throughput.
 
     Args:
-        index_path: Path to _index.db file
+        index_path: Path to _index.db file.
         embedding_backend: Embedding backend to use (fastembed or litellm).
                           Defaults to config setting.
         model_profile: Model profile for fastembed (fast, code, multilingual, balanced)
                       or model name for litellm (e.g., qwen3-embedding).
                       Defaults to config setting.
-        force: If True, regenerate even if embeddings exist
-        chunk_size: Maximum chunk size in characters
-        overlap: Overlap size in characters for sliding window chunking (default: 200)
-        progress_callback: Optional callback for progress updates
+        force: If True, regenerate even if embeddings exist.
+        chunk_size: Maximum chunk size in characters.
+        overlap: Overlap size in characters for sliding window chunking (default: 200).
+        progress_callback: Optional callback for progress updates.
         use_gpu: Whether to use GPU acceleration (fastembed only).
                 Defaults to config setting.
         max_tokens_per_batch: Maximum tokens per batch for token-aware batching.
@@ -420,40 +616,22 @@ def generate_embeddings(
         cooldown: Default cooldown seconds for rate-limited endpoints.
 
     Returns:
-        Result dictionary with generation statistics
+        Dict[str, any]: Result dictionary with generation statistics.
+            Contains keys: success, error (if failed), files_processed,
+            total_chunks_created, execution_time, etc.
+
+    Raises:
+        ValueError: If embedding_backend is invalid.
+        ImportError: If semantic module is not available.
     """
-    # Get defaults from config if not specified
-    (default_backend, default_model, default_gpu,
-     default_endpoints, default_strategy, default_cooldown) = _get_embedding_defaults()
+    # Apply config defaults
+    embedding_backend, model_profile, use_gpu, endpoints, strategy, cooldown = \
+        _apply_embedding_config_defaults(
+            embedding_backend, model_profile, use_gpu, endpoints, strategy, cooldown
+        )
 
-    if embedding_backend is None:
-        embedding_backend = default_backend
-    if model_profile is None:
-        model_profile = default_model
-    if use_gpu is None:
-        use_gpu = default_gpu
-    if endpoints is None:
-        endpoints = default_endpoints
-    if strategy is None:
-        strategy = default_strategy
-    if cooldown is None:
-        cooldown = default_cooldown
-
-    # Calculate endpoint count for worker scaling
-    endpoint_count = len(endpoints) if endpoints else 1
-
-    # Set dynamic max_workers default based on backend type and endpoint count
-    # - FastEmbed: CPU-bound, sequential is optimal (1 worker)
-    # - LiteLLM single endpoint: 4 workers default
-    # - LiteLLM multi-endpoint: workers = endpoint_count * 2 (to saturate all APIs)
-    if max_workers is None:
-        if embedding_backend == "litellm":
-            if endpoint_count > 1:
-                max_workers = endpoint_count * 2  # No cap, scale with endpoints
-            else:
-                max_workers = 4
-        else:
-            max_workers = 1
+    # Calculate max_workers
+    max_workers = _calculate_max_workers(embedding_backend, endpoints, max_workers)
 
     backend_available, backend_error = is_embedding_backend_available(embedding_backend)
     if not backend_available:
@@ -487,51 +665,23 @@ def generate_embeddings(
             with sqlite3.connect(index_path) as conn:
                 conn.execute("DELETE FROM semantic_chunks")
                 conn.commit()
+        except sqlite3.DatabaseError as e:
+            return {
+                "success": False,
+                "error": f"Database error clearing chunks: {str(e)}",
+            }
         except Exception as e:
             return {
                 "success": False,
                 "error": f"Failed to clear existing chunks: {str(e)}",
             }
 
-    # Initialize components
+    # Initialize embedder and chunker using helper
     try:
-        # Import factory function to support both backends
-        from codexlens.semantic.factory import get_embedder as get_embedder_factory
-        from codexlens.semantic.vector_store import VectorStore
-        from codexlens.semantic.chunker import Chunker, ChunkConfig
-
-        # Initialize embedder using factory (supports fastembed, litellm, and rotational)
-        # For fastembed: model_profile is a profile name (fast/code/multilingual/balanced)
-        # For litellm: model_profile is a model name (e.g., qwen3-embedding)
-        # For multi-endpoint: endpoints list enables load balancing
-        if embedding_backend == "fastembed":
-            embedder = get_embedder_factory(backend="fastembed", profile=model_profile, use_gpu=use_gpu)
-        elif embedding_backend == "litellm":
-            embedder = get_embedder_factory(
-                backend="litellm",
-                model=model_profile,
-                endpoints=endpoints if endpoints else None,
-                strategy=strategy,
-                cooldown=cooldown,
-            )
-        else:
-            return {
-                "success": False,
-                "error": f"Invalid embedding backend: {embedding_backend}. Must be 'fastembed' or 'litellm'.",
-            }
-
-        # skip_token_count=True: Use fast estimation (len/4) instead of expensive tiktoken
-        # This significantly reduces CPU usage with minimal impact on metadata accuracy
-        # Load chunk stripping config from settings
-        from codexlens.config import Config
-        chunk_cfg = Config.load()
-        chunker = Chunker(config=ChunkConfig(
-            max_chunk_size=chunk_size,
-            overlap=overlap,
-            skip_token_count=True,
-            strip_comments=getattr(chunk_cfg, 'chunk_strip_comments', True),
-            strip_docstrings=getattr(chunk_cfg, 'chunk_strip_docstrings', True),
-        ))
+        embedder, chunker, endpoint_count = _initialize_embedder_and_chunker(
+            embedding_backend, model_profile, use_gpu, endpoints, strategy, cooldown,
+            chunk_size, overlap
+        )
 
         # Log embedder info with endpoint count for multi-endpoint mode
         if progress_callback:
@@ -547,10 +697,17 @@ def generate_embeddings(
         if progress_callback and batch_config.api_batch_size_dynamic:
             progress_callback(f"Dynamic batch size: {effective_batch_size} (model max_tokens={getattr(embedder, 'max_tokens', 8192)})")
 
-    except Exception as e:
+    except (ImportError, ValueError) as e:
+        # Missing dependency or invalid configuration
         return {
             "success": False,
-            "error": f"Failed to initialize components: {str(e)}",
+            "error": f"Failed to initialize embedding components: {str(e)}",
+        }
+    except Exception as e:
+        # Other unexpected errors
+        return {
+            "success": False,
+            "error": f"Unexpected error initializing components: {str(e)}",
         }
 
     # --- STREAMING PROCESSING ---
@@ -814,8 +971,8 @@ def generate_embeddings(
         try:
             _cleanup_fastembed_resources()
             gc.collect()
-        except Exception:
-            pass
+        except Exception as cleanup_exc:
+            logger.debug(f"Cleanup error during exception handling: {cleanup_exc}")
         return {"success": False, "error": f"Failed to read or process files: {str(e)}"}
 
     elapsed_time = time.time() - start_time
@@ -825,8 +982,8 @@ def generate_embeddings(
     try:
         _cleanup_fastembed_resources()
         gc.collect()
-    except Exception:
-        pass
+    except Exception as cleanup_exc:
+        logger.debug(f"Cleanup error during finalization: {cleanup_exc}")
 
     return {
         "success": True,
@@ -922,7 +1079,8 @@ def build_centralized_binary_vectors_from_existing(
                         }
 
                 # We count per-dim later after selecting a target dim.
-        except Exception:
+        except (sqlite3.DatabaseError, ValueError, TypeError):
+            # Skip corrupted or malformed indexes
             continue
 
     if not dims_seen:
@@ -971,7 +1129,8 @@ def build_centralized_binary_vectors_from_existing(
                     "SELECT COUNT(*) FROM semantic_chunks WHERE embedding IS NOT NULL AND length(embedding) > 0"
                 ).fetchone()
                 total_chunks += int(row[0] if row else 0)
-        except Exception:
+        except (sqlite3.DatabaseError, ValueError, TypeError):
+            # Skip corrupted or malformed indexes
             continue
 
     if not total_chunks:
@@ -987,7 +1146,7 @@ def build_centralized_binary_vectors_from_existing(
     # Prepare output files / DB.
     try:
         import numpy as np
-    except Exception as exc:
+    except ImportError as exc:
         return {"success": False, "error": f"numpy required to build binary vectors: {exc}"}
 
     store = VectorMetadataStore(vectors_meta_path)
@@ -1243,35 +1402,14 @@ def generate_embeddings_recursive(
         stacklevel=2
     )
 
-    # Get defaults from config if not specified
-    (default_backend, default_model, default_gpu,
-     default_endpoints, default_strategy, default_cooldown) = _get_embedding_defaults()
+    # Apply config defaults
+    embedding_backend, model_profile, use_gpu, endpoints, strategy, cooldown = \
+        _apply_embedding_config_defaults(
+            embedding_backend, model_profile, use_gpu, endpoints, strategy, cooldown
+        )
 
-    if embedding_backend is None:
-        embedding_backend = default_backend
-    if model_profile is None:
-        model_profile = default_model
-    if use_gpu is None:
-        use_gpu = default_gpu
-    if endpoints is None:
-        endpoints = default_endpoints
-    if strategy is None:
-        strategy = default_strategy
-    if cooldown is None:
-        cooldown = default_cooldown
-
-    # Calculate endpoint count for worker scaling
-    endpoint_count = len(endpoints) if endpoints else 1
-
-    # Set dynamic max_workers default based on backend type and endpoint count
-    if max_workers is None:
-        if embedding_backend == "litellm":
-            if endpoint_count > 1:
-                max_workers = endpoint_count * 2  # No cap, scale with endpoints
-            else:
-                max_workers = 4
-        else:
-            max_workers = 1
+    # Calculate max_workers
+    max_workers = _calculate_max_workers(embedding_backend, endpoints, max_workers)
 
     # Discover all _index.db files (using internal helper to avoid double deprecation warning)
     index_files = _discover_index_dbs_internal(index_root)
@@ -1401,34 +1539,14 @@ def generate_dense_embeddings_centralized(
     """
     from codexlens.config import VECTORS_HNSW_NAME
 
-    # Get defaults from config if not specified
-    (default_backend, default_model, default_gpu,
-     default_endpoints, default_strategy, default_cooldown) = _get_embedding_defaults()
+    # Apply config defaults
+    embedding_backend, model_profile, use_gpu, endpoints, strategy, cooldown = \
+        _apply_embedding_config_defaults(
+            embedding_backend, model_profile, use_gpu, endpoints, strategy, cooldown
+        )
 
-    if embedding_backend is None:
-        embedding_backend = default_backend
-    if model_profile is None:
-        model_profile = default_model
-    if use_gpu is None:
-        use_gpu = default_gpu
-    if endpoints is None:
-        endpoints = default_endpoints
-    if strategy is None:
-        strategy = default_strategy
-    if cooldown is None:
-        cooldown = default_cooldown
-
-    # Calculate endpoint count for worker scaling
-    endpoint_count = len(endpoints) if endpoints else 1
-
-    if max_workers is None:
-        if embedding_backend == "litellm":
-            if endpoint_count > 1:
-                max_workers = endpoint_count * 2
-            else:
-                max_workers = 4
-        else:
-            max_workers = 1
+    # Calculate max_workers
+    max_workers = _calculate_max_workers(embedding_backend, endpoints, max_workers)
 
     backend_available, backend_error = is_embedding_backend_available(embedding_backend)
     if not backend_available:
@@ -1470,38 +1588,18 @@ def generate_dense_embeddings_centralized(
             "error": f"Centralized vector index already exists at {central_hnsw_path}. Use --force to regenerate.",
         }
 
-    # Initialize embedder
+    # Initialize embedder and chunker using helper
     try:
-        from codexlens.semantic.factory import get_embedder as get_embedder_factory
-        from codexlens.semantic.chunker import Chunker, ChunkConfig
         from codexlens.semantic.ann_index import ANNIndex
 
-        if embedding_backend == "fastembed":
-            embedder = get_embedder_factory(backend="fastembed", profile=model_profile, use_gpu=use_gpu)
-        elif embedding_backend == "litellm":
-            embedder = get_embedder_factory(
-                backend="litellm",
-                model=model_profile,
-                endpoints=endpoints if endpoints else None,
-                strategy=strategy,
-                cooldown=cooldown,
-            )
-        else:
-            return {
-                "success": False,
-                "error": f"Invalid embedding backend: {embedding_backend}",
-            }
+        embedder, chunker, endpoint_count = _initialize_embedder_and_chunker(
+            embedding_backend, model_profile, use_gpu, endpoints, strategy, cooldown,
+            chunk_size, overlap
+        )
 
-        # Load chunk stripping config from settings
+        # Load chunk stripping config for batch size calculation
         from codexlens.config import Config
-        chunk_cfg = Config.load()
-        chunker = Chunker(config=ChunkConfig(
-            max_chunk_size=chunk_size,
-            overlap=overlap,
-            skip_token_count=True,
-            strip_comments=getattr(chunk_cfg, 'chunk_strip_comments', True),
-            strip_docstrings=getattr(chunk_cfg, 'chunk_strip_docstrings', True),
-        ))
+        batch_config = Config.load()
 
         if progress_callback:
             if endpoint_count > 1:
@@ -1509,7 +1607,6 @@ def generate_dense_embeddings_centralized(
             progress_callback(f"Using model: {embedder.model_name} ({embedder.embedding_dim} dimensions)")
 
         # Calculate dynamic batch size based on model capacity
-        batch_config = chunk_cfg  # Reuse already loaded config
         effective_batch_size = calculate_dynamic_batch_size(batch_config, embedder)
 
         if progress_callback and batch_config.api_batch_size_dynamic:

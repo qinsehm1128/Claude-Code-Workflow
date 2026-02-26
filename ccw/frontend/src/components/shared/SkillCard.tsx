@@ -12,8 +12,8 @@ import {
   Settings,
   Power,
   PowerOff,
-  Tag,
   User,
+  Trash2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Card } from '@/components/ui/Card';
@@ -29,6 +29,7 @@ export interface SkillCardProps {
   onToggle?: (skill: Skill, enabled: boolean) => void;
   onClick?: (skill: Skill) => void;
   onConfigure?: (skill: Skill) => void;
+  onDelete?: (skill: Skill) => void;
   className?: string;
   compact?: boolean;
   showActions?: boolean;
@@ -71,6 +72,7 @@ export function SkillCard({
   onToggle,
   onClick,
   onConfigure,
+  onDelete,
   className,
   compact = false,
   showActions = true,
@@ -94,6 +96,12 @@ export function SkillCard({
     e.stopPropagation();
     setIsMenuOpen(false);
     onConfigure?.(skill);
+  };
+
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsMenuOpen(false);
+    onDelete?.(skill);
   };
 
   if (compact) {
@@ -140,64 +148,94 @@ export function SkillCard({
     <Card
       onClick={handleClick}
       className={cn(
-        'p-4 cursor-pointer hover:shadow-md transition-all hover-glow',
-        skill.enabled ? 'hover:border-primary/50' : 'border-dashed border-muted-foreground/50 bg-muted/30 grayscale-[0.3]',
+        'p-4 cursor-pointer transition-all hover-glow',
+        skill.enabled
+          ? 'border-primary/20 bg-primary/[0.02] hover:border-primary/40 hover:shadow-md'
+          : 'border-border/50 hover:border-border hover:shadow-sm',
         className
       )}
     >
-      {/* Header */}
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-start gap-3 min-w-0">
+      {/* Header - Icon, Title, Version on left; Source Badge, Enable Button, Actions Menu on right */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          {/* Icon */}
           <div className={cn(
             'p-2 rounded-lg flex-shrink-0',
             skill.enabled ? 'bg-primary/10' : 'bg-muted'
           )}>
             <Sparkles className={cn('w-5 h-5', skill.enabled ? 'text-primary' : 'text-muted-foreground')} />
           </div>
+
+          {/* Title and Version */}
           <div className="min-w-0">
-            <h3 className="text-sm font-medium text-foreground">{skill.name}</h3>
+            <h3 className="text-sm font-medium text-foreground truncate">{skill.name}</h3>
             {skill.version && (
               <p className="text-xs text-muted-foreground">v{skill.version}</p>
             )}
           </div>
         </div>
-        {showActions && (
-          <DropdownMenu open={isMenuOpen} onOpenChange={setIsMenuOpen}>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 w-8 p-0"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <MoreVertical className="w-4 h-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => onClick?.(skill)}>
-                <Info className="w-4 h-4 mr-2" />
-                {formatMessage({ id: 'skills.actions.viewDetails' })}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleConfigure}>
-                <Settings className="w-4 h-4 mr-2" />
-                {formatMessage({ id: 'skills.actions.configure' })}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleToggle}>
-                {skill.enabled ? (
-                  <>
-                    <PowerOff className="w-4 h-4 mr-2" />
-                    {formatMessage({ id: 'skills.actions.disable' })}
-                  </>
-                ) : (
-                  <>
-                    <Power className="w-4 h-4 mr-2" />
-                    {formatMessage({ id: 'skills.actions.enable' })}
-                  </>
+
+        {/* Right side: Source Badge, Enable Icon Button, Actions Menu */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <SourceBadge source={skill.source} />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-8 p-0 hover:bg-primary/10"
+            onClick={handleToggle}
+            disabled={isToggling}
+            title={skill.enabled ? formatMessage({ id: 'skills.state.enabled' }) : formatMessage({ id: 'skills.state.disabled' })}
+          >
+            {skill.enabled ? (
+              <Power className="w-4 h-4 text-primary" />
+            ) : (
+              <PowerOff className="w-4 h-4 text-muted-foreground" />
+            )}
+          </Button>
+          {showActions && (
+            <DropdownMenu open={isMenuOpen} onOpenChange={setIsMenuOpen}>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0 flex-shrink-0"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <MoreVertical className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => onClick?.(skill)}>
+                  <Info className="w-4 h-4 mr-2" />
+                  {formatMessage({ id: 'skills.actions.viewDetails' })}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleConfigure}>
+                  <Settings className="w-4 h-4 mr-2" />
+                  {formatMessage({ id: 'skills.actions.configure' })}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleToggle}>
+                  {skill.enabled ? (
+                    <>
+                      <PowerOff className="w-4 h-4 mr-2" />
+                      {formatMessage({ id: 'skills.actions.disable' })}
+                    </>
+                  ) : (
+                    <>
+                      <Power className="w-4 h-4 mr-2" />
+                      {formatMessage({ id: 'skills.actions.enable' })}
+                    </>
+                  )}
+                </DropdownMenuItem>
+                {onDelete && skill.source !== 'builtin' && (
+                  <DropdownMenuItem onClick={handleDelete} className="text-destructive focus:text-destructive">
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    {formatMessage({ id: 'skills.actions.delete' })}
+                  </DropdownMenuItem>
                 )}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
       </div>
 
       {/* Description */}
@@ -205,65 +243,35 @@ export function SkillCard({
         {skill.description}
       </p>
 
-      {/* Triggers */}
-      {skill.triggers && skill.triggers.length > 0 && (
-        <div className="mt-3">
-          <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
-            <Tag className="w-3 h-3" />
-            {formatMessage({ id: 'skills.card.triggers' })}
-          </div>
-          <div className="flex flex-wrap gap-1">
-            {skill.triggers.slice(0, 4).map((trigger) => (
+      {/* Footer - Tags, Category, Author */}
+      <div className="flex items-center gap-2 mt-4 pt-3 border-t border-border flex-wrap">
+        {/* Tags (first 2 triggers) */}
+        {skill.triggers && skill.triggers.length > 0 && (
+          <>
+            {skill.triggers.slice(0, 2).map((trigger) => (
               <Badge key={trigger} variant="outline" className="text-xs">
                 {trigger}
               </Badge>
             ))}
-            {skill.triggers.length > 4 && (
+            {skill.triggers.length > 2 && (
               <Badge variant="outline" className="text-xs">
-                +{skill.triggers.length - 4}
+                +{skill.triggers.length - 2}
               </Badge>
             )}
+          </>
+        )}
+        {skill.category && (
+          <Badge variant="outline" className="text-xs">
+            {skill.category}
+          </Badge>
+        )}
+        {skill.author && (
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+            <User className="w-3 h-3" />
+            {skill.author}
           </div>
-        </div>
-      )}
-
-      {/* Footer */}
-      <div className="flex items-center justify-between mt-4 pt-3 border-t border-border">
-        <div className="flex items-center gap-2">
-          <SourceBadge source={skill.source} />
-          {skill.category && (
-            <Badge variant="outline" className="text-xs">
-              {skill.category}
-            </Badge>
-          )}
-        </div>
-        <Button
-          variant={skill.enabled ? 'default' : 'outline'}
-          size="sm"
-          onClick={handleToggle}
-          disabled={isToggling}
-        >
-          {skill.enabled ? (
-            <>
-              <Power className="w-4 h-4 mr-1" />
-              {formatMessage({ id: 'skills.state.enabled' })}
-            </>
-          ) : (
-            <>
-              <PowerOff className="w-4 h-4 mr-1" />
-              {formatMessage({ id: 'skills.state.disabled' })}
-            </>
-          )}
-        </Button>
+        )}
       </div>
-
-      {/* Author */}
-      {skill.author && (
-        <div className="flex items-center gap-1 mt-2 text-xs text-muted-foreground">
-          <User className="w-3 h-3" />
-          {skill.author}
-        </div>
-      )}
     </Card>
   );
 }

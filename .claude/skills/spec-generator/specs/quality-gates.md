@@ -88,6 +88,18 @@ Content provides sufficient detail for execution teams.
 | Dimensions generated | 3-5 exploration dimensions | Warning |
 | Constraints listed | >= 0 (can be empty with justification) | Info |
 
+### Phase 1.5: Requirement Expansion & Clarification
+
+| Check | Criteria | Severity |
+|-------|----------|----------|
+| Problem statement refined | More specific than seed, >= 30 characters | Error |
+| Confirmed features | >= 2 features with descriptions | Error |
+| Non-functional requirements | >= 1 identified (performance, security, etc.) | Warning |
+| Boundary conditions | In-scope and out-of-scope defined | Warning |
+| Key assumptions | >= 1 assumption listed | Warning |
+| User confirmation | Explicit user confirmation recorded (non-auto mode) | Info |
+| Discussion rounds | >= 1 round of interaction (non-auto mode) | Info |
+
 ### Phase 2: Product Brief
 
 | Check | Criteria | Severity |

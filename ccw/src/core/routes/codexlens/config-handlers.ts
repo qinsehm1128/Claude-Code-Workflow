@@ -565,7 +565,7 @@ export async function handleCodexLensConfigRoutes(ctx: RouteContext): Promise<bo
     return true;
   }
 
-  // API: CodexLens Model List (list available embedding models)
+  // API: CodexLens Model List (list available embedding AND reranker models)
   if (pathname === '/api/codexlens/models' && req.method === 'GET') {
     try {
       // Check if CodexLens is installed first (without auto-installing)
@@ -575,20 +575,46 @@ export async function handleCodexLensConfigRoutes(ctx: RouteContext): Promise<bo
         res.end(JSON.stringify({ success: false, error: 'CodexLens not installed' }));
         return true;
       }
-      const result = await executeCodexLens(['model-list', '--json']);
-      if (result.success) {
+
+      // Fetch both embedding and reranker models in parallel
+      const [embeddingResult, rerankerResult] = await Promise.all([
+        executeCodexLens(['model-list', '--json']),
+        executeCodexLens(['reranker-model-list', '--json'])
+      ]);
+
+      const allModels: any[] = [];
+
+      // Parse embedding models and add type field
+      if (embeddingResult.success) {
         try {
-          const parsed = extractJSON(result.output ?? '');
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify(parsed));
+          const parsed = extractJSON(embeddingResult.output ?? '');
+          const models = parsed?.result?.models ?? parsed?.models ?? [];
+          for (const model of models) {
+            allModels.push({ ...model, type: 'embedding' });
+          }
         } catch {
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ success: true, result: { models: [] }, output: result.output }));
+          // Ignore parsing errors for embedding models
         }
-      } else {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: false, error: result.error }));
       }
+
+      // Parse reranker models and add type field
+      if (rerankerResult.success) {
+        try {
+          const parsed = extractJSON(rerankerResult.output ?? '');
+          const models = parsed?.result?.models ?? parsed?.models ?? [];
+          for (const model of models) {
+            allModels.push({ ...model, type: 'reranker' });
+          }
+        } catch {
+          // Ignore parsing errors for reranker models
+        }
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: true,
+        result: { models: allModels }
+      }));
     } catch (err: unknown) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: false, error: err instanceof Error ? err.message : String(err) }));
@@ -596,27 +622,65 @@ export async function handleCodexLensConfigRoutes(ctx: RouteContext): Promise<bo
     return true;
   }
 
-  // API: CodexLens Model Download (download embedding model by profile)
+  // API: CodexLens Model Download (download embedding or reranker model by profile)
   if (pathname === '/api/codexlens/models/download' && req.method === 'POST') {
     handlePostRequest(req, res, async (body) => {
-      const { profile } = body as { profile?: unknown };
+      const { profile, model_type } = body as { profile?: unknown; model_type?: unknown };
       const resolvedProfile = typeof profile === 'string' && profile.trim().length > 0 ? profile.trim() : undefined;
+      const resolvedModelType = typeof model_type === 'string' ? model_type.trim() : undefined;
 
       if (!resolvedProfile) {
         return { success: false, error: 'profile is required', status: 400 };
       }
 
       try {
-        const result = await executeCodexLens(['model-download', resolvedProfile, '--json'], { timeout: 600000 }); // 10 min for download
-        if (result.success) {
+        // If model_type is specified, use it directly
+        if (resolvedModelType === 'reranker') {
+          const result = await executeCodexLens(['reranker-model-download', resolvedProfile, '--json'], { timeout: 600000 });
+          if (result.success) {
+            try {
+              const parsed = extractJSON(result.output ?? '');
+              return { success: true, ...parsed };
+            } catch {
+              return { success: true, output: result.output };
+            }
+          } else {
+            return { success: false, error: result.error, status: 500 };
+          }
+        }
+
+        // Try embedding model first, then reranker if profile not found
+        const embeddingResult = await executeCodexLens(['model-download', resolvedProfile, '--json'], { timeout: 600000 });
+
+        // Check if the error indicates unknown profile
+        const outputStr = embeddingResult.output ?? '';
+        const isUnknownProfile = !embeddingResult.success &&
+          (outputStr.includes('Unknown profile') || outputStr.includes('unknown profile'));
+
+        if (isUnknownProfile) {
+          // Try reranker model
+          const rerankerResult = await executeCodexLens(['reranker-model-download', resolvedProfile, '--json'], { timeout: 600000 });
+          if (rerankerResult.success) {
+            try {
+              const parsed = extractJSON(rerankerResult.output ?? '');
+              return { success: true, ...parsed };
+            } catch {
+              return { success: true, output: rerankerResult.output };
+            }
+          } else {
+            return { success: false, error: rerankerResult.error, status: 500 };
+          }
+        }
+
+        if (embeddingResult.success) {
           try {
-            const parsed = extractJSON(result.output ?? '');
+            const parsed = extractJSON(embeddingResult.output ?? '');
             return { success: true, ...parsed };
           } catch {
-            return { success: true, output: result.output };
+            return { success: true, output: embeddingResult.output };
           }
         } else {
-          return { success: false, error: result.error, status: 500 };
+          return { success: false, error: embeddingResult.error, status: 500 };
         }
       } catch (err: unknown) {
         return { success: false, error: err instanceof Error ? err.message : String(err), status: 500 };
@@ -665,27 +729,65 @@ export async function handleCodexLensConfigRoutes(ctx: RouteContext): Promise<bo
     return true;
   }
 
-  // API: CodexLens Model Delete (delete embedding model by profile)
+  // API: CodexLens Model Delete (delete embedding or reranker model by profile)
   if (pathname === '/api/codexlens/models/delete' && req.method === 'POST') {
     handlePostRequest(req, res, async (body) => {
-      const { profile } = body as { profile?: unknown };
+      const { profile, model_type } = body as { profile?: unknown; model_type?: unknown };
       const resolvedProfile = typeof profile === 'string' && profile.trim().length > 0 ? profile.trim() : undefined;
+      const resolvedModelType = typeof model_type === 'string' ? model_type.trim() : undefined;
 
       if (!resolvedProfile) {
         return { success: false, error: 'profile is required', status: 400 };
       }
 
       try {
-        const result = await executeCodexLens(['model-delete', resolvedProfile, '--json']);
-        if (result.success) {
+        // If model_type is specified, use it directly
+        if (resolvedModelType === 'reranker') {
+          const result = await executeCodexLens(['reranker-model-delete', resolvedProfile, '--json']);
+          if (result.success) {
+            try {
+              const parsed = extractJSON(result.output ?? '');
+              return { success: true, ...parsed };
+            } catch {
+              return { success: true, output: result.output };
+            }
+          } else {
+            return { success: false, error: result.error, status: 500 };
+          }
+        }
+
+        // Try embedding model first, then reranker if profile not found
+        const embeddingResult = await executeCodexLens(['model-delete', resolvedProfile, '--json']);
+
+        // Check if the error indicates unknown profile
+        const outputStr = embeddingResult.output ?? '';
+        const isUnknownProfile = !embeddingResult.success &&
+          (outputStr.includes('Unknown profile') || outputStr.includes('unknown profile'));
+
+        if (isUnknownProfile) {
+          // Try reranker model
+          const rerankerResult = await executeCodexLens(['reranker-model-delete', resolvedProfile, '--json']);
+          if (rerankerResult.success) {
+            try {
+              const parsed = extractJSON(rerankerResult.output ?? '');
+              return { success: true, ...parsed };
+            } catch {
+              return { success: true, output: rerankerResult.output };
+            }
+          } else {
+            return { success: false, error: rerankerResult.error, status: 500 };
+          }
+        }
+
+        if (embeddingResult.success) {
           try {
-            const parsed = extractJSON(result.output ?? '');
+            const parsed = extractJSON(embeddingResult.output ?? '');
             return { success: true, ...parsed };
           } catch {
-            return { success: true, output: result.output };
+            return { success: true, output: embeddingResult.output };
           }
         } else {
-          return { success: false, error: result.error, status: 500 };
+          return { success: false, error: embeddingResult.error, status: 500 };
         }
       } catch (err: unknown) {
         return { success: false, error: err instanceof Error ? err.message : String(err), status: 500 };

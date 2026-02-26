@@ -95,7 +95,8 @@ export interface RemoteSkillEntry {
   author: string;
   category: string;
   tags: string[];
-  downloadUrl: string;
+  downloadUrl?: string;
+  path?: string;  // Relative path to skill directory in repo
   readmeUrl?: string;
   homepage?: string;
   license?: string;
@@ -171,10 +172,10 @@ interface SkillCacheRequest {
  * GitHub repository configuration for remote skills
  */
 const GITHUB_CONFIG = {
-  owner: 'anthropics',
-  repo: 'claude-code-workflow',
+  owner: 'catlog22',
+  repo: 'skill-hub',
   branch: 'main',
-  skillIndexPath: 'skill-hub/index.json'
+  skillIndexPath: 'index.json'
 };
 
 /**
@@ -317,17 +318,34 @@ async function fetchRemoteSkillIndex(): Promise<RemoteSkillIndex> {
   // Check cache
   const now = Date.now();
   if (remoteSkillsCache.data && (now - remoteSkillsCache.timestamp) < CACHE_TTL_MS) {
+    console.log('[SkillHub] Using cached remote index');
     return remoteSkillsCache.data;
   }
 
   const indexUrl = `https://raw.githubusercontent.com/${GITHUB_CONFIG.owner}/${GITHUB_CONFIG.repo}/${GITHUB_CONFIG.branch}/${GITHUB_CONFIG.skillIndexPath}`;
+  console.log('[SkillHub] Fetching remote index from:', indexUrl);
 
   try {
-    const response = await fetch(indexUrl);
+    // Add timeout to prevent hanging
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+    const response = await fetch(indexUrl, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'CCW-SkillHub/1.0'
+      }
+    });
+    clearTimeout(timeoutId);
+
+    console.log('[SkillHub] Fetch response status:', response.status, response.statusText);
+
     if (!response.ok) {
       // Try local fallback
+      console.log('[SkillHub] Fetch failed, trying local fallback');
       const localIndex = loadLocalIndex();
       if (localIndex) {
+        console.log('[SkillHub] Using local fallback index');
         return localIndex;
       }
       throw new Error(`GitHub API error: ${response.status} ${response.statusText}`);
@@ -335,6 +353,7 @@ async function fetchRemoteSkillIndex(): Promise<RemoteSkillIndex> {
 
     const index = await response.json() as RemoteSkillIndex;
     index.source = 'github';
+    console.log('[SkillHub] Successfully fetched remote index with', index.skills.length, 'skills');
 
     // Update cache
     remoteSkillsCache = { data: index, timestamp: now };
@@ -344,15 +363,25 @@ async function fetchRemoteSkillIndex(): Promise<RemoteSkillIndex> {
 
     return index;
   } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error('[SkillHub] Error fetching remote index:', errorMsg);
+
     // Return cached data if available, even if expired
     if (remoteSkillsCache.data) {
+      console.log('[SkillHub] Using expired cache as fallback');
       return remoteSkillsCache.data;
     }
 
     // Try local fallback
     const localIndex = loadLocalIndex();
     if (localIndex) {
+      console.log('[SkillHub] Using local fallback index after error');
       return localIndex;
+    }
+
+    // If it's a timeout or network error, provide a more helpful message
+    if (errorMsg.includes('aborted') || errorMsg.includes('timeout')) {
+      throw new Error('Network timeout - please check your internet connection');
     }
 
     throw error;
@@ -394,11 +423,122 @@ function saveCachedIndex(index: RemoteSkillIndex): void {
  * Fetch a single skill from remote URL
  */
 async function fetchRemoteSkill(downloadUrl: string): Promise<string> {
-  const response = await fetch(downloadUrl);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch skill: ${response.status} ${response.statusText}`);
+  console.log('[SkillHub] Fetching skill from:', downloadUrl);
+
+  try {
+    // Add timeout to prevent hanging
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+    const response = await fetch(downloadUrl, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'CCW-SkillHub/1.0'
+      }
+    });
+    clearTimeout(timeoutId);
+
+    console.log('[SkillHub] Fetch skill response status:', response.status, response.statusText);
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch skill: ${response.status} ${response.statusText}`);
+    }
+
+    const content = await response.text();
+    console.log('[SkillHub] Successfully fetched skill, size:', content.length, 'bytes');
+    return content;
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error('[SkillHub] Error fetching skill:', errorMsg);
+    throw error;
   }
-  return response.text();
+}
+
+/**
+ * Build download URL from skill path
+ */
+function buildDownloadUrlFromPath(skillPath: string): string {
+  return `https://raw.githubusercontent.com/${GITHUB_CONFIG.owner}/${GITHUB_CONFIG.repo}/${GITHUB_CONFIG.branch}/${skillPath}/SKILL.md`;
+}
+
+/**
+ * Fetch skill directory contents from GitHub API
+ * Returns list of files in the directory
+ */
+interface GitHubTreeEntry {
+  path: string;
+  mode: string;
+  type: 'blob' | 'tree';
+  sha: string;
+  size?: number;
+  url: string;
+}
+
+async function fetchSkillDirectoryContents(skillPath: string): Promise<GitHubTreeEntry[]> {
+  // Use GitHub API to get tree contents
+  const apiUrl = `https://api.github.com/repos/${GITHUB_CONFIG.owner}/${GITHUB_CONFIG.repo}/contents/${skillPath}?ref=${GITHUB_CONFIG.branch}`;
+
+  const response = await fetch(apiUrl, {
+    headers: {
+      'Accept': 'application/vnd.github.v3+json',
+      'User-Agent': 'CCW-SkillHub/1.0',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`GitHub API error: ${response.status} ${response.statusText}`);
+  }
+
+  return response.json() as Promise<GitHubTreeEntry[]>;
+}
+
+/**
+ * Download all files from a skill directory
+ */
+async function downloadSkillDirectory(
+  skillPath: string,
+  targetDir: string
+): Promise<{ success: boolean; files: string[] }> {
+  const files: string[] = [];
+
+  try {
+    const contents = await fetchSkillDirectoryContents(skillPath);
+
+    for (const entry of contents) {
+      if (entry.type === 'blob') {
+        // Download file
+        const fileUrl = `https://raw.githubusercontent.com/${GITHUB_CONFIG.owner}/${GITHUB_CONFIG.repo}/${GITHUB_CONFIG.branch}/${entry.path}`;
+        const response = await fetch(fileUrl);
+
+        if (response.ok) {
+          const content = await response.text();
+          const filePath = join(targetDir, entry.path.replace(skillPath + '/', ''));
+          const fileDir = dirname(filePath);
+
+          // Ensure directory exists
+          if (!existsSync(fileDir)) {
+            mkdirSync(fileDir, { recursive: true });
+          }
+
+          writeFileSync(filePath, content, 'utf8');
+          files.push(entry.path);
+        }
+      } else if (entry.type === 'tree') {
+        // Recursively download subdirectory
+        const subDir = join(targetDir, entry.path.replace(skillPath + '/', ''));
+        if (!existsSync(subDir)) {
+          mkdirSync(subDir, { recursive: true });
+        }
+        const subResult = await downloadSkillDirectory(entry.path, targetDir);
+        files.push(...subResult.files);
+      }
+    }
+
+    return { success: true, files };
+  } catch (error) {
+    console.error('[SkillHub] Failed to download directory:', error);
+    return { success: false, files };
+  }
 }
 
 // ============================================================================
@@ -686,6 +826,78 @@ async function installSkillFromRemote(
   }
 }
 
+/**
+ * Install skill from remote path (downloads entire directory)
+ */
+async function installSkillFromRemotePath(
+  skillPath: string,
+  cliType: CliType,
+  skillId: string,
+  customName?: string
+): Promise<{ success: boolean; message: string; installedPath?: string }> {
+  try {
+    // Validate skillId for path safety
+    if (!isValidSkillName(skillId.replace('remote-', '').replace('local-', ''))) {
+      console.error('[SkillHub] Invalid skill ID rejected:', skillId);
+      return { success: false, message: 'Invalid skill ID' };
+    }
+
+    // Get target directory
+    const targetDir = getCliSkillsDir(cliType);
+    const skillName = customName || skillId;
+    const targetSkillDir = join(targetDir, skillName);
+
+    // Create target directory if needed
+    if (!existsSync(targetDir)) {
+      mkdirSync(targetDir, { recursive: true });
+    }
+
+    // Check if already exists
+    if (existsSync(targetSkillDir)) {
+      return { success: false, message: `Skill '${skillName}' already exists in ${cliType}` };
+    }
+
+    // Create skill directory
+    mkdirSync(targetSkillDir, { recursive: true });
+
+    // Download entire skill directory
+    console.log(`[SkillHub] Downloading skill directory: ${skillPath}`);
+    const result = await downloadSkillDirectory(skillPath, targetSkillDir);
+
+    if (!result.success || result.files.length === 0) {
+      // Fallback: download only SKILL.md
+      console.log('[SkillHub] Directory download failed, falling back to SKILL.md only');
+      const skillMdUrl = buildDownloadUrlFromPath(skillPath);
+      const skillContent = await fetchRemoteSkill(skillMdUrl);
+      writeFileSync(join(targetSkillDir, 'SKILL.md'), skillContent, 'utf8');
+    }
+
+    // Cache the skill locally
+    try {
+      ensureSkillHubDirs();
+      const cachedDir = join(getCachedSkillsDir(), skillId);
+      if (!existsSync(cachedDir)) {
+        mkdirSync(cachedDir, { recursive: true });
+      }
+      // Copy entire skill directory to cache
+      cpSync(targetSkillDir, cachedDir, { recursive: true });
+    } catch (cacheError) {
+      console.error('[SkillHub] Failed to cache skill:', cacheError instanceof Error ? cacheError.message : String(cacheError));
+    }
+
+    return {
+      success: true,
+      message: `Skill '${skillName}' installed to ${cliType} (${result.files.length} files)`,
+      installedPath: targetSkillDir,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: sanitizeErrorMessage(error, 'Skill installation'),
+    };
+  }
+}
+
 // ============================================================================
 // Updates Check Helpers
 // ============================================================================
@@ -733,6 +945,18 @@ export async function handleSkillHubRoutes(ctx: RouteContext): Promise<boolean> 
   // GET /api/skill-hub/remote
   if (pathname === '/api/skill-hub/remote' && req.method === 'GET') {
     try {
+      // Check for refresh parameter to bypass cache
+      const refresh = ctx.url.searchParams.get('refresh') === 'true';
+      if (refresh) {
+        // Clear memory cache
+        remoteSkillsCache = { data: null, timestamp: 0 };
+        // Clear file cache
+        const cachedPath = join(getSkillHubDir(), 'index.json');
+        if (existsSync(cachedPath)) {
+          rmSync(cachedPath, { force: true });
+        }
+      }
+
       const index = await fetchRemoteSkillIndex();
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -855,6 +1079,7 @@ export async function handleSkillHubRoutes(ctx: RouteContext): Promise<boolean> 
         } else {
           // Install from remote
           let url = downloadUrl;
+          let skillPath: string | undefined;
 
           if (!url) {
             // Fetch from remote index
@@ -866,9 +1091,17 @@ export async function handleSkillHubRoutes(ctx: RouteContext): Promise<boolean> 
             }
 
             url = remoteSkill.downloadUrl;
+            skillPath = remoteSkill.path;
           }
 
-          result = await installSkillFromRemote(url, cliType, skillId, customName);
+          // Prefer path-based installation for full directory download
+          if (skillPath && !url) {
+            result = await installSkillFromRemotePath(skillPath, cliType, skillId, customName);
+          } else if (url) {
+            result = await installSkillFromRemote(url, cliType, skillId, customName);
+          } else {
+            return { success: false, error: 'No downloadUrl or path available for skill', status: 400 };
+          }
         }
 
         if (result.success) {

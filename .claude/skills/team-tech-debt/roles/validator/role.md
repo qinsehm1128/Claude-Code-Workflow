@@ -103,6 +103,10 @@ const sessionFolder = task.description.match(/session:\s*(.+)/)?.[1]?.trim() || 
 let sharedMemory = {}
 try { sharedMemory = JSON.parse(Read(`${sessionFolder}/shared-memory.json`)) } catch {}
 
+// 加载 worktree 路径（由 coordinator 写入 shared memory）
+const worktreePath = sharedMemory.worktree?.path || null
+const cmdPrefix = worktreePath ? `cd "${worktreePath}" && ` : ''
+
 const debtInventory = sharedMemory.debt_inventory || []
 const fixResults = sharedMemory.fix_results || {}
 const debtScoreBefore = sharedMemory.debt_score_before || debtInventory.length
@@ -121,7 +125,7 @@ const modifiedFiles = fixLog.files_modified || []
 Read("commands/verify.md")
 ```
 
-**核心策略**: 4 层验证
+**核心策略**: 4 层验证（所有命令在 worktree 中执行）
 
 ```javascript
 const validationResults = {
@@ -131,24 +135,24 @@ const validationResults = {
   quality_analysis: { status: 'pending', improvement: 0 }
 }
 
-// 1. 测试套件
-const testResult = Bash(`npm test 2>&1 || npx vitest run 2>&1 || python -m pytest 2>&1 || echo "no-tests"`)
+// 1. 测试套件（worktree 中执行）
+const testResult = Bash(`${cmdPrefix}npm test 2>&1 || ${cmdPrefix}npx vitest run 2>&1 || ${cmdPrefix}python -m pytest 2>&1 || echo "no-tests"`)
 const testsPassed = !/FAIL|error|failed/i.test(testResult) || /no-tests/.test(testResult)
 validationResults.test_suite = {
   status: testsPassed ? 'PASS' : 'FAIL',
   regressions: testsPassed ? 0 : (testResult.match(/(\d+) failed/)?.[1] || 1) * 1
 }
 
-// 2. 类型检查
-const typeResult = Bash(`npx tsc --noEmit 2>&1 || echo "skip"`)
+// 2. 类型检查（worktree 中执行）
+const typeResult = Bash(`${cmdPrefix}npx tsc --noEmit 2>&1 || echo "skip"`)
 const typeErrors = (typeResult.match(/error TS/g) || []).length
 validationResults.type_check = {
   status: typeErrors === 0 || /skip/.test(typeResult) ? 'PASS' : 'FAIL',
   errors: typeErrors
 }
 
-// 3. Lint 检查
-const lintResult = Bash(`npx eslint --no-error-on-unmatched-pattern ${modifiedFiles.join(' ')} 2>&1 || echo "skip"`)
+// 3. Lint 检查（worktree 中执行）
+const lintResult = Bash(`${cmdPrefix}npx eslint --no-error-on-unmatched-pattern ${modifiedFiles.join(' ')} 2>&1 || echo "skip"`)
 const lintErrors = (lintResult.match(/\d+ error/)?.[0]?.match(/\d+/)?.[0] || 0) * 1
 validationResults.lint_check = {
   status: lintErrors === 0 || /skip/.test(lintResult) ? 'PASS' : 'FAIL',

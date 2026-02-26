@@ -80,9 +80,89 @@ import { getContextCacheStore } from '../../tools/context-cache-store.js';
 import { getLiteLLMClient } from '../../tools/litellm-client.js';
 import { testApiKeyConnection, getDefaultApiBase } from '../services/api-key-tester.js';
 
+interface CcwLitellmEnvCheck {
+  python: string;
+  installed: boolean;
+  version?: string;
+  error?: string;
+}
+
+interface CcwLitellmStatusResponse {
+  /**
+   * Whether ccw-litellm is installed in the CodexLens venv.
+   * This is the environment used for the LiteLLM embedding backend.
+   */
+  installed: boolean;
+  version?: string;
+  error?: string;
+  checks?: {
+    codexLensVenv: CcwLitellmEnvCheck;
+    systemPython?: CcwLitellmEnvCheck;
+  };
+}
+
+function checkCcwLitellmImport(
+  pythonCmd: string,
+  options: { timeout: number; shell?: boolean }
+): Promise<CcwLitellmEnvCheck> {
+  const { timeout, shell = false } = options;
+
+  const sanitizePythonError = (stderrText: string): string | undefined => {
+    const trimmed = stderrText.trim();
+    if (!trimmed) return undefined;
+    const lines = trimmed
+      .split(/\r?\n/g)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    // Prefer the final exception line (avoids leaking full traceback + file paths)
+    return lines[lines.length - 1] || undefined;
+  };
+
+  return new Promise((resolve) => {
+    const child = spawn(pythonCmd, ['-c', 'import ccw_litellm; print(ccw_litellm.__version__)'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout,
+      windowsHide: true,
+      shell,
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout?.on('data', (data: Buffer) => {
+      stdout += data.toString();
+    });
+
+    child.stderr?.on('data', (data: Buffer) => {
+      stderr += data.toString();
+    });
+
+    child.on('close', (code: number | null) => {
+      const version = stdout.trim();
+      const error = sanitizePythonError(stderr);
+
+      if (code === 0 && version) {
+        resolve({ python: pythonCmd, installed: true, version });
+        return;
+      }
+
+      if (code === null) {
+        resolve({ python: pythonCmd, installed: false, error: `Timed out after ${timeout}ms` });
+        return;
+      }
+
+      resolve({ python: pythonCmd, installed: false, error: error || undefined });
+    });
+
+    child.on('error', (err) => {
+      resolve({ python: pythonCmd, installed: false, error: err.message });
+    });
+  });
+}
+
 // Cache for ccw-litellm status check
 let ccwLitellmStatusCache: {
-  data: { installed: boolean; version?: string; error?: string } | null;
+  data: CcwLitellmStatusResponse | null;
   timestamp: number;
   ttl: number;
 } = {
@@ -849,51 +929,29 @@ export async function handleLiteLLMApiRoutes(ctx: RouteContext): Promise<boolean
       return true;
     }
 
-    // Async check - use CodexLens venv Python for reliable detection
     try {
-      let result: { installed: boolean; version?: string; error?: string } = { installed: false };
-
-      // Check ONLY in CodexLens venv (where UV installs packages)
-      // Do NOT fallback to system pip - we want isolated venv dependencies
       const uv = createCodexLensUvManager();
       const venvPython = uv.getVenvPython();
       const statusTimeout = process.platform === 'win32' ? 15000 : 10000;
+      const codexLensVenv = uv.isVenvValid()
+        ? await checkCcwLitellmImport(venvPython, { timeout: statusTimeout })
+        : { python: venvPython, installed: false, error: 'CodexLens venv not valid' };
 
-      if (uv.isVenvValid()) {
-        try {
-          result = await new Promise<{ installed: boolean; version?: string }>((resolve) => {
-            const child = spawn(venvPython, ['-c', 'import ccw_litellm; print(ccw_litellm.__version__)'], {
-              stdio: ['ignore', 'pipe', 'pipe'],
-              timeout: statusTimeout,
-              windowsHide: true,
-            });
-            let stdout = '';
-            child.stdout.on('data', (data: Buffer) => { stdout += data.toString(); });
-            child.on('close', (code: number | null) => {
-              if (code === 0) {
-                const version = stdout.trim();
-                if (version) {
-                  console.log(`[ccw-litellm status] Found in CodexLens venv: ${version}`);
-                  resolve({ installed: true, version });
-                  return;
-                }
-              }
-              console.log('[ccw-litellm status] Not found in CodexLens venv');
-              resolve({ installed: false });
-            });
-            child.on('error', () => {
-              console.log('[ccw-litellm status] Spawn error checking venv');
-              resolve({ installed: false });
-            });
-          });
-        } catch (venvErr) {
-          console.log('[ccw-litellm status] Not found in CodexLens venv');
-          result = { installed: false };
-        }
-      } else {
-        console.log('[ccw-litellm status] CodexLens venv not valid');
-        result = { installed: false };
-      }
+      // Diagnostics only: if not installed in venv, also check system python so users understand mismatches.
+      // NOTE: `installed` flag remains the CodexLens venv status (we want isolated venv dependencies).
+      const systemPython = !codexLensVenv.installed
+        ? await checkCcwLitellmImport(getSystemPython(), { timeout: statusTimeout, shell: true })
+        : undefined;
+
+      const result: CcwLitellmStatusResponse = {
+        installed: codexLensVenv.installed,
+        version: codexLensVenv.version,
+        error: codexLensVenv.error,
+        checks: {
+          codexLensVenv,
+          ...(systemPython ? { systemPython } : {}),
+        },
+      };
 
       // Update cache
       ccwLitellmStatusCache = {

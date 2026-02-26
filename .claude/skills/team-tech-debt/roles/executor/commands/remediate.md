@@ -49,6 +49,10 @@ function sortBatches(batches) {
 // 按类型分组并排序
 const sortedBatches = sortBatches(batches)
 
+// Worktree 路径（从 shared memory 加载）
+const worktreePath = sharedMemory.worktree?.path || null
+const cmdPrefix = worktreePath ? `cd "${worktreePath}" && ` : ''
+
 // 每批最大 items 数
 const MAX_ITEMS_PER_BATCH = 10
 
@@ -97,7 +101,7 @@ for (const [batchName, actions] of Object.entries(finalBatches)) {
     description: `Tech debt cleanup: ${batchName} (${actions.length} items)`,
     prompt: `## Goal
 ${prompt}
-
+${worktreePath ? `\n## Worktree（强制）\n- 工作目录: ${worktreePath}\n- **所有文件操作必须在 ${worktreePath} 下进行**\n- 读文件: Read("${worktreePath}/path/to/file")\n- Bash 命令: cd "${worktreePath}" && ...\n- 禁止修改主工作树\n` : ''}
 ## Items to Fix
 ${actions.map(a => `### ${a.debt_id}: ${a.action}
 - File: ${a.file || 'N/A'}
@@ -123,9 +127,9 @@ ${fileList.map(f => `- ${f}`).join('\n')}`
     status: 'completed'
   }
 
-  // 检查文件是否被修改
+  // 检查文件是否被修改（在 worktree 中执行）
   for (const file of fileList) {
-    const modified = Bash(`git diff --name-only -- "${file}" 2>/dev/null`).trim()
+    const modified = Bash(`${cmdPrefix}git diff --name-only -- "${file}" 2>/dev/null`).trim()
     if (modified) {
       fixResults.files_modified.push(file)
     }

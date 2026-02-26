@@ -958,11 +958,15 @@ async function executeCliTool(
 
     // Merge custom env with process.env (custom env takes precedence)
     // Also include rulesEnv for $PROTO and $TMPL template variables
-    const spawnEnv = {
+    const spawnEnv: Record<string, string | undefined> = {
       ...process.env,
       ...customEnv,
       ...(rulesEnv || {})
     };
+
+    // Unset CLAUDECODE to allow nested Claude Code sessions (SDK/subagent use case)
+    // See: https://github.com/anthropics/claude-agent-sdk-python/issues/573
+    delete spawnEnv.CLAUDECODE;
 
     debugLog('SPAWN', `Spawning process`, {
       command,

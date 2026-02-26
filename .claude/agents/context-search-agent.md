@@ -75,6 +75,23 @@ if (file_exists(contextPackagePath)) {
 }
 ```
 
+**1.1b Project Context Loading** (MANDATORY):
+```javascript
+// Load project-level context (from workflow:init products)
+// These provide foundational constraints for ALL context gathering
+const projectTech = file_exists('.workflow/project-tech.json')
+  ? JSON.parse(Read('.workflow/project-tech.json'))    // tech_stack, architecture_type, key_components, build_system, test_framework
+  : null;
+const projectGuidelines = file_exists('.workflow/project-guidelines.json')
+  ? JSON.parse(Read('.workflow/project-guidelines.json')) // coding_conventions, naming_rules, forbidden_patterns, quality_gates
+  : null;
+
+// Usage:
+// - projectTech → Populate project_context fields (tech_stack, architecture_patterns)
+// - projectGuidelines → Apply as constraints during relevance scoring and conflict detection
+// - If missing: Proceed with fresh analysis (discover from codebase)
+```
+
 **1.2 Foundation Setup**:
 ```javascript
 // 1. Initialize CodexLens (if available)
@@ -275,6 +292,10 @@ score = (0.4 × direct_match) +      // Filename/path match
         (0.1 × dependency_link)      // Connection strength
 
 // Filter: Include only score > 0.5
+
+// Apply projectGuidelines constraints (from 1.1b) when available:
+// - Boost files matching projectGuidelines.quality_gates patterns
+// - Penalize files matching projectGuidelines.forbidden_patterns
 ```
 
 **3.2 Dependency Graph**
@@ -292,19 +313,23 @@ Merge with conflict resolution:
 
 ```javascript
 const context = {
-  // Priority: Project docs > Existing code > Web examples
-  architecture: ref_docs.patterns || code.structure,
+  // Priority: projectTech/projectGuidelines (1.1b) > Project docs > Existing code > Web examples
+  architecture: projectTech?.architecture_type || ref_docs.patterns || code.structure,
 
   conventions: {
-    naming: ref_docs.standards || code.actual_patterns,
-    error_handling: ref_docs.standards || code.patterns || web.best_practices
+    naming: projectGuidelines?.naming_rules || ref_docs.standards || code.actual_patterns,
+    error_handling: ref_docs.standards || code.patterns || web.best_practices,
+    forbidden_patterns: projectGuidelines?.forbidden_patterns || [],
+    quality_gates: projectGuidelines?.quality_gates || []
   },
 
   tech_stack: {
-    // Actual (package.json) takes precedence
-    language: code.actual.language,
-    frameworks: merge_unique([ref_docs.declared, code.actual]),
-    libraries: code.actual.libraries
+    // projectTech provides authoritative baseline; actual (package.json) fills gaps
+    language: projectTech?.tech_stack?.language || code.actual.language,
+    frameworks: merge_unique([projectTech?.tech_stack?.frameworks, ref_docs.declared, code.actual]),
+    libraries: merge_unique([projectTech?.tech_stack?.libraries, code.actual.libraries]),
+    build_system: projectTech?.build_system || code.actual.build_system,
+    test_framework: projectTech?.test_framework || code.actual.test_framework
   },
 
   // Web examples fill gaps
@@ -314,9 +339,9 @@ const context = {
 ```
 
 **Conflict Resolution**:
-1. Architecture: Docs > Code > Web
-2. Conventions: Declared > Actual > Industry
-3. Tech Stack: Actual (package.json) > Declared
+1. Architecture: projectTech > Docs > Code > Web
+2. Conventions: projectGuidelines > Declared > Actual > Industry
+3. Tech Stack: projectTech > Actual (package.json) > Declared
 4. Missing: Use web examples
 
 **3.5 Brainstorm Artifacts Integration**
@@ -381,6 +406,8 @@ Calculate risk level based on:
 - Existing file count (<5: low, 5-15: medium, >15: high)
 - API/architecture/data model changes
 - Breaking changes identification
+- Violations of projectGuidelines.forbidden_patterns (from 1.1b, if available)
+- Deviations from projectGuidelines.coding_conventions (from 1.1b, if available)
 
 **3.7 Context Packaging & Output**
 

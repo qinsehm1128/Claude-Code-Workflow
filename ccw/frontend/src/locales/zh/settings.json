@@ -77,7 +77,19 @@
     "refreshConfig": "刷新配置",
     "migrationWarning": "检测到旧格式，请关闭后重新启用以迁移",
     "enabled": "已启用",
-    "disabled": "已禁用"
+    "disabled": "已禁用",
+    "export": "导出",
+    "import": "导入",
+    "exporting": "导出中...",
+    "importing": "导入中...",
+    "exportImportHint": "导出或导入 CLI 设置配置",
+    "exportSuccess": "设置导出成功",
+    "exportError": "导出设置失败",
+    "importSuccess": "设置导入成功（已导入 {imported} 项，跳过 {skipped} 项）",
+    "importError": "导入设置失败",
+    "importInvalidFile": "请选择有效的 JSON 文件",
+    "importInvalidJson": "文件 JSON 格式无效",
+    "importInvalidStructure": "设置文件结构无效"
   },
   "systemStatus": {
     "title": "CCW 安装",

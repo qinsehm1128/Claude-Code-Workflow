@@ -77,7 +77,19 @@
     "refreshConfig": "Refresh Config",
     "migrationWarning": "Old format detected, please disable and re-enable to migrate",
     "enabled": "Enabled",
-    "disabled": "Disabled"
+    "disabled": "Disabled",
+    "export": "Export",
+    "import": "Import",
+    "exporting": "Exporting...",
+    "importing": "Importing...",
+    "exportImportHint": "Export or import CLI settings configuration",
+    "exportSuccess": "Settings exported successfully",
+    "exportError": "Failed to export settings",
+    "importSuccess": "Settings imported successfully ({imported} imported, {skipped} skipped)",
+    "importError": "Failed to import settings",
+    "importInvalidFile": "Please select a valid JSON file",
+    "importInvalidJson": "Invalid JSON format in file",
+    "importInvalidStructure": "Invalid settings file structure"
   },
   "systemStatus": {
     "title": "CCW Installation",

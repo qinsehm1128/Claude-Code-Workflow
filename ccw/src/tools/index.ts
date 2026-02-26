@@ -21,7 +21,6 @@ import * as smartSearchMod from './smart-search.js';
 import { executeInitWithProgress } from './smart-search.js';
 // codex_lens removed - functionality integrated into smart_search
 import * as codexLensLspMod from './codex-lens-lsp.js';
-import * as vscodeLspMod from './vscode-lsp.js';
 import * as readFileMod from './read-file.js';
 import * as readManyFilesMod from './read-many-files.js';
 import * as readOutlineMod from './read-outline.js';
@@ -365,7 +364,6 @@ registerTool(toLegacyTool(cliExecutorMod));
 registerTool(toLegacyTool(smartSearchMod));
 // codex_lens removed - functionality integrated into smart_search
 registerTool(toLegacyTool(codexLensLspMod));
-registerTool(toLegacyTool(vscodeLspMod));
 registerTool(toLegacyTool(readFileMod));
 registerTool(toLegacyTool(readManyFilesMod));
 registerTool(toLegacyTool(readOutlineMod));

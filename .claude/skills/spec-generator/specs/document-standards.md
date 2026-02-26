@@ -81,6 +81,7 @@ Examples:
 |------|-------|-------------|
 | `spec-config.json` | 1 | Session configuration and state |
 | `discovery-context.json` | 1 | Codebase exploration results (optional) |
+| `refined-requirements.json` | 1.5 | Confirmed requirements after discussion |
 | `product-brief.md` | 2 | Product brief document |
 | `requirements.md` | 3 | PRD document |
 | `architecture.md` | 4 | Architecture decisions document |
@@ -168,12 +169,67 @@ Derived from [REQ-001](requirements.md#req-001).
     "dimensions": ["string array - 3-5 exploration dimensions"]
   },
   "has_codebase": "boolean",
+  "refined_requirements_file": "string (optional) - path to refined-requirements.json",
   "phasesCompleted": [
     {
       "phase": "number (1-6)",
       "name": "string (phase name)",
       "output_file": "string (primary output file)",
       "completed_at": "ISO8601"
+    }
+  ]
+}
+```
+
+---
+
+## refined-requirements.json Schema
+
+```json
+{
+  "session_id": "string (required) - matches spec-config.json",
+  "phase": "1.5",
+  "generated_at": "ISO8601 (required)",
+  "source": "interactive-discussion|auto-expansion (required)",
+  "discussion_rounds": "number (required) - 0 for auto mode",
+  "clarified_problem_statement": "string (required) - refined problem statement",
+  "confirmed_target_users": [
+    {
+      "name": "string",
+      "needs": ["string array"],
+      "pain_points": ["string array"]
+    }
+  ],
+  "confirmed_domain": "string",
+  "confirmed_features": [
+    {
+      "name": "string",
+      "description": "string",
+      "acceptance_criteria": ["string array"],
+      "edge_cases": ["string array"],
+      "priority": "must|should|could|unset"
+    }
+  ],
+  "non_functional_requirements": [
+    {
+      "type": "Performance|Security|Usability|Scalability|Reliability|...",
+      "details": "string",
+      "measurable_criteria": "string (optional)"
+    }
+  ],
+  "boundary_conditions": {
+    "in_scope": ["string array"],
+    "out_of_scope": ["string array"],
+    "constraints": ["string array"]
+  },
+  "integration_points": ["string array"],
+  "key_assumptions": ["string array"],
+  "discussion_log": [
+    {
+      "round": "number",
+      "agent_prompt": "string",
+      "user_response": "string",
+      "timestamp": "ISO8601"
     }
   ]
 }

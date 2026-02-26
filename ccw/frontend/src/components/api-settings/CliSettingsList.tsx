@@ -63,23 +63,18 @@ function CliSettingsCard({
 }: CliSettingsCardProps) {
   const { formatMessage } = useIntl();
 
-  // Determine mode based on settings
-  const isProviderBased = Boolean(
-    cliSettings.settings.env.ANTHROPIC_BASE_URL &&
-    !cliSettings.settings.env.ANTHROPIC_BASE_URL.includes('api.anthropic.com')
-  );
-
-  const getModeBadge = () => {
-    if (isProviderBased) {
-      return (
-        <Badge variant="secondary" className="text-xs">
-          {formatMessage({ id: 'apiSettings.cliSettings.providerBased' })}
-        </Badge>
-      );
-    }
+  // Display provider badge
+  const getProviderBadge = () => {
+    const provider = cliSettings.provider || 'claude';
+    const variants: Record<string, { variant: 'secondary' | 'outline' | 'default'; label: string }> = {
+      claude: { variant: 'secondary', label: 'Claude' },
+      codex: { variant: 'outline', label: 'Codex' },
+      gemini: { variant: 'default', label: 'Gemini' },
+    };
+    const config = variants[provider] || variants.claude;
     return (
-      <Badge variant="outline" className="text-xs">
-        {formatMessage({ id: 'apiSettings.cliSettings.direct' })}
+      <Badge variant={config.variant} className="text-xs">
+        {config.label}
       </Badge>
     );
   };
@@ -91,6 +86,12 @@ function CliSettingsCard({
     return <Badge variant="success">{formatMessage({ id: 'apiSettings.common.enabled' })}</Badge>;
   };
 
+  // Get provider-appropriate endpoint URL for display
+  const endpointUrl = (() => {
+    const env = cliSettings.settings.env;
+    return env.ANTHROPIC_BASE_URL || env.OPENAI_BASE_URL || '';
+  })();
+
   return (
     <Card className="p-4">
       <div className="flex items-start justify-between gap-4">
@@ -99,7 +100,7 @@ function CliSettingsCard({
           <div className="flex items-center gap-3">
             <h3 className="text-lg font-semibold text-foreground truncate">{cliSettings.name}</h3>
             {getStatusBadge()}
-            {getModeBadge()}
+            {getProviderBadge()}
           </div>
           {cliSettings.description && (
             <p className="text-sm text-muted-foreground mt-1">{cliSettings.description}</p>
@@ -107,17 +108,12 @@ function CliSettingsCard({
           <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
             <span className="flex items-center gap-1">
               <Settings className="w-3 h-3" />
-              {cliSettings.settings.model || 'sonnet'}
+              {cliSettings.settings.model || 'default'}
             </span>
-            {cliSettings.settings.env.ANTHROPIC_BASE_URL && (
-              <span className="flex items-center gap-1 truncate max-w-[200px]" title={cliSettings.settings.env.ANTHROPIC_BASE_URL}>
+            {endpointUrl && (
+              <span className="flex items-center gap-1 truncate max-w-[200px]" title={endpointUrl}>
                 <LinkIcon className="w-3 h-3 flex-shrink-0" />
-                {cliSettings.settings.env.ANTHROPIC_BASE_URL}
-              </span>
-            )}
-            {cliSettings.settings.includeCoAuthoredBy !== undefined && (
-              <span>
-                {formatMessage({ id: 'apiSettings.cliSettings.coAuthoredBy' })}: {formatMessage({ id: cliSettings.settings.includeCoAuthoredBy ? 'common.yes' : 'common.no' })}
+                {endpointUrl}
               </span>
             )}
           </div>
@@ -168,8 +164,7 @@ export function CliSettingsList({
     cliSettings,
     totalCount,
     enabledCount,
-    providerBasedCount,
-    directCount,
+    providerCounts,
     isLoading,
     refetch,
   } = useCliSettings();
@@ -219,7 +214,7 @@ export function CliSettingsList({
   return (
     <div className="space-y-6">
       {/* Stats Cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
         <Card className="p-4">
           <div className="flex items-center gap-2">
             <Settings className="w-5 h-5 text-primary" />
@@ -240,21 +235,21 @@ export function CliSettingsList({
         </Card>
         <Card className="p-4">
           <div className="flex items-center gap-2">
-            <LinkIcon className="w-5 h-5 text-blue-500" />
-            <span className="text-2xl font-bold">{providerBasedCount}</span>
+            <span className="text-2xl font-bold">{providerCounts.claude || 0}</span>
           </div>
-          <p className="text-sm text-muted-foreground mt-1">
-            {formatMessage({ id: 'apiSettings.cliSettings.providerBased' })}
-          </p>
+          <p className="text-sm text-muted-foreground mt-1">Claude</p>
         </Card>
         <Card className="p-4">
           <div className="flex items-center gap-2">
-            <Settings className="w-5 h-5 text-orange-500" />
-            <span className="text-2xl font-bold">{directCount}</span>
+            <span className="text-2xl font-bold">{providerCounts.codex || 0}</span>
           </div>
-          <p className="text-sm text-muted-foreground mt-1">
-            {formatMessage({ id: 'apiSettings.cliSettings.direct' })}
-          </p>
+          <p className="text-sm text-muted-foreground mt-1">Codex</p>
+        </Card>
+        <Card className="p-4">
+          <div className="flex items-center gap-2">
+            <span className="text-2xl font-bold">{providerCounts.gemini || 0}</span>
+          </div>
+          <p className="text-sm text-muted-foreground mt-1">Gemini</p>
         </Card>
       </div>
 

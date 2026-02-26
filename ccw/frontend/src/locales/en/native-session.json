@@ -1,0 +1,47 @@
+{
+  "title": "Native Session",
+  "tokens": {
+    "total": "Total tokens",
+    "input": "Input tokens",
+    "output": "Output tokens",
+    "cached": "Cached tokens"
+  },
+  "timeline": {
+    "turnNumber": "Turn #{number}",
+    "tokens": {
+      "input": "Input: {count}",
+      "output": "Output: {count}",
+      "cached": "Cached: {count}"
+    },
+    "toolCall": {
+      "completed": "completed",
+      "running": "running",
+      "error": "error",
+      "noData": "No data available"
+    }
+  },
+  "turn": {
+    "latest": "Latest",
+    "thoughts": "Thoughts",
+    "toolCalls": "Tool Calls"
+  },
+  "toolCall": {
+    "input": "Input",
+    "output": "Output"
+  },
+  "meta": {
+    "startTime": "Start time",
+    "workingDir": "Working directory",
+    "projectHash": "Project hash",
+    "turns": "turns"
+  },
+  "tokenSummary": "Total Tokens",
+  "loading": "Loading session...",
+  "error": "Failed to load session",
+  "empty": "No session data available",
+  "footer": {
+    "copied": "Copied!",
+    "copySessionId": "Copy Session ID",
+    "exportJson": "Export JSON"
+  }
+}

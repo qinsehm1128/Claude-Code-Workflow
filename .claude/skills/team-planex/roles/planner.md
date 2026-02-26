@@ -1,6 +1,6 @@
 # Role: planner
 
-需求拆解 → issue 创建 → 方案设计 → 队列编排 → EXEC 任务派发。内部调用 issue-plan-agent 和 issue-queue-agent，并通过 Wave Pipeline 持续推进。planner 同时承担 lead 角色（无独立 coordinator）。
+需求拆解 → issue 创建 → 方案设计 → 冲突检查 → EXEC 任务逐个派发。内部调用 issue-plan-agent（单 issue），通过 inline files_touched 冲突检查替代 issue-queue-agent，每完成一个 issue 立即派发 EXEC-* 任务。planner 同时承担 lead 角色（无独立 coordinator）。
 
 ## Role Identity
 
@@ -16,8 +16,8 @@
 
 - 仅处理 `PLAN-*` 前缀的任务
 - 所有输出必须带 `[planner]` 标识
-- 完成每个 wave 的 queue 后**立即创建 EXEC-\* 任务**
-- 不等待 executor 完成当前 wave，直接进入下一 wave 规划
+- 每完成一个 issue 的 solution 后**立即创建 EXEC-\* 任务**并发送 `issue_ready` 信号
+- 不等待 executor，持续推进下一个 issue
 
 ### MUST NOT
 
@@ -30,8 +30,8 @@
 
 | Type | Direction | Trigger | Description |
 |------|-----------|---------|-------------|
-| `wave_ready` | planner → executor | Wave queue 完成 + EXEC 任务已创建 | 新 wave 可执行 |
-| `queue_ready` | planner → executor | 单个 issue 的 queue 就绪 | 增量通知 |
+| `issue_ready` | planner → executor | 单个 issue solution + EXEC 任务已创建 | 逐 issue 节拍信号 |
+| `wave_ready` | planner → executor | 一组 issues 全部派发完毕 | wave 汇总信号 |
 | `all_planned` | planner → executor | 所有 wave 规划完毕 | 最终信号 |
 | `error` | planner → executor | 阻塞性错误 | 规划失败 |
 
@@ -41,8 +41,7 @@
 
 | Agent Type | Purpose |
 |------------|---------|
-| `issue-plan-agent` | Closed-loop planning: ACE exploration + solution generation + binding |
-| `issue-queue-agent` | Solution ordering + conflict detection → execution queue |
+| `issue-plan-agent` | Closed-loop planning: ACE exploration + solution generation + binding (单 issue 粒度) |
 
 ### CLI Capabilities
 
@@ -167,188 +166,217 @@ if (inputType === 'plan_file') {
 
 Issue IDs 已就绪，直接进入 solution 规划。
 
-#### Path D: execution-plan.json → 波次感知处理
+#### Path D: execution-plan.json → 波次感知逐 issue 处理
 
 ```javascript
 if (inputType === 'execution_plan') {
   const projectRoot = Bash('cd . && pwd').trim()
   const waves = executionPlan.waves
+  const dispatchedSolutions = []
+  // sessionDir 从 planner prompt 中的 sessionDir 变量获取
+  const execution_method = args.match(/execution_method:\s*(\S+)/)?.[1] || 'Auto'
+  const code_review = args.match(/code_review:\s*(\S+)/)?.[1] || 'Skip'
 
   let waveNum = 0
   for (const wave of waves) {
     waveNum++
-    const waveIssues = wave.issue_ids
 
-    // Step 1: issue-plan-agent 生成 solutions
-    const planResult = Task({
-      subagent_type: "issue-plan-agent",
-      run_in_background: false,
-      description: `Plan solutions for wave ${waveNum}: ${wave.label}`,
-      prompt: `
-issue_ids: ${JSON.stringify(waveIssues)}
+    for (const issueId of wave.issue_ids) {
+      // Step 1: 单 issue 规划
+      const planResult = Task({
+        subagent_type: "issue-plan-agent",
+        run_in_background: false,
+        description: `Plan solution for ${issueId}`,
+        prompt: `issue_ids: ["${issueId}"]
 project_root: "${projectRoot}"
 
 ## Requirements
-- Generate solutions for each issue
-- Auto-bind single solutions
+- Generate solution for this issue
+- Auto-bind single solution
 - Issues come from req-plan decomposition (tags: req-plan)
-- Respect inter-issue dependencies: ${JSON.stringify(executionPlan.issue_dependencies)}
-`
+- Respect dependencies: ${JSON.stringify(executionPlan.issue_dependencies)}`
+      })
+
+      // Step 2: 获取 solution + 写中间产物
+      const solJson = Bash(`ccw issue solution ${issueId} --json`)
+      const solution = JSON.parse(solJson)
+      const solutionFile = `${sessionDir}/artifacts/solutions/${issueId}.json`
+      Write({
+        file_path: solutionFile,
+        content: JSON.stringify({
+          session_id: sessionId, issue_id: issueId, ...solution,
+          execution_config: { execution_method, code_review },
+          timestamp: new Date().toISOString()
+        }, null, 2)
+      })
+
+      // Step 3: inline 冲突检查
+      const blockedBy = inlineConflictCheck(issueId, solution, dispatchedSolutions)
+
+      // Step 4: 创建 EXEC-* 任务
+      const execTask = TaskCreate({
+        subject: `EXEC-W${waveNum}-${issueId}: 实现 ${solution.bound?.title || issueId}`,
+        description: `## 执行任务\n**Wave**: ${waveNum}\n**Issue**: ${issueId}\n**solution_file**: ${solutionFile}\n**execution_method**: ${execution_method}\n**code_review**: ${code_review}`,
+        activeForm: `实现 ${issueId}`,
+        owner: "executor"
+      })
+      if (blockedBy.length > 0) {
+        TaskUpdate({ taskId: execTask.id, addBlockedBy: blockedBy })
+      }
+
+      // Step 5: 累积 + 节拍信号
+      dispatchedSolutions.push({ issueId, solution, execTaskId: execTask.id })
+      mcp__ccw-tools__team_msg({
+        operation: "log", team: "planex", from: "planner", to: "executor",
+        type: "issue_ready",
+        summary: `[planner] issue_ready: ${issueId}`,
+        ref: solutionFile
+      })
+      SendMessage({
+        type: "message", recipient: "executor",
+        content: `## [planner] Issue Ready: ${issueId}\n**solution_file**: ${solutionFile}\n**EXEC task**: ${execTask.subject}`,
+        summary: `[planner] issue_ready: ${issueId}`
+      })
+    }
+
+    // wave 级汇总
+    mcp__ccw-tools__team_msg({
+      operation: "log", team: "planex", from: "planner", to: "executor",
+      type: "wave_ready",
+      summary: `[planner] Wave ${waveNum} fully dispatched: ${wave.issue_ids.length} issues`
     })
-
-    // Step 2: issue-queue-agent 形成 queue
-    const queueResult = Task({
-      subagent_type: "issue-queue-agent",
-      run_in_background: false,
-      description: `Form queue for wave ${waveNum}: ${wave.label}`,
-      prompt: `
-issue_ids: ${JSON.stringify(waveIssues)}
-project_root: "${projectRoot}"
-
-## Requirements
-- Order solutions by dependency (DAG)
-- Detect conflicts between solutions
-- Respect wave dependencies: ${JSON.stringify(wave.depends_on_waves)}
-- Output execution queue
-`
-    })
-
-    // Step 3: → Phase 4 (Wave Dispatch) - create EXEC-* tasks
-    // Continue to next wave without waiting for executor
   }
   // After all waves → Phase 5 (Report + Finalize)
 }
 ```
 
-**关键差异**: 波次分组来自 `executionPlan.waves`，而非固定 batch=5。Progressive 模式下 L0(Wave 1) → L1(Wave 2)，Direct 模式下 parallel_group 映射为 wave。
+**关键差异**: 波次分组来自 `executionPlan.waves`，但每个 issue 独立规划 + 即时派发。Progressive 模式下 L0(Wave 1) → L1(Wave 2)，Direct 模式下 parallel_group 映射为 wave。
 
-#### Wave 规划（Path A/B/C 汇聚）
+#### Wave 规划（Path A/B/C 汇聚）— 逐 issue 派发
 
-将 issueIds 按波次分组规划（Path D 使用独立的波次逻辑，不走此路径）：
+将 issueIds 逐个规划并即时派发（Path D 使用独立的波次逻辑，不走此路径）：
 
 ```javascript
 if (inputType !== 'execution_plan') {
-  // Path A/B/C: 固定 batch=5 分组
   const projectRoot = Bash('cd . && pwd').trim()
+  const dispatchedSolutions = []
+  const execution_method = args.match(/execution_method:\s*(\S+)/)?.[1] || 'Auto'
+  const code_review = args.match(/code_review:\s*(\S+)/)?.[1] || 'Skip'
+  let waveNum = 1  // 简化：不再按 WAVE_SIZE=5 分组，全部视为一个逻辑 wave
 
-// 按批次分组（每 wave 最多 5 个 issues）
-const WAVE_SIZE = 5
-const waves = []
-for (let i = 0; i < issueIds.length; i += WAVE_SIZE) {
-  waves.push(issueIds.slice(i, i + WAVE_SIZE))
-}
-
-let waveNum = 0
-for (const waveIssues of waves) {
-  waveNum++
-  
-  // Step 1: 调用 issue-plan-agent 生成 solutions
-  const planResult = Task({
-    subagent_type: "issue-plan-agent",
-    run_in_background: false,
-    description: `Plan solutions for wave ${waveNum}`,
-    prompt: `
-issue_ids: ${JSON.stringify(waveIssues)}
+  for (const issueId of issueIds) {
+    // Step 1: 单 issue 规划
+    const planResult = Task({
+      subagent_type: "issue-plan-agent",
+      run_in_background: false,
+      description: `Plan solution for ${issueId}`,
+      prompt: `issue_ids: ["${issueId}"]
 project_root: "${projectRoot}"
 
 ## Requirements
-- Generate solutions for each issue
-- Auto-bind single solutions
-- For multiple solutions, select the most pragmatic one
-`
-  })
+- Generate solution for this issue
+- Auto-bind single solution
+- For multiple solutions, select the most pragmatic one`
+    })
 
-  // Step 2: 调用 issue-queue-agent 形成 queue
-  const queueResult = Task({
-    subagent_type: "issue-queue-agent",
-    run_in_background: false,
-    description: `Form queue for wave ${waveNum}`,
-    prompt: `
-issue_ids: ${JSON.stringify(waveIssues)}
-project_root: "${projectRoot}"
+    // Step 2: 获取 solution + 写中间产物
+    const solJson = Bash(`ccw issue solution ${issueId} --json`)
+    const solution = JSON.parse(solJson)
+    const solutionFile = `${sessionDir}/artifacts/solutions/${issueId}.json`
+    Write({
+      file_path: solutionFile,
+      content: JSON.stringify({
+        session_id: sessionId, issue_id: issueId, ...solution,
+        execution_config: { execution_method, code_review },
+        timestamp: new Date().toISOString()
+      }, null, 2)
+    })
 
-## Requirements
-- Order solutions by dependency (DAG)
-- Detect conflicts between solutions
-- Output execution queue
-`
-  })
+    // Step 3: inline 冲突检查
+    const blockedBy = inlineConflictCheck(issueId, solution, dispatchedSolutions)
 
-  // Step 3: → Phase 4 (Wave Dispatch)
-}
+    // Step 4: 创建 EXEC-* 任务
+    const execTask = TaskCreate({
+      subject: `EXEC-W${waveNum}-${issueId}: 实现 ${solution.bound?.title || issueId}`,
+      description: `## 执行任务\n**Wave**: ${waveNum}\n**Issue**: ${issueId}\n**solution_file**: ${solutionFile}\n**execution_method**: ${execution_method}\n**code_review**: ${code_review}`,
+      activeForm: `实现 ${issueId}`,
+      owner: "executor"
+    })
+    if (blockedBy.length > 0) {
+      TaskUpdate({ taskId: execTask.id, addBlockedBy: blockedBy })
+    }
+
+    // Step 5: 累积 + 节拍信号
+    dispatchedSolutions.push({ issueId, solution, execTaskId: execTask.id })
+    mcp__ccw-tools__team_msg({
+      operation: "log", team: "planex", from: "planner", to: "executor",
+      type: "issue_ready",
+      summary: `[planner] issue_ready: ${issueId}`,
+      ref: solutionFile
+    })
+    SendMessage({
+      type: "message", recipient: "executor",
+      content: `## [planner] Issue Ready: ${issueId}\n**solution_file**: ${solutionFile}\n**EXEC task**: ${execTask.subject}`,
+      summary: `[planner] issue_ready: ${issueId}`
+    })
+  }
 } // end if (inputType !== 'execution_plan')
 ```
 
-### Phase 4: Wave Dispatch
+### Phase 4: Inline Conflict Check + Wave Summary
 
-每个 wave 的 queue 完成后，**立即创建 EXEC-\* 任务**供 executor 消费。
+EXEC-* 任务创建已在 Phase 3 逐 issue 完成，Phase 4 仅负责 inline 冲突检查函数定义和 wave 汇总。
+
+#### Inline Conflict Check 函数
 
 ```javascript
-// Read the generated queue
-const queuePath = `.workflow/issues/queue/execution-queue.json`
-const queue = JSON.parse(Read(queuePath))
+// Inline conflict check — 替代 issue-queue-agent
+// 基于 files_touched 重叠检测 + 显式依赖
+function inlineConflictCheck(issueId, solution, dispatchedSolutions) {
+  const currentFiles = solution.bound?.files_touched
+    || solution.bound?.affected_files || []
+  const blockedBy = []
 
-// Create EXEC-* tasks from queue entries
-const execTasks = []
-for (const entry of queue.queue) {
-  const execTask = TaskCreate({
-    subject: `EXEC-W${waveNum}-${entry.issue_id}: 实现 ${entry.title || entry.issue_id}`,
-    description: `## 执行任务
-
-**Wave**: ${waveNum}
-**Issue**: ${entry.issue_id}
-**Solution**: ${entry.solution_id}
-**Priority**: ${entry.priority || 'normal'}
-**Dependencies**: ${entry.depends_on?.join(', ') || 'none'}
-
-加载 solution plan 并实现代码。完成后运行测试、提交。`,
-    activeForm: `实现 ${entry.issue_id}`,
-    owner: "executor"
-  })
-  execTasks.push(execTask)
-}
-
-// Set up dependency chains between EXEC tasks (based on queue DAG)
-for (const entry of queue.queue) {
-  if (entry.depends_on?.length > 0) {
-    const thisTask = execTasks.find(t => t.subject.includes(entry.issue_id))
-    const depTasks = entry.depends_on.map(depId =>
-      execTasks.find(t => t.subject.includes(depId))
-    ).filter(Boolean)
-    
-    if (thisTask && depTasks.length > 0) {
-      TaskUpdate({
-        taskId: thisTask.id,
-        addBlockedBy: depTasks.map(t => t.id)
-      })
+  // 1. 文件冲突检测
+  for (const prev of dispatchedSolutions) {
+    const prevFiles = prev.solution.bound?.files_touched
+      || prev.solution.bound?.affected_files || []
+    const overlap = currentFiles.filter(f => prevFiles.includes(f))
+    if (overlap.length > 0) {
+      blockedBy.push(prev.execTaskId)
     }
   }
+
+  // 2. 显式依赖
+  const explicitDeps = solution.bound?.dependencies?.on_issues || []
+  for (const depId of explicitDeps) {
+    const depTask = dispatchedSolutions.find(d => d.issueId === depId)
+    if (depTask && !blockedBy.includes(depTask.execTaskId)) {
+      blockedBy.push(depTask.execTaskId)
+    }
+  }
+
+  return blockedBy
 }
+```
 
-// Notify executor: wave ready
+#### Wave Summary Signal
+
+Phase 3 循环完成后发送汇总信号（Path A/B/C 在全部 issue 完成后，Path D 在每个 wave 完成后）：
+
+```javascript
+// Wave summary — 已在 Phase 3 循环中由每个 wave 末尾发送
+// Path A/B/C: 全部 issue 完成后发送一次
 mcp__ccw-tools__team_msg({
-  operation: "log",
-  team: "planex",
-  from: "planner",
-  to: "executor",
+  operation: "log", team: "planex", from: "planner", to: "executor",
   type: "wave_ready",
-  summary: `[planner] Wave ${waveNum} ready: ${execTasks.length} EXEC tasks created`
+  summary: `[planner] Wave ${waveNum} fully dispatched: ${issueIds.length} issues`
 })
-
 SendMessage({
-  type: "message",
-  recipient: "executor",
-  content: `## [planner] Wave ${waveNum} Ready
-
-**Issues**: ${waveIssues.join(', ')}
-**EXEC Tasks Created**: ${execTasks.length}
-**Queue**: ${queuePath}
-
-Executor 可以开始实现。`,
+  type: "message", recipient: "executor",
+  content: `## [planner] Wave ${waveNum} Complete\n所有 issues 已逐个派发完毕，共 ${dispatchedSolutions.length} 个 EXEC 任务。`,
   summary: `[planner] wave_ready: wave ${waveNum}`
 })
-
-// 不等待 executor 完成，继续下一 wave → back to Phase 3 loop
 ```
 
 ### Phase 5: Report + Finalize
@@ -443,9 +471,10 @@ function parsePlanPhases(planContent) {
 | No PLAN-* tasks available | Idle, wait for orchestrator |
 | Issue creation failure | Retry once with simplified text, then report error |
 | issue-plan-agent failure | Retry once, then report error and skip to next issue |
-| issue-queue-agent failure | Retry once, then create EXEC tasks without DAG ordering |
+| Inline conflict check failure | Skip conflict detection, create EXEC task without blockedBy |
 | Plan file not found | Report error with expected path |
 | execution-plan.json parse failure | Fallback to plan_file parsing (Path B) |
 | execution-plan.json missing waves | Report error, suggest re-running req-plan |
 | Empty input (no issues, no text, no plan) | AskUserQuestion for clarification |
+| Solution artifact write failure | Log warning, create EXEC task without solution_file (executor fallback) |
 | Wave partially failed | Report partial success, continue with successful issues |

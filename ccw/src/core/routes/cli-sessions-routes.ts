@@ -93,7 +93,8 @@ export async function handleCliSessionsRoutes(ctx: RouteContext): Promise<boolea
         tool,
         model,
         resumeKey,
-        launchMode
+        launchMode,
+        settingsEndpointId
       } = (body || {}) as any;
 
       if (tool && typeof tool === 'string') {
@@ -114,11 +115,12 @@ export async function handleCliSessionsRoutes(ctx: RouteContext): Promise<boolea
         workingDir: desiredWorkingDir,
         cols: typeof cols === 'number' ? cols : undefined,
         rows: typeof rows === 'number' ? rows : undefined,
-        preferredShell: preferredShell === 'pwsh' ? 'pwsh' : 'bash',
+        preferredShell: preferredShell === 'pwsh' ? 'pwsh' : preferredShell === 'cmd' ? 'cmd' : 'bash',
         tool: typeof tool === 'string' ? tool.trim() : undefined,
         model,
         resumeKey,
         launchMode: launchMode === 'yolo' ? 'yolo' : 'default',
+        settingsEndpointId: typeof settingsEndpointId === 'string' ? settingsEndpointId : undefined,
       });
 
       appendCliSessionAudit({

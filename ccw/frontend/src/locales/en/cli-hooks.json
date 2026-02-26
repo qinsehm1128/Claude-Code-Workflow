@@ -112,6 +112,10 @@
       "session-end-summary": {
         "name": "Session End Summary",
         "description": "Send session summary to dashboard on session end"
+      },
+      "project-state-inject": {
+        "name": "Project State Inject",
+        "description": "Inject project guidelines and recent dev history at session start"
       }
     },
     "actions": {

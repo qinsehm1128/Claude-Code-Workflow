@@ -1,7 +1,12 @@
 /**
  * CLI Settings Type Definitions
- * Supports Claude CLI --settings parameter format
+ * Supports multi-provider CLI settings: Claude, Codex, Gemini
  */
+
+/**
+ * CLI Provider type discriminator
+ */
+export type CliProvider = 'claude' | 'codex' | 'gemini';
 
 /**
  * Claude CLI Settings 文件格式
@@ -21,8 +26,6 @@ export interface ClaudeCliSettings {
   };
   /** 模型选择 */
   model?: 'opus' | 'sonnet' | 'haiku' | string;
-  /** 是否包含 co-authored-by */
-  includeCoAuthoredBy?: boolean;
   /** CLI工具标签 (用于标签路由) */
   tags?: string[];
   /** 可用模型列表 (显示在下拉菜单中) */
@@ -30,6 +33,60 @@ export interface ClaudeCliSettings {
   /** 外部配置文件路径 (用于 builtin claude 工具) */
   settingsFile?: string;
 }
+
+/**
+ * Codex CLI Settings
+ * Codex 使用 --profile 传递配置, auth.json / config.toml 管理凭证和设置
+ */
+export interface CodexCliSettings {
+  /** 环境变量配置 */
+  env: {
+    /** OpenAI API Key */
+    OPENAI_API_KEY?: string;
+    /** OpenAI API Base URL */
+    OPENAI_BASE_URL?: string;
+    /** 其他自定义环境变量 */
+    [key: string]: string | undefined;
+  };
+  /** Codex profile 名称 (传递为 --profile <name>) */
+  profile?: string;
+  /** 模型选择 */
+  model?: string;
+  /** auth.json 内容 (JSON 字符串) */
+  authJson?: string;
+  /** config.toml 内容 (TOML 字符串) */
+  configToml?: string;
+  /** CLI工具标签 */
+  tags?: string[];
+  /** 可用模型列表 */
+  availableModels?: string[];
+}
+
+/**
+ * Gemini CLI Settings
+ */
+export interface GeminiCliSettings {
+  /** 环境变量配置 */
+  env: {
+    /** Gemini API Key */
+    GEMINI_API_KEY?: string;
+    /** Google API Key (alternative) */
+    GOOGLE_API_KEY?: string;
+    /** 其他自定义环境变量 */
+    [key: string]: string | undefined;
+  };
+  /** 模型选择 */
+  model?: string;
+  /** CLI工具标签 */
+  tags?: string[];
+  /** 可用模型列表 */
+  availableModels?: string[];
+}
+
+/**
+ * Union type for all provider settings
+ */
+export type CliSettings = ClaudeCliSettings | CodexCliSettings | GeminiCliSettings;
 
 /**
  * 端点 Settings 配置（带元数据）
@@ -41,8 +98,10 @@ export interface EndpointSettings {
   name: string;
   /** 端点描述 */
   description?: string;
-  /** Claude CLI Settings */
-  settings: ClaudeCliSettings;
+  /** CLI provider 类型 (默认 'claude' 兼容旧数据) */
+  provider: CliProvider;
+  /** CLI Settings (provider-specific) */
+  settings: CliSettings;
   /** 是否启用 */
   enabled: boolean;
   /** 创建时间 */
@@ -76,7 +135,9 @@ export interface SaveEndpointRequest {
   id?: string;
   name: string;
   description?: string;
-  settings: ClaudeCliSettings;
+  /** CLI provider 类型 */
+  provider?: CliProvider;
+  settings: CliSettings;
   enabled?: boolean;
 }
 
@@ -104,22 +165,39 @@ export function mapProviderToClaudeEnv(provider: {
 /**
  * 创建默认 Settings
  */
-export function createDefaultSettings(): ClaudeCliSettings {
-  return {
-    env: {
-      DISABLE_AUTOUPDATER: '1'
-    },
-    model: 'sonnet',
-    includeCoAuthoredBy: false,
-    tags: [],
-    availableModels: []
-  };
+export function createDefaultSettings(provider: CliProvider = 'claude'): CliSettings {
+  switch (provider) {
+    case 'codex':
+      return {
+        env: {},
+        model: '',
+        tags: [],
+        availableModels: []
+      } satisfies CodexCliSettings;
+    case 'gemini':
+      return {
+        env: {},
+        model: '',
+        tags: [],
+        availableModels: []
+      } satisfies GeminiCliSettings;
+    case 'claude':
+    default:
+      return {
+        env: {
+          DISABLE_AUTOUPDATER: '1'
+        },
+        model: 'sonnet',
+        tags: [],
+        availableModels: []
+      } satisfies ClaudeCliSettings;
+  }
 }
 
 /**
- * 验证 Settings 格式
+ * 验证 Settings 格式 (provider-aware)
  */
-export function validateSettings(settings: unknown): settings is ClaudeCliSettings {
+export function validateSettings(settings: unknown, provider?: CliProvider): settings is CliSettings {
   if (!settings || typeof settings !== 'object') {
     return false;
   }
@@ -136,7 +214,6 @@ export function validateSettings(settings: unknown): settings is ClaudeCliSettin
   for (const key in envObj) {
     if (Object.prototype.hasOwnProperty.call(envObj, key)) {
       const value = envObj[key];
-      // 允许 undefined 或 string，其他类型（包括 null）都拒绝
       if (value !== undefined && typeof value !== 'string') {
         return false;
       }
@@ -145,11 +222,6 @@ export function validateSettings(settings: unknown): settings is ClaudeCliSettin
 
   // model 可选，但如果存在必须是字符串
   if (s.model !== undefined && typeof s.model !== 'string') {
-    return false;
-  }
-
-  // includeCoAuthoredBy 可选，但如果存在必须是布尔值
-  if (s.includeCoAuthoredBy !== undefined && typeof s.includeCoAuthoredBy !== 'boolean') {
     return false;
   }
 
@@ -163,10 +235,98 @@ export function validateSettings(settings: unknown): settings is ClaudeCliSettin
     return false;
   }
 
-  // settingsFile 可选，但如果存在必须是字符串
-  if (s.settingsFile !== undefined && typeof s.settingsFile !== 'string') {
-    return false;
+  // Provider-specific validation
+  if (provider === 'codex') {
+    // profile 可选，但如果存在必须是字符串
+    if (s.profile !== undefined && typeof s.profile !== 'string') {
+      return false;
+    }
+    // authJson 可选，但如果存在必须是字符串
+    if (s.authJson !== undefined && typeof s.authJson !== 'string') {
+      return false;
+    }
+    // configToml 可选，但如果存在必须是字符串
+    if (s.configToml !== undefined && typeof s.configToml !== 'string') {
+      return false;
+    }
+  } else if (provider === 'claude' || !provider) {
+    // settingsFile 可选，但如果存在必须是字符串
+    if (s.settingsFile !== undefined && typeof s.settingsFile !== 'string') {
+      return false;
+    }
   }
 
   return true;
+}
+
+/**
+ * Exported settings format for backup/restore
+ */
+export interface ExportedSettings {
+  /** Export format version for future migrations */
+  version: string;
+  /** Export timestamp (ISO 8601) */
+  timestamp: string;
+  /** All endpoint settings */
+  endpoints: EndpointSettings[];
+}
+
+/**
+ * Import options for conflict resolution
+ */
+export interface ImportOptions {
+  /** How to handle conflicts: 'skip' keeps existing, 'overwrite' replaces, 'merge' combines */
+  conflictStrategy?: 'skip' | 'overwrite' | 'merge';
+  /** Whether to skip invalid endpoints (default: true) */
+  skipInvalid?: boolean;
+  /** Whether to disable all imported endpoints (default: false) */
+  disableImported?: boolean;
+}
+
+/**
+ * Import result summary
+ */
+export interface ImportResult {
+  /** Whether import was successful overall */
+  success: boolean;
+  /** Number of endpoints imported successfully */
+  imported: number;
+  /** Number of endpoints skipped (conflicts or validation errors) */
+  skipped: number;
+  /** Detailed error messages for failed imports */
+  errors: string[];
+  /** List of imported endpoint IDs */
+  importedIds?: string[];
+}
+
+/**
+ * Codex config preview response
+ */
+export interface CodexConfigPreviewResponse {
+  /** Whether preview was successful */
+  success: boolean;
+  /** Path to config.toml */
+  configPath: string;
+  /** Path to auth.json */
+  authPath: string;
+  /** config.toml content with sensitive values masked */
+  configToml: string | null;
+  /** auth.json content with API keys masked */
+  authJson: string | null;
+  /** Error messages if any files could not be read */
+  errors?: string[];
+}
+
+/**
+ * Gemini config preview response
+ */
+export interface GeminiConfigPreviewResponse {
+  /** Whether preview was successful */
+  success: boolean;
+  /** Path to settings.json */
+  settingsPath: string;
+  /** settings.json content with sensitive values masked */
+  settingsJson: string | null;
+  /** Error messages if file could not be read */
+  errors?: string[];
 }

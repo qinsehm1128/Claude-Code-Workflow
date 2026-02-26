@@ -75,20 +75,24 @@ function formatDuration(ms: number): string {
 }
 
 /**
- * Get time ago string
+ * Hook to get localized time ago string
  */
-function getTimeAgo(dateString: string): string {
-  const date = new Date(dateString);
-  const now = new Date();
-  const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+function useTimeAgo() {
+  const { formatMessage } = useIntl();
 
-  if (seconds < 60) return 'just now';
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+  return React.useCallback((dateString: string): string => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+    if (seconds < 60) return formatMessage({ id: 'common.time.justNow' });
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return formatMessage({ id: 'common.time.minutesAgo' }, { count: minutes });
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return formatMessage({ id: 'common.time.hoursAgo' }, { count: hours });
+    const days = Math.floor(hours / 24);
+    return formatMessage({ id: 'common.time.daysAgo' }, { count: days });
+  }, [formatMessage]);
 }
 
 /**
@@ -104,6 +108,7 @@ export function ConversationCard({
   actionsDisabled = false,
 }: ConversationCardProps) {
   const { formatMessage } = useIntl();
+  const getTimeAgo = useTimeAgo();
   const [copied, setCopied] = React.useState(false);
 
   const status = statusConfig[execution.status] || statusConfig.error;
@@ -180,7 +185,7 @@ export function ConversationCard({
               {execution.hasNativeSession && (
                 <Badge variant="outline" className="gap-1 text-xs">
                   <FileJson className="h-3 w-3" />
-                  native
+                  {formatMessage({ id: 'history.badge.native' })}
                 </Badge>
               )}
               <Badge variant={status.variant} className="gap-1 text-xs ml-auto">

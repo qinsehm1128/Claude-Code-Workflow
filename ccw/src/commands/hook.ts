@@ -5,6 +5,7 @@
 
 import chalk from 'chalk';
 import { existsSync, readFileSync } from 'fs';
+import { join } from 'path';
 
 interface HookOptions {
   stdin?: boolean;
@@ -12,6 +13,7 @@ interface HookOptions {
   prompt?: string;
   type?: 'session-start' | 'context' | 'session-end' | 'stop' | 'pre-compact';
   path?: string;
+  limit?: string;
 }
 
 interface HookData {
@@ -714,6 +716,142 @@ async function notifyAction(options: HookOptions): Promise<void> {
 }
 
 /**
+ * Project state action - reads project-tech.json and project-guidelines.json
+ * and outputs a concise summary for session context injection.
+ *
+ * Used as SessionStart hook: stdout → injected as system message.
+ */
+async function projectStateAction(options: HookOptions): Promise<void> {
+  let { stdin, path: projectPath } = options;
+  const limit = Math.min(parseInt(options.limit || '5', 10), 20);
+
+  if (stdin) {
+    try {
+      const stdinData = await readStdin();
+      if (stdinData) {
+        const hookData = JSON.parse(stdinData) as HookData;
+        projectPath = hookData.cwd || projectPath;
+      }
+    } catch {
+      // Silently continue if stdin parsing fails
+    }
+  }
+
+  projectPath = projectPath || process.cwd();
+
+  const result: {
+    tech: { recent: Array<{ title: string; category: string; date: string }> };
+    guidelines: { constraints: string[]; recent_learnings: Array<{ insight: string; date: string }> };
+  } = {
+    tech: { recent: [] },
+    guidelines: { constraints: [], recent_learnings: [] }
+  };
+
+  // Read project-tech.json
+  const techPath = join(projectPath, '.workflow', 'project-tech.json');
+  if (existsSync(techPath)) {
+    try {
+      const tech = JSON.parse(readFileSync(techPath, 'utf8'));
+      const allEntries: Array<{ title: string; category: string; date: string }> = [];
+      if (tech.development_index) {
+        for (const [cat, entries] of Object.entries(tech.development_index)) {
+          if (Array.isArray(entries)) {
+            for (const e of entries as Array<{ title?: string; date?: string }>) {
+              allEntries.push({ title: e.title || '', category: cat, date: e.date || '' });
+            }
+          }
+        }
+      }
+      allEntries.sort((a, b) => b.date.localeCompare(a.date));
+      result.tech.recent = allEntries.slice(0, limit);
+    } catch { /* ignore parse errors */ }
+  }
+
+  // Read project-guidelines.json
+  const guidelinesPath = join(projectPath, '.workflow', 'project-guidelines.json');
+  if (existsSync(guidelinesPath)) {
+    try {
+      const gl = JSON.parse(readFileSync(guidelinesPath, 'utf8'));
+      // constraints is Record<string, array> - flatten all categories
+      const allConstraints: string[] = [];
+      if (gl.constraints && typeof gl.constraints === 'object') {
+        for (const entries of Object.values(gl.constraints)) {
+          if (Array.isArray(entries)) {
+            for (const c of entries) {
+              allConstraints.push(typeof c === 'string' ? c : (c as { rule?: string }).rule || JSON.stringify(c));
+            }
+          }
+        }
+      }
+      result.guidelines.constraints = allConstraints.slice(0, limit);
+
+      const learnings = Array.isArray(gl.learnings) ? gl.learnings : [];
+      learnings.sort((a: { date?: string }, b: { date?: string }) => (b.date || '').localeCompare(a.date || ''));
+      result.guidelines.recent_learnings = learnings.slice(0, limit).map(
+        (l: { insight?: string; date?: string }) => ({ insight: l.insight || '', date: l.date || '' })
+      );
+    } catch { /* ignore parse errors */ }
+  }
+
+  if (stdin) {
+    // Format as <project-state> tag for system message injection
+    const techStr = result.tech.recent.map(e => `${e.title} (${e.category})`).join(', ');
+    const constraintStr = result.guidelines.constraints.join('; ');
+    const learningStr = result.guidelines.recent_learnings.map(e => e.insight).join('; ');
+
+    const parts: string[] = ['<project-state>'];
+    if (techStr) parts.push(`Recent: ${techStr}`);
+    if (constraintStr) parts.push(`Constraints: ${constraintStr}`);
+    if (learningStr) parts.push(`Learnings: ${learningStr}`);
+    parts.push('</project-state>');
+
+    process.stdout.write(parts.join('\n'));
+    process.exit(0);
+  }
+
+  // Interactive mode: show detailed output
+  console.log(chalk.green('Project State Summary'));
+  console.log(chalk.gray('─'.repeat(40)));
+  console.log(chalk.cyan('Project:'), projectPath);
+  console.log(chalk.cyan('Limit:'), limit);
+  console.log();
+
+  if (result.tech.recent.length > 0) {
+    console.log(chalk.yellow('Recent Development:'));
+    for (const e of result.tech.recent) {
+      console.log(`  ${chalk.gray(e.date)} ${e.title} ${chalk.cyan(`(${e.category})`)}`);
+    }
+  } else {
+    console.log(chalk.gray('(No development index entries)'));
+  }
+
+  console.log();
+
+  if (result.guidelines.constraints.length > 0) {
+    console.log(chalk.yellow('Constraints:'));
+    for (const c of result.guidelines.constraints) {
+      console.log(`  - ${c}`);
+    }
+  } else {
+    console.log(chalk.gray('(No constraints)'));
+  }
+
+  if (result.guidelines.recent_learnings.length > 0) {
+    console.log(chalk.yellow('Recent Learnings:'));
+    for (const l of result.guidelines.recent_learnings) {
+      console.log(`  ${chalk.gray(l.date)} ${l.insight}`);
+    }
+  } else {
+    console.log(chalk.gray('(No learnings)'));
+  }
+
+  // Also output JSON for piping
+  console.log();
+  console.log(chalk.gray('JSON:'));
+  console.log(JSON.stringify(result, null, 2));
+}
+
+/**
  * Show help for hook command
  */
 function showHelp(): void {
@@ -731,10 +869,12 @@ ${chalk.bold('SUBCOMMANDS')}
   keyword           Detect mode keywords in prompts and activate modes
   pre-compact       Handle PreCompact hook events (checkpoint creation)
   notify            Send notification to ccw view dashboard
+  project-state     Output project guidelines and recent dev history summary
 
 ${chalk.bold('OPTIONS')}
   --stdin           Read input from stdin (for Claude Code hooks)
-  --path            Path to status.json file (for parse-status)
+  --path            File or project path (for parse-status, project-state)
+  --limit           Max entries to return (for project-state, default: 5)
   --session-id      Session ID (alternative to stdin)
   --prompt          Current prompt text (alternative to stdin)
 
@@ -759,6 +899,12 @@ ${chalk.bold('EXAMPLES')}
 
   ${chalk.gray('# Handle PreCompact events:')}
   ccw hook pre-compact --stdin
+
+  ${chalk.gray('# Project state summary (interactive):')}
+  ccw hook project-state --path /my/project
+
+  ${chalk.gray('# Project state summary (hook, reads cwd from stdin):')}
+  ccw hook project-state --stdin
 
 ${chalk.bold('HOOK CONFIGURATION')}
   ${chalk.gray('Add to .claude/settings.json for Stop hook:')}
@@ -819,6 +965,9 @@ export async function hookCommand(
       break;
     case 'notify':
       await notifyAction(options);
+      break;
+    case 'project-state':
+      await projectStateAction(options);
       break;
     case 'help':
     case undefined:

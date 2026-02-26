@@ -17,13 +17,15 @@ import {
 } from '../../dist/types/cli-settings.js';
 
 // Type for testing (interfaces are erased in JS)
-type ClaudeCliSettings = {
+type CliSettings = {
   env: Record<string, string | undefined>;
   model?: string;
-  includeCoAuthoredBy?: boolean;
   tags?: string[];
   availableModels?: string[];
   settingsFile?: string;
+  profile?: string;
+  authJson?: string;
+  configToml?: string;
 };
 
 describe('cli-settings.ts', () => {
@@ -37,7 +39,6 @@ describe('cli-settings.ts', () => {
             DISABLE_AUTOUPDATER: '1',
           },
           model: 'sonnet',
-          includeCoAuthoredBy: true,
           tags: ['分析', 'Debug'],
           availableModels: ['opus', 'sonnet', 'haiku'],
           settingsFile: '/path/to/settings.json',
@@ -241,23 +242,72 @@ describe('cli-settings.ts', () => {
       });
     });
 
-    describe('should validate includeCoAuthoredBy field', () => {
-      it('should accept boolean includeCoAuthoredBy', () => {
+    describe('should validate codex-specific fields', () => {
+      it('should accept valid codex settings with profile', () => {
         const settings = {
-          env: {},
-          includeCoAuthoredBy: true,
+          env: { OPENAI_API_KEY: 'sk-test' },
+          model: 'gpt-5.2',
+          profile: 'default',
         };
 
-        assert.strictEqual(validateSettings(settings), true);
+        assert.strictEqual(validateSettings(settings, 'codex'), true);
       });
 
-      it('should reject non-boolean includeCoAuthoredBy', () => {
+      it('should reject non-string profile for codex', () => {
         const settings = {
           env: {},
-          includeCoAuthoredBy: 'true',
+          profile: 123,
         };
 
-        assert.strictEqual(validateSettings(settings), false);
+        assert.strictEqual(validateSettings(settings, 'codex'), false);
+      });
+
+      it('should accept codex settings with authJson and configToml', () => {
+        const settings = {
+          env: { OPENAI_API_KEY: 'sk-test' },
+          authJson: '{"OPENAI_API_KEY": "sk-test"}',
+          configToml: 'model = "gpt-5.2"',
+        };
+
+        assert.strictEqual(validateSettings(settings, 'codex'), true);
+      });
+    });
+
+    describe('should validate gemini-specific fields', () => {
+      it('should accept valid gemini settings', () => {
+        const settings = {
+          env: { GEMINI_API_KEY: 'AIza-test' },
+          model: 'gemini-2.5-flash',
+        };
+
+        assert.strictEqual(validateSettings(settings, 'gemini'), true);
+      });
+
+      it('should accept gemini settings with GOOGLE_API_KEY', () => {
+        const settings = {
+          env: { GOOGLE_API_KEY: 'AIza-test' },
+          model: 'gemini-2.5-pro',
+          tags: ['分析'],
+          availableModels: ['gemini-2.5-flash', 'gemini-2.5-pro'],
+        };
+
+        assert.strictEqual(validateSettings(settings, 'gemini'), true);
+      });
+
+      it('should accept gemini settings with empty env', () => {
+        const settings = {
+          env: {},
+        };
+
+        assert.strictEqual(validateSettings(settings, 'gemini'), true);
+      });
+
+      it('should reject gemini settings with non-string env value', () => {
+        const settings = {
+          env: { GEMINI_API_KEY: 12345 },
+        };
+
+        assert.strictEqual(validateSettings(settings, 'gemini'), false);
       });
     });
 
@@ -358,7 +408,6 @@ describe('cli-settings.ts', () => {
             CUSTOM_VAR: 'custom-value',
           },
           model: 'custom-model',
-          includeCoAuthoredBy: false,
           tags: [],
           availableModels: [],
           settingsFile: '/path/to/settings.json',
@@ -436,53 +485,59 @@ describe('cli-settings.ts', () => {
   });
 
   describe('createDefaultSettings', () => {
-    it('should create valid default settings', () => {
+    it('should create valid default claude settings', () => {
       const settings = createDefaultSettings();
 
       assert.strictEqual(validateSettings(settings), true);
     });
 
-    it('should include all default fields', () => {
+    it('should create valid default codex settings', () => {
+      const settings = createDefaultSettings('codex');
+
+      assert.strictEqual(validateSettings(settings, 'codex'), true);
+    });
+
+    it('should create valid default gemini settings', () => {
+      const settings = createDefaultSettings('gemini');
+
+      assert.strictEqual(validateSettings(settings, 'gemini'), true);
+    });
+
+    it('should include all default fields for claude', () => {
       const settings = createDefaultSettings();
 
       assert.ok('env' in settings);
       assert.ok('model' in settings);
-      assert.ok('includeCoAuthoredBy' in settings);
       assert.ok('tags' in settings);
       assert.ok('availableModels' in settings);
     });
 
-    it('should have correct default values', () => {
+    it('should have correct default values for claude', () => {
       const settings = createDefaultSettings();
 
       assert.deepStrictEqual(settings.env, {
         DISABLE_AUTOUPDATER: '1',
       });
       assert.strictEqual(settings.model, 'sonnet');
-      assert.strictEqual(settings.includeCoAuthoredBy, false);
       assert.deepStrictEqual(settings.tags, []);
       assert.deepStrictEqual(settings.availableModels, []);
     });
   });
 
   describe('TypeScript type safety', () => {
-    it('should enforce ClaudeCliSettings interface structure', () => {
-      // This test verifies TypeScript compilation catches type errors
+    it('should enforce CliSettings interface structure', () => {
       const validSettings = {
         env: {
           ANTHROPIC_AUTH_TOKEN: 'sk-ant-123',
         },
         model: 'opus',
-        includeCoAuthoredBy: true,
         tags: ['tag1'],
         availableModels: ['model1'],
         settingsFile: '/path/to/file',
       };
 
-      // Type assertion: all fields should be present and of correct type
       assert.strictEqual(typeof validSettings.env, 'object');
       assert.strictEqual(typeof validSettings.model, 'string');
-      assert.strictEqual(typeof validSettings.includeCoAuthoredBy, 'boolean');
       assert.strictEqual(Array.isArray(validSettings.tags), true);
       assert.strictEqual(Array.isArray(validSettings.availableModels), true);
       assert.strictEqual(typeof validSettings.settingsFile, 'string');

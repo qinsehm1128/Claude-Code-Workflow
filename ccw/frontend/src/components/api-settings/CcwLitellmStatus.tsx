@@ -13,6 +13,7 @@ import {
   XCircle,
   Loader2,
   Package,
+  AlertTriangle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -71,6 +72,8 @@ export function CcwLitellmStatus() {
 
   const installed = status?.installed ?? false;
   const version = status?.version;
+  const systemPythonInstalled = status?.checks?.systemPython?.installed === true;
+  const showSystemPythonMismatch = !isLoading && !installed && systemPythonInstalled;
 
   return (
     <>
@@ -86,6 +89,12 @@ export function CcwLitellmStatus() {
               <p className="text-xs text-muted-foreground">
                 {formatMessage({ id: 'apiSettings.ccwLitellm.description' })}
               </p>
+              {showSystemPythonMismatch && (
+                <div className="mt-1 flex items-start gap-2 text-xs text-warning-foreground/80">
+                  <AlertTriangle className="w-4 h-4 text-warning flex-shrink-0 mt-0.5" />
+                  <p>{formatMessage({ id: 'apiSettings.ccwLitellm.systemPythonMismatch' })}</p>
+                </div>
+              )}
             </div>
           </div>
 

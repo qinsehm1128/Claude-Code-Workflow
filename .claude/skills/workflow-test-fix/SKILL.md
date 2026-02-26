@@ -396,6 +396,8 @@ Automatic commits at key checkpoints:
 
 ## Post-Completion Expansion
 
+**Auto-sync**: Execute `/workflow:session:sync -y "{summary}"` to update project-guidelines + project-tech.
+
 After completion, ask user if they want to expand into issues (test/enhance/refactor/doc). Selected items call `/issue:new "{summary} - {dimension}"`.
 
 ## Coordinator Checklist

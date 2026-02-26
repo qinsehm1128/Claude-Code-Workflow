@@ -9,11 +9,11 @@
     "ccw-mcp": "ccw/bin/ccw-mcp.js"
   },
   "workspaces": [
-    "ccw/frontend",
-    "ccw/docs-site"
+    "ccw/frontend"
   ],
   "scripts": {
     "build": "tsc -p ccw/tsconfig.json",
+    "postbuild": "node -e \"const fs=require('fs');['ccw/bin/ccw.js','ccw/bin/ccw-mcp.js'].forEach(f=>{try{fs.chmodSync(f,0o755)}catch{}})\"",
     "start": "node ccw/bin/ccw.js",
     "test": "node --experimental-strip-types --test ccw/tests/*.test.js",
     "test:visual": "node --experimental-strip-types --test ccw/tests/visual/**/*.visual.test.ts",
@@ -21,14 +21,9 @@
     "prepublishOnly": "npm run build && node ccw/scripts/prepublish-clean.mjs && echo 'Ready to publish @dyw/claude-code-workflow'",
     "frontend": "npm run dev --workspace=ccw/frontend",
     "frontend:build": "npm run build --workspace=ccw/frontend",
-    "docs": "npm run start --workspace=ccw/docs-site",
-    "docs:en": "npm run start --workspace=ccw/docs-site -- --locale en --port 3001 --no-open",
-    "docs:zh": "npm run start --workspace=ccw/docs-site -- --locale zh --port 3001 --no-open",
-    "docs:serve": "npm run serve --workspace=ccw/docs-site -- --build --port 3001 --no-open",
-    "docs:build": "npm run build --workspace=ccw/docs-site",
     "ws:install": "npm install",
-    "ws:all": "concurrently \"npm run frontend\" \"npm run docs\" --names \"FRONTEND,DOCS\" --prefix-colors \"blue,green\"",
-    "ws:build-all": "npm run build && npm run frontend:build && npm run docs:build",
+    "ws:all": "npm run frontend",
+    "ws:build-all": "npm run build && npm run frontend:build",
     "postinstall": "(npm rebuild better-sqlite3 || echo [CCW] better-sqlite3 rebuild skipped) && (npm rebuild node-pty || echo [CCW] node-pty rebuild skipped)"
   },
   "keywords": [
@@ -72,10 +67,7 @@
     "ccw/frontend/package.json",
     ".claude/agents/",
     ".claude/commands/",
-    ".claude/output-styles/",
     ".claude/scripts/",
-    ".claude/prompt-templates/",
-    ".claude/python_script/",
     ".claude/skills/",
     ".codex/",
     ".gemini/",
@@ -84,7 +76,6 @@
     "codex-lens/pyproject.toml",
     "ccw-litellm/src/ccw_litellm/",
     "ccw-litellm/pyproject.toml",
-    "CLAUDE.md",
     "README.md"
   ],
   "repository": {

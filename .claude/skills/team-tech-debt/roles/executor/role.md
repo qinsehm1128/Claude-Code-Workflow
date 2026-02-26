@@ -102,6 +102,10 @@ const sessionFolder = task.description.match(/session:\s*(.+)/)?.[1]?.trim() || 
 let sharedMemory = {}
 try { sharedMemory = JSON.parse(Read(`${sessionFolder}/shared-memory.json`)) } catch {}
 
+// 加载 worktree 路径（由 coordinator 写入 shared memory）
+const worktreePath = sharedMemory.worktree?.path || null
+const worktreeBranch = sharedMemory.worktree?.branch || null
+
 // 加载治理方案
 let plan = {}
 try {
@@ -137,7 +141,7 @@ function groupActionsByType(actions) {
 Read("commands/remediate.md")
 ```
 
-**核心策略**: 分批委派 code-developer 执行修复
+**核心策略**: 分批委派 code-developer 执行修复（在 worktree 中操作）
 
 ```javascript
 const fixResults = {
@@ -157,7 +161,7 @@ for (const [batchType, actions] of Object.entries(batches)) {
     description: `Fix tech debt batch: ${batchType} (${actions.length} items)`,
     prompt: `## Goal
 Execute tech debt cleanup for ${batchType} items.
-
+${worktreePath ? `\n## Worktree（强制）\n- 工作目录: ${worktreePath}\n- **所有文件读取和修改必须在 ${worktreePath} 下进行**\n- 读文件时使用 ${worktreePath}/path/to/file\n- Bash 命令使用 cd "${worktreePath}" && ... 前缀\n` : ''}
 ## Actions
 ${actions.map(a => `- [${a.debt_id}] ${a.action} (file: ${a.file})`).join('\n')}
 
@@ -183,12 +187,13 @@ ${actions.map(a => `- [${a.debt_id}] ${a.action} (file: ${a.file})`).join('\n')}
 ### Phase 4: Self-Validation
 
 ```javascript
-// 基本语法检查
-const syntaxResult = Bash(`npx tsc --noEmit 2>&1 || python -m py_compile *.py 2>&1 || echo "skip"`)
+// 基本语法检查（在 worktree 中执行）
+const cmdPrefix = worktreePath ? `cd "${worktreePath}" && ` : ''
+const syntaxResult = Bash(`${cmdPrefix}npx tsc --noEmit 2>&1 || python -m py_compile *.py 2>&1 || echo "skip"`)
 const hasSyntaxErrors = /error/i.test(syntaxResult) && !/skip/.test(syntaxResult)
 
 // 基本 lint 检查
-const lintResult = Bash(`npx eslint --no-error-on-unmatched-pattern src/ 2>&1 || echo "skip"`)
+const lintResult = Bash(`${cmdPrefix}npx eslint --no-error-on-unmatched-pattern src/ 2>&1 || echo "skip"`)
 const hasLintErrors = /error/i.test(lintResult) && !/skip/.test(lintResult)
 
 // 更新修复统计

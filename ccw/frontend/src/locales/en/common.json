@@ -245,7 +245,7 @@
       "coordinator": "Coordinator",
       "executions": "Executions",
       "loops": "Loops",
-      "history": "History",
+      "history": "CLI History",
       "memory": "Memory",
       "prompts": "Prompts",
       "skills": "Skills",

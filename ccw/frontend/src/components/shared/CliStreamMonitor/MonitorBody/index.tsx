@@ -33,16 +33,18 @@ interface ScrollToBottomButtonProps {
 
 function ScrollToBottomButton({ onClick, className }: ScrollToBottomButtonProps) {
   return (
-    <Button
-      size="sm"
-      variant="secondary"
-      className={cn('absolute bottom-4 right-4 shadow-lg', className)}
-      onClick={onClick}
-      title="Scroll to bottom"
-    >
-      <ArrowDownToLine className="h-4 w-4 mr-1" />
-      Scroll to bottom
-    </Button>
+    <div className="sticky bottom-4 flex justify-end">
+      <Button
+        size="sm"
+        variant="secondary"
+        className={cn('shadow-lg', className)}
+        onClick={onClick}
+        title="Scroll to bottom"
+      >
+        <ArrowDownToLine className="h-4 w-4 mr-1" />
+        Scroll to bottom
+      </Button>
+    </div>
   );
 }
 

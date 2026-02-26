@@ -155,6 +155,11 @@ const TEAM_CONFIG = {
   name: "tech-debt",
   sessionDir: ".workflow/.team/TD-{slug}-{date}/",
   sharedMemory: "shared-memory.json",
+  worktree: {
+    basePath: ".worktrees",
+    branchPrefix: "tech-debt/TD-",
+    autoCleanup: true  // Remove worktree after PR creation
+  },
   debtDimensions: ["code", "architecture", "testing", "dependency", "documentation"],
   priorityMatrix: {
     highImpact_lowCost: "立即修复 (Quick Win)",
@@ -194,13 +199,44 @@ const TEAM_CONFIG = {
 
 ```
 Scan Mode (仅扫描评估):
-  TDSCAN-001(多维度扫描) → TDEVAL-001(量化评估) → 报告
+  TDSCAN-001(并行多维度扫描+多视角Gemini分析) → TDEVAL-001(量化评估) → 报告
 
 Remediate Mode (完整闭环):
-  TDSCAN-001(扫描) → TDEVAL-001(评估) → TDPLAN-001(规划) → TDFIX-001(修复) → TDVAL-001(验证)
+  TDSCAN-001(并行扫描) → TDEVAL-001(评估) → TDPLAN-001(规划) → [Plan Approval] → [Create Worktree] → TDFIX-001(修复,worktree) → TDVAL-001(验证,worktree) → [Commit+PR] → 报告
 
 Targeted Mode (定向修复):
-  TDPLAN-001(规划) → TDFIX-001(修复) → TDVAL-001(验证)
+  TDPLAN-001(规划) → [Plan Approval] → [Create Worktree] → TDFIX-001(修复,worktree) → TDVAL-001(验证,worktree) → [Commit+PR] → 报告
+```
+
+### TDSCAN Parallel Fan-out Architecture
+
+```
+TDSCAN-001 内部并行架构:
+
+         ┌────────────────────────────────────────────────────┐
+         │                  Scanner Worker                     │
+         │                                                     │
+         │  Fan-out A: Subagent Exploration (并行 cli-explore) │
+         │  ┌──────────┐ ┌──────────┐ ┌──────────┐            │
+         │  │structure  │ │patterns  │ │deps      │            │
+         │  │角度       │ │角度      │ │角度      │             │
+         │  └─────┬────┘ └─────┬────┘ └─────┬────┘            │
+         │        └────────────┼────────────┘                  │
+         │                     ↓ merge                         │
+         │  Fan-out B: CLI Dimension Analysis (并行 gemini)    │
+         │  ┌──────┐┌────────┐┌───────┐┌──────┐┌─────┐        │
+         │  │code  ││arch    ││testing││deps  ││docs │         │
+         │  └──┬───┘└───┬────┘└──┬────┘└──┬───┘└──┬──┘        │
+         │     └────────┼────────┼────────┘       │            │
+         │              ↓ merge                   │            │
+         │  Fan-out C: Multi-Perspective Gemini (并行)         │
+         │  ┌────────┐┌──────────┐┌───────┐┌─────────┐        │
+         │  │security││perform.  ││quality││architect│         │
+         │  └───┬────┘└────┬─────┘└──┬────┘└────┬────┘        │
+         │      └──────────┼─────────┘          │              │
+         │                 ↓ Fan-in aggregate                  │
+         │            debt-inventory.json                      │
+         └────────────────────────────────────────────────────┘
 ```
 
 ### Mode Auto-Detection
@@ -228,7 +264,7 @@ TDFIX → TDVAL → (if regression or quality drop) → TDFIX-fix → TDVAL-2
 ```
 .workflow/.team/TD-{slug}-{YYYY-MM-DD}/
 ├── team-session.json
-├── shared-memory.json          # 债务清单 / 评估矩阵 / 治理方案 / 修复结果 / 验证结果
+├── shared-memory.json          # 债务清单 / 评估矩阵 / 治理方案 / 修复结果 / 验证结果 / worktree 信息
 ├── scan/                       # Scanner output
 │   └── debt-inventory.json
 ├── assessment/                 # Assessor output
@@ -239,6 +275,15 @@ TDFIX → TDVAL → (if regression or quality drop) → TDFIX-fix → TDVAL-2
 │   └── fix-log.json
 └── validation/                 # Validator output
     └── validation-report.json
+
+# shared-memory.json worktree 字段（TDFIX 前由 coordinator 写入）:
+# {
+#   ...
+#   "worktree": {
+#     "path": ".worktrees/TD-{slug}-{date}",
+#     "branch": "tech-debt/TD-{slug}-{date}"
+#   }
+# }
 ```
 
 ## Coordinator Spawn Template

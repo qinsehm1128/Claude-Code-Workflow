@@ -16,6 +16,8 @@ export interface CliSessionMeta {
   createdAt: string;
   updatedAt: string;
   isPaused: boolean;
+  /** When set, this session is a native CLI interactive process. */
+  cliTool?: string;
 }
 
 export interface CliSessionOutputChunk {

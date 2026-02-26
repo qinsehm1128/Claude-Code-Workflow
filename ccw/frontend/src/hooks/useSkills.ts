@@ -216,14 +216,52 @@ export function useToggleSkill(): UseToggleSkillReturn {
 }
 
 /**
+ * Hook for deleting a skill
+ */
+export function useDeleteSkill() {
+  const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: async ({
+      skillName,
+      location,
+      projectPath,
+      cliType,
+    }: {
+      skillName: string;
+      location: 'project' | 'user';
+      projectPath?: string;
+      cliType: 'claude' | 'codex';
+    }) => {
+      const { deleteSkill } = await import('@/lib/api');
+      return deleteSkill(skillName, location, projectPath, cliType);
+    },
+    onSuccess: () => {
+      // Invalidate skills queries to refresh the list
+      queryClient.invalidateQueries({ queryKey: skillsKeys.all });
+    },
+  });
+
+  return {
+    deleteSkill: (skillName: string, location: 'project' | 'user', projectPath?: string, cliType: 'claude' | 'codex' = 'claude') =>
+      mutation.mutateAsync({ skillName, location, projectPath, cliType }),
+    isDeleting: mutation.isPending,
+    error: mutation.error,
+  };
+}
+
+/**
  * Combined hook for all skill mutations
  */
 export function useSkillMutations() {
   const toggle = useToggleSkill();
+  const deleteSkillHook = useDeleteSkill();
 
   return {
     toggleSkill: toggle.toggleSkill,
     isToggling: toggle.isToggling,
-    isMutating: toggle.isToggling,
+    deleteSkill: deleteSkillHook.deleteSkill,
+    isDeleting: deleteSkillHook.isDeleting,
+    isMutating: toggle.isToggling || deleteSkillHook.isDeleting,
   };
 }

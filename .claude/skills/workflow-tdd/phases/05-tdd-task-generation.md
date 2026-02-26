@@ -200,6 +200,8 @@ const userConfig = {
 
 ### Step 5.1: Execute TDD Task Generation (Agent Invocation)
 
+**Design Note**: The agent specification (action-planning-agent.md) already defines schemas, CLI execution strategies, quantification standards, and loading algorithms. This prompt provides **instance-specific parameters** and **TDD-specific requirements** only.
+
 ```javascript
 Task(
   subagent_type="action-planning-agent",
@@ -207,16 +209,10 @@ Task(
   description="Generate TDD planning documents (IMPL_PLAN.md, task JSONs, TODO_LIST.md)",
   prompt=`
 ## TASK OBJECTIVE
-Generate TDD implementation planning documents (IMPL_PLAN.md, task JSONs, TODO_LIST.md) for workflow session
-
-IMPORTANT: This is PLANNING ONLY - you are generating planning documents, NOT implementing code.
-
-CRITICAL: Follow the progressive loading strategy (load analysis.md files incrementally due to file size):
-- **Core**: session metadata + context-package.json (always)
-- **Selective**: synthesis_output OR (guidance + relevant role analyses) - NOT all
-- **On-Demand**: conflict resolution (if conflict_risk >= medium), test context
+Generate TDD implementation planning documents (IMPL_PLAN.md, task JSONs, TODO_LIST.md) for workflow session ${sessionId}
 
 ## SESSION PATHS
+Session Root: .workflow/active/${sessionId}/
 Input:
   - Session Metadata: .workflow/active/${sessionId}/workflow-session.json
   - Context Package: .workflow/active/${sessionId}/.process/context-package.json
@@ -232,44 +228,33 @@ Session ID: ${sessionId}
 Workflow Type: TDD
 MCP Capabilities: {exa_code, exa_web, code_index}
 
+## PROJECT CONTEXT (MANDATORY - load before planning-notes)
+These files provide project-level constraints that apply to ALL tasks:
+
+1. **.workflow/project-tech.json** (auto-generated tech analysis)
+   - Contains: tech_stack, architecture_type, key_components, build_system, test_framework
+   - Usage: Populate plan.json shared_context, align task tech choices, set correct test commands
+   - If missing: Fall back to context-package.project_context
+
+2. **.workflow/project-guidelines.json** (user-maintained rules and constraints)
+   - Contains: coding_conventions, naming_rules, forbidden_patterns, quality_gates, custom_constraints
+   - Usage: Apply as HARD CONSTRAINTS on all generated tasks — task implementation steps,
+     acceptance criteria, and convergence.verification MUST respect these guidelines
+   - If empty/missing: No additional constraints (proceed normally)
+
+Loading order: project-tech.json → project-guidelines.json → planning-notes.md → context-package.json
+
 ## USER CONFIGURATION (from Phase 0)
-Execution Method: ${userConfig.executionMethod}
-Preferred CLI Tool: ${userConfig.preferredCliTool}
+Execution Method: ${userConfig.executionMethod}  // agent|hybrid|cli
+Preferred CLI Tool: ${userConfig.preferredCliTool}  // codex|gemini|qwen|auto
 Supplementary Materials: ${userConfig.supplementaryMaterials}
 
-## EXECUTION METHOD MAPPING
-Based on userConfig.executionMethod, set task-level meta.execution_config:
-
-"agent" ->
-  meta.execution_config = { method: "agent", cli_tool: null, enable_resume: false }
-  Agent executes Red-Green-Refactor phases directly
-
-"cli" ->
-  meta.execution_config = { method: "cli", cli_tool: userConfig.preferredCliTool, enable_resume: true }
-  Agent executes pre_analysis, then hands off full context to CLI via buildCliHandoffPrompt()
-
-"hybrid" ->
-  Per-task decision: Analyze TDD cycle complexity, set method to "agent" OR "cli" per task
-  - Simple cycles (<=5 test cases, <=3 files) -> method: "agent"
-  - Complex cycles (>5 test cases, >3 files, integration tests) -> method: "cli"
-  CLI tool: userConfig.preferredCliTool, enable_resume: true
-
-IMPORTANT: Do NOT add command field to implementation steps. Execution routing is controlled by task-level meta.execution_config.method only.
-
-## EXPLORATION CONTEXT (from context-package.exploration_results)
-- Load exploration_results from context-package.json
+## EXPLORATION CONTEXT (from context-package.exploration_results) - SUPPLEMENT ONLY
+If prioritized_context is incomplete, fall back to exploration_results:
 - Use aggregated_insights.critical_files for focus_paths generation
 - Apply aggregated_insights.constraints to acceptance criteria
 - Reference aggregated_insights.all_patterns for implementation approach
 - Use aggregated_insights.all_integration_points for precise modification locations
-- Use conflict_indicators for risk-aware task sequencing
-
-## CONFLICT RESOLUTION CONTEXT (if exists)
-- Check context-package.conflict_detection.resolution_file for conflict-resolution.json path
-- If exists, load .process/conflict-resolution.json:
-  - Apply planning_constraints as task constraints (for brainstorm-less workflows)
-  - Reference resolved_conflicts for implementation approach alignment
-  - Handle custom_conflicts with explicit task notes
 
 ## TEST CONTEXT INTEGRATION
 - Load test-context-package.json for existing test patterns and coverage analysis
@@ -300,8 +285,6 @@ IMPORTANT: Do NOT add command field to implementation steps. Execution routing i
 - **Schema**: Unified flat schema (task-schema.json) with TDD-specific metadata
   - meta.tdd_workflow: true (REQUIRED)
   - meta.max_iterations: 3 (Green phase test-fix cycle limit)
-  - cli_execution.id: Unique CLI execution ID (format: {session_id}-{task_id})
-  - cli_execution: Strategy object (new|resume|fork|merge_fork)
   - tdd_cycles: Array with quantified test cases and coverage
   - focus_paths: Absolute or clear relative paths (enhanced with exploration critical_files)
   - implementation: Exactly 3 steps with tdd_phase field
@@ -309,7 +292,6 @@ IMPORTANT: Do NOT add command field to implementation steps. Execution routing i
     2. Green Phase (tdd_phase: "green"): Implement to pass tests
     3. Refactor Phase (tdd_phase: "refactor"): Improve code quality
   - pre_analysis: Include exploration integration_points analysis
-  - meta.execution_config: Set per userConfig.executionMethod (agent/cli/hybrid)
 
 ##### 2. IMPL_PLAN.md (TDD Variant)
 - **Location**: .workflow/active/${sessionId}/IMPL_PLAN.md
@@ -320,37 +302,18 @@ IMPORTANT: Do NOT add command field to implementation steps. Execution routing i
 - **Location**: .workflow/active/${sessionId}/TODO_LIST.md
 - **Format**: Hierarchical task list with internal TDD phase indicators (Red -> Green -> Refactor)
 
-### CLI EXECUTION ID REQUIREMENTS (MANDATORY)
-
-Each task JSON MUST include:
-- **cli_execution.id**: Unique ID for CLI execution (format: {session_id}-{task_id})
-- **cli_execution**: Strategy object based on depends_on:
-  - No deps -> { "strategy": "new" }
-  - 1 dep (single child) -> { "strategy": "resume", "resume_from": "parent-cli-id" }
-  - 1 dep (multiple children) -> { "strategy": "fork", "resume_from": "parent-cli-id" }
-  - N deps -> { "strategy": "merge_fork", "resume_from": ["id1", "id2", ...] }
-
-### Quantification Requirements (MANDATORY)
-
-**Core Rules**:
-1. **Explicit Test Case Counts**: Red phase specifies exact number with enumerated list
-2. **Quantified Coverage**: Acceptance includes measurable percentage (e.g., ">=85%")
-3. **Detailed Implementation Scope**: Green phase enumerates files, functions, line counts
-4. **Enumerated Refactoring Targets**: Refactor phase lists specific improvements with counts
-
-**TDD Phase Formats**:
-- **Red Phase**: "Write N test cases: [test1, test2, ...]"
-- **Green Phase**: "Implement N functions in file lines X-Y: [func1() X1-Y1, func2() X2-Y2, ...]"
-- **Refactor Phase**: "Apply N refactorings: [improvement1 (details), improvement2 (details), ...]"
-- **Acceptance**: "All N tests pass with >=X% coverage: verify by [test command]"
-
 ## SUCCESS CRITERIA
 - All planning documents generated successfully:
-  - Task JSONs valid and saved to .task/ directory with cli_execution.id
+  - Task JSONs valid and saved to .task/ directory
   - IMPL_PLAN.md created with complete TDD structure
   - TODO_LIST.md generated matching task JSONs
-- CLI execution strategies assigned based on task dependencies
 - Return completion status with document count and task breakdown summary
+
+## SESSION-SPECIFIC NOTES
+- Workflow Type: TDD — tasks use Red-Green-Refactor phases
+- Deliverables: Task JSONs + IMPL_PLAN.md + plan.json + TODO_LIST.md (all 4 required)
+- focus_paths: Derive from exploration critical_files and test context
+- All other schemas, CLI execution strategies, quantification standards: Follow agent specification
 `
 )
 ```

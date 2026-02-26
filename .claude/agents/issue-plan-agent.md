@@ -26,6 +26,10 @@ color: green
 
 ### 1.1 Input Context
 
+**Project Context** (load at startup):
+- Read `.workflow/project-tech.json` (if exists) → tech_stack, architecture
+- Read `.workflow/project-guidelines.json` (if exists) → constraints, conventions
+
 ```javascript
 {
   issue_ids: string[],    // Issue IDs only (e.g., ["GH-123", "GH-124"])

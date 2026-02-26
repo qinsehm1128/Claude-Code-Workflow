@@ -41,7 +41,8 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       // Backend API proxy
-      '/api': {
+      // Use `/api/` (not `/api`) to avoid accidentally proxying frontend routes like `/api-settings`.
+      '/api/': {
         target: backendHttpTarget,
         changeOrigin: true,
       },

@@ -23,13 +23,6 @@ const CODE_EXTENSIONS = [
   '.ts', '.tsx', '.js', '.jsx', '.py', '.sh', '.go', '.rs'
 ];
 
-// Default models for each tool
-const DEFAULT_MODELS: Record<string, string> = {
-  gemini: 'gemini-2.5-flash',
-  qwen: 'coder-model',
-  codex: 'gpt5-codex'
-};
-
 // Template paths (relative to user home directory)
 const TEMPLATE_BASE = '~/.ccw/workflows/cli-templates/prompts/documentation';
 
@@ -141,20 +134,21 @@ function buildCliCommand(tool: string, promptFile: string, model: string): strin
   // Build the cat/read command based on platform
   const catCmd = isWindows ? `Get-Content -Raw "${normalizedPath}" | ` : `cat "${normalizedPath}" | `;
 
+  // Build model flag only if model is specified
+  const modelFlag = model ? ` -m "${model}"` : '';
+
   switch (tool) {
     case 'qwen':
-      return model === 'coder-model'
-        ? `${catCmd}qwen --yolo`
-        : `${catCmd}qwen -m "${model}" --yolo`;
+      return `${catCmd}qwen${modelFlag} --yolo`;
     case 'codex':
       // codex uses different syntax - prompt as exec argument
       if (isWindows) {
-        return `codex --full-auto exec (Get-Content -Raw "${normalizedPath}") -m "${model}" --skip-git-repo-check -s danger-full-access`;
+        return `codex --full-auto exec (Get-Content -Raw "${normalizedPath}")${modelFlag} --skip-git-repo-check -s danger-full-access`;
       }
-      return `codex --full-auto exec "$(cat "${normalizedPath}")" -m "${model}" --skip-git-repo-check -s danger-full-access`;
+      return `codex --full-auto exec "$(cat "${normalizedPath}")"${modelFlag} --skip-git-repo-check -s danger-full-access`;
     case 'gemini':
     default:
-      return `${catCmd}gemini -m "${model}" --yolo`;
+      return `${catCmd}gemini${modelFlag} --yolo`;
   }
 }
 
@@ -273,7 +267,8 @@ export async function handler(params: Record<string, unknown>): Promise<ToolResu
       try {
         actualModel = getSecondaryModel(process.cwd(), tool);
       } catch {
-        actualModel = DEFAULT_MODELS[tool] || DEFAULT_MODELS.gemini;
+        // If config not available, don't specify model - let CLI decide
+        actualModel = '';
       }
     }
 

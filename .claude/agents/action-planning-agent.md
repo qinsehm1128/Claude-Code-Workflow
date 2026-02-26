@@ -56,7 +56,23 @@ color: yellow
 **Step-by-step execution**:
 
 ```
-0. Load planning notes → Extract phase-level constraints (NEW)
+0. Load project context (MANDATORY - from init.md products)
+   a. Read .workflow/project-tech.json (if exists)
+      → tech_stack, architecture_type, key_components, build_system, test_framework
+      → Usage: Populate plan.json shared_context, set correct build/test commands,
+        align task tech choices with actual project stack
+      → If missing: Fall back to context-package.project_context fields
+
+   b. Read .workflow/project-guidelines.json (if exists)
+      → coding_conventions, naming_rules, forbidden_patterns, quality_gates, custom_constraints
+      → Usage: Apply as HARD CONSTRAINTS on all tasks — implementation steps,
+        acceptance criteria, and convergence.verification MUST respect these rules
+      → If empty/missing: No additional constraints (proceed normally)
+
+   NOTE: These files provide project-level context that supplements (not replaces)
+   session-specific context from planning-notes.md and context-package.json.
+
+1. Load planning notes → Extract phase-level constraints (NEW)
    Commands: Read('.workflow/active/{session-id}/planning-notes.md')
    Output: Consolidated constraints from all workflow phases
    Structure:
@@ -67,16 +83,16 @@ color: yellow
 
    USAGE: This is the PRIMARY source of constraints. All task generation MUST respect these constraints.
 
-1. Load session metadata → Extract user input
+2. Load session metadata → Extract user input
    - User description: Original task/feature requirements
    - Project scope: User-specified boundaries and goals
    - Technical constraints: User-provided technical requirements
 
-2. Load context package → Extract structured context
+3. Load context package → Extract structured context
    Commands: Read({{context_package_path}})
    Output: Complete context package object
 
-3. Check existing plan (if resuming)
+4. Check existing plan (if resuming)
    - If IMPL_PLAN.md exists: Read for continuity
    - If task JSONs exist: Load for context
 
@@ -989,7 +1005,8 @@ Use `analysis_results.complexity` or task count to determine structure:
 ### 3.4 Guidelines Checklist
 
 **ALWAYS:**
-- **Load planning-notes.md FIRST**: Read planning-notes.md before context-package.json. Use its Consolidated Constraints as primary constraint source for all task generation
+- **Load project context FIRST**: Read `.workflow/project-tech.json` and `.workflow/project-guidelines.json` before any session-specific files. Apply project-guidelines as hard constraints on all tasks
+- **Load planning-notes.md SECOND**: Read planning-notes.md before context-package.json. Use its Consolidated Constraints as primary constraint source for all task generation
 - **Record N+1 Context**: Update `## N+1 Context` section with key decisions and deferred items
 - **Search Tool Priority**: ACE (`mcp__ace-tool__search_context`) → CCW (`mcp__ccw-tools__smart_search`) / Built-in (`Grep`, `Glob`, `Read`)
 - Apply Quantification Requirements to all requirements, acceptance criteria, and modification points

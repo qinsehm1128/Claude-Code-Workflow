@@ -668,57 +668,13 @@ if (hasUnresolvedIssues(reviewResult)) {
 - `@{plan.json}` → `@${executionContext.session.artifacts.plan}`
 - `[@{exploration.json}]` → exploration files from artifacts (if exists)
 
-### Step 6: Update Development Index
+### Step 6: Auto-Sync Project State
 
 **Trigger**: After all executions complete (regardless of code review)
 
-**Skip Condition**: Skip if `.workflow/project-tech.json` does not exist
+**Operation**: Execute `/workflow:session:sync -y "{summary}"` to update both `project-guidelines.json` and `project-tech.json` in one shot.
 
-**Operations**:
-```javascript
-const projectJsonPath = '.workflow/project-tech.json'
-if (!fileExists(projectJsonPath)) return  // Silent skip
-
-const projectJson = JSON.parse(Read(projectJsonPath))
-
-// Initialize if needed
-if (!projectJson.development_index) {
-  projectJson.development_index = { feature: [], enhancement: [], bugfix: [], refactor: [], docs: [] }
-}
-
-// Detect category from keywords
-function detectCategory(text) {
-  text = text.toLowerCase()
-  if (/\b(fix|bug|error|issue|crash)\b/.test(text)) return 'bugfix'
-  if (/\b(refactor|cleanup|reorganize)\b/.test(text)) return 'refactor'
-  if (/\b(doc|readme|comment)\b/.test(text)) return 'docs'
-  if (/\b(add|new|create|implement)\b/.test(text)) return 'feature'
-  return 'enhancement'
-}
-
-// Detect sub_feature from task file paths
-function detectSubFeature(tasks) {
-  const dirs = tasks.map(t => t.file?.split('/').slice(-2, -1)[0]).filter(Boolean)
-  const counts = dirs.reduce((a, d) => { a[d] = (a[d] || 0) + 1; return a }, {})
-  return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'general'
-}
-
-const category = detectCategory(`${planObject.summary} ${planObject.approach}`)
-const entry = {
-  title: planObject.summary.slice(0, 60),
-  sub_feature: detectSubFeature(getTasks(planObject)),
-  date: new Date().toISOString().split('T')[0],
-  description: planObject.approach.slice(0, 100),
-  status: previousExecutionResults.every(r => r.status === 'completed') ? 'completed' : 'partial',
-  session_id: executionContext?.session?.id || null
-}
-
-projectJson.development_index[category].push(entry)
-projectJson.statistics.last_updated = new Date().toISOString()
-Write(projectJsonPath, JSON.stringify(projectJson, null, 2))
-
-console.log(`✓ Development index: [${category}] ${entry.title}`)
-```
+Summary 取值优先级：`originalUserInput` → `planObject.summary` → git log 自动推断。
 
 ## Best Practices
 
@@ -811,7 +767,9 @@ Appended to `previousExecutionResults` array for context continuity in multi-exe
 
 ## Post-Completion Expansion
 
-完成后询问用户是否扩展为issue(test/enhance/refactor/doc)，选中项调用 `Skill(skill="issue:new", args="{summary} - {dimension}")`
+**Auto-sync**: 执行 `/workflow:session:sync -y "{summary}"` 更新 project-guidelines + project-tech（Step 6 已触发，此处不重复）。
+
+完成后询问用户是否扩展为issue(test/enhance/refactor/doc)，选中项调用 `/issue:new "{summary} - {dimension}"`
 
 **Fixed ID Pattern**: `${sessionId}-${groupId}` enables predictable lookup without auto-generated timestamps.
 

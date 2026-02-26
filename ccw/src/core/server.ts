@@ -114,7 +114,8 @@ function handlePostRequest(req: http.IncomingMessage, res: http.ServerResponse, 
 
   if (typeof cachedRawBody === 'string') {
     try {
-      void handleBody(JSON.parse(cachedRawBody));
+      const trimmed = cachedRawBody.trim();
+      void handleBody(trimmed.length === 0 ? {} : JSON.parse(cachedRawBody));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -128,7 +129,8 @@ function handlePostRequest(req: http.IncomingMessage, res: http.ServerResponse, 
   req.on('end', async () => {
     try {
       (req as any).__ccwRawBody = body;
-      const parsed = JSON.parse(body);
+      const trimmed = body.trim();
+      const parsed = trimmed.length === 0 ? {} : JSON.parse(body);
       (req as any).body = parsed;
       await handleBody(parsed);
     } catch (error: unknown) {

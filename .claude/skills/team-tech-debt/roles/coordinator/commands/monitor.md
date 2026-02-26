@@ -51,6 +51,7 @@ const sharedMemory = JSON.parse(Read(`${sessionFolder}/shared-memory.json`))
 
 let fixVerifyIteration = 0
 const MAX_FIX_VERIFY_ITERATIONS = 3
+let worktreeCreated = false
 
 // 获取 pipeline 阶段列表（按创建顺序 = 依赖顺序）
 const allTasks = TaskList()
@@ -113,7 +114,90 @@ for (const stageTask of pipelineTasks) {
     })
   }
 
-  // 5. 阶段间质量检查（仅 TDVAL 阶段）
+  // 5. Plan Approval Gate（TDPLAN 完成后，进入 TDFIX 前）
+  if (stagePrefix === 'TDPLAN' && taskState.status === 'completed') {
+    // 读取治理方案
+    let planContent = ''
+    try { planContent = Read(`${sessionFolder}/plan/remediation-plan.md`) } catch {}
+    if (!planContent) {
+      try { planContent = JSON.stringify(JSON.parse(Read(`${sessionFolder}/plan/remediation-plan.json`)), null, 2) } catch {}
+    }
+
+    mcp__ccw-tools__team_msg({
+      operation: "log", team: teamName, from: "coordinator",
+      to: "user", type: "plan_approval",
+      summary: `[coordinator] 治理方案已生成，等待审批`
+    })
+
+    if (!autoYes) {
+      // 输出方案摘要供用户审阅
+      // 注意: 方案内容通过 AskUserQuestion 的描述呈现
+      const approval = AskUserQuestion({
+        questions: [{
+          question: `治理方案已生成，请审阅后决定:\n\n${planContent ? planContent.slice(0, 2000) : '(方案文件未找到，请查看 ' + sessionFolder + '/plan/)'}${planContent && planContent.length > 2000 ? '\n\n... (已截断，完整方案见 ' + sessionFolder + '/plan/)' : ''}`,
+          header: "Plan Review",
+          multiSelect: false,
+          options: [
+            { label: "批准执行", description: "按此方案创建 worktree 并执行修复" },
+            { label: "修订方案", description: "重新规划（重新 spawn planner）" },
+            { label: "终止", description: "停止流水线，不执行修复" }
+          ]
+        }]
+      })
+
+      const planDecision = approval["Plan Review"]
+      if (planDecision === "修订方案") {
+        // 重新创建 TDPLAN 任务并 spawn planner
+        const revisedTask = TaskCreate({
+          subject: `TDPLAN-revised: 修订治理方案`,
+          description: `session: ${sessionFolder}\n需求: ${taskDescription}\n用户要求修订方案`,
+          activeForm: "Revising remediation plan"
+        })
+        TaskUpdate({ taskId: revisedTask.id, owner: 'planner', status: 'pending' })
+        // 将修订任务插入到当前位置之后重新执行
+        pipelineTasks.splice(pipelineTasks.indexOf(stageTask) + 1, 0, {
+          id: revisedTask.id,
+          subject: `TDPLAN-revised`,
+          description: revisedTask.description
+        })
+        continue  // 跳到下一阶段（即刚插入的修订任务）
+      } else if (planDecision === "终止") {
+        mcp__ccw-tools__team_msg({
+          operation: "log", team: teamName, from: "coordinator",
+          to: "user", type: "shutdown",
+          summary: `[coordinator] 用户终止流水线（方案审批阶段）`
+        })
+        break  // 退出 pipeline 循环
+      }
+      // "批准执行" → 继续
+    }
+  }
+
+  // 6. Worktree Creation（TDFIX 之前，方案已批准）
+  if (stagePrefix === 'TDFIX' && !worktreeCreated) {
+    const branchName = `tech-debt/TD-${sessionSlug}-${sessionDate}`
+    const worktreePath = `.worktrees/TD-${sessionSlug}-${sessionDate}`
+
+    // 创建 worktree 和新分支
+    Bash(`git worktree add -b "${branchName}" "${worktreePath}"`)
+
+    // 安装依赖（如有 package.json）
+    Bash(`cd "${worktreePath}" && npm install --ignore-scripts 2>/dev/null || true`)
+
+    // 存入 shared memory
+    sharedMemory.worktree = { path: worktreePath, branch: branchName }
+    Write(`${sessionFolder}/shared-memory.json`, JSON.stringify(sharedMemory, null, 2))
+
+    worktreeCreated = true
+
+    mcp__ccw-tools__team_msg({
+      operation: "log", team: teamName, from: "coordinator",
+      to: "user", type: "worktree_created",
+      summary: `[coordinator] Worktree 已创建: ${worktreePath} (branch: ${branchName})`
+    })
+  }
+
+  // 7. 阶段间质量检查（仅 TDVAL 阶段）
   if (stagePrefix === 'TDVAL') {
     const needsFixVerify = evaluateValidationResult(sessionFolder)
     if (needsFixVerify && fixVerifyIteration < MAX_FIX_VERIFY_ITERATIONS) {
@@ -130,6 +214,20 @@ for (const stageTask of pipelineTasks) {
 
 ```javascript
 function buildWorkerPrompt(stageTask, workerConfig, sessionFolder, taskDescription) {
+  const stagePrefix = stageTask.subject.match(/^(TD\w+)-/)?.[1] || 'TD'
+
+  // Worktree 注入（TDFIX 和 TDVAL 阶段）
+  let worktreeSection = ''
+  if (sharedMemory.worktree && (stagePrefix === 'TDFIX' || stagePrefix === 'TDVAL')) {
+    worktreeSection = `
+## Worktree（强制）
+- Worktree 路径: ${sharedMemory.worktree.path}
+- 分支: ${sharedMemory.worktree.branch}
+- **所有文件读取、修改、命令执行必须在 worktree 路径下进行**
+- 使用 \`cd "${sharedMemory.worktree.path}" && ...\` 前缀执行所有 Bash 命令
+- 禁止在主工作树中修改任何文件`
+  }
+
   return `你是 team "${teamName}" 的 ${workerConfig.role.toUpperCase()}。
 
 ## ⚠️ 首要指令（MUST）
@@ -142,9 +240,9 @@ Skill(skill="team-tech-debt", args="${workerConfig.skillArgs}")
 - 任务: ${stageTask.subject}
 - 描述: ${stageTask.description || taskDescription}
 - Session: ${sessionFolder}
-
+${worktreeSection}
 ## 角色准则（强制）
-- 你只能处理 ${stageTask.subject.match(/^(TD\w+)-/)?.[1] || 'TD'}-* 前缀的任务
+- 你只能处理 ${stagePrefix}-* 前缀的任务
 - 所有输出必须带 [${workerConfig.role}] 标识前缀
 - 仅与 coordinator 通信，不得直接联系其他 worker
 
@@ -238,13 +336,66 @@ function evaluateValidationResult(sessionFolder) {
 }
 ```
 
-### Step 3: Result Processing
+### Step 3: Result Processing + PR Creation
 
 ```javascript
 // 汇总所有结果
 const finalSharedMemory = JSON.parse(Read(`${sessionFolder}/shared-memory.json`))
 const allFinalTasks = TaskList()
 const workerTasks = allFinalTasks.filter(t => t.owner && t.owner !== 'coordinator')
+
+// PR 创建（worktree 执行模式下，验证通过后）
+if (finalSharedMemory.worktree && finalSharedMemory.validation_results?.passed) {
+  const { path: wtPath, branch } = finalSharedMemory.worktree
+
+  // Commit all changes in worktree
+  Bash(`cd "${wtPath}" && git add -A && git commit -m "$(cat <<'EOF'
+tech-debt: ${taskDescription}
+
+Automated tech debt cleanup via team-tech-debt pipeline.
+Mode: ${pipelineMode}
+Items fixed: ${finalSharedMemory.fix_results?.items_fixed || 0}
+Debt score: ${finalSharedMemory.debt_score_before} → ${finalSharedMemory.debt_score_after}
+EOF
+)"`)
+
+  // Push + Create PR
+  Bash(`cd "${wtPath}" && git push -u origin "${branch}"`)
+
+  const prTitle = `Tech Debt: ${taskDescription.slice(0, 50)}`
+  Bash(`cd "${wtPath}" && gh pr create --title "${prTitle}" --body "$(cat <<'EOF'
+## Tech Debt Cleanup
+
+**Mode**: ${pipelineMode}
+**Items fixed**: ${finalSharedMemory.fix_results?.items_fixed || 0}
+**Debt score**: ${finalSharedMemory.debt_score_before} → ${finalSharedMemory.debt_score_after}
+
+### Validation
+- Tests: ${finalSharedMemory.validation_results?.checks?.test_suite?.status || 'N/A'}
+- Types: ${finalSharedMemory.validation_results?.checks?.type_check?.status || 'N/A'}
+- Lint: ${finalSharedMemory.validation_results?.checks?.lint_check?.status || 'N/A'}
+
+### Session
+${sessionFolder}
+EOF
+)"`)
+
+  mcp__ccw-tools__team_msg({
+    operation: "log", team: teamName, from: "coordinator",
+    to: "user", type: "pr_created",
+    summary: `[coordinator] PR 已创建: branch ${branch}`
+  })
+
+  // Cleanup worktree
+  Bash(`git worktree remove "${wtPath}" 2>/dev/null || true`)
+} else if (finalSharedMemory.worktree && !finalSharedMemory.validation_results?.passed) {
+  mcp__ccw-tools__team_msg({
+    operation: "log", team: teamName, from: "coordinator",
+    to: "user", type: "quality_gate",
+    summary: `[coordinator] 验证未通过，worktree 保留于 ${finalSharedMemory.worktree.path}，请手动检查`
+  })
+}
+
 const summary = {
   total_tasks: workerTasks.length,
   completed_tasks: workerTasks.filter(t => t.status === 'completed').length,

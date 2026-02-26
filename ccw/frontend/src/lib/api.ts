@@ -104,11 +104,42 @@ export interface ApiError {
 // ========== CSRF Token Handling ==========
 
 /**
- * Get CSRF token from cookie
+ * In-memory CSRF token storage
+ * The token is obtained from X-CSRF-Token response header and stored here
+ * because the XSRF-TOKEN cookie is HttpOnly and cannot be read by JavaScript
+ */
+let csrfToken: string | null = null;
+
+/**
+ * Get CSRF token from memory
  */
 function getCsrfToken(): string | null {
-  const match = document.cookie.match(/XSRF-TOKEN=([^;]+)/);
-  return match ? decodeURIComponent(match[1]) : null;
+  return csrfToken;
+}
+
+/**
+ * Set CSRF token from response header
+ */
+function updateCsrfToken(response: Response): void {
+  const token = response.headers.get('X-CSRF-Token');
+  if (token) {
+    csrfToken = token;
+  }
+}
+
+/**
+ * Initialize CSRF token by fetching from server
+ * Should be called once on app initialization
+ */
+export async function initializeCsrfToken(): Promise<void> {
+  try {
+    const response = await fetch('/api/csrf-token', {
+      credentials: 'same-origin',
+    });
+    updateCsrfToken(response);
+  } catch (error) {
+    console.error('[CSRF] Failed to initialize CSRF token:', error);
+  }
 }
 
 // ========== Base Fetch Wrapper ==========
@@ -124,9 +155,9 @@ async function fetchApi<T>(
 
   // Add CSRF token for mutating requests
   if (options.method && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(options.method)) {
-    const csrfToken = getCsrfToken();
-    if (csrfToken) {
-      headers.set('X-CSRF-Token', csrfToken);
+    const token = getCsrfToken();
+    if (token) {
+      headers.set('X-CSRF-Token', token);
     }
   }
 
@@ -140,6 +171,9 @@ async function fetchApi<T>(
     headers,
     credentials: 'same-origin',
   });
+
+  // Update CSRF token from response header
+  updateCsrfToken(response);
 
   if (!response.ok) {
     const error: ApiError = {
@@ -1232,6 +1266,25 @@ export async function fetchSkillDetail(
 }
 
 /**
+ * Delete a skill
+ * @param skillName - Name of the skill to delete
+ * @param location - Location of the skill (project or user)
+ * @param projectPath - Optional project path
+ * @param cliType - CLI type (claude or codex)
+ */
+export async function deleteSkill(
+  skillName: string,
+  location: 'project' | 'user',
+  projectPath?: string,
+  cliType: 'claude' | 'codex' = 'claude'
+): Promise<{ success: boolean }> {
+  return fetchApi<{ success: boolean }>(`/api/skills/${encodeURIComponent(skillName)}`, {
+    method: 'DELETE',
+    body: JSON.stringify({ location, projectPath, cliType }),
+  });
+}
+
+/**
  * Validate a skill folder for import
  */
 export async function validateSkillImport(sourcePath: string): Promise<{
@@ -1261,6 +1314,42 @@ export async function createSkill(params: {
   return fetchApi('/api/skills/create', {
     method: 'POST',
     body: JSON.stringify(params),
+  });
+}
+
+/**
+ * Read a skill file content
+ */
+export async function readSkillFile(params: {
+  skillName: string;
+  fileName: string;
+  location: 'project' | 'user';
+  projectPath?: string;
+  cliType?: 'claude' | 'codex';
+}): Promise<{ content: string; fileName: string; path: string }> {
+  const { skillName, fileName, location, projectPath, cliType = 'claude' } = params;
+  const encodedSkillName = encodeURIComponent(skillName);
+  const url = `/api/skills/${encodedSkillName}/file?filename=${encodeURIComponent(fileName)}&location=${location}&cliType=${cliType}${projectPath ? `&path=${encodeURIComponent(projectPath)}` : ''}`;
+  return fetchApi(url);
+}
+
+/**
+ * Write a skill file content
+ */
+export async function writeSkillFile(params: {
+  skillName: string;
+  fileName: string;
+  content: string;
+  location: 'project' | 'user';
+  projectPath?: string;
+  cliType?: 'claude' | 'codex';
+}): Promise<{ success: boolean; fileName: string; path: string }> {
+  const { skillName, fileName, content, location, projectPath, cliType = 'claude' } = params;
+  const encodedSkillName = encodeURIComponent(skillName);
+  const url = `/api/skills/${encodedSkillName}/file`;
+  return fetchApi(url, {
+    method: 'POST',
+    body: JSON.stringify({ content, fileName, location, projectPath, cliType }),
   });
 }
 
@@ -1975,7 +2064,30 @@ export interface NativeSession {
 }
 
 /**
- * Fetch native CLI session content by execution ID
+ * Options for fetching native session
+ */
+export interface FetchNativeSessionOptions {
+  executionId?: string;
+  projectPath?: string;
+  /** Direct file path to session file (bypasses ccw execution ID lookup) */
+  filePath?: string;
+  /** Tool type for file path query: claude | opencode | codex | qwen | gemini | auto */
+  tool?: 'claude' | 'opencode' | 'codex' | 'qwen' | 'gemini' | 'auto';
+  /** Output format: json (default) | text | pairs */
+  format?: 'json' | 'text' | 'pairs';
+  /** Include thoughts in text format */
+  thoughts?: boolean;
+  /** Include tool calls in text format */
+  tools?: boolean;
+  /** Include token counts in text format */
+  tokens?: boolean;
+}
+
+/**
+ * Fetch native CLI session content by execution ID or file path
+ * @param executionId - CCW execution ID (backward compatible)
+ * @param projectPath - Optional project path
+ * @deprecated Use fetchNativeSessionWithOptions for new features
  */
 export async function fetchNativeSession(
   executionId: string,
@@ -1985,6 +2097,88 @@ export async function fetchNativeSession(
   if (projectPath) params.set('path', projectPath);
   return fetchApi<NativeSession>(
     `/api/cli/native-session?${params.toString()}`
+  );
+}
+
+/**
+ * Fetch native CLI session content with full options
+ * Supports both execution ID lookup and direct file path query
+ */
+export async function fetchNativeSessionWithOptions(
+  options: FetchNativeSessionOptions
+): Promise<NativeSession | string | Array<{ turn: number; userPrompt: string; assistantResponse: string; timestamp: string }>> {
+  const params = new URLSearchParams();
+
+  // Priority: filePath > executionId
+  if (options.filePath) {
+    params.set('filePath', options.filePath);
+    if (options.tool) params.set('tool', options.tool);
+  } else if (options.executionId) {
+    params.set('id', options.executionId);
+  } else {
+    throw new Error('Either executionId or filePath is required');
+  }
+
+  if (options.projectPath) params.set('path', options.projectPath);
+  if (options.format) params.set('format', options.format);
+  if (options.thoughts) params.set('thoughts', 'true');
+  if (options.tools) params.set('tools', 'true');
+  if (options.tokens) params.set('tokens', 'true');
+
+  const url = `/api/cli/native-session?${params.toString()}`;
+
+  // Text format returns string, others return JSON
+  if (options.format === 'text') {
+    const response = await fetch(url, { credentials: 'same-origin' });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Request failed' }));
+      throw new Error(error.error || response.statusText);
+    }
+    return response.text();
+  }
+
+  return fetchApi<NativeSession | Array<{ turn: number; userPrompt: string; assistantResponse: string; timestamp: string }>>(url);
+}
+
+// ========== Native Sessions List API ==========
+
+/**
+ * Native session metadata for list endpoint
+ */
+export interface NativeSessionListItem {
+  id: string;
+  tool: string;
+  path: string;
+  title?: string;
+  startTime: string;
+  updatedAt: string;
+  projectHash?: string;
+}
+
+/**
+ * Native sessions list response
+ */
+export interface NativeSessionsListResponse {
+  sessions: NativeSessionListItem[];
+  count: number;
+}
+
+/**
+ * Fetch list of native CLI sessions
+ * @param tool - Filter by tool type (optional)
+ * @param project - Filter by project path (optional)
+ */
+export async function fetchNativeSessions(
+  tool?: 'gemini' | 'qwen' | 'codex' | 'claude' | 'opencode',
+  project?: string
+): Promise<NativeSessionsListResponse> {
+  const params = new URLSearchParams();
+  if (tool) params.set('tool', tool);
+  if (project) params.set('project', project);
+
+  const query = params.toString();
+  return fetchApi<NativeSessionsListResponse>(
+    `/api/cli/native-sessions${query ? `?${query}` : ''}`
   );
 }
 
@@ -5879,10 +6073,31 @@ export async function previewYamlConfig(): Promise<{ success: boolean; config: s
 
 // ========== CCW-LiteLLM Package Management ==========
 
+export interface CcwLitellmEnvCheck {
+  python: string;
+  installed: boolean;
+  version?: string;
+  error?: string;
+}
+
+export interface CcwLitellmStatus {
+  /**
+   * Whether ccw-litellm is installed in the CodexLens venv.
+   * This is the environment used for the LiteLLM embedding backend.
+   */
+  installed: boolean;
+  version?: string;
+  error?: string;
+  checks?: {
+    codexLensVenv: CcwLitellmEnvCheck;
+    systemPython?: CcwLitellmEnvCheck;
+  };
+}
+
 /**
  * Check ccw-litellm status
  */
-export async function checkCcwLitellmStatus(refresh = false): Promise<{ installed: boolean; version?: string; error?: string }> {
+export async function checkCcwLitellmStatus(refresh = false): Promise<CcwLitellmStatus> {
   return fetchApi(`/api/litellm-api/ccw-litellm/status${refresh ? '?refresh=true' : ''}`);
 }
 
@@ -5910,23 +6125,50 @@ export async function uninstallCcwLitellm(): Promise<{ success: boolean; message
  * CLI Settings (Claude CLI endpoint configuration)
  * Maps to backend EndpointSettings from /api/cli/settings
  */
+/**
+ * CLI Provider type
+ */
+export type CliProvider = 'claude' | 'codex' | 'gemini';
+
+/**
+ * Base settings fields shared across all providers
+ */
+export interface CliSettingsBase {
+  env: Record<string, string | undefined>;
+  model?: string;
+  tags?: string[];
+  availableModels?: string[];
+}
+
+/**
+ * Claude-specific settings
+ */
+export interface ClaudeCliSettingsApi extends CliSettingsBase {
+  settingsFile?: string;
+}
+
+/**
+ * Codex-specific settings
+ */
+export interface CodexCliSettingsApi extends CliSettingsBase {
+  profile?: string;
+  authJson?: string;
+  configToml?: string;
+}
+
+/**
+ * Gemini-specific settings
+ */
+export interface GeminiCliSettingsApi extends CliSettingsBase {
+}
+
 export interface CliSettingsEndpoint {
   id: string;
   name: string;
   description?: string;
-  settings: {
-    env: {
-      ANTHROPIC_AUTH_TOKEN?: string;
-      ANTHROPIC_BASE_URL?: string;
-      DISABLE_AUTOUPDATER?: string;
-      [key: string]: string | undefined;
-    };
-    model?: string;
-    includeCoAuthoredBy?: boolean;
-    settingsFile?: string;
-    availableModels?: string[];
-    tags?: string[];
-  };
+  /** CLI provider type (defaults to 'claude' for backward compat) */
+  provider: CliProvider;
+  settings: ClaudeCliSettingsApi | CodexCliSettingsApi | GeminiCliSettingsApi;
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
@@ -5947,19 +6189,9 @@ export interface SaveCliSettingsRequest {
   id?: string;
   name: string;
   description?: string;
-  settings: {
-    env: {
-      ANTHROPIC_AUTH_TOKEN?: string;
-      ANTHROPIC_BASE_URL?: string;
-      DISABLE_AUTOUPDATER?: string;
-      [key: string]: string | undefined;
-    };
-    model?: string;
-    includeCoAuthoredBy?: boolean;
-    settingsFile?: string;
-    availableModels?: string[];
-    tags?: string[];
-  };
+  /** CLI provider type */
+  provider?: CliProvider;
+  settings: ClaudeCliSettingsApi | CodexCliSettingsApi | GeminiCliSettingsApi;
   enabled?: boolean;
 }
 
@@ -6021,6 +6253,54 @@ export async function toggleCliSettingsEnabled(endpointId: string, enabled: bool
  */
 export async function getCliSettingsPath(endpointId: string): Promise<{ endpointId: string; filePath: string; enabled: boolean }> {
   return fetchApi(`/api/cli/settings/${encodeURIComponent(endpointId)}/path`);
+}
+
+// ========== CLI Config Preview API ==========
+
+/**
+ * Codex config preview response
+ */
+export interface CodexConfigPreviewResponse {
+  /** Whether preview was successful */
+  success: boolean;
+  /** Path to config.toml */
+  configPath: string;
+  /** Path to auth.json */
+  authPath: string;
+  /** config.toml content with sensitive values masked */
+  configToml: string | null;
+  /** auth.json content with API keys masked */
+  authJson: string | null;
+  /** Error messages if any files could not be read */
+  errors?: string[];
+}
+
+/**
+ * Gemini config preview response
+ */
+export interface GeminiConfigPreviewResponse {
+  /** Whether preview was successful */
+  success: boolean;
+  /** Path to settings.json */
+  settingsPath: string;
+  /** settings.json content with sensitive values masked */
+  settingsJson: string | null;
+  /** Error messages if file could not be read */
+  errors?: string[];
+}
+
+/**
+ * Fetch Codex config files preview (config.toml and auth.json)
+ */
+export async function fetchCodexConfigPreview(): Promise<CodexConfigPreviewResponse> {
+  return fetchApi('/api/cli/settings/codex/preview');
+}
+
+/**
+ * Fetch Gemini settings file preview (settings.json)
+ */
+export async function fetchGeminiConfigPreview(): Promise<GeminiConfigPreviewResponse> {
+  return fetchApi('/api/cli/settings/gemini/preview');
 }
 
 // ========== Orchestrator Execution Monitoring API ==========
@@ -6355,6 +6635,68 @@ export async function upgradeCcwInstallation(
   });
 }
 
+// ========== CLI Settings Export/Import API ==========
+
+/**
+ * Exported settings structure from backend
+ */
+export interface ExportedSettings {
+  version: string;
+  exportedAt: string;
+  settings: {
+    cliTools?: Record<string, unknown>;
+    chineseResponse?: {
+      claudeEnabled: boolean;
+      codexEnabled: boolean;
+    };
+    windowsPlatform?: {
+      enabled: boolean;
+    };
+    codexCliEnhancement?: {
+      enabled: boolean;
+    };
+  };
+}
+
+/**
+ * Import options for settings import
+ */
+export interface ImportOptions {
+  overwrite?: boolean;
+  dryRun?: boolean;
+}
+
+/**
+ * Import result from backend
+ */
+export interface ImportResult {
+  success: boolean;
+  imported: number;
+  skipped: number;
+  errors: string[];
+  importedIds: string[];
+}
+
+/**
+ * Export CLI settings to JSON file
+ */
+export async function exportSettings(): Promise<ExportedSettings> {
+  return fetchApi('/api/cli/settings/export');
+}
+
+/**
+ * Import CLI settings from JSON data
+ */
+export async function importSettings(
+  data: ExportedSettings,
+  options?: ImportOptions
+): Promise<ImportResult> {
+  return fetchApi('/api/cli/settings/import', {
+    method: 'POST',
+    body: JSON.stringify({ data, options }),
+  });
+}
+
 // ========== CCW Tools API ==========
 
 /**
@@ -6455,6 +6797,8 @@ export interface CreateCliSessionInput {
   resumeKey?: string;
   /** Launch mode for native CLI sessions (default or yolo). */
   launchMode?: 'default' | 'yolo';
+  /** Settings endpoint ID for injecting env vars and settings into CLI process. */
+  settingsEndpointId?: string;
 }
 
 function withPath(url: string, projectPath?: string): string {

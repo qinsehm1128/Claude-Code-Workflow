@@ -8,6 +8,14 @@
     "title": "禁用技能?",
     "message": "确定要禁用 \"{name}\" 吗?"
   },
+  "deleteConfirm": {
+    "title": "删除技能?",
+    "message": "确定要删除 \"{name}\" 吗? 此操作无法撤销。"
+  },
+  "delete": {
+    "success": "技能 \"{name}\" 已删除",
+    "error": "删除技能失败: {error}"
+  },
   "location": {
     "project": "项目",
     "user": "全局",
@@ -25,8 +33,10 @@
     "disable": "禁用",
     "toggle": "切换",
     "install": "安装技能",
+    "delete": "删除",
     "cancel": "取消",
-    "confirmDisable": "禁用"
+    "confirmDisable": "禁用",
+    "confirmDelete": "删除"
   },
   "state": {
     "enabled": "已启用",

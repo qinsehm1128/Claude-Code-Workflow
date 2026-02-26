@@ -75,7 +75,8 @@ export function SessionGroupTree() {
         const focusedPaneId = useTerminalGridStore.getState().focusedPaneId;
         const targetPaneId = focusedPaneId || Object.keys(panes)[0];
         if (targetPaneId) {
-          assignSession(targetPaneId, sessionId);
+          const session = sessions[sessionId];
+          assignSession(targetPaneId, sessionId, session?.cliTool ?? session?.tool ?? null);
           setFocused(targetPaneId);
         }
       }

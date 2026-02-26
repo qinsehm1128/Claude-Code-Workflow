@@ -107,6 +107,11 @@ export function TerminalInstance({ sessionId, className, onRevealPath }: Termina
   const projectPathRef = useRef<string | null>(projectPath);
   projectPathRef.current = projectPath;
 
+  // Focus terminal when clicked
+  const handleTerminalClick = useCallback(() => {
+    xtermRef.current?.focus();
+  }, []);
+
   const handleArtifactClick = useCallback((path: string) => {
     const resolved = resolveArtifactPath(path, projectPathRef.current);
     navigator.clipboard.writeText(resolved).catch((err) => {
@@ -313,7 +318,7 @@ export function TerminalInstance({ sessionId, className, onRevealPath }: Termina
           ))}
         </div>
       )}
-      <div ref={terminalHostRef} className="h-full w-full bg-black/90" />
+      <div ref={terminalHostRef} className="h-full w-full bg-black/90" onClick={handleTerminalClick} />
     </div>
   );
 }

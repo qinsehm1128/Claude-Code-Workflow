@@ -322,6 +322,7 @@
   "ccwLitellm": {
     "title": "CCW-LiteLLM Package",
     "description": "Manage ccw-litellm Python package installation",
+    "systemPythonMismatch": "Detected ccw-litellm installed in system Python, but not in the CodexLens venv (~/.codexlens/venv). Click Install to install it into the venv.",
     "status": {
       "installed": "Installed",
       "notInstalled": "Not Installed",

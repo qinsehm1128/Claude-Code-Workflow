@@ -112,6 +112,10 @@
       "session-end-summary": {
         "name": "会话结束摘要",
         "description": "会话结束时发送摘要到仪表盘"
+      },
+      "project-state-inject": {
+        "name": "项目状态注入",
+        "description": "会话启动时注入项目约束和最近开发历史"
       }
     },
     "actions": {

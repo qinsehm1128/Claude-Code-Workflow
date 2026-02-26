@@ -35,6 +35,10 @@ Phase 5: Fix & Verification
 
 ## Phase 1: Bug Analysis
 
+**Load Project Context** (from init.md products):
+- Read `.workflow/project-tech.json` (if exists) for tech stack context
+- Read `.workflow/project-guidelines.json` (if exists) for coding constraints
+
 **Session Setup**:
 ```javascript
 const bugSlug = bug_description.toLowerCase().replace(/[^a-z0-9]+/g, '-').substring(0, 30)

@@ -7,7 +7,6 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useNotificationStore } from '@/stores';
 import { useExecutionStore } from '@/stores/executionStore';
 import { useFlowStore } from '@/stores';
-import { useCliStreamStore } from '@/stores/cliStreamStore';
 import { useCliSessionStore } from '@/stores/cliSessionStore';
 import {
   handleSessionLockedMessage,
@@ -36,7 +35,6 @@ function getStoreState() {
   const notification = useNotificationStore.getState();
   const execution = useExecutionStore.getState();
   const flow = useFlowStore.getState();
-  const cliStream = useCliStreamStore.getState();
   const cliSessions = useCliSessionStore.getState();
   return {
     // Notification store
@@ -64,8 +62,6 @@ function getStoreState() {
     addNodeOutput: execution.addNodeOutput,
     // Flow store
     updateNode: flow.updateNode,
-    // CLI stream store
-    addOutput: cliStream.addOutput,
 
     // CLI session store (PTY-backed terminal)
     upsertCliSession: cliSessions.upsertSession,
@@ -167,18 +163,6 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         // Handle CLI messages
         if (data.type?.startsWith('CLI_')) {
           switch (data.type) {
-            case 'CLI_STARTED': {
-              const { executionId, tool, mode, timestamp } = data.payload;
-
-              // Add system message for CLI start
-              stores.addOutput(executionId, {
-                type: 'system',
-                content: `[${new Date(timestamp).toLocaleTimeString()}] CLI execution started: ${tool} (${mode || 'default'} mode)`,
-                timestamp: Date.now(),
-              });
-              break;
-            }
-
             // ========== PTY CLI Sessions ==========
             case 'CLI_SESSION_CREATED': {
               const session = data.payload?.session;
@@ -245,7 +229,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
             }
 
             case 'CLI_OUTPUT': {
-              const { executionId, chunkType, data: outputData, unit } = data.payload;
+              const { chunkType, data: outputData, unit } = data.payload;
 
               // Handle structured output
               const unitContent = unit?.content || outputData;
@@ -301,33 +285,6 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
                 }
               }
 
-              // ========== Legacy CLI Stream Output ==========
-              // Split by lines and add each line to cliStreamStore
-              const lines = content.split('\n');
-              lines.forEach((line: string) => {
-                // Add non-empty lines, or single line if that's all we have
-                if (line.trim() || lines.length === 1) {
-                  stores.addOutput(executionId, {
-                    type: unitType as any,
-                    content: line,
-                    timestamp: Date.now(),
-                  });
-                }
-              });
-              break;
-            }
-
-            case 'CLI_COMPLETED': {
-              const { executionId, success, duration } = data.payload;
-
-              const statusText = success ? 'completed successfully' : 'failed';
-              const durationText = duration ? ` (${duration}ms)` : '';
-
-              stores.addOutput(executionId, {
-                type: 'system',
-                content: `[${new Date().toLocaleTimeString()}] CLI execution ${statusText}${durationText}`,
-                timestamp: Date.now(),
-              });
               break;
             }
           }

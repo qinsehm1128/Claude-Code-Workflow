@@ -15,6 +15,8 @@ import { getCliSessionPolicy } from './cli-session-policy.js';
 import { appendCliSessionAudit } from './cli-session-audit.js';
 import { getLaunchConfig } from './cli-launch-registry.js';
 import { assembleInstruction, type InstructionType } from './cli-instruction-assembler.js';
+import { loadEndpointSettings } from '../../config/cli-settings-manager.js';
+import { getToolConfig } from '../../tools/claude-cli-tools.js';
 
 export interface CliSession {
   sessionKey: string;
@@ -41,6 +43,8 @@ export interface CreateCliSessionOptions {
   resumeKey?: string;
   /** Launch mode for native CLI sessions. */
   launchMode?: 'default' | 'yolo';
+  /** Settings endpoint ID for injecting env vars and settings into CLI process. */
+  settingsEndpointId?: string;
 }
 
 export interface ExecuteInCliSessionOptions {
@@ -221,15 +225,56 @@ export class CliSessionManager {
     let args: string[];
     let cliTool: string | undefined;
 
+    // Load settings endpoint env vars and extra args if specified
+    let endpointEnv: Record<string, string> = {};
+    let endpointExtraArgs: string[] = [];
+
+    if (options.settingsEndpointId) {
+      try {
+        const endpoint = loadEndpointSettings(options.settingsEndpointId);
+        if (endpoint) {
+          // Merge env vars (skip undefined/empty values)
+          for (const [key, value] of Object.entries(endpoint.settings.env)) {
+            if (value !== undefined && value !== '') {
+              endpointEnv[key] = value;
+            }
+          }
+          // Provider-specific argument injection
+          const provider = endpoint.provider || 'claude';
+          if (provider === 'claude' && 'settingsFile' in endpoint.settings && endpoint.settings.settingsFile) {
+            endpointExtraArgs.push('--settings', endpoint.settings.settingsFile);
+          } else if (provider === 'codex' && 'profile' in endpoint.settings && endpoint.settings.profile) {
+            endpointExtraArgs.push('--profile', endpoint.settings.profile);
+          }
+          // Gemini: env vars only, no extra CLI flags
+        }
+      } catch (err) {
+        console.warn('[CliSessionManager] Failed to load settings endpoint:', options.settingsEndpointId, err);
+      }
+    } else if (options.tool) {
+      // Fallback: read settingsFile from cli-tools.json for the tool
+      try {
+        const toolConfig = getToolConfig(this.projectRoot, options.tool);
+        if (options.tool === 'claude' && toolConfig.settingsFile) {
+          endpointExtraArgs.push('--settings', toolConfig.settingsFile);
+        }
+      } catch (err) {
+        // Non-fatal: continue without settings file
+      }
+    }
+
     if (options.tool) {
       // Native CLI interactive session: spawn the CLI process directly
       const launchMode = options.launchMode ?? 'default';
       const config = getLaunchConfig(options.tool, launchMode);
       cliTool = options.tool;
 
+      // Append endpoint-specific extra args (e.g., --settings for claude)
+      const allArgs = [...config.args, ...endpointExtraArgs];
+
       // Build the full command string with arguments
-      const fullCommand = config.args.length > 0
-        ? `${config.command} ${config.args.join(' ')}`
+      const fullCommand = allArgs.length > 0
+        ? `${config.command} ${allArgs.join(' ')}`
         : config.command;
 
       // On Windows, CLI tools installed via npm are typically .cmd files.
@@ -275,7 +320,7 @@ export class CliSessionManager {
         // Unix: direct spawn works for most CLI tools
         shellKind = 'git-bash';
         file = config.command;
-        args = config.args;
+        args = allArgs;
       }
 
     } else {
@@ -289,6 +334,16 @@ export class CliSessionManager {
       args = picked.args;
     }
 
+    // Merge endpoint env vars with process.env (endpoint overrides process.env)
+    const spawnEnv: Record<string, string | undefined> = {
+      ...(process.env as Record<string, string>),
+      ...endpointEnv,
+    };
+
+    // Unset CLAUDECODE to allow nested Claude Code sessions (SDK/subagent use case)
+    // See: https://github.com/anthropics/claude-agent-sdk-python/issues/573
+    delete spawnEnv.CLAUDECODE;
+
     let pty: nodePty.IPty;
     try {
       pty = nodePty.spawn(file, args, {
@@ -296,7 +351,7 @@ export class CliSessionManager {
         cols: options.cols ?? 120,
         rows: options.rows ?? 30,
         cwd: workingDir,
-        env: process.env as Record<string, string>
+        env: spawnEnv
       });
     } catch (spawnError: unknown) {
       const errorMsg = spawnError instanceof Error ? spawnError.message : String(spawnError);

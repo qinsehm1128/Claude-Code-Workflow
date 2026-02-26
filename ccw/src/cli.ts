@@ -293,6 +293,8 @@ export function run(argv: string[]): void {
     .option('--session-id <id>', 'Session ID')
     .option('--prompt <text>', 'Prompt text')
     .option('--type <type>', 'Context type: session-start, context')
+    .option('--path <path>', 'File or project path')
+    .option('--limit <n>', 'Max entries to return (for project-state)')
     .action((subcommand, args, options) => hookCommand(subcommand, args, options));
 
   // Issue command - Issue lifecycle management with JSONL task tracking

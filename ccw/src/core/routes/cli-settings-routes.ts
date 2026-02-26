@@ -3,6 +3,10 @@
  * Handles Claude CLI settings file management API endpoints
  */
 
+import { homedir } from 'os';
+import { readFileSync, existsSync } from 'fs';
+import { join } from 'path';
+
 import type { RouteContext } from './types.js';
 import {
   saveEndpointSettings,
@@ -12,11 +16,136 @@ import {
   toggleEndpointEnabled,
   getSettingsFilePath,
   ensureSettingsDir,
-  sanitizeEndpointId
+  sanitizeEndpointId,
+  exportAllSettings,
+  importSettings
 } from '../../config/cli-settings-manager.js';
-import type { SaveEndpointRequest } from '../../types/cli-settings.js';
+import type { SaveEndpointRequest, ImportOptions } from '../../types/cli-settings.js';
 import { validateSettings } from '../../types/cli-settings.js';
 import { syncBuiltinToolsAvailability, getBuiltinToolsSyncReport } from '../../tools/claude-cli-tools.js';
+
+/**
+ * Mask sensitive values (API keys) for display
+ * Shows first 8 characters, masks the rest with asterisks
+ */
+function maskSensitiveValue(value: string): string {
+  if (!value || value.length <= 8) {
+    return value;
+  }
+  return value.substring(0, 8) + '*'.repeat(value.length - 8);
+}
+
+/**
+ * Mask API keys in JSON content
+ */
+function maskJsonApiKeys(content: string): string {
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed && typeof parsed === 'object') {
+      // Mask common API key fields
+      const sensitiveFields = ['api_key', 'apiKey', 'API_KEY', 'OPENAI_API_KEY', 'token', 'auth_token'];
+      for (const field of sensitiveFields) {
+        if (parsed[field] && typeof parsed[field] === 'string') {
+          parsed[field] = maskSensitiveValue(parsed[field]);
+        }
+      }
+      // Handle nested objects (e.g., api key in providers)
+      if (parsed.providers && Array.isArray(parsed.providers)) {
+        parsed.providers = parsed.providers.map((provider: any) => {
+          if (provider.api_key) {
+            return { ...provider, api_key: maskSensitiveValue(provider.api_key) };
+          }
+          return provider;
+        });
+      }
+      return JSON.stringify(parsed, null, 2);
+    }
+  } catch {
+    // If not valid JSON, return as-is
+  }
+  return content;
+}
+
+/**
+ * Mask API keys in TOML content
+ */
+function maskTomlApiKeys(content: string): string {
+  // Match patterns like api_key = "value" or apiKey = "value"
+  return content.replace(
+    /(api[_-]?key|apiKey|API_KEY|token|auth_token)\s*=\s*["']([^"']+)["']/gi,
+    (match, key, value) => {
+      return `${key} = "${maskSensitiveValue(value)}"`;
+    }
+  );
+}
+
+/**
+ * Read and mask Codex config files for preview
+ */
+function readCodexConfigPreview(): { configToml: string | null; authJson: string | null; errors: string[] } {
+  const home = homedir();
+  const codexDir = join(home, '.codex');
+  const result: { configToml: string | null; authJson: string | null; errors: string[] } = {
+    configToml: null,
+    authJson: null,
+    errors: []
+  };
+
+  // Read config.toml
+  const configTomlPath = join(codexDir, 'config.toml');
+  if (existsSync(configTomlPath)) {
+    try {
+      const content = readFileSync(configTomlPath, 'utf-8');
+      result.configToml = maskTomlApiKeys(content);
+    } catch (err) {
+      result.errors.push(`Failed to read config.toml: ${(err as Error).message}`);
+    }
+  } else {
+    result.errors.push('config.toml not found');
+  }
+
+  // Read auth.json
+  const authJsonPath = join(codexDir, 'auth.json');
+  if (existsSync(authJsonPath)) {
+    try {
+      const content = readFileSync(authJsonPath, 'utf-8');
+      result.authJson = maskJsonApiKeys(content);
+    } catch (err) {
+      result.errors.push(`Failed to read auth.json: ${(err as Error).message}`);
+    }
+  } else {
+    result.errors.push('auth.json not found');
+  }
+
+  return result;
+}
+
+/**
+ * Read and mask Gemini settings file for preview
+ */
+function readGeminiConfigPreview(): { settingsJson: string | null; errors: string[] } {
+  const home = homedir();
+  const geminiDir = join(home, '.gemini');
+  const result: { settingsJson: string | null; errors: string[] } = {
+    settingsJson: null,
+    errors: []
+  };
+
+  // Read settings.json
+  const settingsPath = join(geminiDir, 'settings.json');
+  if (existsSync(settingsPath)) {
+    try {
+      const content = readFileSync(settingsPath, 'utf-8');
+      result.settingsJson = maskJsonApiKeys(content);
+    } catch (err) {
+      result.errors.push(`Failed to read settings.json: ${(err as Error).message}`);
+    }
+  } else {
+    result.errors.push('settings.json not found');
+  }
+
+  return result;
+}
 
 /**
  * Handle CLI Settings routes
@@ -56,8 +185,8 @@ export async function handleCliSettingsRoutes(ctx: RouteContext): Promise<boolea
         if (!request.settings || !request.settings.env) {
           return { error: 'settings.env is required', status: 400 };
         }
-        // Deep validation of settings object
-        if (!validateSettings(request.settings)) {
+        // Deep validation of settings object (provider-aware)
+        if (!validateSettings(request.settings, request.provider)) {
           return { error: 'Invalid settings object format', status: 400 };
         }
 
@@ -268,6 +397,107 @@ export async function handleCliSettingsRoutes(ctx: RouteContext): Promise<boolea
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(report));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: (err as Error).message }));
+    }
+    return true;
+  }
+
+  // ========== EXPORT SETTINGS ==========
+  // GET /api/cli/settings/export
+  if (pathname === '/api/cli/settings/export' && req.method === 'GET') {
+    try {
+      const exportData = exportAllSettings();
+      const jsonContent = JSON.stringify(exportData, null, 2);
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
+      const filename = `cli-settings-export-${timestamp}.json`;
+
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Content-Length': Buffer.byteLength(jsonContent, 'utf-8')
+      });
+      res.end(jsonContent);
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: (err as Error).message }));
+    }
+    return true;
+  }
+
+  // ========== IMPORT SETTINGS ==========
+  // POST /api/cli/settings/import
+  if (pathname === '/api/cli/settings/import' && req.method === 'POST') {
+    handlePostRequest(req, res, async (body: unknown) => {
+      try {
+        // Extract import options and data from request
+        const request = body as { data?: unknown; options?: ImportOptions };
+
+        if (!request.data) {
+          return { error: 'Missing export data in request body', status: 400 };
+        }
+
+        const result = importSettings(request.data, request.options);
+
+        if (result.success) {
+          // Broadcast import event
+          broadcastToClients({
+            type: 'CLI_SETTINGS_IMPORTED',
+            payload: {
+              imported: result.imported,
+              skipped: result.skipped,
+              importedIds: result.importedIds,
+              timestamp: new Date().toISOString()
+            }
+          });
+        }
+
+        return result;
+      } catch (err) {
+        return { error: (err as Error).message, status: 500 };
+      }
+    });
+    return true;
+  }
+
+  // ========== CODEX CONFIG PREVIEW ==========
+  // GET /api/cli/settings/codex/preview
+  if (pathname === '/api/cli/settings/codex/preview' && req.method === 'GET') {
+    try {
+      const preview = readCodexConfigPreview();
+      const home = homedir();
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: true,
+        configPath: join(home, '.codex', 'config.toml'),
+        authPath: join(home, '.codex', 'auth.json'),
+        configToml: preview.configToml,
+        authJson: preview.authJson,
+        errors: preview.errors.length > 0 ? preview.errors : undefined
+      }));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: (err as Error).message }));
+    }
+    return true;
+  }
+
+  // ========== GEMINI CONFIG PREVIEW ==========
+  // GET /api/cli/settings/gemini/preview
+  if (pathname === '/api/cli/settings/gemini/preview' && req.method === 'GET') {
+    try {
+      const preview = readGeminiConfigPreview();
+      const home = homedir();
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: true,
+        settingsPath: join(home, '.gemini', 'settings.json'),
+        settingsJson: preview.settingsJson,
+        errors: preview.errors.length > 0 ? preview.errors : undefined
+      }));
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: (err as Error).message }));

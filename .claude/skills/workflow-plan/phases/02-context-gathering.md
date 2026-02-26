@@ -96,16 +96,14 @@ Execute **${angle}** exploration for task planning context. Analyze codebase fro
 - **Exploration Index**: ${index + 1} of ${selectedAngles.length}
 - **Output File**: ${sessionFolder}/exploration-${angle}.json
 
-## MANDATORY FIRST STEPS (Execute by Agent)
-1. Run: ccw tool exec get_modules_by_depth '{}' (project structure)
-2. Run: rg -l "{keyword_from_task}" --type ts (locate relevant files)
-3. Execute: cat ~/.ccw/workflows/cli-templates/schemas/explore-json-schema.json (get output schema reference)
+## Agent Initialization
+The cli-explore-agent autonomously executes project structure discovery, schema loading, project context loading, and keyword search as part of its Phase 1 initialization. No manual steps needed.
 
 ## Exploration Strategy (${angle} focus)
 
 **Step 1: Structural Scan** (Bash)
-- get_modules_by_depth.sh -> identify modules related to ${angle}
-- find/rg -> locate files relevant to ${angle} aspect
+- Identify modules related to ${angle}
+- Locate files relevant to ${angle} aspect
 - Analyze imports/dependencies from ${angle} perspective
 
 **Step 2: Semantic Analysis** (Gemini CLI)
@@ -121,28 +119,13 @@ Execute **${angle}** exploration for task planning context. Analyze codebase fro
 
 **File**: ${sessionFolder}/exploration-${angle}.json
 
-**Schema Reference**: Schema obtained in MANDATORY FIRST STEPS step 3, follow schema exactly
-
 **Required Fields** (all ${angle} focused):
-- project_structure: Modules/architecture relevant to ${angle}
-- relevant_files: Files affected from ${angle} perspective
-  **MANDATORY**: Every file MUST use structured object format with ALL required fields:
-  [{path: "src/file.ts", relevance: 0.85, rationale: "Contains AuthService.login()", role: "modify_target", discovery_source: "bash-scan", key_symbols: ["AuthService", "login"]}]
-  - **rationale** (required): Specific selection basis tied to ${angle} topic (>10 chars, not generic)
-  - **role** (required): modify_target|dependency|pattern_reference|test_target|type_definition|integration_point|config|context_only
-  - **discovery_source** (recommended): bash-scan|cli-analysis|ace-search|dependency-trace|manual
-  - **key_symbols** (recommended): Key functions/classes/types in the file relevant to the task
-  - Scores: 0.7+ high priority, 0.5-0.7 medium, <0.5 low
-- patterns: ${angle}-related patterns to follow
-- dependencies: Dependencies relevant to ${angle}
-- integration_points: Where to integrate from ${angle} viewpoint (include file:line locations)
-- constraints: ${angle}-specific limitations/conventions
-- clarification_needs: ${angle}-related ambiguities (options array + recommended index)
-- _metadata.exploration_angle: "${angle}"
+- Follow explore-json-schema.json exactly (loaded during agent initialization)
+- All fields scoped to ${angle} perspective
+- Ensure rationale is specific to ${angle} topic (not generic)
+- Include file:line locations in integration_points
 
 ## Success Criteria
-- [ ] Schema obtained via cat explore-json-schema.json
-- [ ] get_modules_by_depth.sh executed
 - [ ] At least 3 relevant files identified with ${angle} rationale
 - [ ] Patterns are actionable (code examples, not generic advice)
 - [ ] Integration points include file:line locations
@@ -217,84 +200,34 @@ This is the PRIMARY context source - all subsequent analysis must align with use
 - **Complexity**: ${complexity}
 
 ## Mission
-Execute complete context-search-agent workflow for implementation planning:
+Execute complete context-search-agent workflow (Phase 1-3) for implementation planning.
 
-### Phase 1: Initialization & Pre-Analysis
-1. **Project State Loading**:
-   - Read and parse .workflow/project-tech.json. Use its overview section as the foundational project_context.
-   - Read and parse .workflow/project-guidelines.json. Load conventions, constraints, and learnings into a project_guidelines section.
-   - If files don't exist, proceed with fresh analysis.
-2. **Detection**: Check for existing context-package (early exit if valid)
-3. **Foundation**: Initialize CodexLens, get project structure, load docs
-4. **Analysis**: Extract keywords, determine scope, classify complexity
+Key emphasis:
+- Load project-tech.json and project-guidelines.json FIRST (per your spec Phase 1.1b)
+- Synthesize exploration results with project context
+- Generate prioritized_context with user_intent alignment
+- Apply project-guidelines.json constraints during conflict detection
 
-### Phase 2: Multi-Source Context Discovery
-Execute all discovery tracks (WITH USER INTENT INTEGRATION):
-- **Track -1**: User Intent & Priority Foundation (EXECUTE FIRST)
-  - Load user intent (GOAL, KEY_CONSTRAINTS) from session input
-  - Map user requirements to codebase entities (files, modules, patterns)
-  - Establish baseline priority scores based on user goal alignment
-  - Output: user_intent_mapping.json with preliminary priority scores
-
-- **Track 0**: Exploration Synthesis (load explorations-manifest.json, prioritize critical_files, deduplicate patterns/integration_points)
-- **Track 1**: Historical archive analysis (query manifest.json for lessons learned)
-- **Track 2**: Reference documentation (CLAUDE.md, architecture docs)
-- **Track 3**: Web examples (use Exa MCP for unfamiliar tech/APIs)
-- **Track 4**: Codebase analysis (5-layer discovery: files, content, patterns, deps, config/tests)
-
-### Phase 3: Synthesis, Assessment & Packaging
-1. Apply relevance scoring and build dependency graph
-2. **Synthesize 5-source data**: Merge findings from all sources
-   - Priority order: User Intent > Archive > Docs > Exploration > Code > Web
-   - **Prioritize the context from project-tech.json** for architecture and tech stack
-3. **Context Priority Sorting**:
-   a. Combine scores from Track -1 (user intent alignment) + relevance scores + exploration critical_files
-   b. Classify files into priority tiers:
-      - **Critical** (score >= 0.85): Directly mentioned in user goal OR exploration critical_files
-      - **High** (0.70-0.84): Key dependencies, patterns required for goal
-      - **Medium** (0.50-0.69): Supporting files, indirect dependencies
-      - **Low** (< 0.50): Contextual awareness only
-   c. Generate dependency_order: Based on dependency graph + user goal sequence
-   d. Document sorting_rationale: Explain prioritization logic
-4. **Populate project_context**: Directly use the overview from project-tech.json
-5. **Populate project_guidelines**: Load from project-guidelines.json
-6. Integrate brainstorm artifacts (if .brainstorming/ exists, read content)
-7. Perform conflict detection with risk assessment
-8. **Inject historical conflicts** from archive analysis into conflict_detection
-9. **Generate prioritized_context section**:
-   {
-     "prioritized_context": {
-       "user_intent": { "goal": "...", "scope": "...", "key_constraints": ["..."] },
-       "priority_tiers": {
-         "critical": [{ "path": "...", "relevance": 0.95, "rationale": "..." }],
-         "high": [...], "medium": [...], "low": [...]
-       },
-       "dependency_order": ["module1", "module2", "module3"],
-       "sorting_rationale": "Based on user goal alignment, exploration critical files, and dependency graph"
-     }
-   }
-10. Generate and validate context-package.json with prioritized_context field
+Input priority: User Intent > project-tech.json > Exploration results > Code discovery > Web examples
 
 ## Output Requirements
-Complete context-package.json with:
-- **metadata**: task_description, keywords, complexity, tech_stack, session_id
-- **project_context**: description, technology_stack, architecture, key_components (from project-tech.json)
-- **project_guidelines**: {conventions, constraints, quality_rules, learnings} (from project-guidelines.json)
-- **assets**: {documentation[], source_code[], config[], tests[]} with relevance scores
-- **dependencies**: {internal[], external[]} with dependency graph
-- **brainstorm_artifacts**: {guidance_specification, role_analyses[], synthesis_output} with content
-- **conflict_detection**: {risk_level, risk_factors, affected_modules[], mitigation_strategy, historical_conflicts[]}
-- **exploration_results**: {manifest_path, exploration_count, angles, explorations[], aggregated_insights}
-- **prioritized_context**: {user_intent, priority_tiers{critical, high, medium, low}, dependency_order[], sorting_rationale}
 
-## Quality Validation
-Before completion verify:
-- [ ] Valid JSON format with all required fields
-- [ ] File relevance accuracy >80%
-- [ ] Dependency graph complete (max 2 transitive levels)
-- [ ] Conflict risk level calculated correctly
-- [ ] No sensitive data exposed
-- [ ] Total files <= 50 (prioritize high-relevance)
+Complete context-package.json must include a **prioritized_context** section:
+```json
+{
+  "prioritized_context": {
+    "user_intent": { "goal": "...", "scope": "...", "key_constraints": ["..."] },
+    "priority_tiers": {
+      "critical": [{ "path": "...", "relevance": 0.95, "rationale": "..." }],
+      "high": [], "medium": [], "low": []
+    },
+    "dependency_order": ["module1", "module2", "module3"],
+    "sorting_rationale": "Based on user goal alignment, exploration critical files, and dependency graph"
+  }
+}
+```
+
+All other required fields (metadata, project_context, project_guidelines, assets, dependencies, brainstorm_artifacts, conflict_detection, exploration_results) follow context-search-agent standard output schema.
 
 ## Planning Notes Record (REQUIRED)
 After completing context-package.json, append to planning-notes.md:

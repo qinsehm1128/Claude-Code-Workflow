@@ -144,6 +144,8 @@ function autoDetectModules(contextPackage, projectRoot) {
 
 **Purpose**: Generate IMPL_PLAN.md, task JSONs, and TODO_LIST.md - planning documents only, NOT code implementation.
 
+**Design Note**: The agent specification (action-planning-agent.md) already defines schemas, strategies, quality standards, and loading algorithms. This prompt provides **instance-specific parameters only** — session paths, user config, and context-package consumption guidance unique to this session.
+
 ```javascript
 Task(
   subagent_type="action-planning-agent",
@@ -151,29 +153,14 @@ Task(
   description="Generate planning documents (IMPL_PLAN.md, task JSONs, TODO_LIST.md)",
   prompt=`
 ## TASK OBJECTIVE
-Generate implementation planning documents (IMPL_PLAN.md, task JSONs, TODO_LIST.md) for workflow session
-
-IMPORTANT: This is PLANNING ONLY - you are generating planning documents, NOT implementing code.
-
-CRITICAL: Follow the progressive loading strategy defined in agent specification
-
-## PLANNING NOTES (PHASE 1-3 CONTEXT)
-Load: .workflow/active/${sessionId}/planning-notes.md
-
-This document contains:
-- User Intent: Original GOAL and KEY_CONSTRAINTS from Phase 1
-- Context Findings: Critical files, architecture, and constraints from Phase 2
-- Conflict Decisions: Resolved conflicts and planning constraints from Phase 3
-- Consolidated Constraints: All constraints from all phases
-
-**USAGE**: Read planning-notes.md FIRST. Use Consolidated Constraints list to guide task sequencing and dependencies.
+Generate implementation planning documents (IMPL_PLAN.md, task JSONs, TODO_LIST.md) for workflow session ${sessionId}
 
 ## SESSION PATHS
+Session Root: .workflow/active/${sessionId}/
 Input:
   - Session Metadata: .workflow/active/${sessionId}/workflow-session.json
   - Planning Notes: .workflow/active/${sessionId}/planning-notes.md
   - Context Package: .workflow/active/${sessionId}/.process/context-package.json
-
 Output:
   - Task Dir: .workflow/active/${sessionId}/.task/
   - IMPL_PLAN: .workflow/active/${sessionId}/IMPL_PLAN.md
@@ -183,43 +170,29 @@ Output:
 Session ID: ${sessionId}
 MCP Capabilities: {exa_code, exa_web, code_index}
 
-## FEATURE SPECIFICATIONS (conditional)
-If context-package has brainstorm_artifacts.feature_index_path:
-  Feature Index: [from context-package]
-  Feature Spec Dir: [from context-package]
-Else if .workflow/active/${sessionId}/.brainstorming/feature-specs/ exists:
-  Feature Index: .workflow/active/${sessionId}/.brainstorming/feature-specs/feature-index.json
-  Feature Spec Dir: .workflow/active/${sessionId}/.brainstorming/feature-specs/
+## PROJECT CONTEXT (MANDATORY - load before planning-notes)
+These files provide project-level constraints that apply to ALL tasks:
 
-Use feature-index.json to:
-- Map features to implementation tasks (feature_id -> task alignment)
-- Reference individual feature spec files (spec_path) for detailed requirements
-- Identify cross-cutting concerns that span multiple tasks
-- Align task priorities with feature priorities
+1. **.workflow/project-tech.json** (auto-generated tech analysis)
+   - Contains: tech_stack, architecture_type, key_components, build_system, test_framework
+   - Usage: Populate plan.json shared_context, align task tech choices, set correct test commands
+   - If missing: Fall back to context-package.project_context
 
-If the directory does not exist, skip this section.
+2. **.workflow/project-guidelines.json** (user-maintained rules and constraints)
+   - Contains: coding_conventions, naming_rules, forbidden_patterns, quality_gates, custom_constraints
+   - Usage: Apply as HARD CONSTRAINTS on all generated tasks — task implementation steps,
+     acceptance criteria, and convergence.verification MUST respect these guidelines
+   - If empty/missing: No additional constraints (proceed normally)
+
+Loading order: project-tech.json → project-guidelines.json → planning-notes.md → context-package.json
 
 ## USER CONFIGURATION (from Step 4.0)
 Execution Method: ${userConfig.executionMethod}  // agent|hybrid|cli
 Preferred CLI Tool: ${userConfig.preferredCliTool}  // codex|gemini|qwen|auto
 Supplementary Materials: ${userConfig.supplementaryMaterials}
 
-## EXECUTION METHOD MAPPING
-Based on userConfig.executionMethod, set task-level meta.execution_config:
-
-"agent" ->
-  meta.execution_config = { method: "agent", cli_tool: null, enable_resume: false }
-
-"cli" ->
-  meta.execution_config = { method: "cli", cli_tool: userConfig.preferredCliTool, enable_resume: true }
-
-"hybrid" ->
-  Per-task decision: Simple tasks (<=3 files) -> "agent", Complex tasks (>3 files) -> "cli"
-
-IMPORTANT: Do NOT add command field to implementation steps. Execution routing is controlled by task-level meta.execution_config.method only.
-
 ## PRIORITIZED CONTEXT (from context-package.prioritized_context) - ALREADY SORTED
-Context sorting is ALREADY COMPLETED in context-gather Phase 2/3. DO NOT re-sort.
+Context sorting is ALREADY COMPLETED in Phase 2/3. DO NOT re-sort.
 Direct usage:
 - **user_intent**: Use goal/scope/key_constraints for task alignment
 - **priority_tiers.critical**: PRIMARY focus for task generation
@@ -234,65 +207,20 @@ If prioritized_context is incomplete, fall back to exploration_results:
 - Reference aggregated_insights.all_patterns for implementation approach
 - Use aggregated_insights.all_integration_points for precise modification locations
 
-## CONFLICT RESOLUTION CONTEXT (if exists)
-- Check context-package.conflict_detection.resolution_file for conflict-resolution.json path
-- If exists, load .process/conflict-resolution.json:
-  - Apply planning_constraints as task constraints
-  - Reference resolved_conflicts for implementation approach alignment
-  - Handle custom_conflicts with explicit task notes
+## FEATURE SPECIFICATIONS (conditional)
+If context-package has brainstorm_artifacts.feature_index_path:
+  Feature Index: [from context-package]
+  Feature Spec Dir: [from context-package]
+Else if .workflow/active/${sessionId}/.brainstorming/feature-specs/ exists:
+  Feature Index: .workflow/active/${sessionId}/.brainstorming/feature-specs/feature-index.json
 
-## EXPECTED DELIVERABLES
-1. Task JSON Files (.task/IMPL-*.json)
-   - Unified flat schema (task-schema.json)
-   - Quantified requirements with explicit counts
-   - Artifacts integration from context package
-   - **focus_paths from prioritized_context.priority_tiers (critical + high)**
-   - Pre-analysis steps (use dependency_order for task sequencing)
-   - **CLI Execution IDs and strategies (MANDATORY)**
+If the directory does not exist, skip this section.
 
-2. Implementation Plan (IMPL_PLAN.md)
-   - Context analysis and artifact references
-   - Task breakdown and execution strategy
-
-3. Plan Overview (plan.json)
-   - Structured plan overview (plan-overview-base-schema)
-   - Machine-readable task IDs, shared context, metadata
-
-4. TODO List (TODO_LIST.md)
-   - Hierarchical structure
-   - Links to task JSONs and summaries
-
-## CLI EXECUTION ID REQUIREMENTS (MANDATORY)
-Each task JSON MUST include:
-- **cli_execution.id**: Unique ID (format: {session_id}-{task_id})
-- **cli_execution**: Strategy object based on depends_on:
-  - No deps -> { "strategy": "new" }
-  - 1 dep (single child) -> { "strategy": "resume", "resume_from": "parent-cli-id" }
-  - 1 dep (multiple children) -> { "strategy": "fork", "resume_from": "parent-cli-id" }
-  - N deps -> { "strategy": "merge_fork", "merge_from": ["id1", "id2", ...] }
-
-## QUALITY STANDARDS
-Hard Constraints:
-  - Task count <= 18 (hard limit)
-  - All requirements quantified
-  - Acceptance criteria measurable
-  - Artifact references mapped from context package
-
-## PLANNING NOTES RECORD (REQUIRED)
-After completing, update planning-notes.md:
-
-## Task Generation (Phase 4)
-### [Action-Planning Agent] YYYY-MM-DD
-- **Tasks**: [count] ([IDs])
-
-## N+1 Context
-### Decisions
-| Decision | Rationale | Revisit? |
-|----------|-----------|----------|
-| [choice] | [why] | [Yes/No] |
-
-### Deferred
-- [ ] [item] - [reason]
+## SESSION-SPECIFIC NOTES
+- Deliverables: Task JSONs + IMPL_PLAN.md + plan.json + TODO_LIST.md (all 4 required)
+- focus_paths: Derive from prioritized_context.priority_tiers (critical + high)
+- Task sequencing: Use dependency_order from context-package (pre-computed)
+- All other schemas, strategies, quality standards: Follow agent specification
 `
 )
 ```

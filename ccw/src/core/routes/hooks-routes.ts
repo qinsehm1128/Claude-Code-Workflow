@@ -8,6 +8,7 @@
  * - POST /api/hook - Main hook endpoint for Claude Code notifications
  *   - Handles: session-start, context, CLI events, A2UI surfaces
  * - POST /api/hook/ccw-exec - Execute CCW CLI commands and parse output
+ * - GET /api/hook/project-state - Get project guidelines and recent dev history summary
  * - GET /api/hooks - Get hooks configuration from global and project settings
  * - POST /api/hooks - Save a hook to settings
  * - DELETE /api/hooks - Delete a hook from settings
@@ -517,6 +518,62 @@ export async function handleHooksRoutes(ctx: HooksRouteContext): Promise<boolean
         };
       }
     });
+    return true;
+  }
+
+  // API: Get project state summary for hook injection
+  if (pathname === '/api/hook/project-state' && req.method === 'GET') {
+    const projectPath = url.searchParams.get('path') || initialPath;
+    const limit = Math.min(parseInt(url.searchParams.get('limit') || '5', 10), 20);
+
+    const result: Record<string, unknown> = { tech: { recent: [] }, guidelines: { constraints: [], recent_learnings: [] } };
+
+    // Read project-tech.json
+    const techPath = join(projectPath, '.workflow', 'project-tech.json');
+    if (existsSync(techPath)) {
+      try {
+        const tech = JSON.parse(readFileSync(techPath, 'utf8'));
+        const allEntries: Array<{ title: string; category: string; date: string }> = [];
+        if (tech.development_index) {
+          for (const [cat, entries] of Object.entries(tech.development_index)) {
+            if (Array.isArray(entries)) {
+              for (const e of entries as Array<{ title?: string; date?: string }>) {
+                allEntries.push({ title: e.title || '', category: cat, date: e.date || '' });
+              }
+            }
+          }
+        }
+        allEntries.sort((a, b) => b.date.localeCompare(a.date));
+        (result.tech as Record<string, unknown>).recent = allEntries.slice(0, limit);
+      } catch { /* ignore parse errors */ }
+    }
+
+    // Read project-guidelines.json
+    const guidelinesPath = join(projectPath, '.workflow', 'project-guidelines.json');
+    if (existsSync(guidelinesPath)) {
+      try {
+        const gl = JSON.parse(readFileSync(guidelinesPath, 'utf8'));
+        const g = result.guidelines as Record<string, unknown>;
+        // constraints is Record<string, array> - flatten all categories
+        const allConstraints: string[] = [];
+        if (gl.constraints && typeof gl.constraints === 'object') {
+          for (const entries of Object.values(gl.constraints)) {
+            if (Array.isArray(entries)) {
+              for (const c of entries) {
+                allConstraints.push(typeof c === 'string' ? c : (c as { rule?: string }).rule || JSON.stringify(c));
+              }
+            }
+          }
+        }
+        g.constraints = allConstraints.slice(0, limit);
+        const learnings = Array.isArray(gl.learnings) ? gl.learnings : [];
+        learnings.sort((a: { date?: string }, b: { date?: string }) => (b.date || '').localeCompare(a.date || ''));
+        g.recent_learnings = learnings.slice(0, limit).map((l: { insight?: string; date?: string }) => ({ insight: l.insight || '', date: l.date || '' }));
+      } catch { /* ignore parse errors */ }
+    }
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(result));
     return true;
   }
 

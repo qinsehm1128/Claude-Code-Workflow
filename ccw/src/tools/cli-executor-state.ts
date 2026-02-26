@@ -447,7 +447,7 @@ export function getLatestExecution(baseDir: string, tool?: string): ExecutionRec
  */
 export async function getNativeSessionContent(baseDir: string, ccwId: string) {
   const store = await getSqliteStore(baseDir);
-  return store.getNativeSessionContent(ccwId);
+  return await store.getNativeSessionContent(ccwId);
 }
 
 /**
@@ -460,7 +460,7 @@ export async function getFormattedNativeConversation(baseDir: string, ccwId: str
   maxContentLength?: number;
 }) {
   const store = await getSqliteStore(baseDir);
-  return store.getFormattedNativeConversation(ccwId, options);
+  return await store.getFormattedNativeConversation(ccwId, options);
 }
 
 /**
@@ -468,7 +468,7 @@ export async function getFormattedNativeConversation(baseDir: string, ccwId: str
  */
 export async function getNativeConversationPairs(baseDir: string, ccwId: string) {
   const store = await getSqliteStore(baseDir);
-  return store.getNativeConversationPairs(ccwId);
+  return await store.getNativeConversationPairs(ccwId);
 }
 
 /**
@@ -476,7 +476,7 @@ export async function getNativeConversationPairs(baseDir: string, ccwId: string)
  */
 export async function getEnrichedConversation(baseDir: string, ccwId: string) {
   const store = await getSqliteStore(baseDir);
-  return store.getEnrichedConversation(ccwId);
+  return await store.getEnrichedConversation(ccwId);
 }
 
 /**

@@ -120,8 +120,12 @@ def load_env_file(env_path: Path) -> Dict[str, str]:
             if result:
                 key, value = result
                 env_vars[key] = value
-    except Exception as exc:
+    except (OSError, UnicodeDecodeError) as exc:
+        # File access errors or encoding issues are expected and logged
         log.warning("Failed to load .env file %s: %s", env_path, exc)
+    except Exception as exc:
+        # Other unexpected errors are also logged but indicate a code issue
+        log.warning("Unexpected error loading .env file %s: %s", env_path, exc)
     
     return env_vars
 

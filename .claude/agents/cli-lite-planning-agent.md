@@ -54,6 +54,10 @@ When invoked with `process_docs: true` in input context:
 
 ## Input Context
 
+**Project Context** (read from init.md products at startup):
+- `.workflow/project-tech.json` → tech_stack, architecture, key_components
+- `.workflow/project-guidelines.json` → conventions, constraints, quality_rules
+
 ```javascript
 {
   // Required
