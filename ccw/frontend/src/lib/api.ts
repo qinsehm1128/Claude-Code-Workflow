@@ -104,41 +104,131 @@ export interface ApiError {
 // ========== CSRF Token Handling ==========
 
 /**
- * In-memory CSRF token storage
- * The token is obtained from X-CSRF-Token response header and stored here
- * because the XSRF-TOKEN cookie is HttpOnly and cannot be read by JavaScript
+ * CSRF token pool for concurrent request support
+ * The pool maintains multiple tokens to support parallel mutating requests
  */
-let csrfToken: string | null = null;
+const MAX_CSRF_TOKEN_POOL_SIZE = 5;
+
+// Token pool queue - FIFO for fair distribution
+let csrfTokenQueue: string[] = [];
 
 /**
- * Get CSRF token from memory
+ * Get a CSRF token from the pool
+ * @returns Token string or undefined if pool is empty
  */
-function getCsrfToken(): string | null {
-  return csrfToken;
+function getCsrfTokenFromPool(): string | undefined {
+  return csrfTokenQueue.shift();
 }
 
 /**
- * Set CSRF token from response header
+ * Add a CSRF token to the pool with deduplication
+ * @param token - Token to add
+ */
+function addCsrfTokenToPool(token: string): void {
+  if (!token) return;
+  // Deduplication: don't add if already in pool
+  if (csrfTokenQueue.includes(token)) return;
+  // Limit pool size
+  if (csrfTokenQueue.length >= MAX_CSRF_TOKEN_POOL_SIZE) return;
+  csrfTokenQueue.push(token);
+}
+
+/**
+ * Get current pool size (for debugging)
+ */
+export function getCsrfPoolSize(): number {
+  return csrfTokenQueue.length;
+}
+
+/**
+ * Lock for deduplicating concurrent token fetch requests
+ * Prevents multiple simultaneous calls to fetchTokenSynchronously
+ */
+let tokenFetchPromise: Promise<string> | null = null;
+
+/**
+ * Synchronously fetch a single token when pool is depleted
+ * This blocks the request until a token is available
+ * Uses lock mechanism to prevent concurrent fetch deduplication
+ */
+async function fetchTokenSynchronously(): Promise<string> {
+  // If a fetch is already in progress, wait for it
+  if (tokenFetchPromise) {
+    return tokenFetchPromise;
+  }
+
+  // Create new fetch promise and store as lock
+  tokenFetchPromise = (async () => {
+    try {
+      const response = await fetch('/api/csrf-token', {
+        credentials: 'same-origin',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch CSRF token');
+      }
+      const data = await response.json();
+      const token = data.csrfToken;
+      if (!token) {
+        throw new Error('No CSRF token in response');
+      }
+      return token;
+    } finally {
+      // Release lock after completion (success or failure)
+      tokenFetchPromise = null;
+    }
+  })();
+
+  return tokenFetchPromise;
+}
+
+/**
+ * Set CSRF token from response header (adds to pool)
  */
 function updateCsrfToken(response: Response): void {
   const token = response.headers.get('X-CSRF-Token');
   if (token) {
-    csrfToken = token;
+    addCsrfTokenToPool(token);
   }
 }
 
 /**
- * Initialize CSRF token by fetching from server
+ * Initialize CSRF token pool by fetching multiple tokens from server
  * Should be called once on app initialization
  */
 export async function initializeCsrfToken(): Promise<void> {
   try {
-    const response = await fetch('/api/csrf-token', {
+    // Prefetch 5 tokens for pool
+    const response = await fetch(`/api/csrf-token?count=${MAX_CSRF_TOKEN_POOL_SIZE}`, {
       credentials: 'same-origin',
     });
-    updateCsrfToken(response);
+
+    if (!response.ok) {
+      throw new Error('Failed to initialize CSRF token pool');
+    }
+
+    const data = await response.json();
+
+    // Handle both single token and batch response formats
+    if (data.tokens && Array.isArray(data.tokens)) {
+      // Batch response - add all tokens to pool
+      for (const token of data.tokens) {
+        addCsrfTokenToPool(token);
+      }
+    } else if (data.csrfToken) {
+      // Single token response - add to pool
+      addCsrfTokenToPool(data.csrfToken);
+    }
+
+    console.log(`[CSRF] Token pool initialized with ${csrfTokenQueue.length} tokens`);
   } catch (error) {
-    console.error('[CSRF] Failed to initialize CSRF token:', error);
+    console.error('[CSRF] Failed to initialize CSRF token pool:', error);
+    // Fallback: try to get at least one token
+    try {
+      const token = await fetchTokenSynchronously();
+      addCsrfTokenToPool(token);
+    } catch (fallbackError) {
+      console.error('[CSRF] Fallback token fetch failed:', fallbackError);
+    }
   }
 }
 
@@ -155,7 +245,18 @@ async function fetchApi<T>(
 
   // Add CSRF token for mutating requests
   if (options.method && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(options.method)) {
-    const token = getCsrfToken();
+    let token = getCsrfTokenFromPool();
+
+    // If pool is depleted, synchronously fetch a new token
+    if (!token) {
+      console.warn('[CSRF] Token pool depleted, fetching synchronously');
+      try {
+        token = await fetchTokenSynchronously();
+      } catch (error) {
+        throw new Error('Failed to acquire CSRF token for request');
+      }
+    }
+
     if (token) {
       headers.set('X-CSRF-Token', token);
     }
@@ -172,7 +273,7 @@ async function fetchApi<T>(
     credentials: 'same-origin',
   });
 
-  // Update CSRF token from response header
+  // Update CSRF token from response header (adds to pool)
   updateCsrfToken(response);
 
   if (!response.ok) {
@@ -728,13 +829,26 @@ export interface Issue {
   id: string;
   title: string;
   context?: string;
-  status: 'open' | 'in_progress' | 'resolved' | 'closed' | 'completed';
+  status: 'registered' | 'planning' | 'planned' | 'queued' | 'executing' | 'completed' | 'failed' | 'paused';
   priority: 'low' | 'medium' | 'high' | 'critical';
   createdAt: string;
   updatedAt?: string;
+  plannedAt?: string;
+  queuedAt?: string;
+  completedAt?: string;
   solutions?: IssueSolution[];
   labels?: string[];
   assignee?: string;
+  tags?: string[];
+  source?: 'github' | 'text' | 'discovery';
+  sourceUrl?: string;
+  boundSolutionId?: string | null;
+  feedback?: Array<{
+    type: 'failure' | 'clarification' | 'rejection';
+    stage: string;
+    content: string;
+    createdAt: string;
+  }>;
   attachments?: Attachment[];
 }
 
@@ -1064,6 +1178,12 @@ export interface Finding {
   created_at: string;
   issue_id?: string; // Associated issue ID if exported
   exported?: boolean; // Whether this finding has been exported as an issue
+  // Additional fields from discovery backend
+  category?: string;
+  suggested_issue?: string;
+  confidence?: number;
+  reference?: string;
+  perspective?: string;
 }
 
 export async function fetchDiscoveries(projectPath?: string): Promise<DiscoverySession[]> {
@@ -1118,7 +1238,11 @@ export async function fetchDiscoveryFindings(
     ? `/api/discoveries/${encodeURIComponent(sessionId)}/findings?path=${encodeURIComponent(projectPath)}`
     : `/api/discoveries/${encodeURIComponent(sessionId)}/findings`;
   const data = await fetchApi<{ findings?: Finding[] }>(url);
-  return data.findings ?? [];
+  // Map backend 'priority' to frontend 'severity' for compatibility
+  return (data.findings ?? []).map(f => ({
+    ...f,
+    severity: f.severity || (f as any).priority || 'medium'
+  }));
 }
 
 /**
@@ -1479,6 +1603,39 @@ export async function getCommandsGroupsConfig(
   return fetchApi<{ groups: Record<string, any>; assignments: Record<string, string> }>(`/api/commands/groups/config?${params}`);
 }
 
+/**
+ * Validate a command file for import
+ */
+export async function validateCommandImport(sourcePath: string): Promise<{
+  valid: boolean;
+  errors?: string[];
+  commandInfo?: { name: string; description: string; version?: string };
+}> {
+  return fetchApi('/api/commands/validate-import', {
+    method: 'POST',
+    body: JSON.stringify({ sourcePath }),
+  });
+}
+
+/**
+ * Create/import a command
+ */
+export async function createCommand(params: {
+  mode: 'import' | 'cli-generate';
+  location: 'project' | 'user';
+  sourcePath?: string;
+  commandName?: string;
+  description?: string;
+  generationType?: 'description' | 'template';
+  projectPath?: string;
+  cliType?: 'claude' | 'codex';
+}): Promise<{ commandName: string; path: string }> {
+  return fetchApi('/api/commands/create', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+}
+
 // ========== Memory API ==========
 
 export interface CoreMemory {
@@ -1623,6 +1780,185 @@ export async function unarchiveMemory(memoryId: string, projectPath?: string): P
   return fetchApi<void>(url, {
     method: 'POST',
   });
+}
+
+// ========== Memory V2 API ==========
+
+export interface ExtractionStatus {
+  total_stage1: number;
+  lastRun?: number;
+  jobs: Array<{
+    job_key: string;
+    status: string;
+    last_error?: string;
+  }>;
+}
+
+export interface ConsolidationStatus {
+  status: 'idle' | 'running' | 'completed' | 'error';
+  memoryMdAvailable: boolean;
+  memoryMdPreview?: string;
+  inputCount?: number;
+  lastRun?: number;
+  lastError?: string;
+}
+
+export interface V2Job {
+  kind: string;
+  job_key: string;
+  status: 'pending' | 'running' | 'done' | 'error';
+  last_error?: string;
+  worker_id?: string;
+  started_at?: number;
+  finished_at?: number;
+  retry_remaining?: number;
+}
+
+export interface V2JobsResponse {
+  jobs: V2Job[];
+  total: number;
+  byStatus: Record<string, number>;
+}
+
+/**
+ * Trigger Phase 1 extraction for eligible CLI sessions
+ */
+export async function triggerExtraction(
+  maxSessions?: number,
+  projectPath?: string
+): Promise<{ triggered: boolean; jobIds: string[]; message: string }> {
+  const params = new URLSearchParams();
+  if (projectPath) params.set('path', projectPath);
+  return fetchApi<{ triggered: boolean; jobIds: string[]; message: string }>(
+    `/api/core-memory/extract?${params}`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ max_sessions: maxSessions }),
+    }
+  );
+}
+
+/**
+ * Get Phase 1 extraction status
+ */
+export async function getExtractionStatus(
+  projectPath?: string
+): Promise<ExtractionStatus> {
+  const params = new URLSearchParams();
+  if (projectPath) params.set('path', projectPath);
+  return fetchApi<ExtractionStatus>(`/api/core-memory/extract/status?${params}`);
+}
+
+/**
+ * Trigger Phase 2 consolidation to generate MEMORY.md
+ */
+export async function triggerConsolidation(
+  projectPath?: string
+): Promise<{ triggered: boolean; message: string }> {
+  const params = new URLSearchParams();
+  if (projectPath) params.set('path', projectPath);
+  return fetchApi<{ triggered: boolean; message: string }>(
+    `/api/core-memory/consolidate?${params}`,
+    { method: 'POST' }
+  );
+}
+
+/**
+ * Get Phase 2 consolidation status
+ */
+export async function getConsolidationStatus(
+  projectPath?: string
+): Promise<ConsolidationStatus> {
+  const params = new URLSearchParams();
+  if (projectPath) params.set('path', projectPath);
+  return fetchApi<ConsolidationStatus>(`/api/core-memory/consolidate/status?${params}`);
+}
+
+/**
+ * Get V2 pipeline jobs list
+ */
+export async function getV2Jobs(
+  options?: { kind?: string; status_filter?: string },
+  projectPath?: string
+): Promise<V2JobsResponse> {
+  const params = new URLSearchParams();
+  if (projectPath) params.set('path', projectPath);
+  if (options?.kind) params.set('kind', options.kind);
+  if (options?.status_filter) params.set('status_filter', options.status_filter);
+  return fetchApi<V2JobsResponse>(`/api/core-memory/jobs?${params}`);
+}
+
+// ========== Memory V2 Preview API ==========
+
+export interface SessionPreviewItem {
+  sessionId: string;
+  source: 'ccw' | 'native';
+  tool: string;
+  timestamp: number;
+  eligible: boolean;
+  extracted: boolean;
+  bytes: number;
+  turns: number;
+}
+
+export interface ExtractionPreviewResponse {
+  success: boolean;
+  sessions: SessionPreviewItem[];
+  summary: {
+    total: number;
+    eligible: number;
+    alreadyExtracted: number;
+    readyForExtraction: number;
+  };
+}
+
+export interface SelectiveExtractionRequest {
+  sessionIds: string[];
+  includeNative?: boolean;
+  path?: string;
+}
+
+export interface SelectiveExtractionResponse {
+  success: boolean;
+  jobId: string;
+  queued: number;
+  skipped: number;
+  invalidIds: string[];
+}
+
+/**
+ * Preview extraction queue - get list of sessions available for extraction
+ */
+export async function previewExtractionQueue(
+  includeNative: boolean = false,
+  maxSessions?: number,
+  projectPath?: string
+): Promise<ExtractionPreviewResponse> {
+  const params = new URLSearchParams();
+  if (projectPath) params.set('path', projectPath);
+  if (includeNative) params.set('include_native', 'true');
+  if (maxSessions) params.set('max_sessions', String(maxSessions));
+  return fetchApi<ExtractionPreviewResponse>(`/api/core-memory/extract/preview?${params}`);
+}
+
+/**
+ * Trigger selective extraction for specific sessions
+ */
+export async function triggerSelectiveExtraction(
+  request: SelectiveExtractionRequest
+): Promise<SelectiveExtractionResponse> {
+  const params = new URLSearchParams();
+  if (request.path) params.set('path', request.path);
+  return fetchApi<SelectiveExtractionResponse>(
+    `/api/core-memory/extract/selective?${params}`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        session_ids: request.sessionIds,
+        include_native: request.includeNative,
+      }),
+    }
+  );
 }
 
 // ========== Project Overview API ==========
@@ -1875,7 +2211,8 @@ export interface CliExecution {
   tool: 'gemini' | 'qwen' | 'codex' | string;
   mode?: string;
   status: 'success' | 'error' | 'timeout';
-  prompt_preview: string;
+  // Backend may return string or object {text: string} for legacy data
+  prompt_preview: string | { text: string } | Record<string, unknown>;
   timestamp: string;
   duration_ms: number;
   sourceDir?: string;
@@ -2008,7 +2345,8 @@ export interface ConversationRecord {
  */
 export interface ConversationTurn {
   turn: number;
-  prompt: string;
+  // Backend may return string or object {text: string} for legacy data
+  prompt: string | { text: string } | Record<string, unknown>;
   output: {
     stdout: string;
     stderr?: string;
@@ -2045,7 +2383,8 @@ export interface NativeSessionTurn {
   turnNumber: number;
   timestamp: string;
   role: 'user' | 'assistant';
-  content: string;
+  // Backend may return string or object {text: string} for legacy data
+  content: string | { text: string } | Record<string, unknown>;
   thoughts?: string[];
   toolCalls?: NativeToolCall[];
   tokens?: NativeTokenInfo;
@@ -2144,15 +2483,15 @@ export async function fetchNativeSessionWithOptions(
 
 /**
  * Native session metadata for list endpoint
+ * Matches backend NativeSession interface
  */
 export interface NativeSessionListItem {
-  id: string;
-  tool: string;
-  path: string;
-  title?: string;
-  startTime: string;
-  updatedAt: string;
-  projectHash?: string;
+  sessionId: string;         // Native UUID
+  tool: string;              // gemini | qwen | codex | claude | opencode
+  filePath: string;          // Full path to session file
+  projectHash?: string;      // Project directory hash
+  createdAt: string;         // ISO date string
+  updatedAt: string;         // ISO date string
 }
 
 /**
@@ -2160,21 +2499,35 @@ export interface NativeSessionListItem {
  */
 export interface NativeSessionsListResponse {
   sessions: NativeSessionListItem[];
+  byTool: Record<string, NativeSessionListItem[]>;
   count: number;
+  hasMore: boolean;
+  nextCursor: string | null;
 }
 
 /**
- * Fetch list of native CLI sessions
- * @param tool - Filter by tool type (optional)
- * @param project - Filter by project path (optional)
+ * Fetch options for native sessions pagination
+ */
+export interface FetchNativeSessionsOptions {
+  tool?: 'gemini' | 'qwen' | 'codex' | 'claude' | 'opencode';
+  project?: string;
+  limit?: number;
+  cursor?: string | null; // ISO timestamp for cursor-based pagination
+}
+
+/**
+ * Fetch list of native CLI sessions with pagination support
+ * @param options - Pagination and filter options
  */
 export async function fetchNativeSessions(
-  tool?: 'gemini' | 'qwen' | 'codex' | 'claude' | 'opencode',
-  project?: string
+  options: FetchNativeSessionsOptions = {}
 ): Promise<NativeSessionsListResponse> {
+  const { tool, project, limit = 50, cursor } = options;
   const params = new URLSearchParams();
   if (tool) params.set('tool', tool);
-  if (project) params.set('project', project);
+  if (project) params.set('path', project);
+  if (limit) params.set('limit', String(limit));
+  if (cursor) params.set('cursor', cursor);
 
   const query = params.toString();
   return fetchApi<NativeSessionsListResponse>(
@@ -2711,6 +3064,18 @@ export interface ReviewDimension {
   findings: ReviewFinding[];
 }
 
+export interface ReviewSummary {
+  phase?: string;
+  status?: string;
+  severityDistribution?: {
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+  };
+  criticalFiles?: string[];
+}
+
 export interface ReviewSession {
   session_id: string;
   title?: string;
@@ -2718,6 +3083,7 @@ export interface ReviewSession {
   type: 'review';
   phase?: string;
   reviewDimensions?: ReviewDimension[];
+  reviewSummary?: ReviewSummary;
   _isActive?: boolean;
   created_at?: string;
   updated_at?: string;
@@ -2734,6 +3100,17 @@ export interface ReviewSessionsResponse {
       progress?: unknown;
     }>;
   };
+  // New: Support activeSessions with review type
+  activeSessions?: Array<{
+    session_id: string;
+    project?: string;
+    type?: string;
+    status?: string;
+    created_at?: string;
+    hasReview?: boolean;
+    reviewSummary?: ReviewSummary;
+    reviewDimensions?: ReviewDimension[];
+  }>;
 }
 
 /**
@@ -2742,12 +3119,34 @@ export interface ReviewSessionsResponse {
 export async function fetchReviewSessions(): Promise<ReviewSession[]> {
   const data = await fetchApi<ReviewSessionsResponse>('/api/data');
 
-  // If reviewSessions field exists (legacy format), use it
+  // Priority 1: Use activeSessions with type='review' or hasReview=true
+  if (data.activeSessions) {
+    const reviewSessions = data.activeSessions.filter(
+      session => session.type === 'review' || session.hasReview
+    );
+    if (reviewSessions.length > 0) {
+      return reviewSessions.map(session => ({
+        session_id: session.session_id,
+        title: session.project || session.session_id,
+        description: '',
+        type: 'review' as const,
+        phase: session.reviewSummary?.phase,
+        reviewDimensions: session.reviewDimensions || [],
+        reviewSummary: session.reviewSummary,
+        _isActive: true,
+        created_at: session.created_at,
+        updated_at: undefined,
+        status: session.status
+      }));
+    }
+  }
+
+  // Priority 2: Legacy reviewSessions field
   if (data.reviewSessions && data.reviewSessions.length > 0) {
     return data.reviewSessions;
   }
 
-  // Otherwise, transform reviewData.sessions into ReviewSession format
+  // Priority 3: Legacy reviewData.sessions format
   if (data.reviewData?.sessions) {
     return data.reviewData.sessions.map(session => ({
       session_id: session.session_id,
@@ -2779,13 +3178,66 @@ export async function fetchReviewSession(sessionId: string): Promise<ReviewSessi
 
 // ========== MCP API ==========
 
-export interface McpServer {
+/**
+ * Base fields shared by all MCP server types
+ */
+interface McpServerBase {
   name: string;
+  enabled: boolean;
+  scope: 'project' | 'global';
+}
+
+/**
+ * STDIO-based MCP server (traditional command-based)
+ * Uses child process communication via stdin/stdout
+ */
+export interface StdioMcpServer extends McpServerBase {
+  transport: 'stdio';
   command: string;
   args?: string[];
   env?: Record<string, string>;
-  enabled: boolean;
-  scope: 'project' | 'global';
+  cwd?: string;
+}
+
+/**
+ * HTTP-based MCP server (remote/streamable)
+ * Uses HTTP/HTTPS transport for remote MCP servers
+ *
+ * Supports two config formats:
+ * - Claude format: { type: 'http', url, headers }
+ * - Codex format: { url, bearer_token_env_var, http_headers, env_http_headers }
+ */
+export interface HttpMcpServer extends McpServerBase {
+  transport: 'http';
+  url: string;
+  /** HTTP headers to include in requests (Claude format) */
+  headers?: Record<string, string>;
+  /** Environment variable name containing bearer token (Codex format) */
+  bearerTokenEnvVar?: string;
+  /** Static HTTP headers (Codex format) */
+  httpHeaders?: Record<string, string>;
+  /** Environment variable names whose values are injected as headers (Codex format) */
+  envHttpHeaders?: string[];
+}
+
+/**
+ * Discriminated union type for MCP server configurations
+ * Use type guards to distinguish between STDIO and HTTP servers
+ */
+export type McpServer = StdioMcpServer | HttpMcpServer;
+
+/**
+ * Type guard to check if a server is STDIO-based
+ */
+export function isStdioMcpServer(server: McpServer): server is StdioMcpServer {
+  return server.transport === 'stdio';
+}
+
+/**
+ * Type guard to check if a server is HTTP-based
+ */
+export function isHttpMcpServer(server: McpServer): server is HttpMcpServer {
+  return server.transport === 'http';
 }
 
 export interface McpServerConflict {
@@ -2858,17 +3310,80 @@ function findProjectConfigKey(projects: Record<string, unknown>, projectPath?: s
   return projectPath in projects ? projectPath : null;
 }
 
-function normalizeServerConfig(config: unknown): { command: string; args?: string[]; env?: Record<string, string> } {
+/**
+ * Normalize raw server config to discriminated union type
+ * Preserves HTTP-specific fields instead of flattening to command field
+ *
+ * Supports dual-format parsing:
+ * - Claude format: { type: 'http', url, headers }
+ * - Codex format: { url, bearer_token_env_var, http_headers, env_http_headers }
+ */
+function normalizeServerConfig(config: unknown): Omit<StdioMcpServer, 'name' | 'enabled' | 'scope'> | Omit<HttpMcpServer, 'name' | 'enabled' | 'scope'> {
   if (!isUnknownRecord(config)) {
-    return { command: '' };
+    // Default to STDIO with empty command
+    return { transport: 'stdio', command: '' };
   }
 
-  const command =
-    typeof config.command === 'string'
-      ? config.command
-      : typeof config.url === 'string'
-        ? config.url
-        : '';
+  // Detect HTTP transport by presence of url field (both Claude and Codex formats)
+  const hasUrl = typeof config.url === 'string' && config.url.trim() !== '';
+  const hasHttpType = config.type === 'http' || config.transport === 'http';
+
+  if (hasUrl || hasHttpType) {
+    // HTTP-based server (Claude or Codex format)
+    const url = typeof config.url === 'string' ? config.url : '';
+
+    // Parse Claude format headers: { headers: { "Authorization": "Bearer xxx" } }
+    const headers = isUnknownRecord(config.headers)
+      ? Object.fromEntries(
+          Object.entries(config.headers).flatMap(([key, value]) =>
+            typeof value === 'string' ? [[key, value]] : []
+          )
+        )
+      : undefined;
+
+    // Parse Codex format fields
+    const bearerTokenEnvVar = typeof config.bearer_token_env_var === 'string'
+      ? config.bearer_token_env_var
+      : undefined;
+
+    // Parse Codex http_headers: { http_headers: { "Authorization": "Bearer xxx" } }
+    const httpHeaders = isUnknownRecord(config.http_headers)
+      ? Object.fromEntries(
+          Object.entries(config.http_headers).flatMap(([key, value]) =>
+            typeof value === 'string' ? [[key, value]] : []
+          )
+        )
+      : undefined;
+
+    // Parse Codex env_http_headers: { env_http_headers: ["API_KEY", "SECRET"] }
+    const envHttpHeaders = Array.isArray(config.env_http_headers)
+      ? config.env_http_headers.filter((item): item is string => typeof item === 'string')
+      : undefined;
+
+    const result: Omit<HttpMcpServer, 'name' | 'enabled' | 'scope'> = {
+      transport: 'http',
+      url,
+    };
+
+    // Only add optional fields if they have values
+    if (headers && Object.keys(headers).length > 0) {
+      result.headers = headers;
+    }
+    if (bearerTokenEnvVar) {
+      result.bearerTokenEnvVar = bearerTokenEnvVar;
+    }
+    if (httpHeaders && Object.keys(httpHeaders).length > 0) {
+      result.httpHeaders = httpHeaders;
+    }
+    if (envHttpHeaders && envHttpHeaders.length > 0) {
+      result.envHttpHeaders = envHttpHeaders;
+    }
+
+    return result;
+  }
+
+  // STDIO-based server (traditional command format)
+  const command = typeof config.command === 'string' ? config.command : '';
 
   const args = Array.isArray(config.args)
     ? config.args.filter((arg): arg is string => typeof arg === 'string')
@@ -2882,11 +3397,24 @@ function normalizeServerConfig(config: unknown): { command: string; args?: strin
       )
     : undefined;
 
-  return {
+  const cwd = typeof config.cwd === 'string' ? config.cwd : undefined;
+
+  const result: Omit<StdioMcpServer, 'name' | 'enabled' | 'scope'> = {
+    transport: 'stdio',
     command,
-    args: args && args.length > 0 ? args : undefined,
-    env: env && Object.keys(env).length > 0 ? env : undefined,
   };
+
+  if (args && args.length > 0) {
+    result.args = args;
+  }
+  if (env && Object.keys(env).length > 0) {
+    result.env = env;
+  }
+  if (cwd) {
+    result.cwd = cwd;
+  }
+
+  return result;
 }
 
 /**
@@ -2972,15 +3500,104 @@ function requireProjectPath(projectPath: string | undefined, ctx: string): strin
   return trimmed;
 }
 
-function toServerConfig(server: { command: string; args?: string[]; env?: Record<string, string> }): UnknownRecord {
-  const config: UnknownRecord = { command: server.command };
-  if (server.args && server.args.length > 0) config.args = server.args;
-  if (server.env && Object.keys(server.env).length > 0) config.env = server.env;
+/**
+ * Convert McpServer to raw config format for persistence
+ * Handles both STDIO and HTTP server types
+ */
+function toServerConfig(server: Partial<McpServer>): UnknownRecord {
+  // Check if this is an HTTP server
+  if (server.transport === 'http') {
+    const url = 'url' in server && typeof server.url === 'string' ? server.url : '';
+    const config: UnknownRecord = { url };
+
+    // Claude format: type field
+    config.type = 'http';
+
+    // Claude format: headers
+    if (server.headers && Object.keys(server.headers).length > 0) {
+      config.headers = server.headers;
+    }
+
+    // Codex format: bearer_token_env_var
+    if (server.bearerTokenEnvVar) {
+      config.bearer_token_env_var = server.bearerTokenEnvVar;
+    }
+
+    // Codex format: http_headers
+    if (server.httpHeaders && Object.keys(server.httpHeaders).length > 0) {
+      config.http_headers = server.httpHeaders;
+    }
+
+    // Codex format: env_http_headers
+    if (server.envHttpHeaders && server.envHttpHeaders.length > 0) {
+      config.env_http_headers = server.envHttpHeaders;
+    }
+
+    return config;
+  }
+
+  // STDIO server (default)
+  const config: UnknownRecord = {};
+
+  if ('command' in server && typeof server.command === 'string') config.command = server.command;
+  if ('args' in server && Array.isArray(server.args) && server.args.length > 0) config.args = server.args;
+  if ('env' in server && server.env && Object.keys(server.env).length > 0) config.env = server.env;
+  if ('cwd' in server && typeof server.cwd === 'string' && server.cwd.trim()) config.cwd = server.cwd;
+
   return config;
+}
+
+function _buildFallbackServer(serverName: string, config: Partial<McpServer>): McpServer {
+  const transport = config.transport ?? 'stdio';
+  const enabled = config.enabled ?? true;
+  const scope = config.scope ?? 'project';
+
+  if (transport === 'http') {
+    const url = 'url' in config && typeof config.url === 'string' ? config.url : '';
+    return {
+      name: serverName,
+      transport: 'http',
+      url,
+      enabled,
+      scope,
+    };
+  }
+
+  const command =
+    'command' in config && typeof config.command === 'string'
+      ? config.command
+      : '';
+
+  const args =
+    'args' in config && Array.isArray(config.args)
+      ? config.args
+      : undefined;
+
+  const env =
+    'env' in config && config.env && typeof config.env === 'object'
+      ? (config.env as Record<string, string>)
+      : undefined;
+
+  const cwd =
+    'cwd' in config && typeof config.cwd === 'string'
+      ? config.cwd
+      : undefined;
+
+  return {
+    name: serverName,
+    transport: 'stdio',
+    command,
+    args,
+    env,
+    cwd,
+    enabled,
+    scope,
+  };
 }
 
 /**
  * Update MCP server configuration
+ * Supports both STDIO and HTTP server types
  */
 export async function updateMcpServer(
   serverName: string,
@@ -2990,15 +3607,22 @@ export async function updateMcpServer(
   if (!config.scope) {
     throw new Error('updateMcpServer: scope is required');
   }
-  if (typeof config.command !== 'string' || !config.command.trim()) {
-    throw new Error('updateMcpServer: command is required');
+
+  // Validate based on transport type
+  if (config.transport === 'http') {
+    const url = 'url' in config ? config.url : undefined;
+    if (typeof url !== 'string' || !url.trim()) {
+      throw new Error('updateMcpServer: url is required for HTTP servers');
+    }
+  } else {
+    // STDIO server (default)
+    const command = 'command' in config ? config.command : undefined;
+    if (typeof command !== 'string' || !command.trim()) {
+      throw new Error('updateMcpServer: command is required for STDIO servers');
+    }
   }
 
-  const serverConfig = toServerConfig({
-    command: config.command,
-    args: config.args,
-    env: config.env,
-  });
+  const serverConfig = toServerConfig(config);
 
   if (config.scope === 'global') {
     const result = await fetchApi<{ success?: boolean; error?: string }>('/api/mcp-add-global-server', {
@@ -3035,28 +3659,18 @@ export async function updateMcpServer(
 
   if (options.projectPath) {
     const servers = await fetchMcpServers(options.projectPath);
-    return [...servers.project, ...servers.global].find((s) => s.name === serverName) ?? {
-      name: serverName,
-      command: config.command,
-      args: config.args,
-      env: config.env,
-      enabled: config.enabled ?? true,
-      scope: config.scope,
-    };
+    return (
+      [...servers.project, ...servers.global].find((s) => s.name === serverName) ??
+      _buildFallbackServer(serverName, config)
+    );
   }
 
-  return {
-    name: serverName,
-    command: config.command,
-    args: config.args,
-    env: config.env,
-    enabled: config.enabled ?? true,
-    scope: config.scope,
-  };
+  return _buildFallbackServer(serverName, config);
 }
 
 /**
  * Create a new MCP server
+ * Supports both STDIO and HTTP server types
  */
 export async function createMcpServer(
   server: McpServer,
@@ -3065,8 +3679,17 @@ export async function createMcpServer(
   if (!server.name?.trim()) {
     throw new Error('createMcpServer: name is required');
   }
-  if (!server.command?.trim()) {
-    throw new Error('createMcpServer: command is required');
+
+  // Validate based on transport type
+  if (server.transport === 'http') {
+    if (!server.url?.trim()) {
+      throw new Error('createMcpServer: url is required for HTTP servers');
+    }
+  } else {
+    // STDIO server (default)
+    if (!server.command?.trim()) {
+      throw new Error('createMcpServer: command is required for STDIO servers');
+    }
   }
 
   const serverName = server.name.trim();
@@ -3160,12 +3783,15 @@ export async function toggleMcpServer(
   }
 
   const servers = await fetchMcpServers(projectPath);
-  return [...servers.project, ...servers.global].find((s) => s.name === serverName) ?? {
-    name: serverName,
-    command: '',
-    enabled,
-    scope: 'project',
-  };
+  return (
+    [...servers.project, ...servers.global].find((s) => s.name === serverName) ?? {
+      name: serverName,
+      transport: 'stdio',
+      command: '',
+      enabled,
+      scope: 'project',
+    }
+  );
 }
 
 // ========== Codex MCP API ==========
@@ -3173,9 +3799,7 @@ export async function toggleMcpServer(
  * Codex MCP Server - Read-only server with config path
  * Extends McpServer with optional configPath field
  */
-export interface CodexMcpServer extends McpServer {
-  configPath?: string;
-}
+export type CodexMcpServer = McpServer & { configPath?: string };
 
 export interface CodexMcpServersResponse {
   servers: CodexMcpServer[];
@@ -3362,13 +3986,16 @@ export async function fetchOtherProjectsServers(
     servers[path] = Object.entries(projectServersRecord)
       // Exclude globally-defined servers; this section is meant for project-local discovery
       .filter(([name]) => !(name in userServers) && !(name in enterpriseServers))
-      .map(([name, raw]) => {
+      .flatMap(([name, raw]) => {
         const normalized = normalizeServerConfig(raw);
-        return {
+        if (normalized.transport !== 'stdio') return [];
+        return [{
           name,
-          ...normalized,
+          command: normalized.command,
+          args: normalized.args,
+          env: normalized.env,
           enabled: !disabledSet.has(name),
-        };
+        }];
       });
   }
 
@@ -3780,9 +4407,15 @@ export async function updateHookConfig(
 /**
  * Delete a hook
  */
-export async function deleteHook(hookName: string): Promise<void> {
-  return fetchApi<void>(`/api/hooks/delete/${encodeURIComponent(hookName)}`, {
+export async function deleteHook(params: {
+  projectPath?: string;
+  scope: 'global' | 'project';
+  event: string;
+  hookIndex: number;
+}): Promise<{ success: boolean }> {
+  return fetchApi<{ success: boolean }>('/api/hooks', {
     method: 'DELETE',
+    body: JSON.stringify(params),
   });
 }
 
@@ -3957,53 +4590,6 @@ export interface CcwMcpConfig {
 }
 
 /**
- * Platform detection for cross-platform MCP config
- */
-const isWindows = typeof navigator !== 'undefined' && navigator.platform?.toLowerCase().includes('win');
-
-/**
- * Build CCW MCP server config
- */
-function buildCcwMcpServerConfig(config: {
-  enabledTools?: string[];
-  projectRoot?: string;
-  allowedDirs?: string;
-  enableSandbox?: boolean;
-}): { command: string; args: string[]; env: Record<string, string> } {
-  const env: Record<string, string> = {};
-
-  if (config.enabledTools && config.enabledTools.length > 0) {
-    env.CCW_ENABLED_TOOLS = config.enabledTools.join(',');
-  } else {
-    env.CCW_ENABLED_TOOLS = 'write_file,edit_file,read_file,core_memory,ask_question,smart_search';
-  }
-
-  if (config.projectRoot) {
-    env.CCW_PROJECT_ROOT = config.projectRoot;
-  }
-  if (config.allowedDirs) {
-    env.CCW_ALLOWED_DIRS = config.allowedDirs;
-  }
-  if (config.enableSandbox) {
-    env.CCW_ENABLE_SANDBOX = '1';
-  }
-
-  // Cross-platform config
-  if (isWindows) {
-    return {
-      command: 'cmd',
-      args: ['/c', 'npx', '-y', 'ccw-mcp'],
-      env
-    };
-  }
-  return {
-    command: 'npx',
-    args: ['-y', 'ccw-mcp'],
-    env
-  };
-}
-
-/**
  * Fetch CCW Tools MCP configuration by checking if ccw-tools server exists
  */
 export async function fetchCcwMcpConfig(currentProjectPath?: string): Promise<CcwMcpConfig> {
@@ -4056,11 +4642,20 @@ export async function fetchCcwMcpConfig(currentProjectPath?: string): Promise<Cc
     }
 
     // Parse enabled tools from env
+    // Note: CCW_ENABLED_TOOLS can be empty string (all tools disabled), 'all' (default set), or comma-separated list
     const env = ccwServer.env || {};
-    const enabledToolsStr = env.CCW_ENABLED_TOOLS || 'all';
-    const enabledTools = enabledToolsStr === 'all'
-      ? ['write_file', 'edit_file', 'read_file', 'core_memory', 'ask_question']
-      : enabledToolsStr.split(',').map((t: string) => t.trim());
+    const enabledToolsStr = env.CCW_ENABLED_TOOLS;
+    let enabledTools: string[];
+    if (enabledToolsStr === undefined || enabledToolsStr === null) {
+      // No setting = use default tools
+      enabledTools = ['write_file', 'edit_file', 'read_file', 'core_memory', 'ask_question', 'smart_search'];
+    } else if (enabledToolsStr === '' || enabledToolsStr === 'all') {
+      // Empty string = all tools disabled, 'all' = default set (for backward compatibility)
+      enabledTools = enabledToolsStr === '' ? [] : ['write_file', 'edit_file', 'read_file', 'core_memory', 'ask_question', 'smart_search'];
+    } else {
+      // Comma-separated list
+      enabledTools = enabledToolsStr.split(',').map((t: string) => t.trim()).filter(Boolean);
+    }
 
     return {
       isInstalled: true,
@@ -4088,13 +4683,14 @@ export async function updateCcwConfig(config: {
   allowedDirs?: string;
   enableSandbox?: boolean;
 }): Promise<CcwMcpConfig> {
-  const serverConfig = buildCcwMcpServerConfig(config);
-
-  // Install/update to global config
-  const result = await addGlobalMcpServer('ccw-tools', serverConfig);
-  if (!result.success) {
-    throw new Error(result.error || 'Failed to update CCW config');
-  }
+  const result = await fetchApi<{ success?: boolean; error?: string }>('/api/mcp-install-ccw', {
+    method: 'POST',
+    body: JSON.stringify({
+      scope: 'global',
+      env: config,
+    }),
+  });
+  if (result?.error) throw new Error(result.error || 'Failed to update CCW config');
 
   return fetchCcwMcpConfig();
 }
@@ -4106,31 +4702,21 @@ export async function installCcwMcp(
   scope: 'global' | 'project' = 'global',
   projectPath?: string
 ): Promise<CcwMcpConfig> {
-  const serverConfig = buildCcwMcpServerConfig({
-    enabledTools: ['write_file', 'edit_file', 'read_file', 'core_memory', 'ask_question', 'smart_search'],
+  const path = scope === 'project' ? requireProjectPath(projectPath, 'installCcwMcp') : undefined;
+
+  const result = await fetchApi<{ success?: boolean; error?: string }>('/api/mcp-install-ccw', {
+    method: 'POST',
+    body: JSON.stringify({
+      scope,
+      projectPath: path,
+      env: {
+        enabledTools: ['write_file', 'edit_file', 'read_file', 'core_memory', 'ask_question', 'smart_search'],
+      },
+    }),
   });
+  if (result?.error) throw new Error(result.error || `Failed to install CCW MCP (${scope})`);
 
-  if (scope === 'project' && projectPath) {
-    const result = await fetchApi<{ success?: boolean; error?: string }>('/api/mcp-copy-server', {
-      method: 'POST',
-      body: JSON.stringify({
-        projectPath,
-        serverName: 'ccw-tools',
-        serverConfig,
-        configType: 'mcp',
-      }),
-    });
-    if (result?.error) {
-      throw new Error(result.error || 'Failed to install CCW MCP to project');
-    }
-  } else {
-    const result = await addGlobalMcpServer('ccw-tools', serverConfig);
-    if (!result.success) {
-      throw new Error(result.error || 'Failed to install CCW MCP');
-    }
-  }
-
-  return fetchCcwMcpConfig();
+  return fetchCcwMcpConfig(path);
 }
 
 /**
@@ -4201,11 +4787,20 @@ export async function fetchCcwMcpConfigForCodex(): Promise<CcwMcpConfig> {
       return { isInstalled: false, enabledTools: [], installedScopes: [] };
     }
 
-    const env = ccwServer.env || {};
-    const enabledToolsStr = env.CCW_ENABLED_TOOLS || 'all';
-    const enabledTools = enabledToolsStr === 'all'
-      ? ['write_file', 'edit_file', 'read_file', 'core_memory', 'ask_question', 'smart_search']
-      : enabledToolsStr.split(',').map((t: string) => t.trim());
+    const env = isStdioMcpServer(ccwServer) ? (ccwServer.env || {}) : {};
+    // Note: CCW_ENABLED_TOOLS can be empty string (all tools disabled), 'all' (default set), or comma-separated list
+    const enabledToolsStr = env.CCW_ENABLED_TOOLS;
+    let enabledTools: string[];
+    if (enabledToolsStr === undefined || enabledToolsStr === null) {
+      // No setting = use default tools
+      enabledTools = ['write_file', 'edit_file', 'read_file', 'core_memory', 'ask_question', 'smart_search'];
+    } else if (enabledToolsStr === '' || enabledToolsStr === 'all') {
+      // Empty string = all tools disabled, 'all' = default set (for backward compatibility)
+      enabledTools = enabledToolsStr === '' ? [] : ['write_file', 'edit_file', 'read_file', 'core_memory', 'ask_question', 'smart_search'];
+    } else {
+      // Comma-separated list
+      enabledTools = enabledToolsStr.split(',').map((t: string) => t.trim()).filter(Boolean);
+    }
 
     return {
       isInstalled: true,
@@ -4231,7 +4826,9 @@ function buildCcwMcpServerConfigForCodex(config: {
 }): { command: string; args: string[]; env: Record<string, string> } {
   const env: Record<string, string> = {};
 
-  if (config.enabledTools && config.enabledTools.length > 0) {
+  // Only use default when enabledTools is undefined (not provided)
+  // When enabledTools is an empty array, set to empty string to disable all tools
+  if (config.enabledTools !== undefined) {
     env.CCW_ENABLED_TOOLS = config.enabledTools.join(',');
   } else {
     env.CCW_ENABLED_TOOLS = 'write_file,edit_file,read_file,core_memory,ask_question,smart_search';
@@ -6718,7 +7315,7 @@ export async function fetchCcwTools(): Promise<CcwToolInfo[]> {
 
 // ========== Team API ==========
 
-export async function fetchTeams(location?: string): Promise<{ teams: Array<{ name: string; messageCount: number; lastActivity: string; status: string; created_at: string; updated_at: string; archived_at?: string; pipeline_mode?: string; memberCount: number; members?: string[] }> }> {
+export async function fetchTeams(location?: string): Promise<{ teams: Array<{ name: string; messageCount: number; lastActivity: string; status: string; created_at: string; updated_at: string; archived_at?: string; pipeline_mode?: string; pipeline_stages?: string[]; role_state?: Record<string, Record<string, unknown>>; roles?: string[]; team_name?: string; memberCount: number; members?: string[] }> }> {
   const params = new URLSearchParams();
   if (location) params.set('location', location);
   const qs = params.toString();
@@ -7131,4 +7728,331 @@ export async function triggerReindex(
       body: JSON.stringify({ path: projectPath }),
     }
   );
+}
+
+// ========== System Settings API ==========
+
+/**
+ * System settings response from /api/system/settings
+ */
+export interface SystemSettings {
+  injectionControl: {
+    maxLength: number;
+    warnThreshold: number;
+    truncateOnExceed: boolean;
+  };
+  personalSpecDefaults: {
+    defaultReadMode: 'required' | 'optional' | 'keywords';
+    autoEnable: boolean;
+  };
+  recommendedHooks: Array<{
+    id: string;
+    event: string;
+    name: string;
+    command: string;
+    description: string;
+    scope: 'global' | 'project';
+    autoInstall: boolean;
+    installed: boolean;
+  }>;
+}
+
+/**
+ * Update system settings request
+ */
+export interface UpdateSystemSettingsInput {
+  injectionControl?: Partial<SystemSettings['injectionControl']>;
+  personalSpecDefaults?: Partial<SystemSettings['personalSpecDefaults']>;
+}
+
+/**
+ * Install recommended hooks request
+ */
+export interface InstallRecommendedHooksInput {
+  hookIds: string[];
+  scope?: 'global' | 'project';
+}
+
+/**
+ * Installed hook result
+ */
+export interface InstalledHook {
+  id: string;
+  event: string;
+  status: 'installed' | 'already-exists';
+}
+
+/**
+ * Install recommended hooks response
+ */
+export interface InstallRecommendedHooksResponse {
+  success: boolean;
+  installed: InstalledHook[];
+}
+
+/**
+ * Fetch system settings (injection control, personal spec defaults, recommended hooks)
+ */
+export async function getSystemSettings(): Promise<SystemSettings> {
+  return fetchApi<SystemSettings>('/api/system/settings');
+}
+
+/**
+ * Update system settings
+ */
+export async function updateSystemSettings(data: UpdateSystemSettingsInput): Promise<{ success: boolean; settings?: Record<string, unknown> }> {
+  return fetchApi<{ success: boolean; settings?: Record<string, unknown> }>('/api/system/settings', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+/**
+ * Install recommended hooks
+ */
+export async function installRecommendedHooks(
+  hookIds: string[],
+  scope?: 'global' | 'project'
+): Promise<InstallRecommendedHooksResponse> {
+  return fetchApi<InstallRecommendedHooksResponse>('/api/system/hooks/install-recommended', {
+    method: 'POST',
+    body: JSON.stringify({ hookIds, scope } as InstallRecommendedHooksInput),
+  });
+}
+
+// ========== Spec Stats API ==========
+
+/**
+ * Spec stats response from /api/specs/stats
+ */
+export interface SpecStats {
+  dimensions: Record<string, { count: number; requiredCount: number }>;
+  injectionLength: {
+    requiredOnly: number;
+    withKeywords: number;
+    maxLength: number;
+    percentage: number;
+  };
+}
+
+/**
+ * Fetch spec statistics for a specific workspace
+ * @param projectPath - Optional project path to filter data by workspace
+ */
+export async function getSpecStats(projectPath?: string): Promise<SpecStats> {
+  const url = projectPath
+    ? `/api/specs/stats?path=${encodeURIComponent(projectPath)}`
+    : '/api/specs/stats';
+  return fetchApi<SpecStats>(url);
+}
+
+/**
+ * Spec entry from index
+ */
+export interface SpecEntry {
+  file: string;
+  title: string;
+  dimension: string;
+  category?: 'general' | 'exploration' | 'planning' | 'execution';
+  readMode: 'required' | 'optional' | 'keywords';
+  priority: 'critical' | 'high' | 'medium' | 'low';
+  keywords: string[];
+  scope: 'global' | 'project';
+  /** Content length (body only, cached for performance) */
+  contentLength: number;
+}
+
+/**
+ * Specs list response from /api/specs/list
+ */
+export interface SpecsListResponse {
+  specs: Record<string, SpecEntry[]>;
+}
+
+/**
+ * Fetch specs list for all dimensions
+ * @param projectPath - Optional project path
+ */
+export async function getSpecsList(projectPath?: string): Promise<SpecsListResponse> {
+  const url = projectPath
+    ? `/api/specs/list?path=${encodeURIComponent(projectPath)}`
+    : '/api/specs/list';
+  return fetchApi<SpecsListResponse>(url);
+}
+
+/**
+ * Rebuild spec index
+ */
+export async function rebuildSpecIndex(projectPath?: string): Promise<{ success: boolean; stats?: Record<string, number> }> {
+  const url = projectPath
+    ? `/api/specs/rebuild?path=${encodeURIComponent(projectPath)}`
+    : '/api/specs/rebuild';
+  return fetchApi<{ success: boolean; stats?: Record<string, number> }>(url, {
+    method: 'POST',
+  });
+}
+
+/**
+ * Injection preview file info
+ */
+export interface InjectionPreviewFile {
+  file: string;
+  title: string;
+  dimension: string;
+  category: string;
+  scope: string;
+  readMode: string;
+  priority: string;
+  contentLength: number;
+  content?: string;
+}
+
+/**
+ * Injection preview response
+ */
+export interface InjectionPreviewResponse {
+  files: InjectionPreviewFile[];
+  stats: {
+    count: number;
+    totalLength: number;
+    maxLength: number;
+    percentage: number;
+  };
+}
+
+/**
+ * Get injection preview with file list
+ * @param mode - 'required' | 'all' | 'keywords'
+ * @param preview - Include content preview
+ * @param projectPath - Optional project path
+ * @param category - Optional category filter
+ */
+export async function getInjectionPreview(
+  mode: 'required' | 'all' | 'keywords' = 'required',
+  preview: boolean = false,
+  projectPath?: string,
+  category?: string
+): Promise<InjectionPreviewResponse> {
+  const params = new URLSearchParams();
+  params.set('mode', mode);
+  params.set('preview', String(preview));
+  if (projectPath) {
+    params.set('path', projectPath);
+  }
+  if (category) {
+    params.set('category', category);
+  }
+  return fetchApi<InjectionPreviewResponse>(`/api/specs/injection-preview?${params.toString()}`);
+}
+
+/**
+ * Command preview configuration
+ */
+export interface CommandPreviewConfig {
+  command: string;
+  labelKey: string;  // i18n key for label
+  descriptionKey: string;  // i18n key for description
+  category?: string;
+  mode: 'required' | 'all';
+}
+
+/**
+ * Predefined command preview configurations
+ * Labels and descriptions use i18n keys: commandPreview.{key}.label / commandPreview.{key}.description
+ */
+export const COMMAND_PREVIEWS: CommandPreviewConfig[] = [
+  {
+    command: 'ccw spec load',
+    labelKey: 'default',
+    descriptionKey: 'default',
+    mode: 'required',
+  },
+  {
+    command: 'ccw spec load --category exploration',
+    labelKey: 'exploration',
+    descriptionKey: 'exploration',
+    category: 'exploration',
+    mode: 'required',
+  },
+  {
+    command: 'ccw spec load --category planning',
+    labelKey: 'planning',
+    descriptionKey: 'planning',
+    category: 'planning',
+    mode: 'required',
+  },
+  {
+    command: 'ccw spec load --category execution',
+    labelKey: 'execution',
+    descriptionKey: 'execution',
+    category: 'execution',
+    mode: 'required',
+  },
+  {
+    command: 'ccw spec load --category general',
+    labelKey: 'general',
+    descriptionKey: 'general',
+    category: 'general',
+    mode: 'required',
+  },
+];
+
+/**
+ * Update spec frontmatter (toggle readMode)
+ */
+export async function updateSpecFrontmatter(
+  file: string,
+  readMode: string,
+  projectPath?: string
+): Promise<{ success: boolean; readMode?: string }> {
+  const url = projectPath
+    ? `/api/specs/update-frontmatter?path=${encodeURIComponent(projectPath)}`
+    : '/api/specs/update-frontmatter';
+  return fetchApi<{ success: boolean; readMode?: string }>(url, {
+    method: 'PUT',
+    body: JSON.stringify({ file, readMode }),
+  });
+}
+
+// ========== Analysis API ==========
+
+import type { AnalysisSessionSummary, AnalysisSessionDetail } from '../types/analysis';
+
+/**
+ * Fetch list of analysis sessions
+ */
+export async function fetchAnalysisSessions(
+  projectPath?: string,
+  options?: { limit?: number; offset?: number }
+): Promise<AnalysisSessionSummary[]> {
+  const params = new URLSearchParams();
+  if (options?.limit) params.set('limit', String(options.limit));
+  if (options?.offset) params.set('offset', String(options.offset));
+
+  const queryString = params.toString();
+  const path = queryString
+    ? `${withPath('/api/analysis', projectPath)}&${queryString}`
+    : withPath('/api/analysis', projectPath);
+
+  const data = await fetchApi<{ success: boolean; data: AnalysisSessionSummary[]; error?: string }>(path);
+  if (!data.success) {
+    throw new Error(data.error || 'Failed to fetch analysis sessions');
+  }
+  return data.data;
+}
+
+/**
+ * Fetch analysis session detail
+ */
+export async function fetchAnalysisDetail(
+  sessionId: string,
+  projectPath?: string
+): Promise<AnalysisSessionDetail> {
+  const data = await fetchApi<{ success: boolean; data: AnalysisSessionDetail; error?: string }>(
+    withPath(`/api/analysis/${encodeURIComponent(sessionId)}`, projectPath)
+  );
+  if (!data.success) {
+    throw new Error(data.error || 'Failed to fetch analysis detail');
+  }
+  return data.data;
 }

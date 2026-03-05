@@ -71,7 +71,8 @@ function setCsrfCookie(res: ServerResponse, token: string, maxAgeSeconds: number
   const attributes = [
     `XSRF-TOKEN=${encodeURIComponent(token)}`,
     'Path=/',
-    'HttpOnly',
+    // Note: XSRF-TOKEN must be readable by JavaScript for CSRF protection to work
+    // The token is also sent via X-CSRF-Token header, so not having HttpOnly is safe
     'SameSite=Strict',
     `Max-Age=${maxAgeSeconds}`,
   ];
@@ -79,17 +80,39 @@ function setCsrfCookie(res: ServerResponse, token: string, maxAgeSeconds: number
 }
 
 export async function handleAuthRoutes(ctx: RouteContext): Promise<boolean> {
-  const { pathname, req, res } = ctx;
+  const { pathname, req, res, url } = ctx;
 
   if (pathname === '/api/csrf-token' && req.method === 'GET') {
     const sessionId = getOrCreateSessionId(req, res);
     const tokenManager = getCsrfTokenManager();
-    const csrfToken = tokenManager.generateToken(sessionId);
 
-    res.setHeader('X-CSRF-Token', csrfToken);
-    setCsrfCookie(res, csrfToken, 15 * 60);
-    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-    res.end(JSON.stringify({ csrfToken }));
+    // Check for count parameter (pool pattern)
+    const countParam = url.searchParams.get('count');
+    const count = countParam ? Math.min(Math.max(1, parseInt(countParam, 10) || 1), 10) : 1;
+
+    if (count === 1) {
+      // Single token response (existing behavior)
+      const csrfToken = tokenManager.generateToken(sessionId);
+      res.setHeader('X-CSRF-Token', csrfToken);
+      setCsrfCookie(res, csrfToken, 15 * 60);
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ csrfToken }));
+    } else {
+      // Batch token response (pool pattern)
+      const tokens = tokenManager.generateTokens(sessionId, count);
+
+      // If no tokens generated (session at max capacity), force generate one
+      const firstToken = tokens.length > 0 ? tokens[0] : tokenManager.generateToken(sessionId);
+
+      // Set header and cookie with first token for compatibility
+      res.setHeader('X-CSRF-Token', firstToken);
+      setCsrfCookie(res, firstToken, 15 * 60);
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({
+        tokens: tokens.length > 0 ? tokens : [firstToken],
+        expiresIn: 15 * 60, // seconds
+      }));
+    }
     return true;
   }
 

@@ -42,6 +42,7 @@ import team from './team.json';
 import terminalDashboard from './terminal-dashboard.json';
 import skillHub from './skill-hub.json';
 import nativeSession from './native-session.json';
+import specs from './specs.json';
 
 /**
  * Flattens nested JSON object to dot-separated keys
@@ -107,4 +108,5 @@ export default {
   ...flattenMessages(terminalDashboard, 'terminalDashboard'),
   ...flattenMessages(skillHub, 'skillHub'),
   ...flattenMessages(nativeSession, 'nativeSession'),
+  ...flattenMessages(specs, 'specs'),
 } as Record<string, string>;

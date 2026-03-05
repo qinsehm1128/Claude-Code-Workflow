@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, statSync, copyFileSync, readFileSync, writeFileSync, unlinkSync, rmdirSync, appendFileSync, renameSync, cpSync } from 'fs';
+import { existsSync, mkdirSync, readdirSync, statSync, copyFileSync, readFileSync, writeFileSync, unlinkSync, rmdirSync, appendFileSync, renameSync } from 'fs';
 import { join, dirname, basename } from 'path';
 import { homedir, platform } from 'os';
 import { fileURLToPath } from 'url';
@@ -6,7 +6,7 @@ import { execSync } from 'child_process';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 import { showHeader, createSpinner, info, warning, error, summaryBox, divider } from '../utils/ui.js';
-import { createManifest, addFileEntry, addDirectoryEntry, saveManifest, findManifest, getAllManifests } from '../core/manifest.js';
+import { createManifest, addFileEntry, addDirectoryEntry, saveManifest, findManifest, getAllManifests, type Manifest, type ManifestWithMetadata } from '../core/manifest.js';
 import { validatePath } from '../utils/path-resolver.js';
 import type { Ora } from 'ora';
 
@@ -1082,12 +1082,57 @@ function listLocalSkillHubSkills(): Array<{ id: string; name: string; descriptio
 }
 
 /**
+ * Copy directory recursively with manifest tracking
+ * Similar to copyDirectory() but returns file count for skill-hub installation
+ * @param src - Source directory
+ * @param dest - Destination directory
+ * @param manifest - Manifest to track files
+ * @returns Count of files and directories copied
+ */
+function copyDirectoryWithManifest(
+  src: string,
+  dest: string,
+  manifest: any
+): { files: number; directories: number } {
+  let files = 0;
+  let directories = 0;
+
+  // Create destination directory
+  if (!existsSync(dest)) {
+    mkdirSync(dest, { recursive: true });
+    directories++;
+    addDirectoryEntry(manifest, dest);
+  }
+
+  const entries = readdirSync(src);
+
+  for (const entry of entries) {
+    const srcPath = join(src, entry);
+    const destPath = join(dest, entry);
+    const stat = statSync(srcPath);
+
+    if (stat.isDirectory()) {
+      const result = copyDirectoryWithManifest(srcPath, destPath, manifest);
+      files += result.files;
+      directories += result.directories;
+    } else {
+      copyFileSync(srcPath, destPath);
+      files++;
+      addFileEntry(manifest, destPath);
+    }
+  }
+
+  return { files, directories };
+}
+
+/**
  * Install a skill from skill-hub to CLI skills directory
+ * Now tracks installed files in manifest for proper uninstall cleanup
  */
 async function installSkillFromHub(
   skillId: string,
   cliType: 'claude' | 'codex'
-): Promise<{ success: boolean; message: string }> {
+): Promise<{ success: boolean; message: string; filesTracked?: number }> {
   // Only support local skills for now
   if (!skillId.startsWith('local-')) {
     return {
@@ -1119,10 +1164,26 @@ async function installSkillFromHub(
     mkdirSync(targetParent, { recursive: true });
   }
 
-  // Copy skill directory
+  // Get or create manifest for global installation (skill-hub always installs to home directory)
+  const installPath = homedir();
+  const existingManifest = findManifest(installPath, 'Global');
+
+  // Use existing manifest or create new one for tracking skill-hub installations
+  // Note: ManifestWithMetadata extends Manifest, so we can use it directly
+  const manifest = existingManifest || createManifest('Global', installPath);
+
+  // Copy skill directory with manifest tracking
   try {
-    cpSync(skillDir, targetDir, { recursive: true });
-    return { success: true, message: `Skill '${skillName}' installed to ${cliType}` };
+    const { files } = copyDirectoryWithManifest(skillDir, targetDir, manifest);
+
+    // Save manifest with tracked files
+    saveManifest(manifest);
+
+    return {
+      success: true,
+      message: `Skill '${skillName}' installed to ${cliType}`,
+      filesTracked: files,
+    };
   } catch (error) {
     return { success: false, message: `Failed to install: ${(error as Error).message}` };
   }

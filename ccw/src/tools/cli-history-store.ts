@@ -7,6 +7,7 @@ import Database from 'better-sqlite3';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, rmdirSync } from 'fs';
 import { join, dirname, resolve } from 'path';
 import { parseSessionFile, formatConversation, extractConversationPairs, type ParsedSession, type ParsedTurn } from './session-content-parser.js';
+import { getDiscoverer, getNativeSessions } from './native-session-discovery.js';
 import { StoragePaths, ensureStorageDir, getProjectId, getCCWHome } from '../config/storage-paths.js';
 import type { CliOutputUnit } from './cli-output-converter.js';
 
@@ -120,7 +121,8 @@ export class CliHistoryStore {
     this.db = new Database(this.dbPath);
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('synchronous = NORMAL');
-    this.db.pragma('busy_timeout = 5000');  // Wait up to 5 seconds for locks
+    this.db.pragma('busy_timeout = 10000');  // Wait up to 10 seconds for locks (increased for write-heavy scenarios)
+    this.db.pragma('wal_autocheckpoint = 1000');  // Optimize WAL checkpointing
 
     this.initSchema();
     this.migrateFromJson(historyDir);
@@ -265,53 +267,37 @@ export class CliHistoryStore {
       const hasProjectRoot = tableInfo.some(col => col.name === 'project_root');
       const hasRelativePath = tableInfo.some(col => col.name === 'relative_path');
 
+      // Silent migrations - only log warnings/errors
       if (!hasCategory) {
-        console.log('[CLI History] Migrating database: adding category column...');
-        this.db.exec(`
-          ALTER TABLE conversations ADD COLUMN category TEXT DEFAULT 'user';
-        `);
-        // Create index separately to handle potential errors
+        this.db.exec(`ALTER TABLE conversations ADD COLUMN category TEXT DEFAULT 'user';`);
         try {
           this.db.exec(`CREATE INDEX IF NOT EXISTS idx_conversations_category ON conversations(category);`);
         } catch (indexErr) {
           console.warn('[CLI History] Category index creation warning:', (indexErr as Error).message);
         }
-        console.log('[CLI History] Migration complete: category column added');
       }
 
       if (!hasParentExecutionId) {
-        console.log('[CLI History] Migrating database: adding parent_execution_id column...');
-        this.db.exec(`
-          ALTER TABLE conversations ADD COLUMN parent_execution_id TEXT;
-        `);
+        this.db.exec(`ALTER TABLE conversations ADD COLUMN parent_execution_id TEXT;`);
         try {
           this.db.exec(`CREATE INDEX IF NOT EXISTS idx_conversations_parent ON conversations(parent_execution_id);`);
         } catch (indexErr) {
           console.warn('[CLI History] Parent execution index creation warning:', (indexErr as Error).message);
         }
-        console.log('[CLI History] Migration complete: parent_execution_id column added');
       }
 
       // Add hierarchical storage support columns
       if (!hasProjectRoot) {
-        console.log('[CLI History] Migrating database: adding project_root column for hierarchical storage...');
-        this.db.exec(`
-          ALTER TABLE conversations ADD COLUMN project_root TEXT;
-        `);
+        this.db.exec(`ALTER TABLE conversations ADD COLUMN project_root TEXT;`);
         try {
           this.db.exec(`CREATE INDEX IF NOT EXISTS idx_conversations_project_root ON conversations(project_root);`);
         } catch (indexErr) {
           console.warn('[CLI History] Project root index creation warning:', (indexErr as Error).message);
         }
-        console.log('[CLI History] Migration complete: project_root column added');
       }
 
       if (!hasRelativePath) {
-        console.log('[CLI History] Migrating database: adding relative_path column for hierarchical storage...');
-        this.db.exec(`
-          ALTER TABLE conversations ADD COLUMN relative_path TEXT;
-        `);
-        console.log('[CLI History] Migration complete: relative_path column added');
+        this.db.exec(`ALTER TABLE conversations ADD COLUMN relative_path TEXT;`);
       }
 
       // Add missing timestamp index for turns table (for time-based queries)
@@ -322,9 +308,7 @@ export class CliHistoryStore {
         `).get();
 
         if (!indexExists) {
-          console.log('[CLI History] Adding missing timestamp index to turns table...');
           this.db.exec(`CREATE INDEX IF NOT EXISTS idx_turns_timestamp ON turns(timestamp DESC);`);
-          console.log('[CLI History] Migration complete: turns timestamp index added');
         }
       } catch (indexErr) {
         console.warn('[CLI History] Turns timestamp index creation warning:', (indexErr as Error).message);
@@ -351,15 +335,11 @@ export class CliHistoryStore {
         }
       }
 
-      // Batch migration - only output log if there are columns to migrate
+      // Batch migration - silent
       if (missingTurnsColumns.length > 0) {
-        console.log(`[CLI History] Migrating turns table: adding ${missingTurnsColumns.length} columns (${missingTurnsColumns.join(', ')})...`);
-
         for (const col of missingTurnsColumns) {
           this.db.exec(`ALTER TABLE turns ADD COLUMN ${col} ${turnsColumnDefs[col]};`);
         }
-
-        console.log('[CLI History] Migration complete: turns table updated');
       }
 
       // Add transaction_id column to native_session_mapping table for concurrent session disambiguation
@@ -367,16 +347,12 @@ export class CliHistoryStore {
       const hasTransactionId = mappingInfo.some(col => col.name === 'transaction_id');
 
       if (!hasTransactionId) {
-        console.log('[CLI History] Migrating database: adding transaction_id column to native_session_mapping...');
-        this.db.exec(`
-          ALTER TABLE native_session_mapping ADD COLUMN transaction_id TEXT;
-        `);
+        this.db.exec(`ALTER TABLE native_session_mapping ADD COLUMN transaction_id TEXT;`);
         try {
           this.db.exec(`CREATE INDEX IF NOT EXISTS idx_native_transaction_id ON native_session_mapping(transaction_id);`);
         } catch (indexErr) {
           console.warn('[CLI History] Transaction ID index creation warning:', (indexErr as Error).message);
         }
-        console.log('[CLI History] Migration complete: transaction_id column added');
       }
     } catch (err) {
       console.error('[CLI History] Migration error:', (err as Error).message);
@@ -385,12 +361,13 @@ export class CliHistoryStore {
   }
 
   /**
-   * Execute a database operation with retry logic for SQLITE_BUSY errors
+   * Execute a database operation with retry logic for SQLITE_BUSY errors (async, non-blocking)
    * @param operation - Function to execute
    * @param maxRetries - Maximum retry attempts (default: 3)
    * @param baseDelay - Base delay in ms for exponential backoff (default: 100)
    */
-  private withRetry<T>(operation: () => T, maxRetries = 3, baseDelay = 100): T {
+  private async withRetry<T>(operation: () => T, maxRetries = 3, baseDelay = 100): Promise<T> {
+    const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -404,10 +381,8 @@ export class CliHistoryStore {
           if (attempt < maxRetries) {
             // Exponential backoff: 100ms, 200ms, 400ms
             const delay = baseDelay * Math.pow(2, attempt);
-            // Sync sleep using Atomics (works in Node.js)
-            const sharedBuffer = new SharedArrayBuffer(4);
-            const sharedArray = new Int32Array(sharedBuffer);
-            Atomics.wait(sharedArray, 0, 0, delay);
+            // Async non-blocking sleep
+            await sleep(delay);
           }
         } else {
           // Non-BUSY error, throw immediately
@@ -420,7 +395,7 @@ export class CliHistoryStore {
   }
 
   /**
-   * Migrate existing JSON files to SQLite
+   * Migrate existing JSON files to SQLite (async, non-blocking)
    */
   private migrateFromJson(historyDir: string): void {
     const migrationMarker = join(historyDir, '.migrated');
@@ -428,41 +403,50 @@ export class CliHistoryStore {
       return; // Already migrated
     }
 
-    // Find all date directories
-    const dateDirs = readdirSync(historyDir).filter(d => {
-      const dirPath = join(historyDir, d);
-      return statSync(dirPath).isDirectory() && /^\d{4}-\d{2}-\d{2}$/.test(d);
-    });
+    // Fire-and-forget async migration
+    (async () => {
+      try {
+        // Find all date directories
+        const dateDirs = readdirSync(historyDir).filter(d => {
+          const dirPath = join(historyDir, d);
+          return statSync(dirPath).isDirectory() && /^\d{4}-\d{2}-\d{2}$/.test(d);
+        });
 
-    let migratedCount = 0;
+        let migratedCount = 0;
 
-    for (const dateDir of dateDirs) {
-      const dirPath = join(historyDir, dateDir);
-      const files = readdirSync(dirPath).filter(f => f.endsWith('.json'));
+        for (const dateDir of dateDirs) {
+          const dirPath = join(historyDir, dateDir);
+          const files = readdirSync(dirPath).filter(f => f.endsWith('.json'));
 
-      for (const file of files) {
-        try {
-          const filePath = join(dirPath, file);
-          const data = JSON.parse(readFileSync(filePath, 'utf8'));
+          for (const file of files) {
+            try {
+              const filePath = join(dirPath, file);
+              const data = JSON.parse(readFileSync(filePath, 'utf8'));
 
-          // Convert to conversation record if legacy format
-          const conversation = this.normalizeRecord(data);
-          this.saveConversation(conversation);
-          migratedCount++;
+              // Convert to conversation record if legacy format
+              const conversation = this.normalizeRecord(data);
+              await this.saveConversation(conversation);
+              migratedCount++;
 
-          // Optionally delete the JSON file after migration
-          // unlinkSync(filePath);
-        } catch (err) {
-          console.error(`Failed to migrate ${file}:`, (err as Error).message);
+              // Optionally delete the JSON file after migration
+              // unlinkSync(filePath);
+            } catch (err) {
+              console.error(`Failed to migrate ${file}:`, (err as Error).message);
+            }
+          }
         }
-      }
-    }
 
-    // Create migration marker
-    if (migratedCount > 0) {
-      require('fs').writeFileSync(migrationMarker, new Date().toISOString());
-      console.log(`[CLI History] Migrated ${migratedCount} records to SQLite`);
-    }
+        // Create migration marker
+        if (migratedCount > 0) {
+          require('fs').writeFileSync(migrationMarker, new Date().toISOString());
+          console.log(`[CLI History] Migrated ${migratedCount} records to SQLite`);
+        }
+      } catch (err) {
+        console.error('[CLI History] Migration failed:', (err as Error).message);
+      }
+    })().catch(err => {
+      console.error('[CLI History] Migration error:', (err as Error).message);
+    });
   }
 
   /**
@@ -498,12 +482,14 @@ export class CliHistoryStore {
   }
 
   /**
-   * Save or update a conversation
+   * Save or update a conversation (async for non-blocking retry)
    */
-  saveConversation(conversation: ConversationRecord): void {
-    const promptPreview = conversation.turns.length > 0
-      ? conversation.turns[conversation.turns.length - 1].prompt.substring(0, 100)
-      : '';
+  async saveConversation(conversation: ConversationRecord): Promise<void> {
+    // Ensure prompt is a string before calling substring
+    const lastTurn = conversation.turns.length > 0 ? conversation.turns[conversation.turns.length - 1] : null;
+    const rawPrompt = lastTurn?.prompt ?? '';
+    const promptStr = typeof rawPrompt === 'string' ? rawPrompt : JSON.stringify(rawPrompt);
+    const promptPreview = promptStr.substring(0, 100);
 
     const upsertConversation = this.db.prepare(`
       INSERT INTO conversations (id, created_at, updated_at, tool, model, mode, category, total_duration_ms, turn_count, latest_status, prompt_preview, parent_execution_id, project_root, relative_path)
@@ -576,7 +562,7 @@ export class CliHistoryStore {
       }
     });
 
-    this.withRetry(() => transaction());
+    await this.withRetry(() => transaction());
   }
 
   /**
@@ -608,7 +594,8 @@ export class CliHistoryStore {
       turns: turns.map(t => ({
         turn: t.turn_number,
         timestamp: t.timestamp,
-        prompt: t.prompt,
+        // Ensure prompt is always a string (handle legacy object data)
+        prompt: typeof t.prompt === 'string' ? t.prompt : JSON.stringify(t.prompt),
         duration_ms: t.duration_ms,
         status: t.status,
         exit_code: t.exit_code,
@@ -839,17 +826,20 @@ export class CliHistoryStore {
         category: r.category || 'user',
         duration_ms: r.total_duration_ms,
         turn_count: r.turn_count,
-        prompt_preview: r.prompt_preview || ''
+        // Ensure prompt_preview is always a string (handle legacy object data)
+        prompt_preview: typeof r.prompt_preview === 'string'
+          ? r.prompt_preview
+          : (r.prompt_preview ? JSON.stringify(r.prompt_preview) : '')
       }))
     };
   }
 
   /**
-   * Delete a conversation
+   * Delete a conversation (async for non-blocking retry)
    */
-  deleteConversation(id: string): { success: boolean; error?: string } {
+  async deleteConversation(id: string): Promise<{ success: boolean; error?: string }> {
     try {
-      const result = this.withRetry(() =>
+      const result = await this.withRetry(() =>
         this.db.prepare('DELETE FROM conversations WHERE id = ?').run(id)
       );
       return { success: result.changes > 0 };
@@ -859,9 +849,9 @@ export class CliHistoryStore {
   }
 
   /**
-   * Batch delete conversations
+   * Batch delete conversations (async for non-blocking retry)
    */
-  batchDelete(ids: string[]): { success: boolean; deleted: number; errors?: string[] } {
+  async batchDelete(ids: string[]): Promise<{ success: boolean; deleted: number; errors?: string[] }> {
     const deleteStmt = this.db.prepare('DELETE FROM conversations WHERE id = ?');
     const errors: string[] = [];
     let deleted = 0;
@@ -877,7 +867,7 @@ export class CliHistoryStore {
       }
     });
 
-    this.withRetry(() => transaction());
+    await this.withRetry(() => transaction());
 
     return {
       success: true,
@@ -940,9 +930,9 @@ export class CliHistoryStore {
   // ========== Native Session Mapping Methods ==========
 
   /**
-   * Save or update native session mapping
+   * Save or update native session mapping (async for non-blocking retry)
    */
-  saveNativeSessionMapping(mapping: NativeSessionMapping): void {
+  async saveNativeSessionMapping(mapping: NativeSessionMapping): Promise<void> {
     const stmt = this.db.prepare(`
       INSERT INTO native_session_mapping (ccw_id, tool, native_session_id, native_session_path, project_hash, transaction_id, created_at)
       VALUES (@ccw_id, @tool, @native_session_id, @native_session_path, @project_hash, @transaction_id, @created_at)
@@ -953,7 +943,7 @@ export class CliHistoryStore {
         transaction_id = @transaction_id
     `);
 
-    this.withRetry(() => stmt.run({
+    await this.withRetry(() => stmt.run({
       ccw_id: mapping.ccw_id,
       tool: mapping.tool,
       native_session_id: mapping.native_session_id,
@@ -1065,11 +1055,94 @@ export class CliHistoryStore {
    */
   async getNativeSessionContent(ccwId: string): Promise<ParsedSession | null> {
     const mapping = this.getNativeSessionMapping(ccwId);
-    if (!mapping || !mapping.native_session_path) {
-      return null;
+    if (mapping?.native_session_path) {
+      const parsed = await parseSessionFile(mapping.native_session_path, mapping.tool);
+      if (parsed) {
+        return parsed;
+      }
+      // If mapping exists but file is missing/invalid, fall through to re-discovery.
     }
 
-    return parseSessionFile(mapping.native_session_path, mapping.tool);
+    // On-demand discovery/backfill: attempt to locate native session file from conversation metadata.
+    try {
+      const conversation = this.getConversation(ccwId);
+      if (!conversation) return null;
+
+      const tool = conversation.tool;
+      const discoverer = getDiscoverer(tool);
+      if (!discoverer) return null;
+
+      const createdMs = Date.parse(conversation.created_at);
+      const updatedMs = Date.parse(conversation.updated_at || conversation.created_at);
+      const durationMs = conversation.total_duration_ms || 0;
+
+      const endMs = Number.isFinite(updatedMs)
+        ? updatedMs
+        : (Number.isFinite(createdMs) ? createdMs + durationMs : NaN);
+      if (!Number.isFinite(endMs)) return null;
+
+      const afterTimestamp = Number.isFinite(createdMs) ? new Date(createdMs - 60_000) : undefined;
+      const sessions = getNativeSessions(tool, { workingDir: this.projectPath, afterTimestamp });
+      if (sessions.length === 0) return null;
+
+      // Prefer sessions whose updatedAt is close to execution end time.
+      const timeWindowMs = Math.max(5 * 60_000, durationMs + 2 * 60_000);
+      const timeCandidates = sessions.filter(s => Math.abs(s.updatedAt.getTime() - endMs) <= timeWindowMs);
+      const candidates = timeCandidates.length > 0
+        ? timeCandidates
+        : sessions
+            .map(session => ({ session, timeDiffMs: Math.abs(session.updatedAt.getTime() - endMs) }))
+            .sort((a, b) => a.timeDiffMs - b.timeDiffMs)
+            .slice(0, 50)
+            .map(x => x.session);
+
+      const prompt = conversation.turns[0]?.prompt || '';
+      const promptPrefix = prompt.substring(0, 200).trim();
+
+      const scored = candidates
+        .map(session => {
+          let promptMatch = false;
+          if (promptPrefix) {
+            try {
+              const firstUserMessage = discoverer.extractFirstUserMessage(session.filePath);
+              promptMatch = !!firstUserMessage && firstUserMessage.includes(promptPrefix);
+            } catch {
+              // Ignore extraction errors (still allow time-based match)
+            }
+          }
+
+          return {
+            session,
+            promptMatch,
+            timeDiffMs: Math.abs(session.updatedAt.getTime() - endMs)
+          };
+        })
+        .sort((a, b) => {
+          if (a.promptMatch !== b.promptMatch) return a.promptMatch ? -1 : 1;
+          return a.timeDiffMs - b.timeDiffMs;
+        });
+
+      const best = scored[0]?.session;
+      if (!best) return null;
+
+      // Persist mapping for future loads (best-effort).
+      try {
+        await this.saveNativeSessionMapping({
+          ccw_id: ccwId,
+          tool,
+          native_session_id: best.sessionId,
+          native_session_path: best.filePath,
+          project_hash: best.projectHash,
+          created_at: new Date().toISOString()
+        });
+      } catch {
+        // Ignore persistence errors; still attempt to return content.
+      }
+
+      return await parseSessionFile(best.filePath, tool);
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -1200,9 +1273,9 @@ export class CliHistoryStore {
   // ========== Insights Methods ==========
 
   /**
-   * Save an insights analysis result
+   * Save an insights analysis result (async for non-blocking retry)
    */
-  saveInsight(insight: {
+  async saveInsight(insight: {
     id: string;
     tool: string;
     promptCount: number;
@@ -1211,13 +1284,13 @@ export class CliHistoryStore {
     rawOutput?: string;
     executionId?: string;
     lang?: string;
-  }): void {
+  }): Promise<void> {
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO insights (id, created_at, tool, prompt_count, patterns, suggestions, raw_output, execution_id, lang)
       VALUES (@id, @created_at, @tool, @prompt_count, @patterns, @suggestions, @raw_output, @execution_id, @lang)
     `);
 
-    this.withRetry(() => stmt.run({
+    await this.withRetry(() => stmt.run({
       id: insight.id,
       created_at: new Date().toISOString(),
       tool: insight.tool,
@@ -1301,9 +1374,9 @@ export class CliHistoryStore {
   }
 
   /**
-   * Save or update a review for an execution
+   * Save or update a review for an execution (async for non-blocking retry)
    */
-  saveReview(review: Omit<ReviewRecord, 'id' | 'created_at' | 'updated_at'> & { created_at?: string; updated_at?: string }): ReviewRecord {
+  async saveReview(review: Omit<ReviewRecord, 'id' | 'created_at' | 'updated_at'> & { created_at?: string; updated_at?: string }): Promise<ReviewRecord> {
     const now = new Date().toISOString();
     const created_at = review.created_at || now;
     const updated_at = review.updated_at || now;
@@ -1319,7 +1392,7 @@ export class CliHistoryStore {
         updated_at = @updated_at
     `);
 
-    const result = this.withRetry(() => stmt.run({
+    const result = await this.withRetry(() => stmt.run({
       execution_id: review.execution_id,
       status: review.status,
       rating: review.rating ?? null,

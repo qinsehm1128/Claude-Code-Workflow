@@ -111,7 +111,7 @@ rm -f .workflow/archives/$SESSION_ID/.archiving
 
 ### Phase 4: Auto-Sync Project State
 
-Execute `/workflow:session:sync -y "{description}"` to update both `project-guidelines.json` and `project-tech.json` from session context.
+Execute `/workflow:session:sync -y "{description}"` to update both `specs/*.md` and `project-tech.json` from session context.
 
 Description 取自 Phase 2 的 `workflow-session.json` description 字段。
 
@@ -135,5 +135,5 @@ When `--yes` or `-y` flag is used:
 Phase 1: find session → create .archiving marker
 Phase 2: read key files → build manifest entry (no writes)
 Phase 3: mkdir → mv → update manifest.json → rm marker
-Phase 4: /workflow:session:sync -y → update project-guidelines + project-tech
+Phase 4: /workflow:session:sync -y → update specs/*.md + project-tech
 ```

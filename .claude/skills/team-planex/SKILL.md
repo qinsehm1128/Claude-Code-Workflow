@@ -1,375 +1,304 @@
 ---
 name: team-planex
-description: Unified team skill for plan-and-execute pipeline. 2-member team (planner + executor) with wave pipeline for concurrent planning and execution. All roles invoke this skill with --role arg. Triggers on "team planex".
-allowed-tools: TeamCreate(*), TeamDelete(*), SendMessage(*), TaskCreate(*), TaskUpdate(*), TaskList(*), TaskGet(*), Task(*), AskUserQuestion(*), Read(*), Write(*), Edit(*), Bash(*), Glob(*), Grep(*)
+description: Unified team skill for plan-and-execute pipeline. Uses team-worker agent architecture with role-spec files for domain logic. Coordinator orchestrates pipeline, workers are team-worker agents. Triggers on "team planex".
+allowed-tools: TeamCreate(*), TeamDelete(*), SendMessage(*), TaskCreate(*), TaskUpdate(*), TaskList(*), TaskGet(*), Agent(*), AskUserQuestion(*), Read(*), Write(*), Edit(*), Bash(*), Glob(*), Grep(*)
 ---
 
 # Team PlanEx
 
-2 成员边规划边执行团队。通过逐 Issue 节拍流水线实现 planner 和 executor 并行工作：planner 每完成一个 issue 的 solution 后立即创建 EXEC-* 任务（含中间产物文件路径），executor 从文件加载 solution 开始实现。所有成员通过 `--role=xxx` 路由。
+Unified team skill: plan-and-execute pipeline for issue-based development. Built on **team-worker agent architecture** — all worker roles share a single agent definition with role-specific Phase 2-4 loaded from markdown specs.
 
-## Architecture Overview
+> **Note**: This skill has its own coordinator implementation (`roles/coordinator/role.md`), independent of `team-lifecycle`. It follows the same v5 architectural patterns (team-worker agents, role-specs, Spawn-and-Stop) but with a simplified 2-role pipeline (planner + executor) tailored for plan-and-execute workflows.
+
+## Architecture
 
 ```
-┌──────────────────────────────────────────────┐
-│  Skill(skill="team-planex", args="--role=xxx") │
-└────────────────┬─────────────────────────────┘
-                 │ Role Router
-         ┌───────┴───────┐
-         ↓               ↓
-    ┌─────────┐    ┌──────────┐
-    │ planner │    │ executor │
-    │ PLAN-*  │    │ EXEC-*   │
-    └─────────┘    └──────────┘
+┌─────────────────────────────────────────────┐
+│  Skill(skill="team-planex", args="需求描述")  │
+└──────────────────┬──────────────────────────┘
+                   │ Always → coordinator
+                   ↓
+          ┌──────────────┐
+          │  coordinator  │  Phase 1-5 + dispatch/monitor commands
+          └───┬──────┬───┘
+              │      │
+              ↓      ↓
+     ┌──────────┐  ┌──────────┐
+     │ planner   │  │ executor  │   team-worker agents
+     │ PLAN-*    │  │ EXEC-*    │   with role-spec injection
+     └──────────┘  └──────────┘
 ```
-
-**设计原则**: 只有 2 个角色，没有独立 coordinator。SKILL.md 入口承担轻量编排（创建团队、派发初始任务链），然后 planner 担任 lead 角色持续推进。
 
 ## Role Router
 
+This skill is **coordinator-only**. Workers do NOT invoke this skill — they are spawned as `team-worker` agents directly.
+
 ### Input Parsing
 
-```javascript
-const args = "$ARGUMENTS"
-const roleMatch = args.match(/--role[=\s]+(\w+)/)
+Parse `$ARGUMENTS`. No `--role` needed — always routes to coordinator.
 
-if (!roleMatch) {
-  // No --role: orchestration mode (lightweight coordinator)
-  // → See "Orchestration Mode" section below
-}
+Optional flags: `--exec` (execution method), `-y`/`--yes` (auto mode).
 
-const role = roleMatch[1]
-const teamName = args.match(/--team[=\s]+([\w-]+)/)?.[1] || "planex"
+### Role Registry
+
+| Role | Spec | Task Prefix | Type | Inner Loop |
+|------|------|-------------|------|------------|
+| coordinator | [roles/coordinator/role.md](roles/coordinator/role.md) | (none) | orchestrator | - |
+| planner | [role-specs/planner.md](role-specs/planner.md) | PLAN-* | pipeline | true |
+| executor | [role-specs/executor.md](role-specs/executor.md) | EXEC-* | pipeline | true |
+
+### Dispatch
+
+Always route to coordinator. Coordinator reads `roles/coordinator/role.md` and executes its phases.
+
+### Orchestration Mode
+
+User provides task description.
+
+**Invocation**: `Skill(skill="team-planex", args="<task-description>")`
+
+**Lifecycle**:
+```
+User provides task description
+  -> coordinator Phase 1-3: Parse input -> TeamCreate -> Create task chain (dispatch)
+  -> coordinator Phase 4: spawn planner worker (background) -> STOP
+  -> Worker (team-worker agent) executes -> SendMessage callback -> coordinator advances
+  -> Loop until pipeline complete -> Phase 5 report + completion action
 ```
 
-### Role Dispatch
+**User Commands** (wake paused coordinator):
 
-```javascript
-const VALID_ROLES = {
-  "planner":  { file: "roles/planner.md",  prefix: "PLAN" },
-  "executor": { file: "roles/executor.md", prefix: "EXEC" }
-}
+| Command | Action |
+|---------|--------|
+| `check` / `status` | Output execution status graph, no advancement |
+| `resume` / `continue` | Check worker states, advance next step |
+| `add <issue-ids or --text '...' or --plan path>` | Append new tasks to planner queue |
 
-if (!VALID_ROLES[role]) {
-  throw new Error(`Unknown role: ${role}. Available: ${Object.keys(VALID_ROLES).join(', ')}`)
-}
+---
 
-// Read and execute role-specific logic
-Read(VALID_ROLES[role].file)
-// → Execute the 5-phase process defined in that file
-```
+## Command Execution Protocol
 
-### Available Roles
+When coordinator needs to execute a command (dispatch, monitor):
 
-| Role | Task Prefix | Responsibility | Reuses Agent | Role File |
-|------|-------------|----------------|--------------|-----------|
-| `planner` | PLAN-* | 需求拆解 → issue 创建 → 方案设计 → 冲突检查 → EXEC 任务逐个派发 | issue-plan-agent | [roles/planner.md](roles/planner.md) |
-| `executor` | EXEC-* | 加载 solution → 代码实现 → 测试 → 提交 | code-developer | [roles/executor.md](roles/executor.md) |
+1. **Read the command file**: `roles/coordinator/commands/<command-name>.md`
+2. **Follow the workflow** defined in the command file (Phase 2-4 structure)
+3. **Commands are inline execution guides** - NOT separate agents or subprocesses
+4. **Execute synchronously** - complete the command workflow before proceeding
+
+---
 
 ## Input Types
 
-支持 3 种输入方式（通过 args 传入 planner）：
+支持 3 种输入方式:
 
 | 输入类型 | 格式 | 示例 |
 |----------|------|------|
-| Issue IDs | 直接传入 ID | `--role=planner ISS-20260215-001 ISS-20260215-002` |
-| 需求文本 | `--text '...'` | `--role=planner --text '实现用户认证模块'` |
-| Plan 文件 | `--plan path` | `--role=planner --plan plan/2026-02-15-auth.md` |
+| Issue IDs | 直接传入 ID | `ISS-20260215-001 ISS-20260215-002` |
+| 需求文本 | `--text '...'` | `--text '实现用户认证模块'` |
+| Plan 文件 | `--plan path` | `--plan plan/2026-02-15-auth.md` |
 
-## Shared Infrastructure
+## Execution Method Selection
 
-### Role Isolation Rules
+支持 2 种执行后端：
 
-#### Output Tagging（强制）
+| Executor | 后端 | 适用场景 |
+|----------|------|----------|
+| `codex` | `ccw cli --tool codex --mode write` | 复杂任务、后台执行 |
+| `gemini` | `ccw cli --tool gemini --mode write` | 分析类任务、后台执行 |
 
-```javascript
-SendMessage({ content: `## [${role}] ...`, summary: `[${role}] ...` })
-mcp__ccw-tools__team_msg({ summary: `[${role}] ...` })
+### Selection Decision Table
+
+| Condition | Execution Method |
+|-----------|-----------------|
+| `--exec=codex` specified | Codex |
+| `--exec=gemini` specified | Gemini |
+| `-y` or `--yes` flag present | Auto (default Gemini) |
+| No flags (interactive) | AskUserQuestion -> user choice |
+| Auto + task_count <= 3 | Gemini |
+| Auto + task_count > 3 | Codex |
+
+---
+
+## Coordinator Spawn Template
+
+### v5 Worker Spawn (all roles)
+
+When coordinator spawns workers, use `team-worker` agent with role-spec path:
+
+```
+Agent({
+  agent_type: "team-worker",
+  description: "Spawn <role> worker",
+  team_name: <team-name>,
+  name: "<role>",
+  run_in_background: true,
+  prompt: `## Role Assignment
+role: <role>
+role_spec: .claude/skills/team-planex/role-specs/<role>.md
+session: <session-folder>
+session_id: <session-id>
+team_name: <team-name>
+requirement: <task-description>
+inner_loop: <true|false>
+execution_method: <agent|codex|gemini>
+
+Read role_spec file to load Phase 2-4 domain instructions.
+Execute built-in Phase 1 (task discovery) -> role-spec Phase 2-4 -> built-in Phase 5 (report).`
+})
 ```
 
-#### Planner 边界
+**Inner Loop roles** (planner, executor): Set `inner_loop: true`. The team-worker agent handles the loop internally.
 
-| 允许 | 禁止 |
-|------|------|
-| 需求拆解 (issue 创建) | ❌ 直接编写/修改代码 |
-| 方案设计 (issue-plan-agent) | ❌ 调用 code-developer |
-| 冲突检查 (inline files_touched) | ❌ 运行测试 |
-| 创建 EXEC-* 任务 | ❌ git commit |
-| 监控进度 (消息总线) | |
+---
 
-#### Executor 边界
+## Pipeline Definitions
 
-| 允许 | 禁止 |
-|------|------|
-| 处理 EXEC-* 前缀的任务 | ❌ 创建 issue |
-| 调用 code-developer 实现 | ❌ 修改 solution/queue |
-| 运行测试验证 | ❌ 为 planner 创建 PLAN-* 任务 |
-| git commit 提交 | ❌ 直接与用户交互 (AskUserQuestion) |
-| SendMessage 给 planner | |
+### Pipeline Diagram
 
-### Team Configuration
+```
+Issue-based beat pipeline (逐 Issue 节拍)
+═══════════════════════════════════════════════════
+  PLAN-001 ──> [planner] issue-1 solution → EXEC-001
+                         issue-2 solution → EXEC-002
+                         ...
+                         issue-N solution → EXEC-00N
+                         all_planned signal
+
+  EXEC-001 ──> [executor] implement issue-1
+  EXEC-002 ──> [executor] implement issue-2
+  ...
+  EXEC-00N ──> [executor] implement issue-N
+═══════════════════════════════════════════════════
+```
+
+### Cadence Control
+
+**Beat model**: Event-driven Spawn-and-Stop. Each beat = coordinator wake -> process callback -> spawn next -> STOP.
+
+```
+Beat Cycle (Coordinator Spawn-and-Stop)
+======================================================================
+  Event                   Coordinator              Workers
+----------------------------------------------------------------------
+  用户调用 ----------> ┌─ Phase 1-3 ──────────┐
+                       │  解析输入              │
+                       │  TeamCreate            │
+                       │  创建 PLAN-001         │
+                       ├─ Phase 4 ─────────────┤
+                       │  spawn planner ────────┼──> [planner] Phase 1-5
+                       └─ STOP (idle) ──────────┘         │
+                                                          │
+  callback <─ planner issue_ready ────────────────────────┘
+         ┌─ monitor.handleCallback ─┐
+         │  检查新 EXEC-* 任务       │
+         │  spawn executor ─────────┼──> [executor] Phase 1-5
+         └─ STOP (idle) ───────────┘         │
+                                              │
+  callback <─ executor impl_complete ────────┘
+         ┌─ monitor.handleCallback ─┐
+         │  标记完成                  │
+         │  检查下一个 ready task     │
+         └─ spawn/STOP ────────────┘
+======================================================================
+```
+
+**Checkpoints**:
+
+| 触发条件 | 位置 | 行为 |
+|----------|------|------|
+| Planner 全部完成 | all_planned 信号 | Executor 完成剩余 EXEC-* 后结束 |
+| Pipeline 停滞 | 无 ready + 无 running | Coordinator escalate to user |
+| Executor 阻塞 | blocked > 2 tasks | Coordinator escalate to user |
+
+### Task Metadata Registry
+
+| Task ID | Role | Phase | Dependencies | Description |
+|---------|------|-------|-------------|-------------|
+| PLAN-001 | planner | planning | (none) | 初始规划：需求拆解、issue 创建、方案设计 |
+| EXEC-001 | executor | execution | (created by planner at runtime) | 第一个 issue 的代码实现 |
+| EXEC-N | executor | execution | (created by planner at runtime) | 第 N 个 issue 的代码实现 |
+
+> 注: EXEC-* 任务由 planner 在运行时逐个创建（逐 Issue 节拍），不预先定义完整任务链。
+
+---
+
+## Completion Action
+
+When the pipeline completes (all tasks done, coordinator Phase 5):
 
 ```javascript
-const TEAM_CONFIG = {
-  name: "planex",
-  sessionDir: ".workflow/.team/PEX-{slug}-{date}/",
-  artifactsDir: ".workflow/.team/PEX-{slug}-{date}/artifacts/",
-  issueDataDir: ".workflow/issues/"
+if (autoYes) {
+  // Auto mode: Archive & Clean without prompting
+  completionAction = "Archive & Clean";
+} else {
+  AskUserQuestion({
+    questions: [{
+      question: "Team pipeline complete. What would you like to do?",
+      header: "Completion",
+      multiSelect: false,
+      options: [
+        { label: "Archive & Clean (Recommended)", description: "Archive session, clean up tasks and team resources" },
+        { label: "Keep Active", description: "Keep session active for follow-up work or inspection" },
+        { label: "Export Results", description: "Export deliverables to a specified location, then clean" }
+      ]
+    }]
+  })
 }
 ```
 
-### Message Bus
+| Choice | Action |
+|--------|--------|
+| Archive & Clean | Update session status="completed" -> TeamDelete -> output final summary |
+| Keep Active | Update session status="paused" -> output resume instructions |
+| Export Results | AskUserQuestion for target path -> copy deliverables -> Archive & Clean |
 
-```javascript
-mcp__ccw-tools__team_msg({
-  operation: "log",
-  team: teamName,
-  from: role,
-  to: role === "planner" ? "executor" : "planner",
-  type: "<type>",
-  summary: `[${role}] <summary>`,
-  ref: "<file_path>"
-})
+---
+
+## Session Directory
+
 ```
+.workflow/.team/PEX-{slug}-{date}/
+├── .msg/meta.json           # Session state
+├── artifacts/
+│   └── solutions/              # Planner solution output per issue
+│       ├── {issueId-1}.json
+│       └── {issueId-N}.json
+├── wisdom/                     # Cross-task knowledge
+│   ├── learnings.md
+│   ├── decisions.md
+│   ├── conventions.md
+│   └── issues.md
+├── .msg/messages.jsonl          # Team message bus
+└── .msg/meta.json               # Session metadata
+```
+
+---
+
+## Message Bus
+
+每次 SendMessage 前，先调用 `mcp__ccw-tools__team_msg` 记录：
+
+- 参数: operation="log", session_id=`<session-id>`, from=`<role>`, type=`<type>`, data={ref: "`<artifact-path>`"}
+- `to` and `summary` auto-defaulted -- do NOT specify explicitly
+- **CLI fallback**: `ccw team log --session-id <session-id> --from <role> --type <type> --json`
 
 **Message types by role**:
 
 | Role | Types |
 |------|-------|
-| planner | `wave_ready`, `issue_ready`, `all_planned`, `error` |
-| executor | `impl_complete`, `impl_failed`, `wave_done`, `error` |
+| planner | `issue_ready`, `all_planned`, `error` |
+| executor | `impl_complete`, `impl_failed`, `error` |
 
-### CLI Fallback
-
-```javascript
-Bash(`ccw team log --team "${teamName}" --from "${role}" --to "${role === 'planner' ? 'executor' : 'planner'}" --type "<type>" --summary "<summary>" --json`)
-```
-
-### Task Lifecycle (Both Roles)
-
-```javascript
-const tasks = TaskList()
-const myTasks = tasks.filter(t =>
-  t.subject.startsWith(`${VALID_ROLES[role].prefix}-`) &&
-  t.owner === role &&
-  t.status === 'pending' &&
-  t.blockedBy.length === 0
-)
-if (myTasks.length === 0) return // idle
-const task = TaskGet({ taskId: myTasks[0].id })
-TaskUpdate({ taskId: task.id, status: 'in_progress' })
-// Phase 2-4: Role-specific (see roles/{role}.md)
-// Phase 5: Report + Loop
-```
-
-## Wave Pipeline (逐 Issue 节拍)
-
-```
-Issue 1:  planner 规划 solution → 写中间产物 → 冲突检查 → 创建 EXEC-* → issue_ready
-                ↓ (executor 立即开始)
-Issue 2:  planner 规划 solution → 写中间产物 → 冲突检查 → 创建 EXEC-* → issue_ready
-                ↓ (executor 并行消费)
-Issue N:  ...
-Final:    planner 发送 all_planned → executor 完成剩余 EXEC-* → 结束
-```
-
-**节拍规则**:
-- planner 每完成一个 issue 的 solution 后，**立即**创建 EXEC-* 任务并发送 `issue_ready` 信号
-- solution 写入中间产物文件（`artifacts/solutions/{issueId}.json`），EXEC-* 任务包含 `solution_file` 路径
-- executor 从文件加载 solution（无需再调 `ccw issue solution`），fallback 兼容旧模式
-- planner 不等待 executor，持续推进下一个 issue
-- 当 planner 发送 `all_planned` 消息后，executor 完成所有剩余任务即可结束
-
-## Execution Method Selection
-
-在编排模式或直接调用 executor 前，**必须先确定执行方式**。支持 3 种执行后端：
-
-| Executor | 后端 | 适用场景 |
-|----------|------|----------|
-| `agent` | code-developer subagent | 简单任务、同步执行 |
-| `codex` | `ccw cli --tool codex --mode write` | 复杂任务、后台执行 |
-| `gemini` | `ccw cli --tool gemini --mode write` | 分析类任务、后台执行 |
-
-### 选择逻辑
-
-```javascript
-// ★ 统一 auto mode 检测：-y/--yes 从 $ARGUMENTS 或 ccw 传播
-const autoYes = /\b(-y|--yes)\b/.test(args)
-const explicitExec = args.match(/--exec[=\s]+(agent|codex|gemini|auto)/i)?.[1]
-
-let executionConfig
-
-if (explicitExec) {
-  // 显式指定
-  executionConfig = {
-    executionMethod: explicitExec.charAt(0).toUpperCase() + explicitExec.slice(1),
-    codeReviewTool: "Skip"
-  }
-} else if (autoYes) {
-  // Auto 模式：默认 Agent + Skip review
-  executionConfig = { executionMethod: "Auto", codeReviewTool: "Skip" }
-} else {
-  // 交互选择
-  executionConfig = AskUserQuestion({
-    questions: [
-      {
-        question: "选择执行方式:",
-        header: "Execution",
-        multiSelect: false,
-        options: [
-          { label: "Agent", description: "code-developer agent（同步，适合简单任务）" },
-          { label: "Codex", description: "Codex CLI（后台，适合复杂任务）" },
-          { label: "Gemini", description: "Gemini CLI（后台，适合分析类任务）" },
-          { label: "Auto", description: "根据任务复杂度自动选择" }
-        ]
-      },
-      {
-        question: "执行后是否进行代码审查?",
-        header: "Code Review",
-        multiSelect: false,
-        options: [
-          { label: "Skip", description: "不审查" },
-          { label: "Gemini Review", description: "Gemini CLI 审查" },
-          { label: "Codex Review", description: "Git-aware review（--uncommitted）" },
-          { label: "Agent Review", description: "当前 agent 审查" }
-        ]
-      }
-    ]
-  })
-}
-
-// Auto 解析：根据 solution task_count 决定
-function resolveExecutor(taskCount) {
-  if (executionConfig.executionMethod === 'Auto') {
-    return taskCount <= 3 ? 'agent' : 'codex'
-  }
-  return executionConfig.executionMethod.toLowerCase()
-}
-```
-
-### 通过 args 指定
-
-```bash
-# 显式指定
-Skill(skill="team-planex", args="--exec=codex ISS-xxx")
-Skill(skill="team-planex", args="--exec=agent --text '简单功能'")
-
-# Auto 模式（跳过交互，-y 或 --yes）
-Skill(skill="team-planex", args="-y --text '添加日志'")
-```
-
-## Orchestration Mode
-
-当不带 `--role` 调用时，SKILL.md 进入轻量编排模式：
-
-```javascript
-// 1. 创建团队
-TeamCreate({ team_name: teamName })
-
-// 1.5 初始化 sessionDir + artifacts 目录
-const slug = (issueIds[0] || 'batch').replace(/[^a-zA-Z0-9-]/g, '')
-const dateStr = new Date().toISOString().slice(0,10).replace(/-/g,'')
-const sessionId = `PEX-${slug}-${dateStr}`
-const sessionDir = `.workflow/.team/${sessionId}`
-Bash(`mkdir -p "${sessionDir}/artifacts/solutions"`)
-
-// 2. 解析输入参数
-const issueIds = args.match(/ISS-\d{8}-\d{6}/g) || []
-const textMatch = args.match(/--text\s+['"]([^'"]+)['"]/)
-const planMatch = args.match(/--plan\s+(\S+)/)
-
-let plannerInput = args  // 透传给 planner
-
-// 3. 执行方式选择（见上方 Execution Method Selection）
-// executionConfig 已确定: { executionMethod, codeReviewTool }
-
-// 4. 创建初始 PLAN-* 任务
-TaskCreate({
-  subject: "PLAN-001: 初始规划",
-  description: `规划任务。输入: ${plannerInput}`,
-  activeForm: "规划中",
-  owner: "planner"
-})
-
-// 5. Spawn planner agent
-Task({
-  subagent_type: "general-purpose",
-  team_name: teamName,
-  name: "planner",
-  prompt: `你是 team "${teamName}" 的 PLANNER。
-当你收到 PLAN-* 任务时，调用 Skill(skill="team-planex", args="--role=planner") 执行。
-当前输入: ${plannerInput}
-
-## 执行配置
-executor 的执行方式已确定: ${executionConfig.executionMethod}
-创建 EXEC-* 任务时，在 description 中包含:
-  execution_method: ${executionConfig.executionMethod}
-  code_review: ${executionConfig.codeReviewTool}
-
-## 中间产物（必须）
-sessionDir: ${sessionDir}
-每个 issue 的 solution 写入: ${sessionDir}/artifacts/solutions/{issueId}.json
-EXEC-* 任务 description 必须包含 solution_file 字段指向该文件
-每完成一个 issue 立即发送 issue_ready 消息并创建 EXEC-* 任务
-
-## 角色准则（强制）
-- 你只能处理 PLAN-* 前缀的任务
-- 所有输出必须带 [planner] 标识前缀
-- 每完成一个 issue 的 solution 后立即创建 EXEC-* 任务（逐 issue 派发，不等 wave 完成）
-- EXEC-* 任务 description 中必须包含 execution_method 和 solution_file 字段
-
-## 消息总线（必须）
-每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
-
-工作流程:
-1. TaskList → 找到 PLAN-* 任务
-2. Skill(skill="team-planex", args="--role=planner") 执行
-3. team_msg log + SendMessage
-4. TaskUpdate completed → 检查下一个任务`
-})
-
-// 6. Spawn executor agent
-Task({
-  subagent_type: "general-purpose",
-  team_name: teamName,
-  name: "executor",
-  prompt: `你是 team "${teamName}" 的 EXECUTOR。
-当你收到 EXEC-* 任务时，调用 Skill(skill="team-planex", args="--role=executor") 执行。
-
-## 执行配置
-默认执行方式: ${executionConfig.executionMethod}
-代码审查: ${executionConfig.codeReviewTool}
-（每个 EXEC-* 任务 description 中可能包含 execution_method 覆盖）
-
-## Solution 加载
-优先从 EXEC-* 任务 description 中的 solution_file 路径读取 solution JSON 文件
-无 solution_file 时 fallback 到 ccw issue solution 命令
-
-## 角色准则（强制）
-- 你只能处理 EXEC-* 前缀的任务
-- 所有输出必须带 [executor] 标识前缀
-- 根据 execution_method 选择执行后端（Agent/Codex/Gemini）
-- 每个 solution 完成后通知 planner
-
-## 消息总线（必须）
-每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
-
-工作流程:
-1. TaskList → 找到 EXEC-* 任务（等待 planner 创建）
-2. Skill(skill="team-planex", args="--role=executor") 执行
-3. team_msg log + SendMessage
-4. TaskUpdate completed → 检查下一个任务`
-})
-```
+---
 
 ## Error Handling
 
 | Scenario | Resolution |
 |----------|------------|
-| Unknown --role value | Error with available role list |
-| Missing --role arg | Enter orchestration mode |
-| Role file not found | Error with expected path (roles/{name}.md) |
-| Planner issue planning failure | Retry once, then report error and skip to next issue |
-| Executor impl failure | Report to planner, continue with next EXEC-* task |
-| No EXEC-* tasks yet | Executor idles, polls for new tasks |
-| Pipeline stall | Planner monitors — if executor blocked > 2 tasks, escalate to user |
+| Role spec file not found | Error with expected path (role-specs/<name>.md) |
+| Command file not found | Fallback to inline execution in coordinator role.md |
+| team-worker agent unavailable | Error: requires .claude/agents/team-worker.md |
+| Planner issue planning failure | Retry once, then skip to next issue |
+| Executor impl failure | Report to coordinator, continue with next EXEC-* task |
+| Pipeline stall | Coordinator monitors, escalate to user |
+| Completion action timeout | Default to Keep Active |

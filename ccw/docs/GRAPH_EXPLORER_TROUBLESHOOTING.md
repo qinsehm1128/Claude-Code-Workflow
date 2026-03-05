@@ -238,23 +238,22 @@ ccw view
    rg "handleGraphRoutes" src/
    ```
 
-2. **检查前端是否包含 graph-explorer 视图**：
+2. **检查前端是否包含 Graph Explorer 组件**：
    ```bash
-   ls src/templates/dashboard-js/views/graph-explorer.js
+   ls ccw/frontend/src/components/GraphExplorer.tsx
    ```
 
-3. **检查 dashboard-generator.ts 是否包含 graph explorer**：
+3. **检查 React 前端是否正确构建**：
    ```bash
-   rg "graph-explorer" src/core/dashboard-generator.ts
+   ls ccw/frontend/dist/index.html
    ```
 
 ### 解决方案
 
 确保以下文件存在且正确：
-- `src/core/routes/graph-routes.ts` - API 路由处理
-- `src/templates/dashboard-js/views/graph-explorer.js` - 前端视图
-- `src/templates/dashboard-css/14-graph-explorer.css` - 样式
-- `src/templates/dashboard.html` - 包含 Graph 导航项（line 334）
+- `ccw/src/core/routes/graph-routes.ts` - API 路由处理
+- `ccw/frontend/src/components/GraphExplorer.tsx` - React 前端组件
+- `ccw/frontend/dist/index.html` - 构建后的前端入口
 
 ---
 

@@ -187,7 +187,7 @@ export function createDefaultSettings(provider: CliProvider = 'claude'): CliSett
         env: {
           DISABLE_AUTOUPDATER: '1'
         },
-        model: 'sonnet',
+        model: '',
         tags: [],
         availableModels: []
       } satisfies ClaudeCliSettings;

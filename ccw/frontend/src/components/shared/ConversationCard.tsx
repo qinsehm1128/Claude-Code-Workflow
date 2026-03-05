@@ -198,7 +198,9 @@ export function ConversationCard({
 
             {/* Prompt preview */}
             <p className="text-sm text-foreground line-clamp-2 mb-2">
-              {execution.prompt_preview}
+              {typeof execution.prompt_preview === 'string'
+                ? execution.prompt_preview
+                : JSON.stringify(execution.prompt_preview)}
             </p>
 
             {/* Meta info */}

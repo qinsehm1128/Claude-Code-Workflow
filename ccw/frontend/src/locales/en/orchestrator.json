@@ -272,7 +272,7 @@
     "confirmDeleteTemplate": "Delete template \"{name}\"?",
     "placeholders": {
       "nodeLabel": "Node label",
-      "instruction": "e.g., Execute /workflow:plan for login feature\nor: Analyze code architecture\nor: Save {{analysis}} to ./output/result.json",
+      "instruction": "e.g., Execute /workflow-plan for login feature\nor: Analyze code architecture\nor: Save {{analysis}} to ./output/result.json",
       "outputName": "e.g., analysis, plan, result",
       "slashCommand": "Select a command...",
       "slashArgs": "Enter arguments...",

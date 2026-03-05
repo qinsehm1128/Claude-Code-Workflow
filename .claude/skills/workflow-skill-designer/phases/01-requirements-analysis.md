@@ -215,8 +215,8 @@ const workflowConfig = {
   skillName: "workflow-plan",           // kebab-case
   title: "Workflow Plan",               // Human-readable
   description: "5-phase planning...",   // One-line description
-  triggers: ["workflow:plan"],          // Trigger phrases
-  allowedTools: ["Task", "AskUserQuestion", "TodoWrite", "Read", "Write", "Edit", "Bash", "Glob", "Grep", "Skill"],
+  triggers: ["workflow-plan"],          // Trigger phrases
+  allowedTools: ["Agent", "AskUserQuestion", "TodoWrite", "Read", "Write", "Edit", "Bash", "Glob", "Grep", "Skill"],
 
   // Source information
   source: {

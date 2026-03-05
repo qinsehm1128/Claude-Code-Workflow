@@ -5,7 +5,7 @@
 
 import * as React from 'react';
 import { useIntl } from 'react-intl';
-import { FolderOpen, RefreshCw } from 'lucide-react';
+import { ChevronDown, FolderOpen, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -52,8 +52,6 @@ export interface CliConfigModalProps {
   onCreateSession: (config: CliSessionConfig) => Promise<void>;
 }
 
-const AUTO_MODEL_VALUE = '__auto__';
-
 /**
  * Generate a tag name: {tool}-{HHmmss}
  * Example: gemini-143052
@@ -94,6 +92,12 @@ export function CliConfigModal({
 
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+
+  // Model combobox state
+  const [modelInputValue, setModelInputValue] = React.useState('');
+  const [isModelDropdownOpen, setIsModelDropdownOpen] = React.useState(false);
+  const modelContainerRef = React.useRef<HTMLDivElement>(null);
+  const modelInputRef = React.useRef<HTMLInputElement>(null);
 
   // CLI Settings integration (for all tools)
   const { cliSettings } = useCliSettings({ enabled: true });
@@ -162,13 +166,30 @@ export function CliConfigModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when tool changes, reading tag intentionally stale
   }, [tool]);
 
-  // Sync initial model when tool/modelOptions change
+  // Sync model input display when model state changes (e.g., tool change)
   React.useEffect(() => {
-    if (modelOptions.length > 0 && (!model || !modelOptions.includes(model))) {
-      setModel(modelOptions[0]);
+    setModelInputValue(model ?? '');
+  }, [model]);
+
+  // Filter model suggestions based on typed input
+  const filteredModelOptions = React.useMemo(() => {
+    const query = modelInputValue.toLowerCase();
+    if (!query) return modelOptions;
+    return modelOptions.filter((m) => m.toLowerCase().includes(query));
+  }, [modelOptions, modelInputValue]);
+
+  // Close model dropdown on outside click
+  React.useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (modelContainerRef.current && !modelContainerRef.current.contains(e.target as Node)) {
+        setIsModelDropdownOpen(false);
+      }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when modelOptions changes
-  }, [modelOptions]);
+    if (isModelDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isModelDropdownOpen]);
 
   const handleToolChange = (nextTool: string) => {
     setTool(nextTool as CliTool);
@@ -276,30 +297,80 @@ export function CliConfigModal({
               </Select>
             </div>
 
-            {/* Model */}
+            {/* Model - Combobox (input + dropdown suggestions) */}
             <div className="space-y-2">
               <Label htmlFor="cli-config-model">
                 {formatMessage({ id: 'terminalDashboard.cliConfig.model' })}
               </Label>
-              <Select
-                value={model ?? AUTO_MODEL_VALUE}
-                onValueChange={(v) => setModel(v === AUTO_MODEL_VALUE ? undefined : v)}
-                disabled={isSubmitting}
-              >
-                <SelectTrigger id="cli-config-model">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={AUTO_MODEL_VALUE}>
-                    {formatMessage({ id: 'terminalDashboard.cliConfig.modelAuto' })}
-                  </SelectItem>
-                  {modelOptions.map((m) => (
-                    <SelectItem key={m} value={m}>
-                      {m}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div ref={modelContainerRef} className="relative">
+                <div className="flex">
+                  <input
+                    ref={modelInputRef}
+                    id="cli-config-model"
+                    value={modelInputValue}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setModelInputValue(v);
+                      setModel(v || undefined);
+                      if (!isModelDropdownOpen) setIsModelDropdownOpen(true);
+                    }}
+                    onFocus={() => setIsModelDropdownOpen(true)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') setIsModelDropdownOpen(false);
+                      if (e.key === 'Enter') setIsModelDropdownOpen(false);
+                    }}
+                    placeholder={formatMessage({ id: 'terminalDashboard.cliConfig.modelAuto', defaultMessage: 'Auto' })}
+                    disabled={isSubmitting}
+                    className="flex h-10 w-full rounded-l-md border border-r-0 border-input bg-background px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsModelDropdownOpen(!isModelDropdownOpen);
+                      if (!isModelDropdownOpen) modelInputRef.current?.focus();
+                    }}
+                    disabled={isSubmitting}
+                    className="flex items-center justify-center h-10 w-9 shrink-0 rounded-r-md border border-input bg-background hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <ChevronDown className="h-4 w-4 opacity-50" />
+                  </button>
+                </div>
+                {isModelDropdownOpen && (
+                  <div className="absolute z-50 mt-1 w-full rounded-md border border-border bg-card shadow-md max-h-48 overflow-y-auto">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setModel(undefined);
+                        setModelInputValue('');
+                        setIsModelDropdownOpen(false);
+                      }}
+                      className={cn(
+                        'flex w-full items-center px-3 py-1.5 text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground',
+                        !model && 'bg-accent/50'
+                      )}
+                    >
+                      {formatMessage({ id: 'terminalDashboard.cliConfig.modelAuto', defaultMessage: 'Auto' })}
+                    </button>
+                    {filteredModelOptions.map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => {
+                          setModel(m);
+                          setModelInputValue(m);
+                          setIsModelDropdownOpen(false);
+                        }}
+                        className={cn(
+                          'flex w-full items-center px-3 py-1.5 text-sm cursor-pointer hover:bg-accent hover:text-accent-foreground font-mono',
+                          model === m && 'bg-accent/50'
+                        )}
+                      >
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 

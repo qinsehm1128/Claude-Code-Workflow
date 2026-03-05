@@ -588,27 +588,60 @@ async function execute(params: Params): Promise<OperationResult> {
 // Tool schema for MCP
 export const schema: ToolSchema = {
   name: 'core_memory',
-  description: `Core memory management for strategic context.
+  description: `Core memory management for strategic context. Choose an operation and provide its required parameters.
 
-Usage:
-  core_memory(operation="list")                              # List all memories
-  core_memory(operation="list", tags=["auth","api"])          # List memories with specific tags
-  core_memory(operation="import", text="important context")  # Import text as new memory
-  core_memory(operation="export", id="CMEM-xxx")             # Export memory as plain text
-  core_memory(operation="summary", id="CMEM-xxx")            # Generate AI summary
-  core_memory(operation="embed", source_id="CMEM-xxx")       # Generate embeddings for memory
-  core_memory(operation="search", query="authentication")    # Search memories semantically
-  core_memory(operation="embed_status")                      # Check embedding status
-  core_memory(operation="extract")                           # Trigger batch memory extraction (V2)
-  core_memory(operation="extract_status")                    # Check extraction pipeline status
-  core_memory(operation="consolidate")                       # Trigger memory consolidation (V2)
-  core_memory(operation="consolidate_status")                # Check consolidation status
-  core_memory(operation="jobs")                              # List all V2 pipeline jobs
+**Operations & Required Parameters:**
 
-Path parameter (highest priority):
-  core_memory(operation="list", path="/path/to/project")     # Use specific project path
+*   **list**: List all memories.
+    *   *limit* (number): Max results (default: 100).
+    *   *tags* (array): Filter by tags (AND logic).
+    *   *path* (string): Project path (overrides auto-detection).
 
-Memory IDs use format: CMEM-YYYYMMDD-HHMMSS`,
+*   **import**: Import text as new memory.
+    *   **text** (string, **REQUIRED**): Content to import.
+    *   *path* (string): Project path.
+
+*   **export**: Export memory as plain text.
+    *   **id** (string, **REQUIRED**): Memory ID (e.g., CMEM-20260305-120000).
+    *   *path* (string): Project path.
+
+*   **summary**: Generate AI summary for a memory.
+    *   **id** (string, **REQUIRED**): Memory ID.
+    *   *tool* (string): AI tool for summary ("gemini" or "qwen", default: "gemini").
+    *   *path* (string): Project path.
+
+*   **search**: Search memories semantically.
+    *   **query** (string, **REQUIRED**): Search query.
+    *   *top_k* (number): Max results (default: 10).
+    *   *min_score* (number): Min similarity score (default: 0.3).
+    *   *source_type* (string): Filter by type ("core_memory" | "workflow" | "cli_history").
+    *   *path* (string): Project path.
+
+*   **embed**: Generate embeddings for memory chunks.
+    *   *source_id* (string): Specific memory to embed (optional, embeds all if omitted).
+    *   *batch_size* (number): Batch size (default: 8).
+    *   *force* (boolean): Force re-embedding (default: false).
+    *   *path* (string): Project path.
+
+*   **embed_status**: Check embedding status. (No required params)
+
+*   **extract**: Trigger batch memory extraction (V2, fire-and-forget).
+    *   *max_sessions* (number): Max sessions to process.
+    *   *path* (string): Project path.
+
+*   **extract_status**: Check extraction pipeline status. (No required params)
+
+*   **consolidate**: Trigger memory consolidation (V2, fire-and-forget).
+    *   *path* (string): Project path.
+
+*   **consolidate_status**: Check consolidation status. (No required params)
+
+*   **jobs**: List all V2 pipeline jobs.
+    *   *kind* (string): Filter by job kind (e.g., "extraction", "consolidation").
+    *   *status_filter* (string): Filter by status ("pending" | "running" | "done" | "error").
+    *   *path* (string): Project path.
+
+**Memory ID Format:** CMEM-YYYYMMDD-HHMMSS (e.g., CMEM-20260305-143022)`,
   inputSchema: {
     type: 'object',
     properties: {

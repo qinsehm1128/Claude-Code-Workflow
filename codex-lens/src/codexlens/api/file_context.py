@@ -216,6 +216,7 @@ def _detect_language(file_path: Path) -> str:
         ".go": "go",
         ".rs": "rust",
         ".java": "java",
+        ".swift": "swift",
         ".c": "c",
         ".cpp": "cpp",
         ".h": "c",

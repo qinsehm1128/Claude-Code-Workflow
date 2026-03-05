@@ -88,8 +88,7 @@ const agentId = spawn_agent({
 
 ### MANDATORY FIRST STEPS (Agent Execute)
 1. **Read role definition**: ~/.codex/agents/{agent-type}.md (MUST read first)
-2. Read: ${projectRoot}/.workflow/project-tech.json
-3. Read: ${projectRoot}/.workflow/project-guidelines.json
+2. Run: `ccw spec load --category "planning execution"`
 
 ## TASK CONTEXT
 ${taskContext}
@@ -374,7 +373,7 @@ try {
 ## Related Skills
 
 **Prerequisite Skills**:
-- `workflow:plan` or `workflow:execute` - Complete implementation (Session Mode)
+- `workflow-plan` or `workflow-execute` - Complete implementation (Session Mode)
 - None for Prompt Mode
 
 **Phase 1 Agents** (used by phases/01-test-fix-gen.md via spawn_agent):

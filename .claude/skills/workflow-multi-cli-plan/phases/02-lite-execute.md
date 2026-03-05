@@ -1,5 +1,10 @@
 # Phase 2: Lite Execute
 
+> **📌 COMPACT SENTINEL [Phase 2: Lite-Execute]**
+> This phase contains 6 execution steps (Step 1 — 6).
+> If you can read this sentinel but cannot find the full Step protocol below, context has been compressed.
+> Recovery: `Read("phases/02-lite-execute.md")`
+
 Complete execution engine supporting multiple input modes: in-memory plan, prompt description, or file content.
 
 ## Objective
@@ -21,22 +26,13 @@ Flexible task execution command supporting three input modes: in-memory plan (fr
 
 ## Usage
 
-### Command Syntax
-```bash
-/workflow:lite-execute [FLAGS] <INPUT>
-
-# Flags
---in-memory                Use plan from memory (called by lite-plan)
-
-# Arguments
-<input>                    Task description string, or path to file (required)
-```
+> **Note**: This is an internal phase, not a standalone command. It is called by Phase 1 (multi-cli-plan) after plan approval, or by lite-plan after Phase 4 approval.
 
 ## Input Modes
 
 ### Mode 1: In-Memory Plan
 
-**Trigger**: Called by lite-plan after Phase 4 approval with `--in-memory` flag
+**Trigger**: Called by multi-cli-plan Phase 5 after plan approval, or by lite-plan after Phase 4 approval
 
 **Input Source**: `executionContext` global variable set by lite-plan
 
@@ -352,9 +348,9 @@ executionCalls = createExecutionCalls(getTasks(planObject), executionMethod).map
 
 TodoWrite({
   todos: executionCalls.map(c => ({
-    content: `${c.executionType === "parallel" ? "⚡" : "→"} ${c.id} (${c.tasks.length} tasks)`,
+    content: `${c.executionType === "parallel" ? "⚡" : "→"} ${c.id} [${c.executor}] (${c.tasks.length} tasks)`,
     status: "pending",
-    activeForm: `Executing ${c.id}`
+    activeForm: `Executing ${c.id} [${c.executor}]`
   }))
 })
 ```
@@ -373,7 +369,7 @@ function executeBatch(batch) {
 
   if (executor === 'agent') {
     // Agent execution (synchronous)
-    return Task({
+    return Agent({
       subagent_type: "code-developer",
       run_in_background: false,
       description: batch.taskSummary,
@@ -487,7 +483,7 @@ ${(t.test?.success_metrics || []).length > 0 ? `\n**Success metrics**: ${t.test.
     context.push(`### Artifacts\nPlan: ${executionContext.session.artifacts.plan}`)
   }
   // Project guidelines (user-defined constraints from /workflow:session:solidify)
-  context.push(`### Project Guidelines\n@.workflow/project-guidelines.json`)
+  context.push(`### Project Guidelines\n@.workflow/specs/*.md`)
   if (context.length > 0) sections.push(`## Context\n${context.join('\n\n')}`)
 
   sections.push(`Complete each task according to its "Done when" checklist.`)
@@ -672,7 +668,7 @@ if (hasUnresolvedIssues(reviewResult)) {
 
 **Trigger**: After all executions complete (regardless of code review)
 
-**Operation**: Execute `/workflow:session:sync -y "{summary}"` to update both `project-guidelines.json` and `project-tech.json` in one shot.
+**Operation**: Execute `/workflow:session:sync -y "{summary}"` to update both `specs/*.md` and `project-tech.json` in one shot.
 
 Summary 取值优先级：`originalUserInput` → `planObject.summary` → git log 自动推断。
 
@@ -767,7 +763,7 @@ Appended to `previousExecutionResults` array for context continuity in multi-exe
 
 ## Post-Completion Expansion
 
-**Auto-sync**: 执行 `/workflow:session:sync -y "{summary}"` 更新 project-guidelines + project-tech（Step 6 已触发，此处不重复）。
+**Auto-sync**: 执行 `/workflow:session:sync -y "{summary}"` 更新 specs/*.md + project-tech（Step 6 已触发，此处不重复）。
 
 完成后询问用户是否扩展为issue(test/enhance/refactor/doc)，选中项调用 `/issue:new "{summary} - {dimension}"`
 

@@ -21,17 +21,17 @@ const statusConfig = {
   running: {
     icon: Clock,
     variant: 'warning' as const,
-    label: 'issues.discovery.status.running',
+    label: 'issues.discovery.session.status.running',
   },
   completed: {
     icon: CheckCircle,
     variant: 'success' as const,
-    label: 'issues.discovery.status.completed',
+    label: 'issues.discovery.session.status.completed',
   },
   failed: {
     icon: XCircle,
     variant: 'destructive' as const,
-    label: 'issues.discovery.status.failed',
+    label: 'issues.discovery.session.status.failed',
   },
 };
 
@@ -79,7 +79,7 @@ export function DiscoveryCard({ session, isActive, onClick }: DiscoveryCardProps
       <div className="flex items-center justify-between text-sm">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1">
-            <span className="text-muted-foreground">{formatMessage({ id: 'issues.discovery.findings' })}:</span>
+            <span className="text-muted-foreground">{formatMessage({ id: 'issues.discovery.session.findings' }, { count: session.findings_count })}:</span>
             <span className="font-medium text-foreground">{session.findings_count}</span>
           </div>
         </div>

@@ -84,7 +84,25 @@
       "envPlaceholder": "键=值对（每行一个），例如：\nAPI_KEY=your_key\nDEBUG=true",
       "envHint": "每行输入一个键=值对",
       "scope": "作用域",
-      "enabled": "启用此服务器"
+      "enabled": "启用此服务器",
+      "transportType": "传输类型",
+      "transportStdio": "STDIO (本地进程)",
+      "transportHttp": "HTTP (远程服务器)",
+      "transportHint": "STDIO 运行本地命令，HTTP 连接到远程 MCP 服务器",
+      "http": {
+        "url": "服务器地址",
+        "urlPlaceholder": "https://api.example.com/mcp",
+        "urlHint": "MCP 服务器的 HTTP 端点地址",
+        "bearerToken": "Bearer Token 环境变量",
+        "bearerTokenPlaceholder": "MY_API_TOKEN",
+        "bearerTokenHint": "包含 Bearer Token 的环境变量名称，用于 Authorization 请求头",
+        "headers": "自定义请求头",
+        "headersHint": "添加用于认证或配置的自定义请求头。启用 '环境变量' 可引用环境变量。",
+        "headerName": "请求头名称",
+        "headerValue": "请求头值",
+        "isEnvVar": "环境变量",
+        "addHeader": "添加请求头"
+      }
     },
     "templates": {
       "npx-stdio": "NPX STDIO",
@@ -94,7 +112,9 @@
     "validation": {
       "nameRequired": "服务器名称不能为空",
       "nameExists": "已存在同名服务器",
-      "commandRequired": "命令不能为空"
+      "commandRequired": "命令不能为空",
+      "urlRequired": "服务器地址不能为空",
+      "urlInvalid": "请输入有效的 URL 地址"
     },
     "actions": {
       "save": "保存",
@@ -112,6 +132,7 @@
     },
     "tools": {
       "label": "可用工具",
+      "hint": "请先安装 CCW MCP 后再选择工具",
       "core": "核心",
       "write_file": {
         "name": "write_file",
@@ -167,6 +188,10 @@
       "uninstallScopeConfirm": "确定要从{scope}移除 CCW MCP 吗？",
       "saveConfig": "保存配置",
       "saving": "保存中..."
+    },
+    "feedback": {
+      "saveSuccess": "配置已保存",
+      "saveError": "保存配置失败"
     },
     "scope": {
       "global": "全局",
@@ -389,5 +414,42 @@
   "enterprise": {
     "label": "企业版",
     "tooltip": "企业版 MCP 服务器"
+  },
+  "specs": {
+    "settings": {
+      "personalSpecDefaults": "个人规范默认设置",
+      "personalSpecDefaultsDesc": "这些设置将在创建新的个人规范时应用",
+      "defaultReadMode": "默认读取模式",
+      "selectReadMode": "选择读取模式",
+      "defaultReadModeHelp": "新创建的个人规范的默认读取模式",
+      "autoEnable": "自动启用新规范",
+      "autoEnableDescription": "自动启用新创建的个人规范",
+      "specStatistics": "规范统计",
+      "totalSpecs": "总计: {count} 个规范文件",
+      "required": "必读",
+      "readMode": {
+        "required": "必读",
+        "optional": "可选"
+      },
+      "dimension": {
+        "specs": "项目规范",
+        "personal": "个人规范"
+      },
+      "devProgressInjection": "开发进度注入",
+      "devProgressInjectionDesc": "控制如何将 project-tech.json 中的开发进度注入到 AI 上下文中",
+      "enableDevProgress": "启用注入",
+      "enableDevProgressDesc": "在 AI 上下文中包含开发历史",
+      "maxEntries": "每类别最大条目数",
+      "maxEntriesDesc": "每个类别包含的最大条目数 (1-50)",
+      "includeCategories": "包含类别",
+      "categoriesDesc": "点击切换类别包含状态",
+      "devProgressStats": "共 {total} 条记录来自 {sessions} 个会话，最后更新: {date}",
+      "devProgressStatsNoDate": "共 {total} 条记录来自 {sessions} 个会话"
+    },
+    "injection": {
+      "saveSuccess": "设置保存成功",
+      "saveError": "保存设置失败: {error}",
+      "loadError": "加载统计数据失败"
+    }
   }
 }

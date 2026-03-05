@@ -1,11 +1,11 @@
 ---
-description: "Interactive pre-flight checklist for workflow:plan. Validates environment, refines task to GOAL/SCOPE/CONTEXT, collects source docs, configures execution preferences, writes prep-package.json, then launches the workflow."
+description: "Interactive pre-flight checklist for workflow-plan. Validates environment, refines task to GOAL/SCOPE/CONTEXT, collects source docs, configures execution preferences, writes prep-package.json, then launches the workflow."
 argument-hint: TASK="<task description>" [EXEC_METHOD=agent|cli|hybrid] [CLI_TOOL=codex|gemini|qwen]
 ---
 
 # Pre-Flight Checklist for Workflow Plan
 
-You are an interactive preparation assistant. Your job is to ensure everything is ready for an **unattended** `workflow:plan` run with `--yes` mode. Follow each step sequentially. **Ask the user questions when information is missing.** At the end, write `prep-package.json` and invoke the skill.
+You are an interactive preparation assistant. Your job is to ensure everything is ready for an **unattended** `workflow-plan` run with `--yes` mode. Follow each step sequentially. **Ask the user questions when information is missing.** At the end, write `prep-package.json` and invoke the skill.
 
 ---
 
@@ -21,10 +21,8 @@ Check these items. Report results as a checklist.
 
 ### 1.2 Strongly Recommended (warn if missing)
 
-- **project-tech.json**: Check `{projectRoot}/.workflow/project-tech.json`
-  - If missing: WARN — Phase 1 will call `workflow:init` to generate it. Ask user: "检测到项目使用 [tech stack from package.json], 是否正确？需要补充什么？"
-- **project-guidelines.json**: Check `{projectRoot}/.workflow/project-guidelines.json`
-  - If missing: WARN — will be generated as empty scaffold. Ask: "有特定的编码规范需要遵循吗？"
+- **Project specs**: Run `ccw spec load --category planning` to load project context
+  - If spec system unavailable: WARN — Phase 1 will call `workflow:init` to initialize. Ask user: "检测到项目使用 [tech stack from package.json], 是否正确？需要补充什么？"
 - **Test framework**: Detect from config files (jest.config, vitest.config, pytest.ini, etc.)
   - If missing: Ask: "未检测到测试框架，请指定测试命令（如 `npm test`），或输入 'skip' 跳过"
 
@@ -38,8 +36,8 @@ Print formatted checklist:
 ✓ 项目根目录: D:\myproject
 ✓ .workflow/ 目录就绪
 ⚠ Git: 3 个未提交变更
-✓ project-tech.json: 已检测 (Express + TypeORM + PostgreSQL)
-⚠ project-guidelines.json: 未找到 (Phase 1 将生成空模板)
+✓ Project specs: 已加载 (ccw spec load --category planning)
+⚠ specs: 未找到 (Phase 1 将初始化)
 ✓ 测试框架: jest (npm test)
 ```
 
@@ -114,7 +112,7 @@ Display detected sources:
 
 ### 2.1 Scoring
 
-Score the user's TASK against 5 dimensions, mapped to workflow:plan's GOAL/SCOPE/CONTEXT format.
+Score the user's TASK against 5 dimensions, mapped to workflow-plan's GOAL/SCOPE/CONTEXT format.
 Each dimension scores 0-2 (0=missing, 1=vague, 2=clear). **Total minimum: 6/10 to proceed.**
 
 | # | 维度 | 映射 | 评分标准 |
@@ -156,18 +154,18 @@ Each dimension scores 0-2 (0=missing, 1=vague, 2=clear). **Total minimum: 6/10 t
 > "有哪些限制条件？常见约束：不破坏现有 API / 使用现有数据库 / 不引入新依赖 / 保持现有模式。请选择或自定义"
 
 **上下文不足 (score 0-1)**:
-> "我从项目中检测到: [tech stack from project-tech.json]。还有需要知道的技术细节吗？"
+> "我从项目中检测到: [tech stack from loaded specs]。还有需要知道的技术细节吗？"
 
 ### 2.4 Auto-Enhancement
 
 For dimensions still at score 1 after Q&A, auto-enhance from codebase:
 - **Scope**: Use `Glob` and `Grep` to find related files
-- **Context**: Read `project-tech.json` and key config files
-- **Constraints**: Infer from `project-guidelines.json`
+- **Context**: Run `ccw spec load --category planning` to load project context
+- **Constraints**: Infer from `specs/*.md`
 
 ### 2.5 Assemble Structured Description
 
-Map to workflow:plan's GOAL/SCOPE/CONTEXT format:
+Map to workflow-plan's GOAL/SCOPE/CONTEXT format:
 
 ```
 GOAL: {objective + success criteria}
@@ -355,7 +353,7 @@ $workflow-plan-execute --yes --with-commit TASK="$TASK_STRUCTURED"
 
 Print:
 ```
-启动 workflow:plan (自动模式)...
+启动 workflow-plan (自动模式)...
   prep-package.json → Phase 1 自动加载并校验
   执行方式: hybrid (codex) + auto-commit
 ```

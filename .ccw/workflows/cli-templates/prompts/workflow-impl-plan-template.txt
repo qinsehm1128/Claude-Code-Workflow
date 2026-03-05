@@ -43,7 +43,7 @@ Core requirements, objectives, technical approach summary (2-3 paragraphs max).
 
 **Quality Gates**:
 - concept-verify: ✅ Passed (0 ambiguities remaining) | ⏭️ Skipped (user decision) | ⏳ Pending
-- plan-verify: ⏳ Pending (recommended before /workflow:execute)
+- plan-verify: ⏳ Pending (recommended before /workflow-execute)
 
 **Context Package Summary**:
 - **Focus Paths**: {list key directories from context-package.json}

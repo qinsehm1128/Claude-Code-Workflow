@@ -12,6 +12,7 @@ import { cliCommand } from './commands/cli.js';
 import { memoryCommand } from './commands/memory.js';
 import { coreMemoryCommand } from './commands/core-memory.js';
 import { hookCommand } from './commands/hook.js';
+import { specCommand } from './commands/spec.js';
 import { issueCommand } from './commands/issue.js';
 import { workflowCommand } from './commands/workflow.js';
 import { loopCommand } from './commands/loop.js';
@@ -251,6 +252,11 @@ export function run(argv: string[]): void {
     .option('--batch-size <n>', 'Batch size for embedding', '8')
     .option('--top-k <n>', 'Number of semantic search results', '10')
     .option('--min-score <f>', 'Minimum similarity score for semantic search', '0.5')
+    // Pipeline V2 options
+    .option('--include-native', 'Include native sessions (preview)')
+    .option('--path <path>', 'Project path (pipeline commands)')
+    .option('--max-sessions <n>', 'Max sessions to extract (extract)')
+    .option('--session-ids <ids>', 'Comma-separated session IDs (extract)')
     .action((subcommand, args, options) => memoryCommand(subcommand, args, options));
 
   // Core Memory command
@@ -297,6 +303,17 @@ export function run(argv: string[]): void {
     .option('--limit <n>', 'Max entries to return (for project-state)')
     .action((subcommand, args, options) => hookCommand(subcommand, args, options));
 
+  // Spec command - Project spec management (load/list/rebuild/status/init)
+  program
+    .command('spec [subcommand] [args...]')
+    .description('Project spec management for conventions and guidelines')
+    .option('--dimension <dim>', 'Target dimension: specs, personal')
+    .option('--category <cat>', 'Workflow stage: general, exploration, planning, execution')
+    .option('--keywords <text>', 'Keywords for spec matching (CLI mode)')
+    .option('--stdin', 'Read input from stdin (Hook mode)')
+    .option('--json', 'Output as JSON')
+    .action((subcommand, args, options) => specCommand(subcommand, args, options));
+
   // Issue command - Issue lifecycle management with JSONL task tracking
   program
     .command('issue [subcommand] [args...]')
@@ -341,15 +358,15 @@ export function run(argv: string[]): void {
   program
     .command('team [subcommand] [args...]')
     .description('Team message bus for Agent Team communication')
-    .option('--team <name>', 'Team name')
+    .option('--session-id <id>', 'Session ID (e.g., TLS-my-project-2026-02-27)')
     .option('--from <role>', 'Sender role name')
-    .option('--to <role>', 'Recipient role name')
+    .option('--to <role>', 'Recipient role name (default: coordinator)')
     .option('--type <type>', 'Message type')
-    .option('--summary <text>', 'One-line summary')
-    .option('--ref <path>', 'File path reference')
+    .option('--summary <text>', 'One-line summary (auto-generated if omitted)')
     .option('--data <json>', 'JSON structured data')
-    .option('--id <id>', 'Message ID (for read)')
+    .option('--id <id>', 'Message ID (for read/delete)')
     .option('--last <n>', 'Last N messages (for list)')
+    .option('--role <role>', 'Role name (for get_state)')
     .option('--json', 'Output as JSON')
     .action((subcommand, args, options) => teamCommand(subcommand, args, options));
 
@@ -363,3 +380,6 @@ export function run(argv: string[]): void {
 
   program.parse(argv);
 }
+
+// Note: run() is called by bin/ccw.js entry point
+// Do not call run() here to avoid duplicate execution

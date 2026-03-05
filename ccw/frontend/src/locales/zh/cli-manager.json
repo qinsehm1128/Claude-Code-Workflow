@@ -158,6 +158,50 @@
         "session-state-watch": {
           "name": "会话状态监控",
           "description": "监控会话元数据文件变更 (workflow-session.json)"
+        },
+        "stop-notify": {
+          "name": "响应完成通知",
+          "description": "当 Claude 完成响应时通知仪表盘"
+        },
+        "auto-format-on-write": {
+          "name": "自动格式化",
+          "description": "Claude 写入或编辑文件后自动格式化代码"
+        },
+        "auto-lint-on-write": {
+          "name": "自动代码检查",
+          "description": "Claude 写入或编辑文件后自动进行 Lint 检查"
+        },
+        "block-sensitive-files": {
+          "name": "敏感文件保护",
+          "description": "阻止对敏感文件 (.env、密钥、凭据) 的修改"
+        },
+        "git-auto-stage": {
+          "name": "Git 自动暂存",
+          "description": "Claude 完成响应时自动暂存所有修改的文件"
+        },
+        "post-edit-index": {
+          "name": "编辑后索引更新",
+          "description": "文件修改时通知索引服务更新"
+        },
+        "session-end-summary": {
+          "name": "会话结束摘要",
+          "description": "会话结束时向仪表盘发送会话摘要"
+        },
+        "project-state-inject": {
+          "name": "项目状态注入",
+          "description": "会话开始时注入项目指南和最近开发历史"
+        },
+        "memory-v2-extract": {
+          "name": "记忆提取",
+          "description": "会话结束时触发记忆提取（第一阶段）"
+        },
+        "memory-v2-auto-consolidate": {
+          "name": "记忆自动合并",
+          "description": "提取完成后自动合并生成 MEMORY.md（第二阶段）"
+        },
+        "memory-sync-dashboard": {
+          "name": "记忆状态同步",
+          "description": "记忆变更时同步状态到仪表盘"
         }
       },
       "actions": {

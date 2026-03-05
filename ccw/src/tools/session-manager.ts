@@ -1022,15 +1022,51 @@ async function execute(params: Params): Promise<any> {
 
 export const schema: ToolSchema = {
   name: 'session_manager',
-  description: `Workflow session management.
+  description: `Workflow session management. Choose an operation and provide its required parameters.
 
-Usage:
-  session_manager(operation="init", type="workflow", description="...")
-  session_manager(operation="list", location="active|archived|both")
-  session_manager(operation="read", sessionId="WFS-xxx", contentType="plan|task|summary")
-  session_manager(operation="write", sessionId="WFS-xxx", contentType="plan", content={...})
-  session_manager(operation="archive", sessionId="WFS-xxx")
-  session_manager(operation="stats", sessionId="WFS-xxx")`,
+**Operations & Required Parameters:**
+
+*   **init**: Initialize a new workflow session.
+    *   **metadata** (object, **REQUIRED**): Session metadata with project, type, description.
+    *   Returns: New session ID.
+
+*   **list**: List workflow sessions.
+    *   *location* (string): Filter by "active" | "archived" | "both" (default: "both").
+    *   *include_metadata* (boolean): Include session metadata (default: false).
+
+*   **read**: Read content from a session file.
+    *   **session_id** (string, **REQUIRED**): Session ID (e.g., WFS-my-session).
+    *   **content_type** (string, **REQUIRED**): Type to read - "plan" | "task" | "summary" | "session" | "process" | "chat" | "brainstorm" | "review-dim" | "review-iter" | "review-fix" | "todo" | "context".
+    *   *path_params* (object): Dynamic path parameters (task_id, filename, dimension, iteration).
+
+*   **write**: Write content to a session file.
+    *   **session_id** (string, **REQUIRED**): Session ID.
+    *   **content_type** (string, **REQUIRED**): Type to write (see read operation).
+    *   **content** (object, **REQUIRED**): Content to write (object for JSON, string for text).
+    *   *path_params* (object): Dynamic path parameters.
+
+*   **update**: Update existing content.
+    *   **session_id** (string, **REQUIRED**): Session ID.
+    *   **content_type** (string, **REQUIRED**): Type to update.
+    *   **content** (object, **REQUIRED**): Updated content.
+    *   *path_params* (object): Dynamic path parameters.
+
+*   **archive**: Archive a completed session.
+    *   **session_id** (string, **REQUIRED**): Session ID.
+    *   *update_status* (boolean): Mark status as completed (default: true).
+
+*   **mkdir**: Create session directories.
+    *   **session_id** (string, **REQUIRED**): Session ID.
+    *   **dirs** (array, **REQUIRED**): Directory paths to create.
+
+*   **delete**: Delete a file within a session.
+    *   **session_id** (string, **REQUIRED**): Session ID.
+    *   **file_path** (string, **REQUIRED**): Relative file path to delete.
+
+*   **stats**: Get session statistics.
+    *   **session_id** (string, **REQUIRED**): Session ID.
+
+**Session ID Format:** WFS-{name}-{date} (e.g., WFS-my-project-2026-03-05)`,
   inputSchema: {
     type: 'object',
     properties: {

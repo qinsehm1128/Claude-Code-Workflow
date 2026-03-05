@@ -40,15 +40,23 @@ export function AppShell({
   // Workspace initialization from URL query parameter
   const switchWorkspace = useWorkflowStore((state) => state.switchWorkspace);
   const projectPath = useWorkflowStore((state) => state.projectPath);
+  const hasHydrated = useWorkflowStore((state) => state._hasHydrated);
   const location = useLocation();
 
   // Immersive mode (fullscreen) - hide chrome
   const isImmersiveMode = useAppStore(selectIsImmersiveMode);
 
   // Workspace initialization logic (URL > localStorage)
+  // Wait for zustand persist hydration to complete before initializing
   const [isWorkspaceInitialized, setWorkspaceInitialized] = useState(false);
 
   useEffect(() => {
+    // Wait for hydration to complete before initializing workspace
+    // This ensures projectPath is properly restored from localStorage
+    if (!hasHydrated) {
+      return;
+    }
+
     // This effect should only run once to decide the initial workspace.
     if (isWorkspaceInitialized) {
       return;
@@ -76,7 +84,7 @@ export function AppShell({
 
     // Mark as initialized regardless of whether a path was found.
     setWorkspaceInitialized(true);
-  }, [isWorkspaceInitialized, projectPath, location.search, switchWorkspace]);
+  }, [hasHydrated, isWorkspaceInitialized, projectPath, location.search, switchWorkspace]);
 
   // Sidebar collapse state – default to collapsed (hidden)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {

@@ -353,7 +353,14 @@
       "hasIssue": "已关联",
       "export": "导出",
       "selectAll": "全选",
-      "deselectAll": "取消全选"
+      "deselectAll": "取消全选",
+      "description": "问题描述",
+      "location": "文件位置",
+      "codeSnippet": "代码片段",
+      "suggestedFix": "建议修复",
+      "confidence": "置信度",
+      "reference": "参考链接",
+      "perspective": "视角"
     },
     "tabs": {
       "findings": "发现",

@@ -711,7 +711,7 @@ All workflows use the same file structure definition regardless of complexity. *
 │       ├── [.chat/]                    # CLI interaction sessions (created when analysis is run)
 │       │   ├── chat-*.md              # Saved chat sessions
 │       │   └── analysis-*.md          # Analysis results
-│       ├── [.process/]                 # Planning analysis results (created by /workflow:plan)
+│       ├── [.process/]                 # Planning analysis results (created by /workflow-plan)
 │       │   └── ANALYSIS_RESULTS.md    # Analysis results and planning artifacts
 │       ├── IMPL_PLAN.md                # Planning document (REQUIRED)
 │       ├── TODO_LIST.md                # Progress tracking (REQUIRED)
@@ -783,7 +783,7 @@ All workflows use the same file structure definition regardless of complexity. *
 **Examples**:
 
 *Workflow Commands (lightweight):*
-- `/workflow:lite-plan "feature idea"` (exploratory) → `.scratchpad/lite-plan-feature-idea-20250105-143110.md`
+- `/workflow-lite-planex "feature idea"` (exploratory) → `.scratchpad/lite-plan-feature-idea-20250105-143110.md`
 - `/workflow:lite-fix "bug description"` (bug fixing) → `.scratchpad/lite-fix-bug-20250105-143130.md`
 
 > **Note**: Direct CLI commands (`/cli:analyze`, `/cli:execute`, etc.) have been replaced by semantic invocation and workflow commands.

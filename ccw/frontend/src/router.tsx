@@ -1,51 +1,72 @@
 // ========================================
 // Router Configuration
 // ========================================
-// React Router v6 configuration with all dashboard routes
+// React Router v6 configuration with code splitting for optimal bundle size
 
 import { createBrowserRouter, RouteObject, Navigate } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
 import { AppShell } from '@/components/layout';
-import {
-  HomePage,
-  SessionsPage,
-  FixSessionPage,
-  ProjectOverviewPage,
-  SessionDetailPage,
-  HistoryPage,
-  OrchestratorPage,
-  IssueHubPage,
-  SkillsManagerPage,
-  CommandsManagerPage,
-  MemoryPage,
-  SettingsPage,
-  NotFoundPage,
-  LiteTasksPage,
-  // LiteTaskDetailPage removed - now using TaskDrawer instead
-  ReviewSessionPage,
-  McpManagerPage,
-  EndpointsPage,
-  InstallationsPage,
-  HookManagerPage,
-  RulesManagerPage,
-  PromptHistoryPage,
-  ExplorerPage,
-  GraphExplorerPage,
-  CodexLensManagerPage,
-  ApiSettingsPage,
-  CliViewerPage,
-  CliSessionSharePage,
-  TeamPage,
-  TerminalDashboardPage,
-} from '@/pages';
+import { ChunkErrorBoundary } from '@/components/ChunkErrorBoundary';
+import { PageSkeleton } from '@/components/PageSkeleton';
+
+// Import HomePage directly (no lazy - needed immediately)
+import { HomePage } from '@/pages/HomePage';
+
+// Lazy load all other route components for code splitting
+const SessionsPage = lazy(() => import('@/pages/SessionsPage').then(m => ({ default: m.SessionsPage })));
+const FixSessionPage = lazy(() => import('@/pages/FixSessionPage').then(m => ({ default: m.FixSessionPage })));
+const ProjectOverviewPage = lazy(() => import('@/pages/ProjectOverviewPage').then(m => ({ default: m.ProjectOverviewPage })));
+const SessionDetailPage = lazy(() => import('@/pages/SessionDetailPage').then(m => ({ default: m.SessionDetailPage })));
+const HistoryPage = lazy(() => import('@/pages/HistoryPage').then(m => ({ default: m.HistoryPage })));
+const OrchestratorPage = lazy(() => import('@/pages/orchestrator/OrchestratorPage').then(m => ({ default: m.OrchestratorPage })));
+const IssueHubPage = lazy(() => import('@/pages/IssueHubPage').then(m => ({ default: m.IssueHubPage })));
+const SkillsManagerPage = lazy(() => import('@/pages/SkillsManagerPage').then(m => ({ default: m.SkillsManagerPage })));
+const CommandsManagerPage = lazy(() => import('@/pages/CommandsManagerPage').then(m => ({ default: m.CommandsManagerPage })));
+const MemoryPage = lazy(() => import('@/pages/MemoryPage').then(m => ({ default: m.MemoryPage })));
+const SettingsPage = lazy(() => import('@/pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
+const NotFoundPage = lazy(() => import('@/pages/NotFoundPage').then(m => ({ default: m.NotFoundPage })));
+const LiteTasksPage = lazy(() => import('@/pages/LiteTasksPage').then(m => ({ default: m.LiteTasksPage })));
+const ReviewSessionPage = lazy(() => import('@/pages/ReviewSessionPage').then(m => ({ default: m.ReviewSessionPage })));
+const McpManagerPage = lazy(() => import('@/pages/McpManagerPage').then(m => ({ default: m.McpManagerPage })));
+const EndpointsPage = lazy(() => import('@/pages/EndpointsPage').then(m => ({ default: m.EndpointsPage })));
+const InstallationsPage = lazy(() => import('@/pages/InstallationsPage').then(m => ({ default: m.InstallationsPage })));
+const HookManagerPage = lazy(() => import('@/pages/HookManagerPage').then(m => ({ default: m.HookManagerPage })));
+const RulesManagerPage = lazy(() => import('@/pages/RulesManagerPage').then(m => ({ default: m.RulesManagerPage })));
+const PromptHistoryPage = lazy(() => import('@/pages/PromptHistoryPage').then(m => ({ default: m.PromptHistoryPage })));
+const ExplorerPage = lazy(() => import('@/pages/ExplorerPage').then(m => ({ default: m.ExplorerPage })));
+const GraphExplorerPage = lazy(() => import('@/pages/GraphExplorerPage').then(m => ({ default: m.GraphExplorerPage })));
+const CodexLensManagerPage = lazy(() => import('@/pages/CodexLensManagerPage').then(m => ({ default: m.CodexLensManagerPage })));
+const ApiSettingsPage = lazy(() => import('@/pages/ApiSettingsPage').then(m => ({ default: m.ApiSettingsPage })));
+const CliViewerPage = lazy(() => import('@/pages/CliViewerPage').then(m => ({ default: m.CliViewerPage })));
+const CliSessionSharePage = lazy(() => import('@/pages/CliSessionSharePage').then(m => ({ default: m.CliSessionSharePage })));
+const TeamPage = lazy(() => import('@/pages/TeamPage').then(m => ({ default: m.TeamPage })));
+const TerminalDashboardPage = lazy(() => import('@/pages/TerminalDashboardPage').then(m => ({ default: m.TerminalDashboardPage })));
+const AnalysisPage = lazy(() => import('@/pages/AnalysisPage').then(m => ({ default: m.AnalysisPage })));
+const SpecsSettingsPage = lazy(() => import('@/pages/SpecsSettingsPage').then(m => ({ default: m.SpecsSettingsPage })));
+const DeepWikiPage = lazy(() => import('@/pages/DeepWikiPage').then(m => ({ default: m.DeepWikiPage })));
+
+/**
+ * Helper to wrap lazy-loaded components with error boundary and suspense
+ * Catches chunk load failures and provides retry mechanism
+ */
+function withErrorHandling(element: React.ReactElement) {
+  return (
+    <ChunkErrorBoundary>
+      <Suspense fallback={<PageSkeleton />}>
+        {element}
+      </Suspense>
+    </ChunkErrorBoundary>
+  );
+}
 
 /**
  * Route configuration for the dashboard
- * All routes are wrapped in AppShell layout
+ * All routes are wrapped in AppShell layout with Suspense for code splitting
  */
 const routes: RouteObject[] = [
   {
     path: 'cli-sessions/share',
-    element: <CliSessionSharePage />,
+    element: withErrorHandling(<CliSessionSharePage />),
   },
   {
     path: '/',
@@ -57,36 +78,36 @@ const routes: RouteObject[] = [
       },
       {
         path: 'sessions',
-        element: <SessionsPage />,
+        element: withErrorHandling(<SessionsPage />),
       },
       {
         path: 'sessions/:sessionId',
-        element: <SessionDetailPage />,
+        element: withErrorHandling(<SessionDetailPage />),
       },
       {
         path: 'sessions/:sessionId/fix',
-        element: <FixSessionPage />,
+        element: withErrorHandling(<FixSessionPage />),
       },
       {
         path: 'sessions/:sessionId/review',
-        element: <ReviewSessionPage />,
+        element: withErrorHandling(<ReviewSessionPage />),
       },
       {
         path: 'lite-tasks',
-        element: <LiteTasksPage />,
+        element: withErrorHandling(<LiteTasksPage />),
       },
       // /lite-tasks/:sessionId route removed - now using TaskDrawer
       {
         path: 'project',
-        element: <ProjectOverviewPage />,
+        element: withErrorHandling(<ProjectOverviewPage />),
       },
       {
         path: 'history',
-        element: <HistoryPage />,
+        element: withErrorHandling(<HistoryPage />),
       },
       {
         path: 'orchestrator',
-        element: <OrchestratorPage />,
+        element: withErrorHandling(<OrchestratorPage />),
       },
       {
         path: 'loops',
@@ -94,11 +115,11 @@ const routes: RouteObject[] = [
       },
       {
         path: 'cli-viewer',
-        element: <CliViewerPage />,
+        element: withErrorHandling(<CliViewerPage />),
       },
       {
         path: 'issues',
-        element: <IssueHubPage />,
+        element: withErrorHandling(<IssueHubPage />),
       },
       // Legacy routes - redirect to hub with tab parameter
       {
@@ -111,67 +132,79 @@ const routes: RouteObject[] = [
       },
       {
         path: 'skills',
-        element: <SkillsManagerPage />,
+        element: withErrorHandling(<SkillsManagerPage />),
       },
       {
         path: 'commands',
-        element: <CommandsManagerPage />,
+        element: withErrorHandling(<CommandsManagerPage />),
       },
       {
         path: 'memory',
-        element: <MemoryPage />,
+        element: withErrorHandling(<MemoryPage />),
       },
       {
         path: 'prompts',
-        element: <PromptHistoryPage />,
+        element: withErrorHandling(<PromptHistoryPage />),
       },
       {
         path: 'settings',
-        element: <SettingsPage />,
+        element: withErrorHandling(<SettingsPage />),
       },
       {
         path: 'settings/mcp',
-        element: <McpManagerPage />,
+        element: withErrorHandling(<McpManagerPage />),
       },
       {
         path: 'settings/endpoints',
-        element: <EndpointsPage />,
+        element: withErrorHandling(<EndpointsPage />),
       },
       {
         path: 'settings/installations',
-        element: <InstallationsPage />,
+        element: withErrorHandling(<InstallationsPage />),
       },
       {
         path: 'settings/rules',
-        element: <RulesManagerPage />,
+        element: withErrorHandling(<RulesManagerPage />),
+      },
+      {
+        path: 'settings/specs',
+        element: withErrorHandling(<SpecsSettingsPage />),
       },
       {
         path: 'settings/codexlens',
-        element: <CodexLensManagerPage />,
+        element: withErrorHandling(<CodexLensManagerPage />),
       },
       {
         path: 'api-settings',
-        element: <ApiSettingsPage />,
+        element: withErrorHandling(<ApiSettingsPage />),
       },
       {
         path: 'hooks',
-        element: <HookManagerPage />,
+        element: withErrorHandling(<HookManagerPage />),
       },
       {
         path: 'explorer',
-        element: <ExplorerPage />,
+        element: withErrorHandling(<ExplorerPage />),
       },
       {
         path: 'graph',
-        element: <GraphExplorerPage />,
+        element: withErrorHandling(<GraphExplorerPage />),
       },
       {
         path: 'teams',
-        element: <TeamPage />,
+        element: withErrorHandling(<TeamPage />),
+      },
+      {
+        path: 'analysis',
+        element: withErrorHandling(<AnalysisPage />),
+      },
+      {
+        path: 'deepwiki',
+        element: withErrorHandling(<DeepWikiPage />),
       },
       {
         path: 'terminal-dashboard',
-        element: <TerminalDashboardPage />,
+        element: withErrorHandling(<TerminalDashboardPage />),
       },
       {
         path: 'skill-hub',
@@ -180,7 +213,7 @@ const routes: RouteObject[] = [
       // Catch-all route for 404
       {
         path: '*',
-        element: <NotFoundPage />,
+        element: withErrorHandling(<NotFoundPage />),
       },
     ],
   },
@@ -234,6 +267,8 @@ export const ROUTES = {
   TEAMS: '/teams',
   TERMINAL_DASHBOARD: '/terminal-dashboard',
   SKILL_HUB: '/skill-hub',
+  ANALYSIS: '/analysis',
+  DEEPWIKI: '/deepwiki',
 } as const;
 
 export type RoutePath = (typeof ROUTES)[keyof typeof ROUTES];

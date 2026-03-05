@@ -24,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/Select';
+import { useNotifications } from '@/hooks/useNotifications';
 import type { CliEndpoint } from '@/lib/api';
 
 export type CliEndpointFormMode = 'create' | 'edit';
@@ -84,6 +85,7 @@ export function CliEndpointFormDialog({
   onSave,
 }: CliEndpointFormDialogProps) {
   const { formatMessage } = useIntl();
+  const { error: showError } = useNotifications();
   const isEditing = mode === 'edit';
 
   const [name, setName] = useState('');
@@ -147,6 +149,7 @@ export function CliEndpointFormDialog({
       });
       onClose();
     } catch (err) {
+      showError(formatMessage({ id: 'cliEndpoints.messages.saveFailed' }));
       console.error('Failed to save CLI endpoint:', err);
     } finally {
       setIsSubmitting(false);

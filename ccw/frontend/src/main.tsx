@@ -5,41 +5,20 @@ import './index.css'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
 import 'xterm/css/xterm.css'
-import { initMessages, getInitialLocale, getMessages, type Locale } from './lib/i18n'
+import { loadMessagesForLocale, getInitialLocale } from './lib/i18n'
 import { logWebVitals } from './lib/webVitals'
-
-/**
- * Initialize CSRF token by fetching from backend
- * This ensures the CSRF cookie is set before any mutating API calls
- */
-async function initCsrfToken() {
-  try {
-    // Fetch CSRF token from backend - this sets the XSRF-TOKEN cookie
-    await fetch('/api/csrf-token', {
-      method: 'GET',
-      credentials: 'same-origin',
-    })
-  } catch (error) {
-    // Log error but don't block app initialization
-    console.error('Failed to initialize CSRF token:', error)
-  }
-}
 
 async function bootstrapApplication() {
   const rootElement = document.getElementById('root')
   if (!rootElement) throw new Error('Failed to find the root element')
 
-  // Initialize CSRF token before any API calls
-  await initCsrfToken()
+  // CSRF token initialization is deferred to first mutating request
+  // This eliminates network RTT from app startup path
+  // See: ccw/frontend/src/lib/api.ts - fetchApi handles lazy token fetch
+  const locale = await getInitialLocale()
 
-  // Initialize translation messages
-  await initMessages()
-
-  // Determine initial locale from browser/storage
-  const locale: Locale = getInitialLocale()
-
-  // Get messages for the initial locale
-  const messages = getMessages(locale)
+  // Load only the active locale's messages (lazy load secondary on demand)
+  const messages = await loadMessagesForLocale(locale)
 
   const root = createRoot(rootElement)
   root.render(

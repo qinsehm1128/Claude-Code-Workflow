@@ -2,7 +2,7 @@
 name: workflow:collaborative-plan-with-file
 description: Collaborative planning with Plan Note - Understanding agent creates shared plan-note.md template, parallel agents fill pre-allocated sections, conflict detection without merge. Outputs executable plan-note.md.
 argument-hint: "[-y|--yes] <task description> [--max-agents=5]"
-allowed-tools: TodoWrite(*), Task(*), AskUserQuestion(*), Read(*), Bash(*), Write(*), Glob(*), Grep(*), mcp__ace-tool__search_context(*)
+allowed-tools: TodoWrite(*), Agent(*), AskUserQuestion(*), Read(*), Bash(*), Write(*), Glob(*), Grep(*), mcp__ace-tool__search_context(*)
 ---
 
 ## Auto Mode
@@ -208,7 +208,7 @@ Task(
 ### Project Context (MANDATORY)
 Read and incorporate:
 - \`.workflow/project-tech.json\` (if exists): Technology stack, architecture
-- \`.workflow/project-guidelines.json\` (if exists): Constraints, conventions -- apply as HARD CONSTRAINTS on sub-domain splitting and plan structure
+- \`.ccw/specs/*.md\` (if exists): Constraints, conventions -- apply as HARD CONSTRAINTS on sub-domain splitting and plan structure
 
 ### Input Requirements
 ${taskDescription}
@@ -357,7 +357,7 @@ subDomains.map(sub =>
 ### Project Context (MANDATORY)
 Read and incorporate:
 - \`.workflow/project-tech.json\` (if exists): Technology stack, architecture
-- \`.workflow/project-guidelines.json\` (if exists): Constraints, conventions -- apply as HARD CONSTRAINTS
+- \`.ccw/specs/*.md\` (if exists): Constraints, conventions -- apply as HARD CONSTRAINTS
 
 ## Dual Output Tasks
 

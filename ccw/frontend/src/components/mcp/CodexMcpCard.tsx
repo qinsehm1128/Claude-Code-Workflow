@@ -11,11 +11,13 @@ import {
   ChevronDown,
   ChevronUp,
   Lock,
+  Link,
 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { cn } from '@/lib/utils';
 import type { McpServer } from '@/lib/api';
+import { isHttpMcpServer, isStdioMcpServer } from '@/lib/api';
 
 // ========== Types ==========
 
@@ -40,6 +42,20 @@ export function CodexMcpCard({
 }: CodexMcpCardProps) {
   const { formatMessage } = useIntl();
 
+  const isHttp = isHttpMcpServer(server);
+  const isStdio = isStdioMcpServer(server);
+
+  // Get display text for server summary line
+  const getServerSummary = () => {
+    if (isHttp) {
+      return server.url;
+    }
+    if (isStdio) {
+      return `${server.command || ''} ${server.args?.join(' ') || ''}`.trim();
+    }
+    return '';
+  };
+
   return (
     <Card className={cn('overflow-hidden', !enabled && 'opacity-60')}>
       {/* Header */}
@@ -63,6 +79,13 @@ export function CodexMcpCard({
                 <span className="text-sm font-medium text-foreground">
                   {server.name}
                 </span>
+                {/* Transport type badge */}
+                {isHttp && (
+                  <Badge variant="outline" className="text-xs text-blue-600 border-blue-300">
+                    <Link className="w-3 h-3 mr-1" />
+                    {formatMessage({ id: 'mcp.transport.http' })}
+                  </Badge>
+                )}
                 {/* Read-only badge */}
                 <Badge variant="secondary" className="text-xs flex items-center gap-1">
                   <Lock className="w-3 h-3" />
@@ -75,8 +98,8 @@ export function CodexMcpCard({
                   </Badge>
                 )}
               </div>
-              <p className="text-sm text-muted-foreground mt-1 font-mono">
-                {server.command} {server.args?.join(' ') || ''}
+              <p className="text-sm text-muted-foreground mt-1 font-mono truncate max-w-md" title={getServerSummary()}>
+                {getServerSummary()}
               </p>
             </div>
           </div>
@@ -100,44 +123,101 @@ export function CodexMcpCard({
       {/* Expanded Content */}
       {isExpanded && (
         <div className="border-t border-border p-4 space-y-3 bg-muted/30">
-          {/* Command details */}
-          <div>
-            <p className="text-xs text-muted-foreground mb-1">{formatMessage({ id: 'mcp.command' })}</p>
-            <code className="text-sm bg-background px-2 py-1 rounded block overflow-x-auto">
-              {server.command}
-            </code>
-          </div>
-
-          {/* Args */}
-          {server.args && server.args.length > 0 && (
-            <div>
-              <p className="text-xs text-muted-foreground mb-1">{formatMessage({ id: 'mcp.args' })}</p>
-              <div className="flex flex-wrap gap-1">
-                {server.args.map((arg, idx) => (
-                  <Badge key={idx} variant="outline" className="font-mono text-xs">
-                    {arg}
-                  </Badge>
-                ))}
+          {/* HTTP Server Details */}
+          {isHttp && (
+            <>
+              {/* URL */}
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">{formatMessage({ id: 'mcp.http.url' })}</p>
+                <code className="text-sm bg-background px-2 py-1 rounded block overflow-x-auto break-all">
+                  {server.url}
+                </code>
               </div>
-            </div>
+
+              {/* HTTP Headers - show count only for read-only card */}
+              {(server.headers || server.httpHeaders || server.bearerTokenEnvVar) && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">{formatMessage({ id: 'mcp.http.headers' })}</p>
+                  <div className="space-y-1">
+                    {server.headers && Object.entries(server.headers).map(([name]) => (
+                      <div key={name} className="flex items-center gap-2 text-sm">
+                        <Badge variant="secondary" className="font-mono">{name}</Badge>
+                        <span className="text-muted-foreground">=</span>
+                        <code className="text-xs bg-background px-2 py-1 rounded flex-1 overflow-x-auto">
+                          ****
+                        </code>
+                      </div>
+                    ))}
+                    {server.httpHeaders && Object.entries(server.httpHeaders).map(([name]) => (
+                      <div key={name} className="flex items-center gap-2 text-sm">
+                        <Badge variant="secondary" className="font-mono">{name}</Badge>
+                        <span className="text-muted-foreground">=</span>
+                        <code className="text-xs bg-background px-2 py-1 rounded flex-1 overflow-x-auto">
+                          ****
+                        </code>
+                      </div>
+                    ))}
+                    {server.bearerTokenEnvVar && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <Badge variant="secondary" className="font-mono">Authorization</Badge>
+                        <span className="text-muted-foreground">=</span>
+                        <code className="text-xs bg-background px-2 py-1 rounded flex-1 overflow-x-auto">
+                          Bearer $${server.bearerTokenEnvVar}
+                        </code>
+                        <Badge variant="outline" className="text-xs text-blue-500">
+                          {formatMessage({ id: 'mcp.http.envVar' })}
+                        </Badge>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
           )}
 
-          {/* Environment variables */}
-          {server.env && Object.keys(server.env).length > 0 && (
-            <div>
-              <p className="text-xs text-muted-foreground mb-1">{formatMessage({ id: 'mcp.env' })}</p>
-              <div className="space-y-1">
-                {Object.entries(server.env).map(([key, value]) => (
-                  <div key={key} className="flex items-center gap-2 text-sm">
-                    <Badge variant="secondary" className="font-mono">{key}</Badge>
-                    <span className="text-muted-foreground">=</span>
-                    <code className="text-xs bg-background px-2 py-1 rounded flex-1 overflow-x-auto">
-                      {value as string}
-                    </code>
-                  </div>
-                ))}
+          {/* STDIO Server Details */}
+          {isStdio && (
+            <>
+              {/* Command details */}
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">{formatMessage({ id: 'mcp.command' })}</p>
+                <code className="text-sm bg-background px-2 py-1 rounded block overflow-x-auto">
+                  {server.command}
+                </code>
               </div>
-            </div>
+
+              {/* Args */}
+              {server.args && server.args.length > 0 && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">{formatMessage({ id: 'mcp.args' })}</p>
+                  <div className="flex flex-wrap gap-1">
+                    {server.args.map((arg: string, idx: number) => (
+                      <Badge key={idx} variant="outline" className="font-mono text-xs">
+                        {arg}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Environment variables */}
+              {server.env && Object.keys(server.env).length > 0 && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">{formatMessage({ id: 'mcp.env' })}</p>
+                  <div className="space-y-1">
+                    {Object.entries(server.env).map(([key, value]) => (
+                      <div key={key} className="flex items-center gap-2 text-sm">
+                        <Badge variant="secondary" className="font-mono">{key}</Badge>
+                        <span className="text-muted-foreground">=</span>
+                        <code className="text-xs bg-background px-2 py-1 rounded flex-1 overflow-x-auto">
+                          {value as string}
+                        </code>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
           )}
 
           {/* Read-only notice */}

@@ -2,7 +2,7 @@
 name: plan
 description: Batch plan issue resolution using issue-plan-agent (explore + plan closed-loop)
 argument-hint: "[-y|--yes] --all-pending <issue-id>[,<issue-id>,...] [--batch-size 3]"
-allowed-tools: TodoWrite(*), Task(*), Skill(*), AskUserQuestion(*), Bash(*), Read(*), Write(*)
+allowed-tools: TodoWrite(*), Agent(*), Skill(*), AskUserQuestion(*), Bash(*), Read(*), Write(*)
 ---
 
 ## Auto Mode
@@ -160,7 +160,7 @@ ${issueList}
 
 ### Project Context (MANDATORY)
 1. Read: .workflow/project-tech.json (technology stack, architecture)
-2. Read: .workflow/project-guidelines.json (constraints and conventions)
+2. Read: .workflow/specs/*.md (constraints and conventions)
 
 ### Workflow
 1. Fetch issue details: ccw issue status <id> --json
@@ -222,7 +222,7 @@ for (let i = 0; i < agentTasks.length; i += MAX_PARALLEL) {
 
   // Collect results from this chunk
   for (const { taskId, batchIndex } of taskIds) {
-    const result = TaskOutput(task_id=taskId, block=true);
+    const result = TaskOutput({ task_id: taskId, block: true });
 
     // Extract JSON from potential markdown code blocks (agent may wrap in ```json...```)
     const jsonText = extractJsonFromMarkdown(result);
@@ -262,6 +262,14 @@ for (let i = 0; i < agentTasks.length; i += MAX_PARALLEL) {
 // Handle multi-solution issues
 for (const pending of pendingSelections) {
   if (pending.solutions.length === 0) continue;
+
+  // Auto mode: auto-bind first (highest-ranked) solution
+  if (autoYes) {
+    const solId = pending.solutions[0].id;
+    Bash(`ccw issue bind ${pending.issue_id} ${solId}`);
+    console.log(`✓ ${pending.issue_id}: ${solId} bound (auto)`);
+    continue;
+  }
 
   const options = pending.solutions.slice(0, 4).map(sol => ({
     label: `${sol.id} (${sol.task_count} tasks)`,

@@ -1,69 +1,86 @@
-# Role: coordinator
+# Coordinator Role
 
-技术债务治理团队协调者。编排 pipeline：需求澄清 → 模式选择(scan/remediate/targeted) → 团队创建 → 任务分发 → 监控协调 → Fix-Verify 循环 → 债务消减报告。
+技术债务治理团队协调者。编排 pipeline：需求澄清 -> 模式选择(scan/remediate/targeted) -> 团队创建 -> 任务分发 -> 监控协调 -> Fix-Verify 循环 -> 债务消减报告。
 
-## Role Identity
+## Identity
 
-- **Name**: `coordinator`
-- **Task Prefix**: N/A (coordinator creates tasks, doesn't receive them)
-- **Responsibility**: Orchestration
-- **Communication**: SendMessage to all teammates
-- **Output Tag**: `[coordinator]`
+- **Name**: `coordinator` | **Tag**: `[coordinator]`
+- **Responsibility**: Parse requirements -> Create team -> Dispatch tasks -> Monitor progress -> Report results
 
-## Role Boundaries
+## Boundaries
 
 ### MUST
-
-- 所有输出（SendMessage、team_msg、日志）必须带 `[coordinator]` 标识
-- 仅负责需求澄清、模式选择、任务创建/分发、进度监控、质量门控、结果汇报
-- 通过 TaskCreate 创建任务并分配给 worker 角色
-- 通过消息总线监控 worker 进度并路由消息
+- All output (SendMessage, team_msg, logs) must carry `[coordinator]` identifier
+- Only responsible for: requirement clarification, mode selection, task creation/dispatch, progress monitoring, quality gates, result reporting
+- Create tasks via TaskCreate and assign to worker roles
+- Monitor worker progress via message bus and route messages
+- Maintain session state persistence
 
 ### MUST NOT
+- Execute tech debt work directly (delegate to workers)
+- Modify task outputs (workers own their deliverables)
+- Call CLI tools for analysis, exploration, or code generation
+- Modify source code or generate artifact files directly
+- Bypass worker roles to complete delegated work
+- Skip dependency validation when creating task chains
+- Omit `[coordinator]` identifier in any output
 
-- 直接执行任何业务任务（扫描、评估、规划、修复、验证等）
-- 直接调用 cli-explore-agent、code-developer 等实现类 subagent
-- 直接修改源代码或生成产物文件
-- 绕过 worker 角色自行完成应委派的工作
-- 在输出中省略 `[coordinator]` 标识
+> **Core principle**: coordinator is the orchestrator, not the executor. All actual work must be delegated to worker roles via TaskCreate.
 
-> **核心原则**: coordinator 是指挥者，不是执行者。所有实际工作必须通过 TaskCreate 委派给 worker 角色。
+---
 
-## Message Types
+## Command Execution Protocol
 
-| Type | Direction | Trigger | Description |
-|------|-----------|---------|-------------|
-| `mode_selected` | coordinator → all | 模式确定 | scan/remediate/targeted |
-| `plan_approval` | coordinator → user | TDPLAN 完成 | 呈现治理方案供审批（批准/修订/终止） |
-| `worktree_created` | coordinator → user | TDFIX 前 | Worktree 和分支已创建 |
-| `pr_created` | coordinator → user | TDVAL 通过 | PR 已创建，worktree 已清理 |
-| `quality_gate` | coordinator → user | 质量评估 | 通过/不通过/有条件通过 |
-| `task_unblocked` | coordinator → worker | 依赖解除 | 任务可执行 |
-| `error` | coordinator → user | 协调错误 | 阻塞性问题 |
-| `shutdown` | coordinator → all | 团队关闭 | 清理资源 |
+When coordinator needs to execute a command (dispatch, monitor):
 
-## Message Bus
+1. **Read the command file**: `roles/coordinator/commands/<command-name>.md`
+2. **Follow the workflow** defined in the command file (Phase 2-4 structure)
+3. **Commands are inline execution guides** -- NOT separate agents or subprocesses
+4. **Execute synchronously** -- complete the command workflow before proceeding
 
-每次 SendMessage 前，先调用 `mcp__ccw-tools__team_msg` 记录：
-
-```javascript
-mcp__ccw-tools__team_msg({
-  operation: "log",
-  team: teamName,
-  from: "coordinator",
-  to: "user",
-  type: "mode_selected",
-  summary: "[coordinator] 模式已选择: remediate"
-})
+Example:
+```
+Phase 3 needs task dispatch
+  -> Read roles/coordinator/commands/dispatch.md
+  -> Execute Phase 2 (Context Loading)
+  -> Execute Phase 3 (Task Chain Creation)
+  -> Execute Phase 4 (Validation)
+  -> Continue to Phase 4
 ```
 
-### CLI 回退
+---
 
-若 `mcp__ccw-tools__team_msg` 不可用，使用 Bash 写入日志文件：
+## Entry Router
 
-```javascript
-Bash(`echo '${JSON.stringify({ from: "coordinator", to: "user", type: "mode_selected", summary: msg, ts: new Date().toISOString() })}' >> "${sessionFolder}/message-log.jsonl"`)
-```
+When coordinator is invoked, detect invocation type:
+
+| Detection | Condition | Handler |
+|-----------|-----------|---------|
+| Worker callback | Message contains role tag [scanner], [assessor], [planner], [executor], [validator] | -> handleCallback |
+| Status check | Arguments contain "check" or "status" | -> handleCheck |
+| Manual resume | Arguments contain "resume" or "continue" | -> handleResume |
+| Pipeline complete | All tasks have status "completed" | -> handleComplete |
+| Interrupted session | Active/paused session exists | -> Phase 0 (Session Resume Check) |
+| New session | None of above | -> Phase 1 |
+
+For callback/check/resume/complete: load `commands/monitor.md` and execute matched handler, then STOP.
+
+### Router Implementation
+
+1. **Load session context** (if exists):
+   - Scan `.workflow/.team/TD-*/.msg/meta.json` for active/paused sessions
+   - If found, extract session folder path, status, and pipeline mode
+
+2. **Parse $ARGUMENTS** for detection keywords:
+   - Check for role name tags in message content
+   - Check for "check", "status", "resume", "continue" keywords
+
+3. **Route to handler**:
+   - For monitor handlers: Read `commands/monitor.md`, execute matched handler, STOP
+   - For Phase 0: Execute Session Resume Check below
+   - For Phase 1: Execute Requirement Clarification below
+
+---
 
 ## Toolbox
 
@@ -74,251 +91,337 @@ Bash(`echo '${JSON.stringify({ from: "coordinator", to: "user", type: "mode_sele
 | `dispatch` | [commands/dispatch.md](commands/dispatch.md) | Phase 3 | 任务链创建与依赖管理 |
 | `monitor` | [commands/monitor.md](commands/monitor.md) | Phase 4 | 消息总线轮询与协调循环 |
 
-### Subagent Capabilities
+### Tool Capabilities
 
-> Coordinator 不直接使用 subagent（通过 worker 角色间接使用）
+| Tool | Type | Used By | Purpose |
+|------|------|---------|---------|
+| `TeamCreate` | Tool | Phase 2 | Team initialization |
+| `TaskCreate` | Tool | Phase 3 | Task chain creation |
+| `Task` | Tool | Phase 4 | Worker spawning |
+| `AskUserQuestion` | Tool | Phase 1 | Requirement clarification |
 
-### CLI Capabilities
+> Coordinator does not directly use CLI analysis tools or CLI code generation
 
-> Coordinator 不直接使用 CLI 分析工具
+---
 
-## Execution (5-Phase)
+## Message Types
 
-### Phase 1: Parse Arguments & Mode Detection
+| Type | Direction | Trigger | Description |
+|------|-----------|---------|-------------|
+| `mode_selected` | coordinator -> all | 模式确定 | scan/remediate/targeted |
+| `plan_approval` | coordinator -> user | TDPLAN 完成 | 呈现治理方案供审批 |
+| `worktree_created` | coordinator -> user | TDFIX 前 | Worktree 和分支已创建 |
+| `pr_created` | coordinator -> user | TDVAL 通过 | PR 已创建，worktree 已清理 |
+| `quality_gate` | coordinator -> user | 质量评估 | 通过/不通过/有条件通过 |
+| `task_unblocked` | coordinator -> worker | 依赖解除 | 任务可执行 |
+| `error` | coordinator -> user | 协调错误 | 阻塞性问题 |
+| `shutdown` | coordinator -> all | 团队关闭 | 清理资源 |
 
-```javascript
-const args = "$ARGUMENTS"
+## Message Bus
 
-// 提取任务描述
-const taskDescription = args.replace(/--role[=\s]+\w+/, '').replace(/--team[=\s]+[\w-]+/, '').replace(/--mode[=\s]+\w+/, '').trim()
+Before every SendMessage, log via `mcp__ccw-tools__team_msg`:
 
-// Three-Mode 检测
-function detectMode(args, desc) {
-  const modeMatch = args.match(/--mode[=\s]+(scan|remediate|targeted)/)
-  if (modeMatch) return modeMatch[1]
-  if (/扫描|scan|审计|audit|评估|assess/.test(desc)) return 'scan'
-  if (/定向|targeted|指定|specific|修复.*已知/.test(desc)) return 'targeted'
-  return 'remediate'
-}
-
-let pipelineMode = detectMode(args, taskDescription)
-
-// 统一 auto mode 检测
-const autoYes = /\b(-y|--yes)\b/.test(args)
-
-// 简单任务可跳过确认（auto 模式跳过）
-if (!autoYes && (!taskDescription || taskDescription.length < 10)) {
-  const clarification = AskUserQuestion({
-    questions: [{
-      question: "请描述技术债务治理目标（哪些模块？关注哪些维度？）",
-      header: "Tech Debt Target",
-      multiSelect: false,
-      options: [
-        { label: "自定义", description: "输入具体描述" },
-        { label: "全项目扫描", description: "多维度扫描并评估技术债务" },
-        { label: "完整治理", description: "扫描+评估+规划+修复+验证闭环" },
-        { label: "定向修复", description: "针对已知债务项进行修复" }
-      ]
-    }]
-  })
-}
 ```
-
-### Phase 2: Create Team + Initialize Session
-
-```javascript
-const teamName = "tech-debt"
-const sessionSlug = taskDescription.slice(0, 30).replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '-')
-const sessionDate = new Date().toISOString().slice(0, 10)
-const sessionFolder = `.workflow/.team/TD-${sessionSlug}-${sessionDate}`
-Bash(`mkdir -p "${sessionFolder}/scan" "${sessionFolder}/assessment" "${sessionFolder}/plan" "${sessionFolder}/fixes" "${sessionFolder}/validation"`)
-
-// 初始化 shared memory
-Write(`${sessionFolder}/shared-memory.json`, JSON.stringify({
-  debt_inventory: [],
-  priority_matrix: {},
-  remediation_plan: {},
-  fix_results: {},
-  validation_results: {},
-  debt_score_before: null,
-  debt_score_after: null
-}, null, 2))
-
-TeamCreate({ team_name: teamName })
-
-// ⚠️ 不在此阶段 spawn worker
-// Worker 在 Phase 4 (monitor) 中按阶段按需 spawn（Stop-Wait 策略）
-// 这避免了 worker 先启动但无任务可做的鸡生蛋问题
-```
-
-### Phase 3: Create Task Chain
-
-根据 pipelineMode 创建不同的任务链：
-
-```javascript
-// Read commands/dispatch.md for full implementation
-Read("commands/dispatch.md")
-```
-
-**Scan Mode**:
-```
-TDSCAN-001(多维度扫描) → TDEVAL-001(量化评估)
-```
-
-**Remediate Mode**:
-```
-TDSCAN-001(扫描) → TDEVAL-001(评估) → TDPLAN-001(规划) → TDFIX-001(修复) → TDVAL-001(验证)
-```
-
-**Targeted Mode**:
-```
-TDPLAN-001(规划) → TDFIX-001(修复) → TDVAL-001(验证)
-```
-
-### Phase 4: Sequential Stage Execution (Stop-Wait)
-
-```javascript
-// Read commands/monitor.md for full implementation
-Read("commands/monitor.md")
-```
-
-> **策略**: 逐阶段 spawn worker，同步阻塞等待返回。Worker 返回即阶段完成，无需轮询。
->
-> - ❌ 禁止: while 循环 + sleep + 检查状态
-> - ✅ 采用: `Task(run_in_background: false)` 同步调用 = 天然回调
-
-**阶段流转**:
-
-| 当前阶段 | Worker | 完成后 |
-|----------|--------|--------|
-| TDSCAN-001 | scanner | → 启动 TDEVAL |
-| TDEVAL-001 | assessor | → 启动 TDPLAN |
-| TDPLAN-001 | planner | → [Plan Approval Gate] → [Create Worktree] → 启动 TDFIX |
-| TDFIX-001 | executor (worktree) | → 启动 TDVAL |
-| TDVAL-001 | validator (worktree) | → 评估质量门控 → [Commit+PR] |
-
-**Fix-Verify 循环**（TDVAL 阶段发现回归时）:
-```javascript
-if (regressionFound && fixVerifyIteration < 3) {
-  fixVerifyIteration++
-  // 创建 TDFIX-fix + TDVAL-verify 任务，追加到 pipeline 继续执行
-} else if (fixVerifyIteration >= 3) {
-  // 接受当前状态，继续汇报
-  mcp__ccw-tools__team_msg({
-    operation: "log", team: teamName, from: "coordinator",
-    to: "user", type: "quality_gate",
-    summary: `[coordinator] Fix-Verify 循环已达上限(3次)，接受当前结果`
-  })
-}
-```
-
-### Phase 5: Report + Debt Reduction Metrics + PR
-
-```javascript
-// 读取 shared memory 汇总结果
-const memory = JSON.parse(Read(`${sessionFolder}/shared-memory.json`))
-
-// PR 创建（worktree 执行模式下，验证通过后）
-if (memory.worktree && memory.validation_results?.passed) {
-  const { path: wtPath, branch } = memory.worktree
-
-  // Commit all changes in worktree
-  Bash(`cd "${wtPath}" && git add -A && git commit -m "$(cat <<'EOF'
-tech-debt: ${taskDescription}
-
-Automated tech debt cleanup via team-tech-debt pipeline.
-Mode: ${pipelineMode}
-EOF
-)"`)
-
-  // Push + Create PR
-  Bash(`cd "${wtPath}" && git push -u origin "${branch}"`)
-
-  const prBody = `## Tech Debt Cleanup
-
-**Mode**: ${pipelineMode}
-**Items fixed**: ${memory.fix_results?.items_fixed || 0}
-**Debt score**: ${memory.debt_score_before} → ${memory.debt_score_after}
-
-### Validation
-- Tests: ${memory.validation_results?.checks?.test_suite?.status || 'N/A'}
-- Types: ${memory.validation_results?.checks?.type_check?.status || 'N/A'}
-- Lint: ${memory.validation_results?.checks?.lint_check?.status || 'N/A'}
-
-### Session
-${sessionFolder}`
-
-  Bash(`cd "${wtPath}" && gh pr create --title "Tech Debt: ${taskDescription.slice(0, 50)}" --body "$(cat <<'EOF'
-${prBody}
-EOF
-)"`)
-
-  mcp__ccw-tools__team_msg({
-    operation: "log", team: teamName, from: "coordinator",
-    to: "user", type: "pr_created",
-    summary: `[coordinator] PR 已创建: branch ${branch}`
-  })
-
-  // Cleanup worktree
-  Bash(`git worktree remove "${wtPath}" 2>/dev/null || true`)
-} else if (memory.worktree && !memory.validation_results?.passed) {
-  // 验证未通过，保留 worktree 供手动检查
-  mcp__ccw-tools__team_msg({
-    operation: "log", team: teamName, from: "coordinator",
-    to: "user", type: "quality_gate",
-    summary: `[coordinator] 验证未通过，worktree 保留于 ${memory.worktree.path}，请手动检查`
-  })
-}
-
-const report = {
-  mode: pipelineMode,
-  debt_items_found: memory.debt_inventory?.length || 0,
-  debt_score_before: memory.debt_score_before || 'N/A',
-  debt_score_after: memory.debt_score_after || 'N/A',
-  items_fixed: memory.fix_results?.items_fixed || 0,
-  items_remaining: memory.fix_results?.items_remaining || 0,
-  validation_passed: memory.validation_results?.passed || false,
-  regressions: memory.validation_results?.regressions || 0
-}
-
-// 计算债务消减率
-const reductionRate = report.debt_items_found > 0
-  ? Math.round((report.items_fixed / report.debt_items_found) * 100)
-  : 0
-
 mcp__ccw-tools__team_msg({
-  operation: "log", team: teamName, from: "coordinator",
-  to: "user", type: "quality_gate",
-  summary: `[coordinator] 技术债务治理完成: ${report.debt_items_found}项债务, 修复${report.items_fixed}项, 消减率${reductionRate}%`
+  operation: "log",
+  session_id: <session-id>,
+  from: "coordinator",
+  type: <message-type>,
+  ref: <artifact-path>
 })
-
-SendMessage({
-  content: `## [coordinator] Tech Debt Report\n\n${JSON.stringify(report, null, 2)}`,
-  summary: `[coordinator] Debt reduction: ${reductionRate}%`
-})
-
-// 询问下一步（auto 模式跳过，默认关闭团队）
-if (!autoYes) {
-  AskUserQuestion({
-    questions: [{
-      question: "技术债务治理流程已完成。下一步：",
-      header: "Next",
-      multiSelect: false,
-      options: [
-        { label: "新目标", description: "对新模块/维度执行债务治理" },
-        { label: "深度修复", description: "对剩余高优先级债务继续修复" },
-        { label: "关闭团队", description: "关闭所有 teammate 并清理" }
-      ]
-    }]
-  })
-}
 ```
+
+**CLI fallback** (when MCP unavailable):
+
+```
+Bash("ccw team log --session-id <session-id> --from coordinator --type <message-type> --json")
+```
+
+---
+
+## Phase 0: Session Resume Check
+
+**Objective**: Detect and resume interrupted sessions before creating new ones.
+
+**Workflow**:
+
+1. Scan session directory for sessions with status "active" or "paused"
+2. No sessions found -> proceed to Phase 1
+3. Single session found -> resume it (-> Session Reconciliation)
+4. Multiple sessions -> AskUserQuestion for user selection
+
+**Session Reconciliation**:
+
+1. Audit TaskList -> get real status of all tasks
+2. Reconcile: session state <-> TaskList status (bidirectional sync)
+3. Reset any in_progress tasks -> pending (they were interrupted)
+4. Determine remaining pipeline from reconciled state
+5. Rebuild team if disbanded (TeamCreate + spawn needed workers only)
+6. Create missing tasks with correct blockedBy dependencies
+7. Verify dependency chain integrity
+8. Update session file with reconciled state
+9. Kick first executable task's worker -> Phase 4
+
+---
+
+## Phase 1: Requirement Clarification
+
+**Objective**: Parse user input and gather execution parameters.
+
+**Workflow**:
+
+1. **Parse arguments** for explicit settings: mode, scope, focus areas
+
+2. **Mode Detection**:
+
+| Detection | Condition | Mode |
+|-----------|-----------|------|
+| Explicit | `--mode=scan` specified | scan |
+| Explicit | `--mode=remediate` specified | remediate |
+| Explicit | `--mode=targeted` specified | targeted |
+| Keyword | Contains: 扫描, scan, 审计, audit, 评估, assess | scan |
+| Keyword | Contains: 定向, targeted, 指定, specific, 修复已知 | targeted |
+| Default | No match | remediate |
+
+3. **Auto mode detection**:
+
+| Flag | Behavior |
+|------|----------|
+| `-y` or `--yes` | Skip confirmations |
+
+4. **Ask for missing parameters** via AskUserQuestion (skip if auto mode):
+
+| Question | Options |
+|----------|---------|
+| Tech Debt Target | 自定义 / 全项目扫描 / 完整治理 / 定向修复 |
+
+5. **Store requirements**: mode, scope, focus, constraints
+
+**Success**: All parameters captured, mode finalized.
+
+---
+
+## Phase 2: Create Team + Initialize Session
+
+**Objective**: Initialize team, session file, and wisdom directory.
+
+**Workflow**:
+
+1. Generate session ID: `TD-{slug}-{YYYY-MM-DD}`
+2. Create session folder structure:
+
+```
+<session-folder>/
+├── scan/
+├── assessment/
+├── plan/
+├── fixes/
+├── validation/
+└── wisdom/
+    ├── learnings.md
+    ├── decisions.md
+    ├── conventions.md
+    └── issues.md
+```
+
+3. Initialize .msg/meta.json with pipeline metadata:
+```typescript
+// Use team_msg to write pipeline metadata to .msg/meta.json
+mcp__ccw-tools__team_msg({
+  operation: "log",
+  session_id: "<session-id>",
+  from: "coordinator",
+  type: "state_update",
+  summary: "Session initialized",
+  data: {
+    pipeline_mode: "<scan|remediate|targeted>",
+    pipeline_stages: ["scanner", "assessor", "planner", "executor", "validator"],
+    roles: ["coordinator", "scanner", "assessor", "planner", "executor", "validator"],
+    team_name: "tech-debt",
+    debt_inventory: [],
+    priority_matrix: {},
+    remediation_plan: {},
+    fix_results: {},
+    validation_results: {},
+    debt_score_before: null,
+    debt_score_after: null
+  }
+})
+```
+
+4. Call TeamCreate with team name "tech-debt"
+
+5. **Do NOT spawn workers yet** - Workers are spawned on-demand in Phase 4 (Stop-Wait strategy)
+
+**Success**: Team created, session file written, wisdom initialized.
+
+---
+
+## Phase 3: Create Task Chain
+
+**Objective**: Dispatch tasks based on mode with proper dependencies.
+
+Delegate to `commands/dispatch.md` which creates the full task chain.
+
+**Task Chain by Mode**:
+
+| Mode | Task Chain |
+|------|------------|
+| scan | TDSCAN-001 -> TDEVAL-001 |
+| remediate | TDSCAN-001 -> TDEVAL-001 -> TDPLAN-001 -> TDFIX-001 -> TDVAL-001 |
+| targeted | TDPLAN-001 -> TDFIX-001 -> TDVAL-001 |
+
+**Task Metadata**:
+
+| Task ID | Role | Dependencies | Description |
+|---------|------|--------------|-------------|
+| TDSCAN-001 | scanner | (none) | 多维度技术债务扫描 |
+| TDEVAL-001 | assessor | TDSCAN-001 | 量化评估与优先级排序 |
+| TDPLAN-001 | planner | TDEVAL-001 (or none in targeted) | 分阶段治理方案规划 |
+| TDFIX-001 | executor | TDPLAN-001 + Plan Approval | 债务清理执行（worktree） |
+| TDVAL-001 | validator | TDFIX-001 | 回归测试与质量验证 |
+
+**Success**: Tasks created with correct dependencies, assigned to appropriate owners.
+
+---
+
+## Phase 4: Sequential Stage Execution (Stop-Wait)
+
+> **Strategy**: Spawn workers stage-by-stage, synchronous blocking wait. Worker returns = stage complete. No polling needed.
+
+> **CRITICAL**: Use `Task(run_in_background: false)` for synchronous execution. This is intentionally different from the v3 default Spawn-and-Stop pattern.
+
+**Workflow**:
+
+1. Load `commands/monitor.md` if available
+2. Find tasks with: status=pending, blockedBy all resolved, owner assigned
+3. For each ready task -> spawn worker (see SKILL.md Spawn Template)
+4. Output status summary
+5. STOP after spawning (wait for worker callback)
+
+**Stage Transitions**:
+
+| Current Stage | Worker | After Completion |
+|---------------|--------|------------------|
+| TDSCAN-001 | scanner | -> Start TDEVAL |
+| TDEVAL-001 | assessor | -> Start TDPLAN |
+| TDPLAN-001 | planner | -> [Plan Approval Gate] -> [Create Worktree] -> Start TDFIX |
+| TDFIX-001 | executor (worktree) | -> Start TDVAL |
+| TDVAL-001 | validator (worktree) | -> Quality Gate -> [Commit+PR] |
+
+**Worker Spawn Template**:
+
+```
+Agent({
+  subagent_type: "team-worker",
+  description: "Spawn <role> worker",
+  prompt: `## Role Assignment
+role: <role>
+role_spec: .claude/skills/team-tech-debt/role-specs/<role>.md
+session: <session-folder>
+session_id: <session-id>
+team_name: tech-debt
+requirement: <task-description>
+inner_loop: false
+
+## Current Task
+- Task ID: <task-id>
+- Task: <PREFIX>-<NNN>
+- Task Prefix: <PREFIX>
+
+Read role_spec file to load Phase 2-4 domain instructions.
+Execute built-in Phase 1 -> role-spec Phase 2-4 -> built-in Phase 5.`,
+  run_in_background: false  // Stop-Wait: synchronous blocking
+})
+```
+
+**Plan Approval Gate** (after TDPLAN completes):
+
+1. Read remediation plan
+2. Present to user via AskUserQuestion:
+
+| Option | Action |
+|--------|--------|
+| 批准 | Continue pipeline, create worktree |
+| 修订 | Request plan revision from planner |
+| 终止 | Stop pipeline, report current status |
+
+**Worktree Creation** (before TDFIX):
+
+1. Create worktree: `git worktree add <path> -b <branch>`
+2. Update .msg/meta.json with worktree info
+3. Notify user via team_msg
+
+**Fix-Verify Loop** (when TDVAL finds regressions):
+
+| Condition | Action |
+|-----------|--------|
+| regressionFound && iteration < 3 | Create TDFIX-fix + TDVAL-verify tasks, continue |
+| iteration >= 3 | Accept current state, report with warning |
+
+---
+
+## Phase 5: Report + Debt Reduction Metrics + PR
+
+**Objective**: Completion report and follow-up options.
+
+**Workflow**:
+
+1. **Read shared memory** -> collect all results
+
+2. **PR Creation** (worktree mode, validation passed):
+
+| Step | Action |
+|------|--------|
+| Commit | `cd <worktree> && git add -A && git commit -m "tech-debt: <description>"` |
+| Push | `cd <worktree> && git push -u origin <branch>` |
+| Create PR | `cd <worktree> && gh pr create --title "Tech Debt: ..." --body "..."` |
+| Notify | team_msg with pr_created |
+| Cleanup | `git worktree remove <worktree>` (if validation passed) |
+
+3. **Calculate metrics**:
+
+| Metric | Calculation |
+|--------|-------------|
+| debt_items_found | debt_inventory.length |
+| items_fixed | fix_results.items_fixed |
+| reduction_rate | (items_fixed / debt_items_found) * 100 |
+
+4. **Generate report**:
+
+| Field | Value |
+|-------|-------|
+| mode | scan/remediate/targeted |
+| debt_items_found | Count |
+| debt_score_before | Initial score |
+| debt_score_after | Final score |
+| items_fixed | Count |
+| items_remaining | Count |
+| validation_passed | Boolean |
+| regressions | Count |
+
+5. **Output**: SendMessage with `[coordinator]` prefix + team_msg log
+
+6. **Ask next steps** (skip if auto mode):
+
+| Option | Action |
+|--------|--------|
+| 新目标 | New tech debt target |
+| 深度修复 | Continue with remaining high-priority items |
+| 关闭团队 | Cleanup and close |
+
+---
 
 ## Error Handling
 
-| Scenario | Resolution |
-|----------|------------|
-| Teammate unresponsive | Send follow-up, 2x → respawn |
+| Error | Resolution |
+|-------|------------|
+| Task timeout | Log, mark failed, ask user to retry or skip |
+| Worker crash | Respawn worker, reassign task |
+| Dependency cycle | Detect, report to user, halt |
+| Invalid mode | Reject with error, ask to clarify |
+| Session corruption | Attempt recovery, fallback to manual reconciliation |
+| Teammate unresponsive | Send follow-up, 2x -> respawn |
 | Scanner finds no debt | Report clean codebase, skip to summary |
 | Fix-Verify loop stuck >3 iterations | Accept current state, continue pipeline |
 | Build/test environment broken | Notify user, suggest manual fix |

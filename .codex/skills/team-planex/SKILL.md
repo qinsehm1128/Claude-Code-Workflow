@@ -1,427 +1,503 @@
 ---
 name: team-planex
-description: 2-member plan-and-execute pipeline with per-issue beat pipeline for concurrent planning and execution. Planner decomposes requirements into issues, generates solutions, writes artifacts. Executor implements solutions via configurable backends (agent/codex/gemini). Triggers on "team planex".
-allowed-tools: spawn_agent, wait, send_input, close_agent, AskUserQuestion, Read, Write, Edit, Bash, Glob, Grep
-argument-hint: "<issue-ids|--text 'description'|--plan path> [--exec=agent|codex|gemini|auto] [-y]"
+description: |
+  Plan-and-execute pipeline with inverted control. Accepts issues.jsonl or roadmap
+  session from roadmap-with-file. Delegates planning to issue-plan-agent (background),
+  executes inline (main flow). Interleaved plan-execute loop.
 ---
 
 # Team PlanEx
 
-2 成员边规划边执行团队。通过逐 Issue 节拍流水线实现 planner 和 executor 并行工作：planner 每完成一个 issue 的 solution 后输出 ISSUE_READY 信号，orchestrator 立即 spawn executor agent 处理该 issue，同时 send_input 让 planner 继续下一 issue。
+接收 `issues.jsonl` 或 roadmap session 作为输入，委托规划 + 内联执行。Spawn issue-plan-agent 后台规划下一个 issue，主流程内联执行当前已规划的 issue。交替循环：规划 → 执行 → 规划下一个 → 执行 → 直到所有 issue 完成。
 
-## Architecture Overview
+## Architecture
 
 ```
-┌──────────────────────────────────────────────┐
-│  Orchestrator (this file)                     │
-│  → Parse input → Spawn planner → Spawn exec  │
-└────────────────┬─────────────────────────────┘
-                 │ Per-Issue Beat Pipeline
-         ┌───────┴───────┐
-         ↓               ↓
-    ┌─────────┐    ┌──────────┐
-    │ planner │    │ executor │
-    │ (plan)  │    │ (impl)   │
-    └─────────┘    └──────────┘
-         │               │
-    issue-plan-agent  code-developer
-                       (or codex/gemini CLI)
+┌────────────────────────────────────────────────────┐
+│  SKILL.md (主流程 = 内联执行 + 循环控制)             │
+│                                                     │
+│  Phase 1: 加载 issues.jsonl / roadmap session       │
+│  Phase 2: 规划-执行交替循环                          │
+│    ├── 取下一个未规划 issue → spawn planner (bg)     │
+│    ├── 取下一个已规划 issue → 内联执行               │
+│    │   ├── 内联实现 (Read/Edit/Write/Bash)           │
+│    │   ├── 验证测试 + 自修复 (max 3 retries)         │
+│    │   └── git commit                                │
+│    └── 循环直到所有 issue 规划+执行完毕               │
+│  Phase 3: 汇总报告                                   │
+└────────────────────────────────────────────────────┘
+
+Planner (single reusable agent, background):
+  issue-plan-agent spawn once → send_input per issue → write solution JSON → write .ready marker
 ```
+
+## Beat Model (Interleaved Plan-Execute Loop)
+
+```
+Interleaved Loop (Phase 2, single planner reused via send_input):
+═══════════════════════════════════════════════════════════════
+Beat 1              Beat 2              Beat 3
+|                   |                   |
+spawn+plan(A)       send_input(C)       (drain)
+  ↓                   ↓                   ↓
+poll → A.ready      poll → B.ready      poll → C.ready
+  ↓                   ↓                   ↓
+exec(A)             exec(B)             exec(C)
+  ↓                   ↓                   ↓
+send_input(B)       send_input(done)    done
+  (eager delegate)    (all delegated)
+═══════════════════════════════════════════════════════════════
+
+Planner timeline (never idle between issues):
+─────────────────────────────────────────────────────────────
+Planner:  ├─plan(A)─┤├─plan(B)─┤├─plan(C)─┤ done
+Main:     2a(spawn) ├─exec(A)──┤├─exec(B)──┤├─exec(C)──┤
+                    ^2f→send(B) ^2f→send(C)
+─────────────────────────────────────────────────────────────
+
+Single Beat Detail:
+───────────────────────────────────────────────────────────────
+  1. Delegate next    2. Poll ready     3. Execute     4. Verify + commit
+     (2a or 2f eager)    solutions         inline         + eager delegate
+        |                   |                |              |
+  send_input(bg)     Glob(*.ready)    Read/Edit/Write   test → commit
+                          │                              → send_input(next)
+                    wait if none ready
+───────────────────────────────────────────────────────────────
+```
+
+---
 
 ## Agent Registry
 
-| Agent | Role File | Responsibility | New/Existing |
-|-------|-----------|----------------|--------------|
-| `planex-planner` | `.codex/skills/team-planex/agents/planex-planner.md` | 需求拆解 → issue 创建 → 方案设计 → 冲突检查 → 逐 issue 派发 | New (skill-specific) |
-| `planex-executor` | `.codex/skills/team-planex/agents/planex-executor.md` | 加载 solution → 代码实现 → 测试 → 提交 | New (skill-specific) |
-| `issue-plan-agent` | `~/.codex/agents/issue-plan-agent.md` | ACE exploration + solution generation + binding | Existing |
-| `code-developer` | `~/.codex/agents/code-developer.md` | Code implementation (agent backend) | Existing |
+| Agent | Role File | Responsibility | Pattern |
+|-------|-----------|----------------|---------|
+| `issue-plan-agent` | `~/.codex/agents/issue-plan-agent.md` | Explore codebase + generate solutions, single instance reused via send_input | 2.3 Deep Interaction |
 
-## Input Types
+> **COMPACT PROTECTION**: Agent files are execution documents. When context compression occurs and agent instructions are reduced to summaries, **you MUST immediately `Read` the corresponding agent.md to reload before continuing execution**.
 
-支持 3 种输入方式（通过 orchestrator message 传入）：
+---
 
-| 输入类型 | 格式 | 示例 |
-|----------|------|------|
-| Issue IDs | 直接传入 ID | `ISS-20260215-001 ISS-20260215-002` |
-| 需求文本 | `--text '...'` | `--text '实现用户认证模块'` |
-| Plan 文件 | `--plan path` | `--plan plan/2026-02-15-auth.md` |
+## Subagent API Reference
 
-## Execution Method Selection
-
-支持 3 种执行后端：
-
-| Executor | 后端 | 适用场景 |
-|----------|------|----------|
-| `agent` | code-developer subagent | 简单任务、同步执行 |
-| `codex` | `ccw cli --tool codex --mode write` | 复杂任务、后台执行 |
-| `gemini` | `ccw cli --tool gemini --mode write` | 分析类任务、后台执行 |
-
-## Phase Execution
-
-### Phase 1: Input Parsing & Preference Collection
-
-Parse user arguments and determine execution configuration.
+### spawn_agent
 
 ```javascript
-// Parse input from orchestrator message
-const args = orchestratorMessage
-const issueIds = args.match(/ISS-\d{8}-\d{6}/g) || []
-const textMatch = args.match(/--text\s+['"]([^'"]+)['"]/)
-const planMatch = args.match(/--plan\s+(\S+)/)
-const autoYes = /\b(-y|--yes)\b/.test(args)
-const explicitExec = args.match(/--exec[=\s]+(agent|codex|gemini|auto)/i)?.[1]
-
-let executionConfig
-
-if (explicitExec) {
-  executionConfig = {
-    executionMethod: explicitExec.charAt(0).toUpperCase() + explicitExec.slice(1),
-    codeReviewTool: "Skip"
-  }
-} else if (autoYes) {
-  executionConfig = { executionMethod: "Auto", codeReviewTool: "Skip" }
-} else {
-  // Interactive: ask user for preferences
-  // (orchestrator handles user interaction directly)
-}
-
-// Initialize session directory for artifacts
-const slug = (issueIds[0] || 'batch').replace(/[^a-zA-Z0-9-]/g, '')
-const dateStr = new Date().toISOString().slice(0,10).replace(/-/g,'')
-const sessionId = `PEX-${slug}-${dateStr}`
-const sessionDir = `.workflow/.team/${sessionId}`
-shell(`mkdir -p "${sessionDir}/artifacts/solutions"`)
-```
-
-### Phase 2: Planning (Planner Agent — Per-Issue Beat)
-
-Spawn planner agent for per-issue planning. Uses send_input for issue-by-issue progression.
-
-```javascript
-// Build planner input context
-let plannerInput = ""
-if (issueIds.length > 0) plannerInput = `issue_ids: ${JSON.stringify(issueIds)}`
-else if (textMatch) plannerInput = `text: ${textMatch[1]}`
-else if (planMatch) plannerInput = `plan_file: ${planMatch[1]}`
-
-const planner = spawn_agent({
+const agentId = spawn_agent({
   message: `
 ## TASK ASSIGNMENT
 
 ### MANDATORY FIRST STEPS (Agent Execute)
-1. **Read role definition**: .codex/skills/team-planex/agents/planex-planner.md (MUST read first)
+1. **Read role definition**: ~/.codex/agents/issue-plan-agent.md (MUST read first)
 2. Read: .workflow/project-tech.json
 3. Read: .workflow/project-guidelines.json
 
 ---
 
-Goal: Decompose requirements into executable solutions (per-issue beat)
-
-## Input
-${plannerInput}
-
-## Execution Config
-execution_method: ${executionConfig.executionMethod}
-code_review: ${executionConfig.codeReviewTool}
-
-## Session Dir
-session_dir: ${sessionDir}
-
-## Deliverables
-For EACH issue, output structured data:
-
-\`\`\`
-ISSUE_READY:
-{
-  "issue_id": "ISS-xxx",
-  "solution_id": "SOL-xxx",
-  "title": "...",
-  "priority": "normal",
-  "depends_on": [],
-  "solution_file": "${sessionDir}/artifacts/solutions/ISS-xxx.json"
-}
-\`\`\`
-
-After ALL issues planned, output:
-\`\`\`
-ALL_PLANNED:
-{ "total_issues": N }
-\`\`\`
-
-## Quality bar
-- Every issue has a bound solution
-- Solution artifact written to file before output
-- Inline conflict check determines depends_on
+${taskContext}
 `
 })
-
-// Wait for first ISSUE_READY
-const firstIssue = wait({ ids: [planner], timeout_ms: 600000 })
-
-if (firstIssue.timed_out) {
-  send_input({ id: planner, message: "Please finalize current issue and output ISSUE_READY." })
-  const retry = wait({ ids: [planner], timeout_ms: 120000 })
-}
-
-// Parse first issue data
-const firstIssueData = parseIssueReady(firstIssue.status[planner].completed)
 ```
 
-### Phase 3: Per-Issue Beat Pipeline (Planning + Execution Interleaved)
-
-Pipeline: spawn executor for current issue while planner continues next issue.
+### wait
 
 ```javascript
-const allAgentIds = [planner]
-const executorAgents = []
-let allPlanned = false
-let currentIssueOutput = firstIssue.status[planner].completed
+const result = wait({
+  ids: [agentId],
+  timeout_ms: 600000  // 10 minutes
+})
+```
 
-while (!allPlanned) {
-  // --- Spawn executor for current issue ---
-  const issueData = parseIssueReady(currentIssueOutput)
+### send_input
 
-  if (issueData) {
-    const executor = spawn_agent({
-      message: `
+Continue interaction with active agent (reuse for next issue).
+
+```javascript
+send_input({
+  id: agentId,
+  message: `
+## NEXT ISSUE
+
+issue_ids: ["<nextIssueId>"]
+
+## Output Requirements
+1. Generate solution for this issue
+2. Write solution JSON to: <artifactsDir>/<nextIssueId>.json
+3. Write ready marker to: <artifactsDir>/<nextIssueId>.ready
+`
+})
+```
+
+### close_agent
+
+```javascript
+close_agent({ id: agentId })
+```
+
+---
+
+## Input
+
+Accepts output from `roadmap-with-file` or direct `issues.jsonl` path.
+
+Supported input forms (parse from `$ARGUMENTS`):
+
+| Form | Detection | Example |
+|------|-----------|---------|
+| Roadmap session | `RMAP-` prefix or `--session` flag | `team-planex --session RMAP-auth-20260301` |
+| Issues JSONL path | `.jsonl` extension | `team-planex .workflow/issues/issues.jsonl` |
+| Issue IDs | `ISS-\d{8}-\d{3,6}` regex | `team-planex ISS-20260301-001 ISS-20260301-002` |
+
+### Input Resolution
+
+| Input Form | Resolution |
+|------------|------------|
+| `--session RMAP-*` | Read `.workflow/.roadmap/<sessionId>/roadmap.md` → extract issue IDs from Roadmap table → load issue data from `.workflow/issues/issues.jsonl` |
+| `.jsonl` path | Read file → parse each line as JSON → collect all issues |
+| Issue IDs | Use directly → fetch details via `ccw issue status <id> --json` |
+
+### Issue Record Fields Used
+
+| Field | Usage |
+|-------|-------|
+| `id` | Issue identifier for planning and execution |
+| `title` | Commit message and reporting |
+| `status` | Skip if already `completed` |
+| `tags` | Wave ordering: `wave-1` before `wave-2` |
+| `extended_context.notes.depends_on_issues` | Execution ordering |
+
+### Wave Ordering
+
+Issues are sorted by wave tag for execution order:
+
+| Priority | Rule |
+|----------|------|
+| 1 | Lower wave number first (`wave-1` before `wave-2`) |
+| 2 | Within same wave: issues without `depends_on_issues` first |
+| 3 | Within same wave + no deps: original order from JSONL |
+
+---
+
+## Session Setup
+
+Initialize session directory before processing:
+
+| Item | Value |
+|------|-------|
+| Slug | `toSlug(<first issue title>)` truncated to 20 chars |
+| Date | `YYYYMMDD` format |
+| Session dir | `.workflow/.team/PEX-<slug>-<date>` |
+| Solutions dir | `<sessionDir>/artifacts/solutions` |
+
+Create directories:
+
+```bash
+mkdir -p "<sessionDir>/artifacts/solutions"
+```
+
+Write `<sessionDir>/team-session.json`:
+
+| Field | Value |
+|-------|-------|
+| `session_id` | `PEX-<slug>-<date>` |
+| `input_type` | `roadmap` / `jsonl` / `issue_ids` |
+| `source_session` | Roadmap session ID (if applicable) |
+| `issue_ids` | Array of all issue IDs to process (wave-sorted) |
+| `status` | `"running"` |
+| `started_at` | ISO timestamp |
+
+---
+
+## Phase 1: Load Issues + Initialize
+
+1. Parse `$ARGUMENTS` to determine input form
+2. Resolve issues (see Input Resolution table)
+3. Filter out issues with `status: completed`
+4. Sort by wave ordering
+5. Collect into `<issueQueue>` (ordered list of issue IDs to process)
+6. Initialize session directory and `team-session.json`
+7. Set `<plannedSet>` = {} , `<executedSet>` = {} , `<plannerAgent>` = null (single reusable planner)
+
+---
+
+## Phase 2: Plan-Execute Loop
+
+Interleaved loop that keeps planner agent busy at all times. Each beat: (1) delegate next issue to planner if idle, (2) poll for ready solutions, (3) execute inline, (4) after execution completes, immediately delegate next issue to planner before polling again.
+
+### Loop Entry
+
+Set `<queueIndex>` = 0 (pointer into `<issueQueue>`).
+
+### 2a. Delegate Next Issue to Planner
+
+Single planner agent is spawned once and reused via `send_input` for subsequent issues.
+
+| Condition | Action |
+|-----------|--------|
+| `<plannerAgent>` is null AND `<queueIndex>` < `<issueQueue>.length` | Spawn planner (first issue), advance `<queueIndex>` |
+| `<plannerAgent>` exists, idle AND `<queueIndex>` < `<issueQueue>.length` | `send_input` next issue, advance `<queueIndex>` |
+| `<plannerAgent>` is busy | Skip (wait for current planning to finish) |
+| `<queueIndex>` >= `<issueQueue>.length` | No more issues to plan |
+
+**First issue — spawn planner**:
+
+```javascript
+const plannerAgent = spawn_agent({
+  message: `
 ## TASK ASSIGNMENT
 
 ### MANDATORY FIRST STEPS (Agent Execute)
-1. **Read role definition**: .codex/skills/team-planex/agents/planex-executor.md (MUST read first)
+1. **Read role definition**: ~/.codex/agents/issue-plan-agent.md (MUST read first)
 2. Read: .workflow/project-tech.json
 3. Read: .workflow/project-guidelines.json
 
 ---
 
-Goal: Implement solution for ${issueData.issue_id}
+issue_ids: ["<issueId>"]
+project_root: "<projectRoot>"
 
-## Task
-${JSON.stringify([issueData], null, 2)}
+## Output Requirements
+1. Generate solution for this issue
+2. Write solution JSON to: <artifactsDir>/<issueId>.json
+3. Write ready marker to: <artifactsDir>/<issueId>.ready
+   - Marker content: {"issue_id":"<issueId>","task_count":<task_count>,"file_count":<file_count>}
 
-## Execution Config
-execution_method: ${executionConfig.executionMethod}
-code_review: ${executionConfig.codeReviewTool}
-
-## Solution File
-solution_file: ${issueData.solution_file}
-
-## Session Dir
-session_dir: ${sessionDir}
-
-## Deliverables
-\`\`\`
-IMPL_COMPLETE:
-issue_id: ${issueData.issue_id}
-status: success|failed
-test_result: pass|fail
-commit: <hash or N/A>
-\`\`\`
-
-## Quality bar
-- All existing tests pass after implementation
-- Code follows project conventions
-- One commit per solution
+## Multi-Issue Mode
+You will receive additional issues via follow-up messages. After completing each issue,
+output results and wait for next instruction.
 `
-    })
-    allAgentIds.push(executor)
-    executorAgents.push({ id: executor, issueId: issueData.issue_id })
-  }
-
-  // --- Check if ALL_PLANNED was in this output ---
-  if (currentIssueOutput.includes("ALL_PLANNED")) {
-    allPlanned = true
-    break
-  }
-
-  // --- Tell planner to continue next issue ---
-  send_input({ id: planner, message: `Issue ${issueData?.issue_id || 'unknown'} dispatched. Continue to next issue.` })
-
-  // Wait for planner (next issue)
-  const plannerResult = wait({ ids: [planner], timeout_ms: 600000 })
-
-  if (plannerResult.timed_out) {
-    send_input({ id: planner, message: "Please finalize current issue and output results." })
-    const retry = wait({ ids: [planner], timeout_ms: 120000 })
-    currentIssueOutput = retry.status?.[planner]?.completed || ""
-  } else {
-    currentIssueOutput = plannerResult.status[planner]?.completed || ""
-  }
-
-  // Check for ALL_PLANNED
-  if (currentIssueOutput.includes("ALL_PLANNED")) {
-    // May contain a final ISSUE_READY before ALL_PLANNED
-    const finalIssue = parseIssueReady(currentIssueOutput)
-    if (finalIssue) {
-      // Spawn one more executor for the last issue
-      const lastExec = spawn_agent({
-        message: `... same executor spawn as above for ${finalIssue.issue_id} ...`
-      })
-      allAgentIds.push(lastExec)
-      executorAgents.push({ id: lastExec, issueId: finalIssue.issue_id })
-    }
-    allPlanned = true
-  }
-}
-
-// Wait for all remaining executor agents
-const pendingExecutors = executorAgents.map(e => e.id)
-
-if (pendingExecutors.length > 0) {
-  const finalResults = wait({ ids: pendingExecutors, timeout_ms: 900000 })
-
-  if (finalResults.timed_out) {
-    const pending = pendingExecutors.filter(id => !finalResults.status[id]?.completed)
-    pending.forEach(id => {
-      send_input({ id, message: "Please finalize current task and output results." })
-    })
-    wait({ ids: pending, timeout_ms: 120000 })
-  }
-}
+})
 ```
 
-### Phase 4: Result Aggregation & Cleanup
+**Subsequent issues — send_input**:
 
 ```javascript
-// Collect results from all executors
-const pipelineResults = {
-  issues: [],
-  totalCompleted: 0,
-  totalFailed: 0
-}
+send_input({
+  id: plannerAgent,
+  message: `
+## NEXT ISSUE
 
-executorAgents.forEach(({ id, issueId }) => {
-  const output = results.status[id]?.completed || ""
-  const implResult = parseImplComplete(output)
-  pipelineResults.issues.push({
-    issueId,
-    status: implResult?.status || 'unknown',
-    commit: implResult?.commit || 'N/A'
-  })
-  if (implResult?.status === 'success') pipelineResults.totalCompleted++
-  else pipelineResults.totalFailed++
-})
+issue_ids: ["<nextIssueId>"]
 
-// Output final summary
-console.log(`
-## PlanEx Pipeline Complete
-
-### Summary
-- Total Issues: ${executorAgents.length}
-- Completed: ${pipelineResults.totalCompleted}
-- Failed: ${pipelineResults.totalFailed}
-
-### Issue Details
-${pipelineResults.issues.map(i =>
-  `- ${i.issueId}: ${i.status} (commit: ${i.commit})`
-).join('\n')}
-`)
-
-// Cleanup ALL agents
-allAgentIds.forEach(id => {
-  try { close_agent({ id }) } catch { /* already closed */ }
+## Output Requirements
+1. Generate solution for this issue
+2. Write solution JSON to: <artifactsDir>/<nextIssueId>.json
+3. Write ready marker to: <artifactsDir>/<nextIssueId>.ready
+   - Marker content: {"issue_id":"<nextIssueId>","task_count":<task_count>,"file_count":<file_count>}
+`
 })
 ```
 
-## Coordination Protocol
+Record `<planningIssueId>` = current issue ID.
 
-### File-Based Communication
+### 2b. Poll for Ready Solutions
 
-Since Codex agents have isolated contexts, use file-based coordination:
+Poll `<artifactsDir>/*.ready` using Glob.
 
-| File | Purpose | Writer | Reader |
-|------|---------|--------|--------|
-| `{sessionDir}/artifacts/solutions/{issueId}.json` | Solution artifact | planner | executor |
-| `{sessionDir}/exec-{issueId}.json` | Execution result | executor | orchestrator |
-| `{sessionDir}/pipeline-log.ndjson` | Event log | both | orchestrator |
+| Condition | Action |
+|-----------|--------|
+| New `.ready` found (not in `<executedSet>`) | Load `<issueId>.json` solution → proceed to 2c |
+| `<plannerAgent>` busy, no `.ready` yet | Check planner: `wait({ ids: [<plannerAgent>], timeout_ms: 30000 })` |
+| Planner finished current issue | Mark planner idle, re-poll |
+| Planner timed out (30s wait) | Re-poll (planner still working) |
+| No `.ready`, planner idle, all issues delegated | Exit loop → Phase 3 |
+| Idle >5 minutes total | Exit loop → Phase 3 |
 
-### Solution Artifact Format
+### 2c. Inline Execution
 
-```json
-{
-  "issue_id": "ISS-20260215-001",
-  "bound": {
-    "id": "SOL-001",
-    "title": "Implement auth module",
-    "tasks": [...],
-    "files_touched": ["src/auth/login.ts"]
-  },
-  "execution_config": {
-    "execution_method": "Agent",
-    "code_review": "Skip"
-  },
-  "timestamp": "2026-02-15T10:00:00Z"
+Main flow implements the solution directly. For each task in `solution.tasks`, ordered by `depends_on` sequence:
+
+| Step | Action | Tool |
+|------|--------|------|
+| 1. Read context | Read all files referenced in current task | Read |
+| 2. Identify patterns | Note imports, naming conventions, existing structure | — (inline reasoning) |
+| 3. Apply changes | Modify existing files or create new files | Edit (prefer) / Write (new files) |
+| 4. Build check | Run project build command if available | Bash |
+
+Build verification:
+
+```bash
+npm run build 2>&1 || echo BUILD_FAILED
+```
+
+| Build Result | Action |
+|--------------|--------|
+| Success | Proceed to 2d |
+| Failure | Analyze error → fix source → rebuild (max 3 retries) |
+| No build command | Skip, proceed to 2d |
+
+### 2d. Verify Tests
+
+Detect test command:
+
+| Priority | Detection |
+|----------|-----------|
+| 1 | `package.json` → `scripts.test` |
+| 2 | `package.json` → `scripts.test:unit` |
+| 3 | `pytest.ini` / `setup.cfg` (Python) |
+| 4 | `Makefile` test target |
+
+Run tests. If tests fail → self-repair loop:
+
+| Attempt | Action |
+|---------|--------|
+| 1–3 | Analyze test output → diagnose → fix source code → re-run tests |
+| After 3 | Mark issue as failed, log to `<sessionDir>/errors.json`, continue |
+
+### 2e. Git Commit
+
+Stage and commit changes for this issue:
+
+```bash
+git add -A
+git commit -m "feat(<issueId>): <solution-title>"
+```
+
+| Outcome | Action |
+|---------|--------|
+| Commit succeeds | Record commit hash |
+| Commit fails (nothing to commit) | Warn, continue |
+| Pre-commit hook fails | Attempt fix once, then warn and continue |
+
+### 2f. Update Status + Eagerly Delegate Next
+
+Update issue status:
+
+```bash
+ccw issue update <issueId> --status completed
+```
+
+Add `<issueId>` to `<executedSet>`.
+
+**Eager delegation**: Immediately check planner state and delegate next issue before returning to poll:
+
+| Planner State | Action |
+|---------------|--------|
+| Idle AND more issues in queue | `send_input` next issue → advance `<queueIndex>` |
+| Busy (still planning) | Skip — planner already working |
+| All issues delegated | Skip — nothing to delegate |
+
+This ensures planner is never idle between beats. Return to 2b for next beat.
+
+---
+
+## Phase 3: Report
+
+### 3a. Cleanup
+
+Close the planner agent. Ignore cleanup failures.
+
+```javascript
+if (plannerAgent) {
+  try { close_agent({ id: plannerAgent }) } catch {}
 }
 ```
 
-### Execution Result Format
+### 3b. Generate Report
+
+Update `<sessionDir>/team-session.json`:
+
+| Field | Value |
+|-------|-------|
+| `status` | `"completed"` |
+| `completed_at` | ISO timestamp |
+| `results.total` | Total issues in queue |
+| `results.completed` | Count in `<executedSet>` |
+| `results.failed` | Count of failed issues |
+
+Output summary:
+
+```
+## Pipeline Complete
+
+**Total issues**: <total>
+**Completed**: <completed>
+**Failed**: <failed>
+
+<per-issue status list>
+
+Session: <sessionDir>
+```
+
+---
+
+## File-Based Coordination Protocol
+
+| File | Writer | Reader | Purpose |
+|------|--------|--------|---------|
+| `<artifactsDir>/<issueId>.json` | planner | main flow | Solution data |
+| `<artifactsDir>/<issueId>.ready` | planner | main flow | Atomicity signal |
+
+### Ready Marker Format
 
 ```json
 {
-  "issue_id": "ISS-20260215-001",
-  "status": "success",
-  "executor": "agent",
-  "test_result": "pass",
-  "commit": "abc123",
-  "files_changed": ["src/auth/login.ts", "src/auth/login.test.ts"]
+  "issue_id": "<issueId>",
+  "task_count": "<task_count>",
+  "file_count": "<file_count>"
 }
 ```
+
+---
+
+## Session Directory
+
+```
+.workflow/.team/PEX-<slug>-<date>/
+├── team-session.json
+├── artifacts/
+│   └── solutions/
+│       ├── <issueId>.json
+│       └── <issueId>.ready
+└── errors.json
+```
+
+---
 
 ## Lifecycle Management
 
-### Timeout Handling
+### Timeout Protocol
 
-| Timeout Scenario | Action |
-|-----------------|--------|
-| Planner issue timeout | send_input to urge convergence, retry wait |
-| Executor impl timeout | send_input to finalize, record partial result |
-| All agents timeout | Log error, abort with partial state |
+| Phase | Default Timeout | On Timeout |
+|-------|-----------------|------------|
+| Phase 1 (Load) | 60s | Report error, stop |
+| Phase 2 (Planner wait) | 600s per issue | Skip issue, write `.error` marker |
+| Phase 2 (Execution) | No timeout | Self-repair up to 3 retries |
+| Phase 2 (Loop idle) | 5 min total idle | Break loop → Phase 3 |
 
 ### Cleanup Protocol
 
+At workflow end, close the planner agent:
+
 ```javascript
-// Track all agents created during execution
-const allAgentIds = []
-
-// ... (agents added during phase execution) ...
-
-// Final cleanup (end of orchestrator or on error)
-allAgentIds.forEach(id => {
-  try { close_agent({ id }) } catch { /* already closed */ }
-})
+if (plannerAgent) {
+  try { close_agent({ id: plannerAgent }) } catch { /* already closed */ }
+}
 ```
+
+---
 
 ## Error Handling
 
-| Scenario | Resolution |
-|----------|------------|
-| Planner issue failure | Retry once via send_input, then skip issue |
-| Executor impl failure | Record failure, continue with next issue |
-| No issues created from text | Report to user, abort |
-| Solution generation failure | Skip issue, continue with remaining |
-| Inline conflict check failure | Use empty depends_on, continue |
-| Pipeline stall (no progress) | Timeout handling → urge convergence → abort |
-| Missing role file | Log error, use inline fallback instructions |
+| Phase | Scenario | Resolution |
+|-------|----------|------------|
+| 1 | Invalid input (no issues, bad JSONL) | Report error, stop |
+| 1 | Roadmap session not found | Report error, stop |
+| 1 | Issue fetch fails | Retry once, then skip issue |
+| 2 | Planner spawn fails | Retry once, then skip issue |
+| 2 | issue-plan-agent timeout (>10 min) | Skip issue, write `.error` marker, continue |
+| 2 | Solution file corrupt / unreadable | Skip, log to `errors.json`, continue |
+| 2 | Implementation error | Self-repair up to 3 retries per task |
+| 2 | Tests failing after 3 retries | Mark issue failed, log, continue |
+| 2 | Git commit fails | Warn, mark completed anyway |
+| 2 | Polling idle >5 minutes | Break loop → Phase 3 |
+| 3 | Agent cleanup fails | Ignore |
 
-## Helper Functions
+---
 
-```javascript
-function parseIssueReady(output) {
-  const match = output.match(/ISSUE_READY:\s*\n([\s\S]*?)(?=\n```|$)/)
-  if (!match) return null
-  try { return JSON.parse(match[1]) } catch { return null }
-}
+## User Commands
 
-function parseImplComplete(output) {
-  const match = output.match(/IMPL_COMPLETE:\s*\n([\s\S]*?)(?=\n```|$)/)
-  if (!match) return null
-  try { return JSON.parse(match[1]) } catch { return null }
-}
-
-function resolveExecutor(method, taskCount) {
-  if (method.toLowerCase() === 'auto') {
-    return taskCount <= 3 ? 'agent' : 'codex'
-  }
-  return method.toLowerCase()
-}
-```
+| Command | Action |
+|---------|--------|
+| `check` / `status` | Show progress: planned / executing / completed / failed counts |
+| `resume` / `continue` | Re-enter loop from Phase 2 |

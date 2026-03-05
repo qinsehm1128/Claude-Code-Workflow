@@ -269,6 +269,10 @@ export async function handleTeamRoutes(ctx: RouteContext): Promise<boolean> {
         updated_at: string;
         archived_at?: string;
         pipeline_mode?: string;
+        pipeline_stages?: string[];
+        role_state?: Record<string, Record<string, unknown>>;
+        roles?: string[];
+        team_name?: string;
         memberCount: number;
         members: string[];
         isLegacy: boolean;
@@ -295,6 +299,10 @@ export async function handleTeamRoutes(ctx: RouteContext): Promise<boolean> {
           updated_at: meta.updated_at,
           archived_at: meta.archived_at,
           pipeline_mode: meta.pipeline_mode,
+          pipeline_stages: meta.pipeline_stages,
+          role_state: meta.role_state,
+          roles: meta.roles,
+          team_name: meta.team_name,
           memberCount: memberSet.size,
           members: Array.from(memberSet),
           isLegacy: false,
@@ -325,6 +333,10 @@ export async function handleTeamRoutes(ctx: RouteContext): Promise<boolean> {
           updated_at: meta.updated_at,
           archived_at: meta.archived_at,
           pipeline_mode: meta.pipeline_mode,
+          pipeline_stages: meta.pipeline_stages,
+          role_state: meta.role_state,
+          roles: meta.roles,
+          team_name: meta.team_name,
           memberCount: memberSet.size,
           members: Array.from(memberSet),
           isLegacy: true,
@@ -432,13 +444,14 @@ export async function handleTeamRoutes(ctx: RouteContext): Promise<boolean> {
       const sessionDir = getSessionDir(artifactsTeamName, root);
 
       if (!existsSync(sessionDir)) {
-        // Check if it's a legacy team with session_id
+        // Check if it's a legacy team with session_id in meta
         const meta = getEffectiveTeamMeta(artifactsTeamName);
-        if (meta.session_id) {
+        const legacySessionId = (meta as unknown as Record<string, unknown>).session_id as string | undefined;
+        if (legacySessionId) {
           // Legacy team with session_id - redirect to session directory
-          const legacySessionDir = getSessionDir(meta.session_id, root);
+          const legacySessionDir = getSessionDir(legacySessionId, root);
           if (existsSync(legacySessionDir)) {
-            serveArtifacts(legacySessionDir, meta.session_id, meta, artifactPath, res);
+            serveArtifacts(legacySessionDir, legacySessionId, meta, artifactPath, res);
             return true;
           }
         }

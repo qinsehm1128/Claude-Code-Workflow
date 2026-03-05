@@ -30,6 +30,8 @@ export interface HookCardData {
   matcher?: string;
   command?: string;
   script?: string;
+  scope?: 'global' | 'project';
+  index?: number;
 }
 
 export interface HookCardProps {
@@ -98,6 +100,63 @@ function getTriggerVariant(trigger: HookTriggerType): 'default' | 'secondary' | 
 
 // ========== Component ==========
 
+// ========== Hook Name Translation ==========
+// Mapping from display name to template ID for translation lookup
+const DISPLAY_NAME_TO_TEMPLATE_ID: Record<string, string> = {
+  // Notification hooks
+  'Session Start Notify': 'session-start-notify',
+  'Session State Watch': 'session-state-watch',
+  'Stop Notify': 'stop-notify',
+  // Automation hooks
+  'Auto Format on Write': 'auto-format-on-write',
+  'Auto Lint on Write': 'auto-lint-on-write',
+  'Block Sensitive Files': 'block-sensitive-files',
+  'Git Auto Stage': 'git-auto-stage',
+  // Indexing hooks
+  'Post Edit Index': 'post-edit-index',
+  'Session End Summary': 'session-end-summary',
+  'Project State Inject': 'project-state-inject',
+  // Memory V2 hooks
+  'Memory V2 Extract': 'memory-v2-extract',
+  'Memory V2 Auto Consolidate': 'memory-v2-auto-consolidate',
+  'Memory Sync Dashboard': 'memory-sync-dashboard',
+};
+
+/**
+ * Get translated hook name if available
+ * Falls back to original name if no translation exists
+ */
+function getHookDisplayName(name: string, formatMessage: (msg: { id: string }) => string): string {
+  // First try direct translation with the name (for template IDs)
+  const translationKey = `cliHooks.templates.templates.${name}.name`;
+  try {
+    const translated = formatMessage({ id: translationKey });
+    if (translated && !translated.includes('cliHooks.templates.templates')) {
+      return translated;
+    }
+  } catch {
+    // Direct translation not found
+  }
+
+  // Try mapping display name to template ID
+  const templateId = DISPLAY_NAME_TO_TEMPLATE_ID[name];
+  if (templateId) {
+    const mappedKey = `cliHooks.templates.templates.${templateId}.name`;
+    try {
+      const translated = formatMessage({ id: mappedKey });
+      if (translated && !translated.includes('cliHooks.templates.templates')) {
+        return translated;
+      }
+    } catch {
+      // Mapping found but no translation
+    }
+  }
+
+  return name;
+}
+
+// ========== Component ==========
+
 export function HookCard({
   hook,
   isExpanded,
@@ -107,6 +166,9 @@ export function HookCard({
   onDelete,
 }: HookCardProps) {
   const { formatMessage } = useIntl();
+
+  // Get translated hook name
+  const displayName = getHookDisplayName(hook.name, formatMessage);
 
   const handleToggle = () => {
     onToggle(hook.name, !hook.enabled);
@@ -140,7 +202,7 @@ export function HookCard({
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm font-medium text-foreground truncate">
-                  {hook.name}
+                  {displayName}
                 </span>
                 <Badge
                   variant={getTriggerVariant(hook.trigger)}

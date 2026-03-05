@@ -78,6 +78,7 @@ interface CliStreamState extends BlockCacheState {
   executions: Record<string, CliExecutionState>;
   currentExecutionId: string | null;
   userClosedExecutions: Set<string>;  // Track executions closed by user
+  deduplicationWindows: Record<string, string[]>;  // Rolling hash window per execution
 
   // Legacy methods
   addOutput: (executionId: string, line: CliOutputLine) => void;
@@ -106,7 +107,25 @@ interface CliStreamState extends BlockCacheState {
  */
 const MAX_OUTPUT_LINES = 5000;
 
+/**
+ * Size of rolling deduplication window per execution
+ * Lines with identical content within this window will be skipped
+ */
+const DEDUPLICATION_WINDOW_SIZE = 100;
+
 // ========== Helper Functions ==========
+
+/**
+ * Simple hash function for content deduplication
+ * Uses djb2 algorithm - fast and good enough for deduplication
+ */
+function simpleHash(str: string): string {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash) + str.charCodeAt(i);
+  }
+  return hash.toString(36);
+}
 
 /**
  * Parse tool call metadata from content
@@ -325,12 +344,25 @@ export const useCliStreamStore = create<CliStreamState>()(
       executions: {},
       currentExecutionId: null,
       userClosedExecutions: new Set<string>(),
+      deduplicationWindows: {},
 
       // Block cache state
       blocks: {},
       lastUpdate: {},
 
       addOutput: (executionId: string, line: CliOutputLine) => {
+        // Content-based deduplication using rolling hash window
+        const contentHash = simpleHash(line.content);
+        const currentWindow = get().deduplicationWindows[executionId] || [];
+
+        // Skip if duplicate detected (same hash in recent window)
+        if (currentWindow.includes(contentHash)) {
+          return; // Skip duplicate content
+        }
+
+        // Update deduplication window
+        const newWindow = [...currentWindow, contentHash].slice(-DEDUPLICATION_WINDOW_SIZE);
+
         set((state) => {
           const current = state.outputs[executionId] || [];
           const updated = [...current, line];
@@ -342,6 +374,10 @@ export const useCliStreamStore = create<CliStreamState>()(
                 ...state.outputs,
                 [executionId]: updated.slice(-MAX_OUTPUT_LINES),
               },
+              deduplicationWindows: {
+                ...state.deduplicationWindows,
+                [executionId]: newWindow,
+              },
             };
           }
 
@@ -349,6 +385,10 @@ export const useCliStreamStore = create<CliStreamState>()(
             outputs: {
               ...state.outputs,
               [executionId]: updated,
+            },
+            deduplicationWindows: {
+              ...state.deduplicationWindows,
+              [executionId]: newWindow,
             },
           };
         }, false, 'cliStream/addOutput');
@@ -425,13 +465,16 @@ export const useCliStreamStore = create<CliStreamState>()(
           const newExecutions = { ...state.executions };
           const newBlocks = { ...state.blocks };
           const newLastUpdate = { ...state.lastUpdate };
+          const newDeduplicationWindows = { ...state.deduplicationWindows };
           delete newExecutions[executionId];
           delete newBlocks[executionId];
           delete newLastUpdate[executionId];
+          delete newDeduplicationWindows[executionId];
           return {
             executions: newExecutions,
             blocks: newBlocks,
             lastUpdate: newLastUpdate,
+            deduplicationWindows: newDeduplicationWindows,
             currentExecutionId: state.currentExecutionId === executionId ? null : state.currentExecutionId,
           };
         }, false, 'cliStream/removeExecution');

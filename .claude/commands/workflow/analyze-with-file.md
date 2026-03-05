@@ -2,7 +2,7 @@
 name: analyze-with-file
 description: Interactive collaborative analysis with documented discussions, CLI-assisted exploration, and evolving understanding
 argument-hint: "[-y|--yes] [-c|--continue] \"topic or question\""
-allowed-tools: TodoWrite(*), Task(*), AskUserQuestion(*), Read(*), Grep(*), Glob(*), Bash(*), Edit(*), Write(*)
+allowed-tools: TodoWrite(*), Agent(*), AskUserQuestion(*), Read(*), Grep(*), Glob(*), Bash(*), Edit(*), Write(*)
 ---
 
 ## Auto Mode
@@ -226,7 +226,7 @@ Interactive collaborative analysis workflow with **documented discussion process
 
 **Single Exploration Example**:
 ```javascript
-Task({
+Agent({
   subagent_type: "cli-explore-agent",
   run_in_background: false,
   description: `Explore codebase: ${topicSlug}`,
@@ -238,8 +238,24 @@ Session: ${sessionFolder}
 
 ## MANDATORY FIRST STEPS
 1. Run: ccw tool exec get_modules_by_depth '{}'
-2. Execute relevant searches based on topic keywords
-3. Read: .workflow/project-tech.json (if exists)
+2. Read: .workflow/project-tech.json (if exists)
+
+## Layered Exploration (MUST follow all 3 layers)
+
+### Layer 1 — Module Discovery (Breadth)
+- Search codebase by topic keywords, identify ALL relevant files
+- Map module boundaries and entry points
+- Output: relevant_files[] with file role annotations
+
+### Layer 2 — Structure Tracing (Depth)
+- For top 3-5 key files from Layer 1: trace call chains (2-3 levels deep)
+- Identify data flow paths and dependency relationships
+- Output: call_chains[], data_flows[]
+
+### Layer 3 — Code Anchor Extraction (Detail)
+- For each key finding: extract the actual code snippet (20-50 lines) with file:line reference
+- Annotate WHY this code matters to the analysis topic
+- Output: code_anchors[] — these are CRITICAL for subsequent analysis quality
 
 ## Exploration Focus
 ${dimensions.map(d => `- ${d}: Identify relevant code patterns and structures`).join('\n')}
@@ -247,7 +263,7 @@ ${dimensions.map(d => `- ${d}: Identify relevant code patterns and structures`).
 ## Output
 Write findings to: ${sessionFolder}/exploration-codebase.json
 
-Schema: {relevant_files, patterns, key_findings, questions_for_user, _metadata}
+Schema: {relevant_files, patterns, key_findings, code_anchors: [{file, lines, snippet, significance}], call_chains: [{entry, chain, files}], questions_for_user, _metadata}
 `
 })
 ```
@@ -256,7 +272,7 @@ Schema: {relevant_files, patterns, key_findings, questions_for_user, _metadata}
 ```javascript
 // Launch parallel explorations for each selected perspective
 selectedPerspectives.forEach(perspective => {
-  Task({
+  Agent({
     subagent_type: "cli-explore-agent",
     run_in_background: false,  // Sequential execution, wait for each
     description: `Explore ${perspective.name}: ${topicSlug}`,
@@ -268,8 +284,21 @@ Session: ${sessionFolder}
 
 ## MANDATORY FIRST STEPS
 1. Run: ccw tool exec get_modules_by_depth '{}'
-2. Execute searches focused on ${perspective.focus}
-3. Read: .workflow/project-tech.json (if exists)
+2. Read: .workflow/project-tech.json (if exists)
+
+## Layered Exploration (${perspective.name} angle, MUST follow all 3 layers)
+
+### Layer 1 — Module Discovery
+- Search codebase focused on ${perspective.focus}
+- Identify ALL relevant files for this perspective
+
+### Layer 2 — Structure Tracing
+- For top 3-5 key files: trace call chains (2-3 levels deep)
+- Map data flows relevant to ${perspective.focus}
+
+### Layer 3 — Code Anchor Extraction
+- For each key finding: extract actual code snippet (20-50 lines) with file:line
+- Annotate significance for ${perspective.name} analysis
 
 ## Exploration Focus (${perspective.name} angle)
 ${perspective.exploration_tasks.map(t => `- ${t}`).join('\n')}
@@ -277,7 +306,7 @@ ${perspective.exploration_tasks.map(t => `- ${t}`).join('\n')}
 ## Output
 Write findings to: ${sessionFolder}/explorations/${perspective.name}.json
 
-Schema: {relevant_files, patterns, key_findings, perspective_insights, _metadata}
+Schema: {relevant_files, patterns, key_findings, code_anchors: [{file, lines, snippet, significance}], call_chains: [{entry, chain, files}], perspective_insights, _metadata}
 `
   })
 })
@@ -301,11 +330,14 @@ PRIOR EXPLORATION CONTEXT:
 - Key files: ${explorationResults.relevant_files.slice(0,5).map(f => f.path).join(', ')}
 - Patterns found: ${explorationResults.patterns.slice(0,3).join(', ')}
 - Key findings: ${explorationResults.key_findings.slice(0,3).join(', ')}
+- Code anchors (actual code snippets):
+${(explorationResults.code_anchors || []).slice(0,5).map(a => `  [${a.file}:${a.lines}] ${a.significance}\n  \`\`\`\n  ${a.snippet}\n  \`\`\``).join('\n')}
+- Call chains: ${(explorationResults.call_chains || []).slice(0,3).map(c => `${c.entry} → ${c.chain.join(' → ')}`).join('; ')}
 
 TASK:
-• Build on exploration findings above
-• Analyze common patterns and anti-patterns
-• Highlight potential issues or opportunities
+• Build on exploration findings above — reference specific code anchors in analysis
+• Analyze common patterns and anti-patterns with code evidence
+• Highlight potential issues or opportunities with file:line references
 • Generate discussion points for user clarification
 
 MODE: analysis
@@ -324,7 +356,10 @@ const explorationContext = `
 PRIOR EXPLORATION CONTEXT:
 - Key files: ${explorationResults.relevant_files.slice(0,5).map(f => f.path).join(', ')}
 - Patterns found: ${explorationResults.patterns.slice(0,3).join(', ')}
-- Key findings: ${explorationResults.key_findings.slice(0,3).join(', ')}`
+- Key findings: ${explorationResults.key_findings.slice(0,3).join(', ')}
+- Code anchors:
+${(explorationResults.code_anchors || []).slice(0,5).map(a => `  [${a.file}:${a.lines}] ${a.significance}`).join('\n')}
+- Call chains: ${(explorationResults.call_chains || []).slice(0,3).map(c => `${c.entry} → ${c.chain.join(' → ')}`).join('; ')}`
 
 // Launch parallel CLI calls based on selected perspectives (max 4)
 selectedPerspectives.forEach(perspective => {
@@ -368,6 +403,8 @@ CONSTRAINTS: ${perspective.constraints}
 - `dimensions[]`: Analysis dimensions
 - `sources[]`: {type, file/summary}
 - `key_findings[]`: Main insights
+- `code_anchors[]`: {file, lines, snippet, significance}
+- `call_chains[]`: {entry, chain, files}
 - `discussion_points[]`: Questions for user
 - `open_questions[]`: Unresolved questions
 
@@ -378,7 +415,9 @@ CONSTRAINTS: ${perspective.constraints}
 - `dimensions[]`: Analysis dimensions
 - `perspectives[]`: [{name, tool, findings, insights, questions}]
 - `synthesis`: {convergent_themes, conflicting_views, unique_contributions}
-- `aggregated_findings[]`: Main insights across perspectives
+- `key_findings[]`: Main insights across perspectives
+- `code_anchors[]`: {file, lines, snippet, significance, perspective}
+- `call_chains[]`: {entry, chain, files, perspective}
 - `discussion_points[]`: Questions for user
 - `open_questions[]`: Unresolved questions
 
@@ -399,7 +438,7 @@ CONSTRAINTS: ${perspective.constraints}
 - explorations.json contains initial findings
 - discussion.md has Round 1 results
 
-**Guideline**: For complex tasks (code analysis, implementation, refactoring), delegate to agents via Task tool (cli-explore-agent, code-developer, universal-executor) or CLI calls (ccw cli). Avoid direct analysis/execution in main process.
+**Guideline**: For complex tasks (code analysis, implementation, refactoring), delegate to agents via Agent tool (cli-explore-agent, code-developer, universal-executor) or CLI calls (ccw cli). Avoid direct analysis/execution in main process.
 
 **Workflow Steps**:
 
@@ -423,9 +462,14 @@ CONSTRAINTS: ${perspective.constraints}
    - If direction changed, record a full Decision Record
 
    **Agree, Deepen**:
-   - Continue analysis in current direction
-   - Use CLI for deeper exploration
-   - **📌 Record**: Which assumptions were confirmed, specific angles for deeper exploration
+   - AskUserQuestion for deepen direction (single-select):
+     - **代码细节**: Read specific files, trace call chains deeper → cli-explore-agent with targeted file list
+     - **边界条件**: Analyze error handling, edge cases, failure paths → Gemini CLI focused on error paths
+     - **替代方案**: Compare different implementation approaches → Gemini CLI comparative analysis
+     - **性能/安全**: Analyze hot paths, complexity, or security vectors → cli-explore-agent + domain prompt
+   - Launch new cli-explore-agent or CLI call with **narrower scope + deeper depth requirement**
+   - Merge new code_anchors and call_chains into existing exploration results
+   - **📌 Record**: Which assumptions were confirmed, specific angles for deeper exploration, deepen direction chosen
 
    **Adjust Direction**:
    - AskUserQuestion for adjusted focus (code details / architecture / best practices)
@@ -451,14 +495,30 @@ CONSTRAINTS: ${perspective.constraints}
      - Corrected assumptions
      - New insights
 
-5. **Repeat or Converge**
+5. **📌 Intent Drift Check** (every round ≥ 2)
+   - Re-read "User Intent" from discussion.md header
+   - For each original intent item, check: addressed / in-progress / not yet discussed / implicitly absorbed
+   - If any item is "implicitly absorbed" (addressed by a different solution than originally envisioned), explicitly note this in discussion.md:
+     ```markdown
+     #### Intent Coverage Check
+     - ✅ Intent 1: [addressed in Round N]
+     - 🔄 Intent 2: [in-progress, current focus]
+     - ⚠️ Intent 3: [implicitly absorbed by X — needs explicit confirmation]
+     - ❌ Intent 4: [not yet discussed]
+     ```
+   - If any item is ❌ or ⚠️ after 3+ rounds, surface it to the user in the next round's presentation
+
+6. **Repeat or Converge**
    - Continue loop (max 5 rounds) or exit to Phase 4
 
 **Discussion Actions**:
 
 | User Choice | Action | Tool | Description |
 |-------------|--------|------|-------------|
-| Deepen | Continue current direction | Gemini CLI | Deeper analysis in same focus |
+| Deepen → 代码细节 | Read files, trace call chains | cli-explore-agent | Targeted deep-dive into specific files |
+| Deepen → 边界条件 | Analyze error/edge cases | Gemini CLI | Focus on failure paths and edge cases |
+| Deepen → 替代方案 | Compare approaches | Gemini CLI | Comparative analysis |
+| Deepen → 性能/安全 | Analyze hot paths/vectors | cli-explore-agent | Domain-specific deep analysis |
 | Adjust | Change analysis angle | Selected CLI | New exploration with adjusted scope |
 | Questions | Answer specific questions | CLI or analysis | Address user inquiries |
 | Complete | Exit discussion loop | - | Proceed to synthesis |
@@ -482,7 +542,28 @@ CONSTRAINTS: ${perspective.constraints}
 
 **Workflow Steps**:
 
-1. **Consolidate Insights**
+1. **📌 Intent Coverage Verification** (MANDATORY before synthesis)
+   - Re-read all original "User Intent" items from discussion.md header
+   - For EACH intent item, determine coverage status:
+     - **✅ Addressed**: Explicitly discussed and concluded with clear design/recommendation
+     - **🔀 Transformed**: Original intent evolved into a different solution — document the transformation chain
+     - **⚠️ Absorbed**: Implicitly covered by a broader solution — flag for explicit confirmation
+     - **❌ Missed**: Not discussed — MUST be either addressed now or explicitly listed as out-of-scope with reason
+   - Write "Intent Coverage Matrix" to discussion.md:
+     ```markdown
+     ### Intent Coverage Matrix
+     | # | Original Intent | Status | Where Addressed | Notes |
+     |---|----------------|--------|-----------------|-------|
+     | 1 | [intent text] | ✅ Addressed | Round N, Conclusion #M | |
+     | 2 | [intent text] | 🔀 Transformed | Round N → Round M | Original: X → Final: Y |
+     | 3 | [intent text] | ❌ Missed | — | Reason for omission |
+     ```
+   - **Gate**: If any item is ❌ Missed, MUST either:
+     - (a) Add a dedicated discussion round to address it before continuing, OR
+     - (b) Explicitly confirm with user that it is intentionally deferred
+   - Add `intent_coverage[]` to conclusions.json
+
+2. **Consolidate Insights**
    - Extract all findings from discussion timeline
    - **📌 Compile Decision Trail**: Aggregate all Decision Records from Phases 1-3 into a consolidated decision log
    - **Key conclusions**: Main points with evidence and confidence levels (high/medium/low)
@@ -492,7 +573,7 @@ CONSTRAINTS: ${perspective.constraints}
    - **📌 Decision summary**: How key decisions shaped the final conclusions (link conclusions back to decisions)
    - Write to conclusions.json
 
-2. **Final discussion.md Update**
+3. **Final discussion.md Update**
    - Append conclusions section:
      - **Summary**: High-level overview
      - **Key Conclusions**: Ranked with evidence and confidence
@@ -508,11 +589,86 @@ CONSTRAINTS: ${perspective.constraints}
      - **Trade-offs Made**: Key trade-offs and why certain paths were chosen over others
    - Add session statistics: rounds, duration, sources, artifacts, **decision count**
 
-3. **Post-Completion Options** (AskUserQuestion)
-   - **创建Issue**: Launch issue-discover with conclusions
-   - **生成任务**: Launch workflow-lite-plan for implementation
-   - **导出报告**: Generate standalone analysis report
-   - **完成**: No further action
+4. **Display Conclusions Summary**
+   - Present analysis conclusions to the user before asking for next steps:
+   ```javascript
+   console.log(`
+## Analysis Report
+
+**Summary**: ${conclusions.summary}
+
+**Key Conclusions** (${conclusions.key_conclusions.length}):
+${conclusions.key_conclusions.map((c, i) => `${i+1}. [${c.confidence}] ${c.point}`).join('\n')}
+
+**Recommendations** (${conclusions.recommendations.length}):
+${conclusions.recommendations.map((r, i) => `${i+1}. [${r.priority}] ${r.action} — ${r.rationale}`).join('\n')}
+${conclusions.open_questions.length > 0 ? `\n**Open Questions**:\n${conclusions.open_questions.map(q => '- ' + q).join('\n')}` : ''}
+
+📄 Full report: ${sessionFolder}/discussion.md
+`)
+   ```
+
+5. **Post-Completion Options** (⚠️ TERMINAL — analyze-with-file ends after user selection)
+
+   > **WORKFLOW BOUNDARY**: After user selects any option below, the analyze-with-file workflow is **COMPLETE**.
+   > If "执行任务" is selected, workflow-lite-planex takes over exclusively — do NOT return to any analyze-with-file phase.
+   > The "Phase" numbers in workflow-lite-planex (LP-Phase 1-5) are SEPARATE from analyze-with-file phases.
+
+   ```javascript
+   const hasActionableRecs = conclusions.recommendations?.some(r => r.priority === 'high' || r.priority === 'medium')
+
+   const nextStep = AskUserQuestion({
+     questions: [{
+       question: "Report generated. What would you like to do next?",
+       header: "Next Step",
+       multiSelect: false,
+       options: [
+         { label: hasActionableRecs ? "执行任务 (Recommended)" : "执行任务", description: "Launch workflow-lite-planex to plan & execute" },
+         { label: "产出Issue", description: "Launch issue-discover with conclusions" },
+         { label: "完成", description: "No further action" }
+       ]
+     }]
+   })
+   ```
+
+   **Handle "执行任务"** (⚠️ TERMINAL — analyze-with-file ends here, lite-plan takes over exclusively):
+   ```javascript
+   if (nextStep.includes("执行任务")) {
+     // 1. Build task description from high/medium priority recommendations
+     const taskDescription = conclusions.recommendations
+       .filter(r => r.priority === 'high' || r.priority === 'medium')
+       .map(r => r.action)
+       .join('\n') || conclusions.summary
+
+     // 2. Assemble compact analysis context as inline memory block
+     const contextLines = [
+       `## Prior Analysis (${sessionId})`,
+       `**Summary**: ${conclusions.summary}`
+     ]
+     const codebasePath = `${sessionFolder}/exploration-codebase.json`
+     if (file_exists(codebasePath)) {
+       const data = JSON.parse(Read(codebasePath))
+       const files = (data.relevant_files || []).slice(0, 8).map(f => f.path || f.file || f).filter(Boolean)
+       const findings = (data.key_findings || []).slice(0, 5)
+       if (files.length) contextLines.push(`**Key Files**: ${files.join(', ')}`)
+       if (findings.length) contextLines.push(`**Key Findings**:\n${findings.map(f => `- ${f}`).join('\n')}`)
+     }
+
+     // 3. ⛔ SESSION TERMINATION — output explicit boundary
+     console.log(`
+---
+## ⛔ ANALYZE-WITH-FILE SESSION COMPLETE
+All Phase 1-4 of analyze-with-file are FINISHED.
+Session: ${sessionId} — concluded at ${new Date().toISOString()}
+DO NOT reference any analyze-with-file phase instructions beyond this point.
+---
+`)
+
+     // 4. Hand off to lite-plan — analyze-with-file COMPLETE, do NOT return to any analyze phase
+     Skill(skill="workflow-lite-planex", args=`"${taskDescription}\n\n${contextLines.join('\n')}"`)
+     return  // ⛔ analyze-with-file terminates here
+   }
+   ```
 
 **conclusions.json Schema**:
 - `session_id`: Session identifier
@@ -520,15 +676,18 @@ CONSTRAINTS: ${perspective.constraints}
 - `completed`: Completion timestamp
 - `total_rounds`: Number of discussion rounds
 - `summary`: Executive summary
-- `key_conclusions[]`: {point, evidence, confidence}
+- `key_conclusions[]`: {point, evidence, confidence, code_anchor_refs[]}
+- `code_anchors[]`: {file, lines, snippet, significance}
 - `recommendations[]`: {action, rationale, priority}
 - `open_questions[]`: Unresolved questions
 - `follow_up_suggestions[]`: {type, summary}
 - `decision_trail[]`: {round, decision, context, options_considered, chosen, reason, impact}
+- `intent_coverage[]`: {intent, status, where_addressed, notes}
 
 **Success Criteria**:
 - conclusions.json created with final synthesis
 - discussion.md finalized with conclusions and decision trail
+- **📌 Intent Coverage Matrix** verified — all original intents accounted for (no ❌ Missed without explicit user deferral)
 - User offered next step options
 - Session complete
 - **📌 Complete decision trail** documented and traceable from initial scoping to final conclusions
@@ -628,7 +787,7 @@ In round 1 we discussed X, then in round 2 user said Y...
 ## Best Practices
 
 1. **Clear Topic Definition**: Detailed topics lead to better dimension identification
-2. **Agent-First for Complex Tasks**: For code analysis, implementation, or refactoring tasks during discussion, delegate to agents via Task tool (cli-explore-agent, code-developer, universal-executor) or CLI calls (ccw cli). Avoid direct analysis/execution in main process
+2. **Agent-First for Complex Tasks**: For code analysis, implementation, or refactoring tasks during discussion, delegate to agents via Agent tool (cli-explore-agent, code-developer, universal-executor) or CLI calls (ccw cli). Avoid direct analysis/execution in main process
 3. **Review discussion.md**: Check understanding evolution before conclusions
 4. **Embrace Corrections**: Track wrong-to-right transformations as learnings
 5. **Document Evolution**: discussion.md captures full thinking process
@@ -686,10 +845,12 @@ User agrees with current direction, wants deeper code analysis
 - Quick information gathering without multi-round iteration
 - Follow-up analysis building on existing session
 
-**Use `Skill(skill="workflow-lite-plan", args="\"task description\"")` when:**
+**Use `Skill(skill="workflow-lite-planex", args="\"task description\"")` when:**
 - Ready to implement (past analysis phase)
 - Need simple task breakdown
 - Focus on quick execution planning
+
+> **Note**: Phase 4「执行任务」assembles analysis context as inline `## Prior Analysis` block in task description, allowing lite-plan to skip redundant exploration automatically.
 
 ---
 

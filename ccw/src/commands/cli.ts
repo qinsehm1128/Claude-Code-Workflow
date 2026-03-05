@@ -51,9 +51,11 @@ function notifyDashboard(data: Record<string, unknown>): void {
     path: '/api/hook',
     method: 'POST',
     timeout: 2000, // 2 second timeout to prevent hanging
+    agent: false, // Disable Keep-Alive to allow process exit
     headers: {
       'Content-Type': 'application/json',
-      'Content-Length': Buffer.byteLength(payload)
+      'Content-Length': Buffer.byteLength(payload),
+      'Connection': 'close' // Ensure connection closes after response
     }
   });
 
@@ -93,9 +95,11 @@ function broadcastStreamEvent(eventType: string, payload: Record<string, unknown
     path: '/api/hook',
     method: 'POST',
     timeout: 1000, // Short timeout for streaming
+    agent: false, // Disable Keep-Alive to allow process exit
     headers: {
       'Content-Type': 'application/json',
-      'Content-Length': Buffer.byteLength(data)
+      'Content-Length': Buffer.byteLength(data),
+      'Connection': 'close' // Ensure connection closes after response
     }
   });
 

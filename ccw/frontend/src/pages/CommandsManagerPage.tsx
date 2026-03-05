@@ -18,6 +18,7 @@ import {
   AlertCircle,
   Maximize2,
   Minimize2,
+  Plus,
 } from 'lucide-react';
 import { useAppStore, selectIsImmersiveMode } from '@/stores/appStore';
 import { Card } from '@/components/ui/Card';
@@ -27,6 +28,7 @@ import { Badge } from '@/components/ui/Badge';
 import { TabsNavigation } from '@/components/ui/TabsNavigation';
 import { useCommands, useCommandMutations } from '@/hooks';
 import { CommandGroupAccordion } from '@/components/commands/CommandGroupAccordion';
+import { CommandCreateDialog } from '@/components/shared/CommandCreateDialog';
 import { cn } from '@/lib/utils';
 
 // ========== Main Page Component ==========
@@ -42,6 +44,8 @@ export function CommandsManagerPage() {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['cli', 'workflow']));
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
+  // Create dialog state
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
 
   // Immersive mode state
   const isImmersiveMode = useAppStore(selectIsImmersiveMode);
@@ -117,6 +121,10 @@ export function CommandsManagerPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <Button onClick={() => setIsCreateDialogOpen(true)} disabled={isToggling}>
+              <Plus className="w-4 h-4 mr-2" />
+              {formatMessage({ id: 'commands.actions.create' })}
+            </Button>
             <button
               onClick={toggleImmersiveMode}
               className={cn(
@@ -279,6 +287,16 @@ export function CommandsManagerPage() {
           })}
         </div>
       )}
+
+      {/* Command Create Dialog */}
+      <CommandCreateDialog
+        open={isCreateDialogOpen}
+        onOpenChange={setIsCreateDialogOpen}
+        onCreated={() => {
+          setIsCreateDialogOpen(false);
+          refetch();
+        }}
+      />
     </div>
   );
 }

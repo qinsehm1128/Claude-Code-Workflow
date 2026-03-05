@@ -205,7 +205,7 @@ export async function aggregateData(sessions: ScanSessionsResult, workflowDir: s
     join(workflowDir, 'active'),
     join(workflowDir, 'archives'),
     join(workflowDir, 'project-tech.json'),
-    join(workflowDir, 'project-guidelines.json'),
+    join(workflowDir, 'specs'),
     ...sessions.active.map(s => s.path),
     ...sessions.archived.map(s => s.path)
   ];
@@ -564,14 +564,12 @@ function sortTaskIds(a: string, b: string): number {
 }
 
 /**
- * Load project overview from project-tech.json and project-guidelines.json
+ * Load project overview from project-tech.json
  * @param workflowDir - Path to .workflow directory
  * @returns Project overview data or null if not found
  */
 export function loadProjectOverview(workflowDir: string): ProjectOverview | null {
   const techFile = join(workflowDir, 'project-tech.json');
-  const guidelinesFile = join(workflowDir, 'project-guidelines.json');
-
   if (!existsSync(techFile)) {
     console.log(`Project file not found at: ${techFile}`);
     return null;
@@ -607,44 +605,9 @@ export function loadProjectOverview(workflowDir: string): ProjectOverview | null
       });
     };
 
-    // Load guidelines from separate file if exists
-    let guidelines: ProjectGuidelines | null = null;
-    if (existsSync(guidelinesFile)) {
-      try {
-        const guidelinesContent = readFileSync(guidelinesFile, 'utf8');
-        const guidelinesData = JSON.parse(guidelinesContent) as Record<string, unknown>;
-
-        const conventions = guidelinesData.conventions as Record<string, string[]> | undefined;
-        const constraints = guidelinesData.constraints as Record<string, string[]> | undefined;
-
-        guidelines = {
-          conventions: {
-            coding_style: conventions?.coding_style || [],
-            naming_patterns: conventions?.naming_patterns || [],
-            file_structure: conventions?.file_structure || [],
-            documentation: conventions?.documentation || []
-          },
-          constraints: {
-            architecture: constraints?.architecture || [],
-            tech_stack: constraints?.tech_stack || [],
-            performance: constraints?.performance || [],
-            security: constraints?.security || []
-          },
-          quality_rules: (guidelinesData.quality_rules as Array<{ rule: string; scope: string; enforced_by?: string }>) || [],
-          learnings: (guidelinesData.learnings as Array<{
-            date: string;
-            session_id?: string;
-            insight: string;
-            context?: string;
-            category?: string;
-          }>) || [],
-          _metadata: guidelinesData._metadata as ProjectGuidelines['_metadata'] | undefined
-        };
-        console.log(`Successfully loaded project guidelines`);
-      } catch (guidelinesErr) {
-        console.error(`Failed to parse project-guidelines.json:`, (guidelinesErr as Error).message);
-      }
-    }
+    // Guidelines now managed by spec system (ccw spec load)
+    // Return null - dashboard doesn't need guidelines data directly
+    const guidelines: ProjectGuidelines | null = null;
 
     return {
       projectName: (projectData.project_name as string) || 'Unknown',

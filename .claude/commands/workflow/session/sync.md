@@ -1,13 +1,13 @@
 ---
 name: sync
-description: Quick-sync session work to project-guidelines and project-tech
+description: Quick-sync session work to specs/*.md and project-tech
 argument-hint: "[-y|--yes] [\"what was done\"]"
 allowed-tools: Bash(*), Read(*), Write(*), Edit(*)
 ---
 
 # Session Sync (/workflow:session:sync)
 
-One-shot update `project-guidelines.json` + `project-tech.json` from current session context.
+One-shot update `specs/*.md` + `project-tech.json` from current session context.
 
 **Design**: Scan context → extract → write. No interactive wizards.
 
@@ -73,7 +73,8 @@ Analyze context and produce two update payloads. Use LLM reasoning (current agen
 // RULE: Only extract genuinely reusable insights. Skip trivial/obvious items.
 // RULE: Deduplicate against existing guidelines before adding.
 
-const existingGuidelines = JSON.parse(Read('.workflow/project-guidelines.json'))
+// Load existing specs via ccw spec load
+const existingSpecs = Bash('ccw spec load --dimension specs 2>/dev/null || echo ""')
 const guidelineUpdates = [] // populated by agent analysis
 
 // ── Tech extraction ──
@@ -123,7 +124,7 @@ Tech [${detectCategory(summary)}]:
   ${techEntry.title}
 
 Target files:
-  .workflow/project-guidelines.json
+  .ccw/specs/*.md
   .workflow/project-tech.json
 `)
 
@@ -136,33 +137,32 @@ if (!autoYes) {
 ## Step 4: Write
 
 ```javascript
-// ── Update project-guidelines.json ──
+// ── Update specs/*.md ──
+// Uses .ccw/specs/ directory (same as frontend/backend spec-index-builder)
 if (guidelineUpdates.length > 0) {
-  const guidelines = JSON.parse(Read('.workflow/project-guidelines.json'))
+  // Map guideline types to spec files
+  const specFileMap = {
+    convention: '.ccw/specs/coding-conventions.md',
+    constraint: '.ccw/specs/architecture-constraints.md',
+    learning: '.ccw/specs/coding-conventions.md' // learnings appended to conventions
+  }
 
   for (const g of guidelineUpdates) {
-    if (g.type === 'learning') {
-      // Deduplicate by insight text
-      if (!guidelines.learnings.some(l => l.insight === g.text)) {
-        guidelines.learnings.push({
-          date: new Date().toISOString().split('T')[0],
-          session_id: techEntry.session_id,
-          insight: g.text,
-          category: g.category
-        })
-      }
-    } else {
-      // convention or constraint
-      const section = g.type === 'convention' ? 'conventions' : 'constraints'
-      if (!guidelines[section][g.category]) guidelines[section][g.category] = []
-      if (!guidelines[section][g.category].includes(g.text)) {
-        guidelines[section][g.category].push(g.text)
-      }
+    const targetFile = specFileMap[g.type]
+    const existing = Read(targetFile)
+    const ruleText = g.type === 'learning'
+      ? `- [${g.category}] ${g.text} (learned: ${new Date().toISOString().split('T')[0]})`
+      : `- [${g.category}] ${g.text}`
+
+    // Deduplicate: skip if text already in file
+    if (!existing.includes(g.text)) {
+      const newContent = existing.trimEnd() + '\n' + ruleText + '\n'
+      Write(targetFile, newContent)
     }
   }
 
-  guidelines._metadata.updated_at = new Date().toISOString()
-  Write('.workflow/project-guidelines.json', JSON.stringify(guidelines, null, 2))
+  // Rebuild spec index after writing
+  Bash('ccw spec rebuild')
 }
 
 // ── Update project-tech.json ──
@@ -194,3 +194,9 @@ Write(techPath, JSON.stringify(tech, null, 2))
 | No git history | Use user summary or session context only |
 | No meaningful updates | Skip guidelines, still add tech entry |
 | Duplicate entry | Skip silently (dedup check in Step 4) |
+
+## Related Commands
+
+- `/workflow:init` - Initialize project with specs scaffold
+- `/workflow:init-specs` - Interactive wizard to create individual specs with scope selection
+- `/workflow:session:solidify` - Add individual rules one at a time

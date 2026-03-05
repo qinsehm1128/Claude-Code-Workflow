@@ -12,6 +12,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs';
 import { Badge } from '@/components/ui/Badge';
 import { Progress } from '@/components/ui/Progress';
 import { IssueDrawer } from '@/components/issue/hub/IssueDrawer';
+import { FindingDrawer } from './FindingDrawer';
 import type { DiscoverySession, Finding } from '@/lib/api';
 import type { Issue } from '@/lib/api';
 import type { FindingFilters } from '@/hooks/useIssues';
@@ -43,6 +44,7 @@ export function DiscoveryDetail({
   const { formatMessage } = useIntl();
   const [activeTab, setActiveTab] = useState('findings');
   const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
+  const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const handleFindingClick = (finding: Finding) => {
@@ -51,12 +53,19 @@ export function DiscoveryDetail({
       const relatedIssue = issues.find(i => i.id === finding.issue_id);
       if (relatedIssue) {
         setSelectedIssue(relatedIssue);
+        return;
       }
     }
+    // Otherwise, show the finding details in FindingDrawer
+    setSelectedFinding(finding);
   };
 
-  const handleCloseDrawer = () => {
+  const handleCloseIssueDrawer = () => {
     setSelectedIssue(null);
+  };
+
+  const handleCloseFindingDrawer = () => {
+    setSelectedFinding(null);
   };
 
   const handleExportSelected = async () => {
@@ -130,7 +139,7 @@ export function DiscoveryDetail({
         <Badge
           variant={session.status === 'completed' ? 'success' : session.status === 'failed' ? 'destructive' : 'warning'}
         >
-          {formatMessage({ id: `issues.discovery.status.${session.status}` })}
+          {formatMessage({ id: `issues.discovery.session.status.${session.status}` })}
         </Badge>
         <span className="text-sm text-muted-foreground">
           {formatMessage({ id: 'issues.discovery.createdAt' })}: {formatDate(session.created_at)}
@@ -192,7 +201,7 @@ export function DiscoveryDetail({
                   <Badge
                     variant={severity === 'critical' || severity === 'high' ? 'destructive' : severity === 'medium' ? 'warning' : 'secondary'}
                   >
-                    {formatMessage({ id: `issues.discovery.severity.${severity}` })}
+                    {formatMessage({ id: `issues.discovery.findings.severity.${severity}` })}
                   </Badge>
                   <span className="font-medium">{count}</span>
                 </div>
@@ -240,7 +249,7 @@ export function DiscoveryDetail({
               <Badge
                 variant={session.status === 'completed' ? 'success' : session.status === 'failed' ? 'destructive' : 'warning'}
               >
-                {formatMessage({ id: `issues.discovery.status.${session.status}` })}
+                {formatMessage({ id: `issues.discovery.session.status.${session.status}` })}
               </Badge>
             </div>
             <div>
@@ -277,7 +286,14 @@ export function DiscoveryDetail({
       <IssueDrawer
         issue={selectedIssue}
         isOpen={selectedIssue !== null}
-        onClose={handleCloseDrawer}
+        onClose={handleCloseIssueDrawer}
+      />
+
+      {/* Finding Detail Drawer */}
+      <FindingDrawer
+        finding={selectedFinding}
+        isOpen={selectedFinding !== null}
+        onClose={handleCloseFindingDrawer}
       />
     </div>
   );

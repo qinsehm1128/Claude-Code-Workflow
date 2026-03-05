@@ -55,6 +55,15 @@ interface ToolCallPanelProps {
 // ========== Helpers ==========
 
 /**
+ * Ensure content is a string (handle legacy object data like {text: "..."})
+ */
+function ensureString(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value && typeof value === 'object') return JSON.stringify(value);
+  return String(value ?? '');
+}
+
+/**
  * Format token number with compact notation
  */
 function formatTokenCount(count: number | undefined): string {
@@ -319,7 +328,7 @@ function TurnNode({ turn, isLatest, isLast }: TurnNodeProps) {
           {turn.content && (
             <div className="p-4">
               <pre className="text-sm whitespace-pre-wrap overflow-x-auto font-mono leading-relaxed max-h-64 overflow-y-auto">
-                {turn.content}
+                {ensureString(turn.content)}
               </pre>
             </div>
           )}

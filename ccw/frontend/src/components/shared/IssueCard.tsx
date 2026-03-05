@@ -16,6 +16,7 @@ import {
   CheckCircle,
   Clock,
   XCircle,
+  Loader2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Card } from '@/components/ui/Card';
@@ -61,20 +62,26 @@ const priorityLabelKeys: Record<Issue['priority'], string> = {
 
 // Status icon and color configuration (without labels for i18n)
 const statusVariantConfig: Record<Issue['status'], { icon: React.ElementType; color: string }> = {
-  open: { icon: AlertCircle, color: 'info' },
-  in_progress: { icon: Clock, color: 'warning' },
-  resolved: { icon: CheckCircle, color: 'success' },
-  closed: { icon: XCircle, color: 'muted' },
+  registered: { icon: AlertCircle, color: 'info' },
+  planning: { icon: Clock, color: 'warning' },
+  planned: { icon: Clock, color: 'warning' },
+  queued: { icon: Clock, color: 'warning' },
+  executing: { icon: Loader2, color: 'warning' },
   completed: { icon: CheckCircle, color: 'success' },
+  failed: { icon: XCircle, color: 'destructive' },
+  paused: { icon: Clock, color: 'muted' },
 };
 
 // Status label keys for i18n
 const statusLabelKeys: Record<Issue['status'], string> = {
-  open: 'issues.status.open',
-  in_progress: 'issues.status.inProgress',
-  resolved: 'issues.status.resolved',
-  closed: 'issues.status.closed',
+  registered: 'issues.status.registered',
+  planning: 'issues.status.planning',
+  planned: 'issues.status.planned',
+  queued: 'issues.status.queued',
+  executing: 'issues.status.executing',
   completed: 'issues.status.completed',
+  failed: 'issues.status.failed',
+  paused: 'issues.status.paused',
 };
 
 // ========== Priority Badge ==========
@@ -228,11 +235,11 @@ export function IssueCard({
                 <Edit className="w-4 h-4 mr-2" />
                 {formatMessage({ id: 'issues.actions.edit' })}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onStatusChange?.(issue, 'in_progress')}>
+              <DropdownMenuItem onClick={() => onStatusChange?.(issue, 'executing')}>
                 <Clock className="w-4 h-4 mr-2" />
                 {formatMessage({ id: 'issues.actions.startProgress' })}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onStatusChange?.(issue, 'resolved')}>
+              <DropdownMenuItem onClick={() => onStatusChange?.(issue, 'completed')}>
                 <CheckCircle className="w-4 h-4 mr-2" />
                 {formatMessage({ id: 'issues.actions.markResolved' })}
               </DropdownMenuItem>

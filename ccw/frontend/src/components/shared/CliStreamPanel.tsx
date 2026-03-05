@@ -19,6 +19,7 @@ import {
 import { useCliExecutionDetail } from '@/hooks/useCliExecution';
 import { useNativeSession } from '@/hooks/useNativeSession';
 import type { ConversationRecord, ConversationTurn, NativeSessionTurn, NativeTokenInfo, NativeToolCall } from '@/lib/api';
+import { getToolVariant } from '@/lib/cli-tool-theme';
 
 type ViewMode = 'per-turn' | 'concatenated' | 'native';
 type ConcatFormat = 'plain' | 'yaml' | 'json';
@@ -69,16 +70,12 @@ function getStatusInfo(status: string) {
 }
 
 /**
- * Get badge variant for tool name
+ * Ensure prompt is a string (handle legacy object data)
  */
-function getToolVariant(tool: string): 'default' | 'secondary' | 'outline' | 'success' | 'warning' | 'info' {
-  const variants: Record<string, 'default' | 'secondary' | 'outline' | 'success' | 'warning' | 'info'> = {
-    gemini: 'info',
-    codex: 'success',
-    qwen: 'warning',
-    opencode: 'secondary',
-  };
-  return variants[tool] || 'secondary';
+function ensureString(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value && typeof value === 'object') return JSON.stringify(value);
+  return String(value ?? '');
 }
 
 /**
@@ -95,7 +92,7 @@ function buildConcatenatedPrompt(execution: ConversationRecord, format: ConcatFo
     for (const turn of turns) {
       parts.push(`--- Turn ${turn.turn} ---`);
       parts.push('USER:');
-      parts.push(turn.prompt);
+      parts.push(ensureString(turn.prompt));
       parts.push('');
       parts.push('ASSISTANT:');
       parts.push(turn.output.stdout || formatMessage({ id: 'cli-manager.streamPanel.noOutput' }));
@@ -118,7 +115,7 @@ function buildConcatenatedPrompt(execution: ConversationRecord, format: ConcatFo
       yaml.push(`    - turn: ${turn.turn}`);
       yaml.push(`      timestamp: ${turn.timestamp}`);
       yaml.push(`      prompt: |`);
-      turn.prompt.split('\n').forEach(line => {
+      ensureString(turn.prompt).split('\n').forEach(line => {
         yaml.push(`        ${line}`);
       });
       yaml.push(`      response: |`);
@@ -140,7 +137,7 @@ function buildConcatenatedPrompt(execution: ConversationRecord, format: ConcatFo
     turns.map((t) => ({
       turn: t.turn,
       timestamp: t.timestamp,
-      prompt: t.prompt,
+      prompt: ensureString(t.prompt),
       response: t.output.stdout || '',
     })),
     null,
@@ -212,7 +209,7 @@ function TurnSection({ turn, isLatest, isExpanded, onToggle }: TurnSectionProps)
               {formatMessage({ id: 'cli-manager.streamPanel.userPrompt' })}
             </h4>
             <pre className="p-3 bg-muted/50 rounded-lg text-sm whitespace-pre-wrap overflow-x-auto font-mono leading-relaxed">
-              {turn.prompt}
+              {ensureString(turn.prompt)}
             </pre>
           </div>
 
@@ -462,7 +459,7 @@ function NativeTurnCard({ turn, isLatest, isExpanded, onToggle }: NativeTurnCard
         <div className="p-4 space-y-3">
           {turn.content && (
             <pre className="p-3 bg-background/50 rounded-lg text-sm whitespace-pre-wrap overflow-x-auto font-mono leading-relaxed max-h-80 overflow-y-auto">
-              {turn.content}
+              {ensureString(turn.content)}
             </pre>
           )}
 

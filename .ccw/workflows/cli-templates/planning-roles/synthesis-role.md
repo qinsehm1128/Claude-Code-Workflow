@@ -301,7 +301,7 @@ Document known constraints that affect planning:
 
 [Continue for all major feature groups]
 
-**Note**: Detailed task breakdown into executable work items is handled by `/workflow:plan` → `IMPL_PLAN.md`
+**Note**: Detailed task breakdown into executable work items is handled by `/workflow-plan` → `IMPL_PLAN.md`
 
 ---
 

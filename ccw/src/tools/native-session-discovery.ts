@@ -4,7 +4,7 @@
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
-import { join, basename, resolve } from 'path';
+import { join, basename, dirname, resolve } from 'path';
 // basename is used for extracting session ID from filename
 import { createHash } from 'crypto';
 import { homedir } from 'os';
@@ -41,6 +41,48 @@ export function calculateProjectHash(projectDir: string): string {
  */
 function getHomePath(): string {
   return homedir().replace(/\\/g, '/');
+}
+
+/**
+ * Normalize a project root path for comparing against Gemini's `projects.json` keys
+ * and `.project_root` marker file contents.
+ *
+ * On Windows Gemini uses lowercased absolute paths with backslashes.
+ */
+function normalizeGeminiProjectRootPath(projectDir: string): string {
+  const absolutePath = resolve(projectDir);
+  if (process.platform !== 'win32') return absolutePath;
+  return absolutePath.replace(/\//g, '\\').toLowerCase();
+}
+
+let geminiProjectsCache:
+  | { configPath: string; mtimeMs: number; projects: Record<string, string> }
+  | null = null;
+
+/**
+ * Load Gemini project mapping from `~/.gemini/projects.json` (best-effort).
+ * Format: { "projects": { "<projectRoot>": "<projectName>" } }
+ */
+function getGeminiProjectsMap(): Record<string, string> | null {
+  const configPath = join(getHomePath(), '.gemini', 'projects.json');
+
+  try {
+    const stat = statSync(configPath);
+    if (geminiProjectsCache?.configPath === configPath && geminiProjectsCache.mtimeMs === stat.mtimeMs) {
+      return geminiProjectsCache.projects;
+    }
+
+    const raw = readFileSync(configPath, 'utf8');
+    const parsed = JSON.parse(raw) as { projects?: Record<string, string> };
+    if (!parsed.projects || typeof parsed.projects !== 'object') {
+      return null;
+    }
+
+    geminiProjectsCache = { configPath, mtimeMs: stat.mtimeMs, projects: parsed.projects };
+    return parsed.projects;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -177,11 +219,75 @@ abstract class SessionDiscoverer {
 
 /**
  * Gemini Session Discoverer
- * Path: ~/.gemini/tmp/<projectHash>/chats/session-*.json
+ * Legacy path: ~/.gemini/tmp/<projectHash>/chats/session-*.json
+ * Current path (Gemini CLI): ~/.gemini/tmp/<projectName>/chats/session-*.json
  */
 class GeminiSessionDiscoverer extends SessionDiscoverer {
   tool = 'gemini';
   basePath = join(getHomePath(), '.gemini', 'tmp');
+
+  private getProjectFoldersForWorkingDir(workingDir: string): string[] {
+    const folders = new Set<string>();
+
+    // Legacy: hashed folder
+    const projectHash = calculateProjectHash(workingDir);
+    if (existsSync(join(this.basePath, projectHash))) {
+      folders.add(projectHash);
+    }
+
+    // Current: project-name folder resolved via ~/.gemini/projects.json
+    let hasProjectNameFolder = false;
+    const projectsMap = getGeminiProjectsMap();
+    if (projectsMap) {
+      const normalized = normalizeGeminiProjectRootPath(workingDir);
+
+      // Prefer exact match first, then walk up parents (Gemini can map nested roots)
+      let cursor: string | null = normalized;
+      while (cursor) {
+        const mapped = projectsMap[cursor];
+        if (mapped) {
+          const mappedPath = join(this.basePath, mapped);
+          if (existsSync(mappedPath)) {
+            folders.add(mapped);
+            hasProjectNameFolder = true;
+          }
+          break;
+        }
+        const parent = dirname(cursor);
+        cursor = parent !== cursor ? parent : null;
+      }
+    }
+
+    // Fallback: scan for `.project_root` marker (best-effort; avoids missing mappings)
+    if (!hasProjectNameFolder) {
+      const normalized = normalizeGeminiProjectRootPath(workingDir);
+      try {
+        if (existsSync(this.basePath)) {
+          for (const dirName of readdirSync(this.basePath)) {
+            const fullPath = join(this.basePath, dirName);
+            try {
+              if (!statSync(fullPath).isDirectory()) continue;
+
+              const markerPath = join(fullPath, '.project_root');
+              if (!existsSync(markerPath)) continue;
+
+              const marker = readFileSync(markerPath, 'utf8').trim();
+              if (normalizeGeminiProjectRootPath(marker) === normalized) {
+                folders.add(dirName);
+                break;
+              }
+            } catch {
+              // Ignore invalid entries
+            }
+          }
+        }
+      } catch {
+        // Ignore scan failures
+      }
+    }
+
+    return Array.from(folders);
+  }
 
   getSessions(options: SessionDiscoveryOptions = {}): NativeSession[] {
     const { workingDir, limit, afterTimestamp } = options;
@@ -193,9 +299,7 @@ class GeminiSessionDiscoverer extends SessionDiscoverer {
       // If workingDir provided, only look in that project's folder
       let projectDirs: string[];
       if (workingDir) {
-        const projectHash = calculateProjectHash(workingDir);
-        const projectPath = join(this.basePath, projectHash);
-        projectDirs = existsSync(projectPath) ? [projectHash] : [];
+        projectDirs = this.getProjectFoldersForWorkingDir(workingDir);
       } else {
         projectDirs = readdirSync(this.basePath).filter(d => {
           const fullPath = join(this.basePath, d);
@@ -203,8 +307,8 @@ class GeminiSessionDiscoverer extends SessionDiscoverer {
         });
       }
 
-      for (const projectHash of projectDirs) {
-        const chatsDir = join(this.basePath, projectHash, 'chats');
+      for (const projectFolder of projectDirs) {
+        const chatsDir = join(this.basePath, projectFolder, 'chats');
         if (!existsSync(chatsDir)) continue;
 
         const sessionFiles = readdirSync(chatsDir)
@@ -217,7 +321,10 @@ class GeminiSessionDiscoverer extends SessionDiscoverer {
           .sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs);
 
         for (const file of sessionFiles) {
-          if (afterTimestamp && file.stat.mtime <= afterTimestamp) continue;
+          if (afterTimestamp && file.stat.mtime <= afterTimestamp) {
+            // sessionFiles are sorted descending by mtime, we can stop early
+            break;
+          }
 
           try {
             const content = JSON.parse(readFileSync(file.path, 'utf8'));
@@ -225,7 +332,7 @@ class GeminiSessionDiscoverer extends SessionDiscoverer {
               sessionId: content.sessionId,
               tool: this.tool,
               filePath: file.path,
-              projectHash,
+              projectHash: content.projectHash,
               createdAt: new Date(content.startTime || file.stat.birthtime),
               updatedAt: new Date(content.lastUpdated || file.stat.mtime)
             });
@@ -238,7 +345,14 @@ class GeminiSessionDiscoverer extends SessionDiscoverer {
       // Sort by updatedAt descending
       sessions.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
 
-      return limit ? sessions.slice(0, limit) : sessions;
+      const seen = new Set<string>();
+      const uniqueSessions = sessions.filter(s => {
+        if (seen.has(s.sessionId)) return false;
+        seen.add(s.sessionId);
+        return true;
+      });
+
+      return limit ? uniqueSessions.slice(0, limit) : uniqueSessions;
     } catch {
       return [];
     }
@@ -1082,4 +1196,31 @@ export function getNativeResumeArgs(
 export function getToolSessionPath(tool: string): string | null {
   const discoverer = discoverers[tool];
   return discoverer?.basePath || null;
+}
+
+/**
+ * List all native sessions from all supported CLI tools
+ * Aggregates sessions from Gemini, Qwen, Codex, Claude, and OpenCode
+ * @param options - Optional filtering (workingDir, limit, afterTimestamp)
+ * @returns Combined sessions sorted by updatedAt descending
+ */
+export function listAllNativeSessions(options?: SessionDiscoveryOptions): NativeSession[] {
+  const allSessions: NativeSession[] = [];
+
+  // Collect sessions from all discoverers
+  for (const tool of Object.keys(discoverers)) {
+    const discoverer = discoverers[tool];
+    const sessions = discoverer.getSessions(options);
+    allSessions.push(...sessions);
+  }
+
+  // Sort by updatedAt descending
+  allSessions.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+
+  // Apply limit if provided
+  if (options?.limit) {
+    return allSessions.slice(0, options.limit);
+  }
+
+  return allSessions;
 }

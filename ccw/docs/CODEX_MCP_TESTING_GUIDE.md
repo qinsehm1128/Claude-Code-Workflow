@@ -277,7 +277,7 @@ _____
 ### Toast 消息机制
 
 **实现位置**:
-- `ccw/src/templates/dashboard-js/components/navigation.js:286-301`
+- `ccw/frontend/src/hooks/useToast.ts` (React)
 - 显示时间：3500ms (3.5秒)
 - 淡出动画：300ms
 

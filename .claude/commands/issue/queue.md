@@ -2,7 +2,7 @@
 name: queue
 description: Form execution queue from bound solutions using issue-queue-agent (solution-level)
 argument-hint: "[-y|--yes] [--queues <n>] [--issue <id>]"
-allowed-tools: TodoWrite(*), Task(*), Bash(*), Read(*), Write(*)
+allowed-tools: TodoWrite(*), Agent(*), Bash(*), Read(*), Write(*)
 ---
 
 ## Auto Mode
@@ -247,7 +247,7 @@ if (numQueues === 1) {
       description=`Queue ${i + 1}/${numQueues}: ${group.length} solutions`
     )
   );
-  // All agents launched in parallel via single message with multiple Task tool calls
+  // All agents launched in parallel via single message with multiple Agent tool calls
 }
 ```
 
@@ -273,6 +273,17 @@ const allClarifications = results.flatMap((r, i) =>
 ```javascript
 if (allClarifications.length > 0) {
   for (const clarification of allClarifications) {
+    // Auto mode: use recommended resolution (first option)
+    if (autoYes) {
+      const autoAnswer = clarification.options[0]?.label || 'skip';
+      Task(
+        subagent_type="issue-queue-agent",
+        resume=clarification.agent_id,
+        prompt=`Conflict ${clarification.conflict_id} resolved: ${autoAnswer}`
+      );
+      continue;
+    }
+
     // Present to user via AskUserQuestion
     const answer = AskUserQuestion({
       questions: [{
@@ -345,6 +356,14 @@ ccw issue queue list --brief
 
 **AskUserQuestion:**
 ```javascript
+// Auto mode: merge into existing queue
+if (autoYes) {
+  Bash(`ccw issue queue merge ${newQueueId} --queue ${activeQueueId}`);
+  Bash(`ccw issue queue delete ${newQueueId}`);
+  console.log(`Auto-merged new queue into ${activeQueueId}`);
+  return;
+}
+
 AskUserQuestion({
   questions: [{
     question: "Active queue exists. How would you like to proceed?",

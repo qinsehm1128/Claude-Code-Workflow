@@ -69,6 +69,7 @@ const statusIcons: Record<string, React.ElementType> = {
   cancelled: XCircle,
   idle: Clock,
   initializing: Loader2,
+  ready: CheckCircle2,
 };
 
 // Status color mapping
@@ -83,6 +84,7 @@ const statusColors: Record<string, string> = {
   cancelled: 'bg-destructive/20 text-destructive border-destructive/30',
   idle: 'bg-muted text-muted-foreground border-border',
   initializing: 'bg-info/20 text-info border-info/30',
+  ready: 'bg-success/20 text-success border-success/30',
 };
 
 // Status to i18n key mapping
@@ -97,6 +99,7 @@ const statusI18nKeys: Record<string, string> = {
   cancelled: 'cancelled',
   idle: 'idle',
   initializing: 'initializing',
+  ready: 'ready',
 };
 
 // Lite task sub-type icons

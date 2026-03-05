@@ -109,5 +109,99 @@
     "vectorRank": "向量 #{rank}",
     "ftsRank": "全文 #{rank}",
     "heatScore": "热度: {score}"
+  },
+  "v2": {
+    "title": "Memory V2 Pipeline",
+    "extraction": {
+      "title": "提取",
+      "description": "从 CLI 会话中提取结构化记忆",
+      "trigger": "触发提取",
+      "extracting": "提取中...",
+      "extracted": "已提取",
+      "recentJobs": "最近作业",
+      "lastRun": "上次运行",
+      "triggered": "提取已触发",
+      "triggerError": "触发提取失败"
+    },
+    "consolidation": {
+      "title": "合并",
+      "description": "合并提取结果生成 MEMORY.md",
+      "trigger": "触发合并",
+      "consolidating": "合并中...",
+      "preview": "预览",
+      "memoryMd": "MEMORY.md",
+      "exists": "存在",
+      "notExists": "不存在",
+      "inputs": "输入",
+      "lastRun": "上次运行",
+      "triggered": "合并已触发",
+      "triggerError": "触发合并失败",
+      "copySuccess": "复制成功",
+      "noContent": "暂无内容"
+    },
+    "jobs": {
+      "title": "作业列表",
+      "kind": "类型",
+      "key": "Key",
+      "status": "状态",
+      "error": "错误",
+      "noJobs": "暂无作业记录",
+      "allKinds": "所有类型",
+      "extraction": "提取",
+      "consolidation": "合并",
+      "statusFilter": {
+        "all": "所有状态",
+        "pending": "等待",
+        "running": "运行中",
+        "done": "完成",
+        "error": "错误"
+      },
+      "detail": {
+        "title": "作业详情",
+        "kind": "类型",
+        "jobKey": "作业 ID",
+        "status": "状态",
+        "startedAt": "开始时间",
+        "finishedAt": "结束时间",
+        "workerId": "Worker ID",
+        "retryRemaining": "剩余重试次数",
+        "error": "错误信息",
+        "noError": "无错误"
+      }
+    },
+    "status": {
+      "idle": "空闲",
+      "running": "运行中",
+      "completed": "已完成",
+      "done": "完成",
+      "error": "错误",
+      "pending": "等待"
+    },
+    "statusBanner": {
+      "running": "Pipeline 运行中 - {count} 个作业正在执行",
+      "hasErrors": "Pipeline 空闲 - {count} 个作业失败"
+    },
+    "preview": {
+      "title": "提取队列预览",
+      "selectSessions": "搜索会话...",
+      "sourceCcw": "CCW",
+      "sourceNative": "原生",
+      "selectAll": "全选",
+      "selectNone": "取消全选",
+      "extractSelected": "提取选中 ({count})",
+      "noSessions": "未找到会话",
+      "total": "总计",
+      "eligible": "符合条件",
+      "extracted": "已提取",
+      "ready": "就绪",
+      "previewQueue": "预览队列",
+      "includeNative": "包含原生会话",
+      "selected": "已选择 {count} 个会话",
+      "selectHint": "选择要提取的会话",
+      "ineligible": "不符合条件"
+    },
+    "extraction": {
+      "selectiveTriggered": "选择性提取已触发"
+    }
   }
 }

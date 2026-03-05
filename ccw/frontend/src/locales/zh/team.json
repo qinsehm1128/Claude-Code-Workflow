@@ -43,8 +43,12 @@
     "backToList": "返回团队列表"
   },
   "tabs": {
+    "pipeline": "流水线",
     "artifacts": "产物",
     "messages": "消息"
+  },
+  "error": {
+    "loadFailed": "加载团队数据失败"
   },
   "artifacts": {
     "title": "团队产物",
@@ -77,7 +81,14 @@
     "completed": "已完成",
     "inProgress": "进行中",
     "pending": "待处理",
-    "blocked": "已阻塞"
+    "blocked": "已阻塞",
+    "skipped": "已跳过",
+    "noStages": "此会话未定义流水线阶段"
+  },
+  "coordinates": {
+    "phase": "阶段",
+    "step": "步骤",
+    "gap": "差距迭代"
   },
   "membersPanel": {
     "title": "团队成员",

@@ -23,6 +23,7 @@
     "skills": "Skills",
     "commands": "Commands",
     "memory": "Memory",
+    "deepwiki": "DeepWiki",
     "prompts": "Prompt History",
     "settings": "Settings",
     "mcp": "MCP Servers",
@@ -37,7 +38,9 @@
     "graph": "Graph Explorer",
     "teams": "Team Execution",
     "terminalDashboard": "Terminal Dashboard",
-    "skillHub": "Skill Hub"
+    "skillHub": "Skill Hub",
+    "analysis": "Analysis Viewer",
+    "specs": "Spec Settings"
   },
   "sidebar": {
     "collapse": "Collapse",

@@ -2,11 +2,12 @@
 // QueuePanel Component
 // ========================================
 // Queue list panel for the terminal dashboard with tab switching.
-// Tab 1 (Queue): Issue queue items from useIssueQueue() hook.
+// Tab 1 (Queue): Issue queue items from queueSchedulerStore (with useIssueQueue() fallback).
 // Tab 2 (Orchestrator): Active orchestration plans from orchestratorStore.
 // Integrates with issueQueueIntegrationStore for association chain.
+// Note: Scheduler controls are in the standalone SchedulerPanel.
 
-import { useState, useMemo, useCallback, memo } from 'react';
+import { useState, useMemo, useCallback, memo, useEffect } from 'react';
 import { useIntl } from 'react-intl';
 import {
   ListChecks,
@@ -27,6 +28,7 @@ import {
   Square,
   RotateCcw,
   AlertCircle,
+  Timer,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -41,52 +43,79 @@ import {
   selectByQueueItem,
 } from '@/stores/queueExecutionStore';
 import {
+  useQueueSchedulerStore,
+  selectQueueSchedulerStatus,
+  selectQueueItems,
+} from '@/stores/queueSchedulerStore';
+import {
   useOrchestratorStore,
   selectActivePlans,
   selectActivePlanCount,
   type OrchestrationRunState,
 } from '@/stores/orchestratorStore';
 import type { StepStatus, OrchestrationStatus } from '@/types/orchestrator';
-import type { QueueItem } from '@/lib/api';
+import type { QueueItem as ApiQueueItem } from '@/lib/api';
+import type { QueueItem as SchedulerQueueItem, QueueItemStatus as SchedulerQueueItemStatus } from '@/types/queue-frontend-types';
 
 // ========== Tab Type ==========
 
 type QueueTab = 'queue' | 'orchestrator';
 
+// ========== Queue Tab: Unified Item Type ==========
+
+/**
+ * Unified queue item type that works with both the legacy API QueueItem
+ * and the new scheduler QueueItem. The scheduler type is a superset.
+ */
+type UnifiedQueueItem = ApiQueueItem | SchedulerQueueItem;
+
+/**
+ * Combined status type covering both scheduler statuses and legacy API statuses.
+ */
+type CombinedQueueItemStatus = SchedulerQueueItemStatus | ApiQueueItem['status'];
+
 // ========== Queue Tab: Status Config ==========
 
-type QueueItemStatus = QueueItem['status'];
-
-const STATUS_CONFIG: Record<QueueItemStatus, {
+const STATUS_CONFIG: Record<CombinedQueueItemStatus, {
   variant: 'info' | 'success' | 'destructive' | 'secondary' | 'warning' | 'outline';
   icon: typeof Clock;
   label: string;
 }> = {
   pending: { variant: 'secondary', icon: Clock, label: 'Pending' },
+  queued: { variant: 'info', icon: Timer, label: 'Queued' },
   ready: { variant: 'info', icon: Zap, label: 'Ready' },
+  blocked: { variant: 'outline', icon: Ban, label: 'Blocked' },
   executing: { variant: 'warning', icon: Loader2, label: 'Executing' },
   completed: { variant: 'success', icon: CheckCircle, label: 'Completed' },
   failed: { variant: 'destructive', icon: XCircle, label: 'Failed' },
-  blocked: { variant: 'outline', icon: Ban, label: 'Blocked' },
+  cancelled: { variant: 'secondary', icon: Square, label: 'Cancelled' },
 };
 
-// ========== Queue Tab: Item Row ==========
+// ========== Queue Tab: Content ==========
 
 function QueueItemRow({
   item,
   isHighlighted,
   onSelect,
 }: {
-  item: QueueItem;
+  item: UnifiedQueueItem;
   isHighlighted: boolean;
   onSelect: () => void;
 }) {
   const { formatMessage } = useIntl();
-  const config = STATUS_CONFIG[item.status] ?? STATUS_CONFIG.pending;
+  const statusKey = item.status as CombinedQueueItemStatus;
+  const config = STATUS_CONFIG[statusKey] ?? STATUS_CONFIG.pending;
   const StatusIcon = config.icon;
 
   const executions = useQueueExecutionStore(selectByQueueItem(item.item_id));
   const activeExec = executions.find((e) => e.status === 'running') ?? executions[0];
+
+  // Session key: prefer scheduler QueueItem.sessionKey, fallback to execution store
+  const schedulerItem = item as SchedulerQueueItem;
+  const sessionKey = schedulerItem.sessionKey ?? activeExec?.sessionKey;
+
+  const isExecuting = item.status === 'executing';
+  const isBlocked = item.status === 'blocked';
 
   return (
     <button
@@ -94,7 +123,8 @@ function QueueItemRow({
       className={cn(
         'w-full text-left px-3 py-2 rounded-md transition-colors',
         'hover:bg-muted/60 focus:outline-none focus:ring-1 focus:ring-primary/30',
-        isHighlighted && 'bg-accent/50 ring-1 ring-accent/30'
+        isHighlighted && 'bg-accent/50 ring-1 ring-accent/30',
+        isExecuting && 'border-l-2 border-l-blue-500'
       )}
       onClick={onSelect}
     >
@@ -103,7 +133,7 @@ function QueueItemRow({
           <StatusIcon
             className={cn(
               'w-3.5 h-3.5 shrink-0',
-              item.status === 'executing' && 'animate-spin'
+              isExecuting && 'animate-spin'
             )}
           />
           <span className="text-sm font-medium text-foreground truncate font-mono">
@@ -111,7 +141,7 @@ function QueueItemRow({
           </span>
         </div>
         <Badge variant={config.variant} className="text-[10px] px-1.5 py-0 shrink-0">
-          {formatMessage({ id: `terminalDashboard.queuePanel.status.${item.status}` })}
+          {formatMessage({ id: `terminalDashboard.queuePanel.status.${item.status}`, defaultMessage: config.label })}
         </Badge>
       </div>
       <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground pl-5">
@@ -125,17 +155,25 @@ function QueueItemRow({
         </span>
         <span className="text-border">|</span>
         <span>{item.execution_group}</span>
-        {activeExec?.sessionKey && (
+        {sessionKey && (
           <>
             <span className="text-border">|</span>
             <span className="flex items-center gap-0.5">
               <Terminal className="w-3 h-3" />
-              {activeExec.sessionKey}
+              {sessionKey}
             </span>
           </>
         )}
       </div>
-      {item.depends_on.length > 0 && (
+      {isBlocked && item.depends_on.length > 0 && (
+        <div className="mt-0.5 text-[10px] text-orange-500/80 pl-5 truncate">
+          {formatMessage(
+            { id: 'terminalDashboard.queuePanel.blockedBy', defaultMessage: 'Blocked by: {deps}' },
+            { deps: item.depends_on.join(', ') }
+          )}
+        </div>
+      )}
+      {!isBlocked && item.depends_on.length > 0 && (
         <div className="mt-0.5 text-[10px] text-muted-foreground/70 pl-5 truncate">
           {formatMessage(
             { id: 'terminalDashboard.queuePanel.dependsOn' },
@@ -151,20 +189,43 @@ function QueueItemRow({
 
 function QueueTabContent(_props: { embedded?: boolean }) {
   const { formatMessage } = useIntl();
+
+  // Scheduler store data
+  const schedulerItems = useQueueSchedulerStore(selectQueueItems);
+  const schedulerStatus = useQueueSchedulerStore(selectQueueSchedulerStatus);
+  const loadInitialState = useQueueSchedulerStore((s) => s.loadInitialState);
+
+  // Load scheduler state on mount
+  useEffect(() => {
+    loadInitialState();
+  }, [loadInitialState]);
+
+  // Legacy API data (fallback)
   const queueQuery = useIssueQueue();
+
   const associationChain = useIssueQueueIntegrationStore(selectAssociationChain);
   const buildAssociationChain = useIssueQueueIntegrationStore((s) => s.buildAssociationChain);
 
-  const allItems = useMemo(() => {
+  // Use scheduler items when scheduler has data, otherwise fall back to legacy API
+  const useSchedulerData = schedulerItems.length > 0 || schedulerStatus !== 'idle';
+
+  const legacyItems = useMemo(() => {
     if (!queueQuery.data) return [];
     const grouped = queueQuery.data.grouped_items ?? {};
-    const items: QueueItem[] = [];
+    const items: ApiQueueItem[] = [];
     for (const group of Object.values(grouped)) {
       items.push(...group);
     }
     items.sort((a, b) => a.execution_order - b.execution_order);
     return items;
   }, [queueQuery.data]);
+
+  const allItems: UnifiedQueueItem[] = useMemo(() => {
+    if (useSchedulerData) {
+      return [...schedulerItems].sort((a, b) => a.execution_order - b.execution_order);
+    }
+    return legacyItems;
+  }, [useSchedulerData, schedulerItems, legacyItems]);
 
   const handleSelect = useCallback(
     (queueItemId: string) => {
@@ -173,7 +234,8 @@ function QueueTabContent(_props: { embedded?: boolean }) {
     [buildAssociationChain]
   );
 
-  if (queueQuery.isLoading) {
+  // Show loading only for legacy mode
+  if (!useSchedulerData && queueQuery.isLoading) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
@@ -181,7 +243,7 @@ function QueueTabContent(_props: { embedded?: boolean }) {
     );
   }
 
-  if (queueQuery.error) {
+  if (!useSchedulerData && queueQuery.error) {
     return (
       <div className="flex-1 flex items-center justify-center text-destructive p-4">
         <div className="text-center">
@@ -446,8 +508,23 @@ export function QueuePanel({ embedded = false }: { embedded?: boolean }) {
   const [activeTab, setActiveTab] = useState<QueueTab>('queue');
   const orchestratorCount = useOrchestratorStore(selectActivePlanCount);
 
+  // Scheduler store data for active count
+  const schedulerItems = useQueueSchedulerStore(selectQueueItems);
+  const schedulerStatus = useQueueSchedulerStore(selectQueueSchedulerStatus);
+  const useSchedulerData = schedulerItems.length > 0 || schedulerStatus !== 'idle';
+
+  // Legacy API data for active count fallback
   const queueQuery = useIssueQueue();
+
   const queueActiveCount = useMemo(() => {
+    if (useSchedulerData) {
+      return schedulerItems.filter(
+        (item) =>
+          item.status === 'pending' ||
+          item.status === 'queued' ||
+          item.status === 'executing'
+      ).length;
+    }
     if (!queueQuery.data) return 0;
     const grouped = queueQuery.data.grouped_items ?? {};
     let count = 0;
@@ -457,7 +534,7 @@ export function QueuePanel({ embedded = false }: { embedded?: boolean }) {
       ).length;
     }
     return count;
-  }, [queueQuery.data]);
+  }, [useSchedulerData, schedulerItems, queueQuery.data]);
 
   return (
     <div className="flex flex-col h-full">

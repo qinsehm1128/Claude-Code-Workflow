@@ -3,12 +3,46 @@ import { launchBrowser } from '../utils/browser-launcher.js';
 import { validatePath } from '../utils/path-resolver.js';
 import { startReactFrontend, stopReactFrontend } from '../utils/react-frontend.js';
 import chalk from 'chalk';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 interface ServeOptions {
   port?: number;
   path?: string;
   host?: string;
   browser?: boolean;
+}
+
+/**
+ * Check if a port is in use
+ * @param port - Port number to check
+ * @returns Promise<boolean> - true if port is in use
+ */
+async function isPortInUse(port: number): Promise<boolean> {
+  try {
+    const { stdout } = await execAsync(`netstat -ano | findstr :${port}`);
+    const lines = stdout.trim().split(/\r?\n/).filter(Boolean);
+
+    for (const line of lines) {
+      const parts = line.trim().split(/\s+/);
+      if (parts.length < 4) continue;
+
+      const proto = parts[0]?.toUpperCase();
+      const localAddress = parts[1] || '';
+      const state = parts[3]?.toUpperCase();
+
+      // Check if this is a TCP connection in LISTENING state on our port
+      if (proto === 'TCP' && localAddress.endsWith(`:${port}`) && state === 'LISTENING') {
+        return true;
+      }
+    }
+    return false;
+  } catch {
+    // If netstat fails or no matches found, assume port is free
+    return false;
+  }
 }
 
 /**
@@ -33,13 +67,36 @@ export async function serveCommand(options: ServeOptions): Promise<void> {
     initialPath = pathValidation.path;
   }
 
+  const startupId = Math.random().toString(36).substring(7);
   console.log(chalk.blue.bold('\n  CCW Dashboard Server\n'));
+  console.log(chalk.gray(`  Startup ID: ${startupId}`));
   console.log(chalk.gray(`  Initial project: ${initialPath}`));
   console.log(chalk.gray(`  Host: ${host}`));
   console.log(chalk.gray(`  Port: ${port}\n`));
 
-  // Start React frontend
+  // Calculate React frontend port
   const reactPort = port + 1;
+
+  // Check if ports are already in use
+  const mainPortInUse = await isPortInUse(port);
+  const reactPortInUse = await isPortInUse(reactPort);
+
+  if (mainPortInUse) {
+    console.error(chalk.red(`\n  Error: Port ${port} is already in use.`));
+    console.error(chalk.yellow(`  Another CCW server may be running.`));
+    console.error(chalk.gray(`  Try stopping it first: ccw stop`));
+    console.error(chalk.gray(`  Or use a different port: ccw serve --port ${port + 2}\n`));
+    process.exit(1);
+  }
+
+  if (reactPortInUse) {
+    console.error(chalk.red(`\n  Error: Port ${reactPort} (React frontend) is already in use.`));
+    console.error(chalk.yellow(`  Another process may be using this port.`));
+    console.error(chalk.gray(`  Try using a different port: ccw serve --port ${port + 2}\n`));
+    process.exit(1);
+  }
+
+  // Start React frontend
   try {
     await startReactFrontend(reactPort);
   } catch (error) {

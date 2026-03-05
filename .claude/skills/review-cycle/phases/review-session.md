@@ -414,7 +414,7 @@ Task(
     4. Read review state: ${reviewStateJsonPath}
     5. Execute: cat ~/.ccw/workflows/cli-templates/schemas/review-dimension-results-schema.json (get output schema reference)
     6. Read: .workflow/project-tech.json (technology stack and architecture context)
-    7. Read: .workflow/project-guidelines.json (user-defined constraints and conventions to validate against)
+    7. Read: .workflow/specs/*.md (user-defined constraints and conventions to validate against)
 
     ## Session Context
     - Session ID: ${sessionId}
@@ -518,7 +518,7 @@ Task(
     4. Read test files: bash(find ${workflowDir}/tests -name "*${basename(file, '.ts')}*" -type f)
     5. Execute: cat ~/.ccw/workflows/cli-templates/schemas/review-deep-dive-results-schema.json (get output schema reference)
     6. Read: .workflow/project-tech.json (technology stack and architecture context)
-    7. Read: .workflow/project-guidelines.json (user-defined constraints for remediation compliance)
+    7. Read: .workflow/specs/*.md (user-defined constraints for remediation compliance)
 
     ## CLI Configuration
     - Tool Priority: gemini → qwen → codex

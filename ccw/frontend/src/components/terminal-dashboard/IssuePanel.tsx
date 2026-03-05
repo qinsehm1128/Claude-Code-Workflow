@@ -17,6 +17,7 @@ import {
   Check,
   Send,
   X,
+  ListPlus,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import {
@@ -37,6 +38,7 @@ import { executeInCliSession } from '@/lib/api';
 import type { Issue } from '@/lib/api';
 import { useTerminalGridStore, selectTerminalGridFocusedPaneId, selectTerminalGridPanes } from '@/stores/terminalGridStore';
 import { useWorkflowStore, selectProjectPath } from '@/stores/workflowStore';
+import { useQueueSchedulerStore } from '@/stores/queueSchedulerStore';
 import { toast } from '@/stores/notificationStore';
 
 // ========== Execution Method Type ==========
@@ -50,6 +52,13 @@ const PROMPT_TEMPLATES: Record<ExecutionMethod, (idStr: string) => string> = {
   'ccw-cli': (idStr) => `完成.issue.jsonl中 ${idStr} issue`,
   'direct-send': (idStr) => `根据@.workflow/issues/issues.jsonl中的 ${idStr} 需求，进行开发`,
 };
+
+// ========== Queue Prompt Builder ==========
+
+function buildQueuePrompt(issues: Issue[]): string {
+  const ids = issues.map((i) => i.id).join(' ');
+  return `根据@.workflow/issues/issues.jsonl中的 ${ids} 需求，进行开发`;
+}
 
 // ========== Priority Badge ==========
 
@@ -73,11 +82,14 @@ function PriorityBadge({ priority }: { priority: Issue['priority'] }) {
 
 function StatusDot({ status }: { status: Issue['status'] }) {
   const colorMap: Record<Issue['status'], string> = {
-    open: 'text-info',
-    in_progress: 'text-warning',
-    resolved: 'text-success',
-    closed: 'text-muted-foreground',
+    registered: 'text-info',
+    planning: 'text-blue-500',
+    planned: 'text-blue-600',
+    queued: 'text-yellow-500',
+    executing: 'text-warning',
     completed: 'text-success',
+    failed: 'text-destructive',
+    paused: 'text-muted-foreground',
   };
   return <CircleDot className={cn('w-3 h-3 shrink-0', colorMap[status] ?? 'text-muted-foreground')} />;
 }
@@ -200,6 +212,13 @@ export function IssuePanel() {
   const [customPrompt, setCustomPrompt] = useState('');
   const sentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Queue state
+  const [isAddingToQueue, setIsAddingToQueue] = useState(false);
+  const [justQueued, setJustQueued] = useState(false);
+  const [queueMode, setQueueMode] = useState<'write' | 'analysis' | 'auto'>('write');
+  const queuedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const submitItems = useQueueSchedulerStore((s) => s.submitItems);
+
   // Terminal refs
   const focusedPaneId = useTerminalGridStore(selectTerminalGridFocusedPaneId);
   const panes = useTerminalGridStore(selectTerminalGridPanes);
@@ -231,10 +250,11 @@ export function IssuePanel() {
     }
   }, [availableMethods, executionMethod]);
 
-  // Cleanup sent feedback timer on unmount
+  // Cleanup feedback timers on unmount
   useEffect(() => {
     return () => {
       if (sentTimerRef.current) clearTimeout(sentTimerRef.current);
+      if (queuedTimerRef.current) clearTimeout(queuedTimerRef.current);
     };
   }, []);
 
@@ -345,6 +365,43 @@ export function IssuePanel() {
       setIsSending(false);
     }
   }, [sessionKey, selectedIds, projectPath, executionMethod, sessionCliTool, customPrompt]);
+
+  const handleAddToQueue = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+    setIsAddingToQueue(true);
+    try {
+      const selectedIssues = sortedIssues.filter((i) => selectedIds.has(i.id));
+      const now = new Date().toISOString();
+      const items = selectedIssues.map((issue, index) => ({
+        item_id: `Q-${issue.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        issue_id: issue.id,
+        status: 'pending' as const,
+        tool: sessionCliTool || 'gemini',
+        prompt: buildQueuePrompt([issue]),
+        mode: queueMode,
+        depends_on: [] as string[],
+        execution_order: index + 1,
+        execution_group: 'default',
+        createdAt: now,
+        metadata: { issueTitle: issue.title, issuePriority: issue.priority },
+      }));
+      await submitItems(items);
+      toast.success(
+        formatMessage({ id: 'terminalDashboard.issuePanel.addedToQueue', defaultMessage: 'Added to queue' }),
+        `${items.length} item(s)`
+      );
+      setJustQueued(true);
+      if (queuedTimerRef.current) clearTimeout(queuedTimerRef.current);
+      queuedTimerRef.current = setTimeout(() => setJustQueued(false), 2000);
+    } catch (err) {
+      toast.error(
+        formatMessage({ id: 'terminalDashboard.issuePanel.addToQueueFailed', defaultMessage: 'Failed to add to queue' }),
+        err instanceof Error ? err.message : String(err)
+      );
+    } finally {
+      setIsAddingToQueue(false);
+    }
+  }, [selectedIds, sortedIssues, sessionCliTool, submitItems, formatMessage]);
 
   // Loading state
   if (isLoading) {
@@ -509,22 +566,55 @@ export function IssuePanel() {
                 Clear
               </button>
             </div>
-            <button
-              type="button"
-              className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
-                justSent
-                  ? 'bg-green-600 text-white'
-                  : 'bg-primary text-primary-foreground hover:bg-primary/90',
-                'disabled:opacity-50 disabled:cursor-not-allowed'
-              )}
-              disabled={!sessionKey || isSending}
-              onClick={isSendConfigOpen ? handleSendToTerminal : handleOpenSendConfig}
-              title={!sessionKey ? 'No terminal session focused' : `Send via ${executionMethod}`}
-            >
-              {isSending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : justSent ? <Check className="w-3.5 h-3.5" /> : <Terminal className="w-3.5 h-3.5" />}
-              {justSent ? 'Sent!' : `Send (${selectedIds.size})`}
-            </button>
+            <div className="flex items-center gap-1.5">
+              {/* Queue mode selector */}
+              <select
+                className="h-6 text-[10px] rounded border border-border bg-background px-1 text-muted-foreground"
+                value={queueMode}
+                onChange={(e) => setQueueMode(e.target.value as 'write' | 'analysis' | 'auto')}
+                title={formatMessage({ id: 'terminalDashboard.issuePanel.queueModeHint', defaultMessage: 'Execution mode for queued items' })}
+              >
+                <option value="write">write</option>
+                <option value="analysis">analysis</option>
+                <option value="auto">auto</option>
+              </select>
+              {/* Add to Queue button */}
+              <button
+                type="button"
+                className={cn(
+                  'flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors',
+                  justQueued
+                    ? 'bg-green-600 text-white'
+                    : 'bg-muted text-foreground hover:bg-muted/80',
+                  'disabled:opacity-50 disabled:cursor-not-allowed'
+                )}
+                disabled={isAddingToQueue}
+                onClick={handleAddToQueue}
+                title={formatMessage({ id: 'terminalDashboard.issuePanel.addToQueueHint', defaultMessage: 'Add selected issues to the execution queue' })}
+              >
+                {isAddingToQueue ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : justQueued ? <Check className="w-3.5 h-3.5" /> : <ListPlus className="w-3.5 h-3.5" />}
+                {justQueued
+                  ? formatMessage({ id: 'terminalDashboard.issuePanel.addedToQueue', defaultMessage: 'Queued!' })
+                  : formatMessage({ id: 'terminalDashboard.issuePanel.addToQueue', defaultMessage: 'Queue' })}
+              </button>
+              {/* Send to Terminal button */}
+              <button
+                type="button"
+                className={cn(
+                  'flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors',
+                  justSent
+                    ? 'bg-green-600 text-white'
+                    : 'bg-primary text-primary-foreground hover:bg-primary/90',
+                  'disabled:opacity-50 disabled:cursor-not-allowed'
+                )}
+                disabled={!sessionKey || isSending}
+                onClick={isSendConfigOpen ? handleSendToTerminal : handleOpenSendConfig}
+                title={!sessionKey ? 'No terminal session focused' : `Send via ${executionMethod}`}
+              >
+                {isSending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : justSent ? <Check className="w-3.5 h-3.5" /> : <Terminal className="w-3.5 h-3.5" />}
+                {justSent ? 'Sent!' : `Send (${selectedIds.size})`}
+              </button>
+            </div>
           </div>
         </div>
       )}

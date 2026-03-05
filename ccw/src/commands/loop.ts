@@ -113,7 +113,7 @@ async function startAction(taskId: string, options: { session?: string }): Promi
     sessionDir = findActiveSession(currentCwd);
     if (!sessionDir) {
       console.error(chalk.red('\n  Error: No active workflow session found.'));
-      console.error(chalk.gray('  Run "ccw workflow:plan" first to create a session.\n'));
+      console.error(chalk.gray('  Run "ccw workflow-plan" first to create a session.\n'));
       process.exit(1);
     }
   }

@@ -38,7 +38,7 @@ jq --arg ts "$(date -Iseconds)" '.status="in_progress" | .status_history += [{"f
 - Project CLAUDE.md standards
 - **context-package.json** (when available in workflow tasks)
 - **project-tech.json** (if exists) → tech_stack, architecture, key_components
-- **project-guidelines.json** (if exists) → conventions, constraints, quality_rules
+- **specs/*.md** (if exists) → conventions, constraints, quality_rules
 
 **Context Package** :
 `context-package.json` provides artifact paths - read using Read tool or ccw session:
@@ -455,7 +455,7 @@ function buildCliCommand(task, cliTool, cliPrompt) {
    
    **Auto-Check Workflow Context**:
    - Verify session context paths are provided in agent prompt
-   - If missing, request session context from workflow:execute
+   - If missing, request session context from workflow-execute
    - Never assume default paths without explicit session context
 
 ### 5. Problem-Solving

@@ -353,7 +353,14 @@
       "hasIssue": "Linked",
       "export": "Export",
       "selectAll": "Select All",
-      "deselectAll": "Deselect All"
+      "deselectAll": "Deselect All",
+      "description": "Description",
+      "location": "Location",
+      "codeSnippet": "Code Snippet",
+      "suggestedFix": "Suggested Fix",
+      "confidence": "Confidence",
+      "reference": "Reference",
+      "perspective": "Perspective"
     },
     "tabs": {
       "findings": "Findings",

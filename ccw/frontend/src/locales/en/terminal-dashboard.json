@@ -48,6 +48,11 @@
   "issuePanel": {
     "title": "Issues",
     "sendToQueue": "Send to Queue",
+    "addToQueue": "Queue",
+    "addToQueueHint": "Add selected issues to the execution queue",
+    "addedToQueue": "Queued!",
+    "addToQueueFailed": "Failed to add to queue",
+    "queueModeHint": "Execution mode for queued items",
     "noIssues": "No issues found",
     "noIssuesDesc": "Issues will appear here when discovered",
     "error": "Failed to load issues"
@@ -59,13 +64,35 @@
     "error": "Failed to load queue",
     "order": "#{order}",
     "dependsOn": "Depends on: {deps}",
+    "blockedBy": "Blocked by: {deps}",
     "status": {
       "pending": "Pending",
+      "queued": "Queued",
       "ready": "Ready",
+      "blocked": "Blocked",
       "executing": "Executing",
       "completed": "Completed",
       "failed": "Failed",
-      "blocked": "Blocked"
+      "cancelled": "Cancelled",
+      "skipped": "Skipped"
+    },
+    "scheduler": {
+      "start": "Start",
+      "pause": "Pause",
+      "stop": "Stop",
+      "status": {
+        "idle": "Idle",
+        "running": "Running",
+        "paused": "Paused",
+        "stopping": "Stopping",
+        "completed": "Completed",
+        "failed": "Failed"
+      },
+      "progress": "{percent}%",
+      "concurrency": "Concurrency",
+      "concurrencyLabel": "Max",
+      "stopConfirmTitle": "Stop Queue?",
+      "stopConfirmMessage": "Executing tasks will finish, but no new tasks will be started. Pending items will remain in the queue."
     }
   },
   "toolbar": {
@@ -81,7 +108,13 @@
     "launchCli": "New Session",
     "launchCliHint": "Click to configure and create a new CLI session",
     "fullscreen": "Fullscreen",
-    "orchestrator": "Orchestrator"
+    "orchestrator": "Orchestrator",
+    "scheduler": "Scheduler",
+    "executionMonitor": "Execution Monitor"
+  },
+  "schedulerPanel": {
+    "sessionPool": "Session Pool",
+    "noSessions": "No active sessions"
   },
   "orchestratorPanel": {
     "noPlans": "No active orchestrations",

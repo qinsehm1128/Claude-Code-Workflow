@@ -20,6 +20,8 @@ import { FloatingPanel } from '@/components/terminal-dashboard/FloatingPanel';
 import { SessionGroupTree } from '@/components/terminal-dashboard/SessionGroupTree';
 import { IssuePanel } from '@/components/terminal-dashboard/IssuePanel';
 import { QueuePanel } from '@/components/terminal-dashboard/QueuePanel';
+import { QueueListColumn } from '@/components/terminal-dashboard/QueueListColumn';
+import { SchedulerPanel } from '@/components/terminal-dashboard/SchedulerPanel';
 import { InspectorContent } from '@/components/terminal-dashboard/BottomInspector';
 import { ExecutionMonitorPanel } from '@/components/terminal-dashboard/ExecutionMonitorPanel';
 import { FileSidebarPanel } from '@/components/terminal-dashboard/FileSidebarPanel';
@@ -105,9 +107,19 @@ export function TerminalDashboardPage() {
           onClose={closePanel}
           title={formatMessage({ id: 'terminalDashboard.toolbar.issues' })}
           side="left"
-          width={380}
+          width={700}
         >
-          <IssuePanel />
+          <div className="flex h-full">
+            <div className="flex-1 min-w-0 border-r border-border">
+              <IssuePanel />
+            </div>
+            <div className="flex-1 min-w-0 flex flex-col">
+              <div className="px-3 py-2 border-b border-border shrink-0">
+                <h3 className="text-sm font-semibold">{formatMessage({ id: 'terminalDashboard.toolbar.queue' })}</h3>
+              </div>
+              <QueueListColumn />
+            </div>
+          </div>
         </FloatingPanel>
 
         {featureFlags.dashboardQueuePanelEnabled && (
@@ -145,6 +157,16 @@ export function TerminalDashboardPage() {
             <ExecutionMonitorPanel />
           </FloatingPanel>
         )}
+
+        <FloatingPanel
+          isOpen={activePanel === 'scheduler'}
+          onClose={closePanel}
+          title={formatMessage({ id: 'terminalDashboard.toolbar.scheduler', defaultMessage: 'Scheduler' })}
+          side="right"
+          width={340}
+        >
+          <SchedulerPanel />
+        </FloatingPanel>
       </AssociationHighlightProvider>
     </div>
   );

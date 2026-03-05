@@ -2,7 +2,7 @@
 name: issue:discover
 description: Discover potential issues from multiple perspectives (bug, UX, test, quality, security, performance, maintainability, best-practices) using CLI explore. Supports Exa external research for security and best-practices perspectives.
 argument-hint: "[-y|--yes] <path-pattern> [--perspectives=bug,ux,...] [--external]"
-allowed-tools: Skill(*), TodoWrite(*), Read(*), Bash(*), Task(*), AskUserQuestion(*), Glob(*), Grep(*)
+allowed-tools: Skill(*), TodoWrite(*), Read(*), Bash(*), Agent(*), AskUserQuestion(*), Glob(*), Grep(*)
 ---
 
 ## Auto Mode
@@ -185,7 +185,7 @@ Launch N agents in parallel (one per selected perspective):
 ```javascript
 // Launch agents in parallel - agents write JSON and return summary
 const agentPromises = selectedPerspectives.map(perspective =>
-  Task({
+  Agent({
     subagent_type: "cli-explore-agent",
     run_in_background: false,
     description: `Discover ${perspective} issues`,
@@ -252,6 +252,17 @@ await updateDiscoveryState(outputDir, {
 const hasHighPriority = issues.some(i => i.priority === 'critical' || i.priority === 'high');
 const hasMediumFindings = prioritizedFindings.some(f => f.priority === 'medium');
 
+// Auto mode: auto-select recommended action
+if (autoYes) {
+  if (hasHighPriority) {
+    await appendJsonl('.workflow/issues/issues.jsonl', issues);
+    console.log(`Exported ${issues.length} issues. Run /issue:plan to continue.`);
+  } else {
+    console.log('Discovery complete. No significant issues found.');
+  }
+  return;
+}
+
 await AskUserQuestion({
   questions: [{
     question: `Discovery complete: ${issues.length} issues generated, ${prioritizedFindings.length} total findings. What would you like to do next?`,
@@ -311,7 +322,7 @@ if (response === "Export to Issues") {
 **Perspective Analysis Agent**:
 
 ```javascript
-Task({
+Agent({
   subagent_type: "cli-explore-agent",
   run_in_background: false,
   description: `Discover ${perspective} issues`,
@@ -357,7 +368,7 @@ Task({
 **Exa Research Agent** (for security and best-practices):
 
 ```javascript
-Task({
+Agent({
   subagent_type: "cli-explore-agent",
   run_in_background: false,
   description: `External research for ${perspective} via Exa`,

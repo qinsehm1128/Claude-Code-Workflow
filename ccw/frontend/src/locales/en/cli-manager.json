@@ -158,6 +158,50 @@
         "session-state-watch": {
           "name": "Session State Watch",
           "description": "Watch for session metadata file changes (workflow-session.json)"
+        },
+        "stop-notify": {
+          "name": "Stop Notify",
+          "description": "Notify dashboard when Claude finishes responding"
+        },
+        "auto-format-on-write": {
+          "name": "Auto Format on Write",
+          "description": "Auto-format files after Claude writes or edits them"
+        },
+        "auto-lint-on-write": {
+          "name": "Auto Lint on Write",
+          "description": "Auto-lint files after Claude writes or edits them"
+        },
+        "block-sensitive-files": {
+          "name": "Block Sensitive Files",
+          "description": "Block modifications to sensitive files (.env, secrets, credentials)"
+        },
+        "git-auto-stage": {
+          "name": "Git Auto Stage",
+          "description": "Auto stage all modified files when Claude finishes responding"
+        },
+        "post-edit-index": {
+          "name": "Post Edit Index",
+          "description": "Notify indexing service when files are modified"
+        },
+        "session-end-summary": {
+          "name": "Session End Summary",
+          "description": "Send session summary to dashboard on session end"
+        },
+        "project-state-inject": {
+          "name": "Project State Inject",
+          "description": "Inject project guidelines and recent dev history at session start"
+        },
+        "memory-v2-extract": {
+          "name": "Memory V2 Extract",
+          "description": "Trigger Phase 1 extraction when session ends (after idle period)"
+        },
+        "memory-v2-auto-consolidate": {
+          "name": "Memory V2 Auto Consolidate",
+          "description": "Trigger Phase 2 consolidation after extraction jobs complete"
+        },
+        "memory-sync-dashboard": {
+          "name": "Memory Sync Dashboard",
+          "description": "Sync memory V2 status to dashboard on changes"
         }
       },
       "actions": {

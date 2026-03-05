@@ -1,0 +1,406 @@
+/**
+ * Design Tokens for CCW Documentation
+ * Based on ui-ux-pro-max design system
+ * 8 themes: 4 colors × 2 modes (light/dark)
+ */
+
+:root {
+  /* ============================================
+   * Color Scheme: Blue (Default)
+   * ============================================ */
+
+  /* Logo Colors - follow theme */
+  --logo-line-color: currentColor;
+  --logo-dot-color: var(--vp-c-primary);
+
+  /* Primary Colors */
+  --vp-c-primary-50: #eff6ff;
+  --vp-c-primary-100: #dbeafe;
+  --vp-c-primary-200: #bfdbfe;
+  --vp-c-primary-300: #93c5fd;
+  --vp-c-primary-400: #60a5fa;
+  --vp-c-primary-500: #3b82f6;
+  --vp-c-primary-600: #2563eb;
+  --vp-c-primary-700: #1d4ed8;
+  --vp-c-primary-800: #1e40af;
+  --vp-c-primary-900: #1e3a8a;
+  --vp-c-primary: var(--vp-c-primary-500);
+  --vp-c-brand-1: var(--vp-c-primary-500);
+  --vp-c-brand-2: var(--vp-c-secondary-500);
+  --vp-c-brand-soft: rgba(59, 130, 246, 0.1);
+
+  /* Secondary Colors (Green) */
+  --vp-c-secondary-50: #ecfdf5;
+  --vp-c-secondary-100: #d1fae5;
+  --vp-c-secondary-200: #a7f3d0;
+  --vp-c-secondary-300: #6ee7b7;
+  --vp-c-secondary-400: #34d399;
+  --vp-c-secondary-500: #10b981;
+  --vp-c-secondary-600: #059669;
+  --vp-c-secondary-700: #047857;
+  --vp-c-secondary-800: #065f46;
+  --vp-c-secondary-900: #064e3b;
+  --vp-c-secondary: var(--vp-c-secondary-500);
+
+  /* Accent Colors (Orange) */
+  --vp-c-accent-50: #fffbeb;
+  --vp-c-accent-100: #fef3c7;
+  --vp-c-accent-200: #fde68a;
+  --vp-c-accent-300: #fcd34d;
+  --vp-c-accent-400: #fbbf24;
+  --vp-c-accent-500: #f59e0b;
+  --vp-c-accent-600: #d97706;
+  --vp-c-accent-700: #b45309;
+  --vp-c-accent-800: #92400e;
+  --vp-c-accent-900: #78350f;
+  --vp-c-accent: var(--vp-c-accent-500);
+
+  /* Background Colors (Light Mode) */
+  --vp-c-bg: #ffffff;
+  --vp-c-bg-soft: #f9fafb;
+  --vp-c-bg-mute: #f3f4f6;
+  --vp-c-bg-alt: #ffffff;
+
+  /* Surface Colors */
+  --vp-c-surface: #f9fafb;
+  --vp-c-surface-1: #f3f4f6;
+  --vp-c-surface-2: #e5e7eb;
+  --vp-c-surface-3: #d1d5db;
+
+  /* Border Colors */
+  --vp-c-border: #e5e7eb;
+  --vp-c-border-soft: #f3f4f6;
+  --vp-c-divider: #e5e7eb;
+
+  /* Text Colors */
+  --vp-c-text-1: #111827;
+  --vp-c-text-2: #374151;
+  --vp-c-text-3: #6b7280;
+  --vp-c-text-4: #9ca3af;
+  --vp-c-text-code: #ef4444;
+
+  /* Typography - Developer-focused font pairing */
+  --vp-font-family-base: 'Inter', 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Helvetica Neue', sans-serif;
+  --vp-font-family-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, 'Courier New', monospace;
+  --vp-font-family-heading: 'Inter', 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+
+  /* Font Sizes - Modular scale (1.25 ratio) */
+  --vp-font-size-xs: 0.75rem;    /* 12px */
+  --vp-font-size-sm: 0.875rem;   /* 14px */
+  --vp-font-size-base: 1rem;     /* 16px */
+  --vp-font-size-lg: 1.125rem;   /* 18px */
+  --vp-font-size-xl: 1.25rem;    /* 20px */
+  --vp-font-size-2xl: 1.5rem;    /* 24px */
+  --vp-font-size-3xl: 1.875rem;  /* 30px */
+  --vp-font-size-4xl: 2.25rem;   /* 36px */
+
+  /* Line Heights - Optimized for readability */
+  --vp-line-height-tight: 1.25;
+  --vp-line-height-snug: 1.4;
+  --vp-line-height-normal: 1.6;
+  --vp-line-height-relaxed: 1.75;
+  --vp-line-height-loose: 2;
+
+  /* Spacing (Fixed) - 8px base grid */
+  --vp-spacing-0: 0;
+  --vp-spacing-px: 1px;
+  --vp-spacing-0-5: 0.125rem;  /* 2px */
+  --vp-spacing-1: 0.25rem;     /* 4px */
+  --vp-spacing-1-5: 0.375rem;  /* 6px */
+  --vp-spacing-2: 0.5rem;      /* 8px */
+  --vp-spacing-2-5: 0.625rem;  /* 10px */
+  --vp-spacing-3: 0.75rem;     /* 12px */
+  --vp-spacing-3-5: 0.875rem;  /* 14px */
+  --vp-spacing-4: 1rem;        /* 16px */
+  --vp-spacing-5: 1.25rem;     /* 20px */
+  --vp-spacing-6: 1.5rem;      /* 24px */
+  --vp-spacing-7: 1.75rem;     /* 28px */
+  --vp-spacing-8: 2rem;        /* 32px */
+  --vp-spacing-9: 2.25rem;     /* 36px */
+  --vp-spacing-10: 2.5rem;     /* 40px */
+  --vp-spacing-12: 3rem;       /* 48px */
+  --vp-spacing-14: 3.5rem;     /* 56px */
+  --vp-spacing-16: 4rem;       /* 64px */
+  --vp-spacing-20: 5rem;       /* 80px */
+  --vp-spacing-24: 6rem;       /* 96px */
+
+  /* Legacy aliases for backward compatibility */
+  --vp-spacing-xs: var(--vp-spacing-1);
+  --vp-spacing-sm: var(--vp-spacing-2);
+  --vp-spacing-md: var(--vp-spacing-4);
+  --vp-spacing-lg: var(--vp-spacing-6);
+  --vp-spacing-xl: var(--vp-spacing-8);
+  --vp-spacing-2xl: var(--vp-spacing-12);
+
+  /* Fluid Spacing (Responsive with clamp())
+   * Scales smoothly between viewport widths
+   * Usage: padding: var(--spacing-fluid-md);
+   */
+  --spacing-fluid-xs: clamp(0.25rem, 0.2rem + 0.25vw, 0.375rem);    /* 4-6px */
+  --spacing-fluid-sm: clamp(0.5rem, 0.4rem + 0.5vw, 0.75rem);       /* 8-12px */
+  --spacing-fluid-md: clamp(0.75rem, 0.6rem + 0.75vw, 1.25rem);     /* 12-20px */
+  --spacing-fluid-lg: clamp(1rem, 0.8rem + 1vw, 1.75rem);           /* 16-28px */
+  --spacing-fluid-xl: clamp(1.5rem, 1.2rem + 1.5vw, 2.5rem);        /* 24-40px */
+  --spacing-fluid-2xl: clamp(2rem, 1.5rem + 2.5vw, 3.5rem);         /* 32-56px */
+
+  /* Container Query Names
+   * Usage: container-name: var(--container-sidebar);
+   */
+  --container-sidebar: sidebar;
+  --container-content: content;
+  --container-outline: outline;
+  --container-nav: nav;
+
+  /* Border Radius - Subtle, flat design friendly */
+  --vp-radius-none: 0;
+  --vp-radius-sm: 0.25rem;    /* 4px */
+  --vp-radius-md: 0.375rem;   /* 6px */
+  --vp-radius-lg: 0.5rem;     /* 8px */
+  --vp-radius-xl: 0.75rem;    /* 12px */
+  --vp-radius-2xl: 1rem;      /* 16px */
+  --vp-radius-3xl: 1.5rem;    /* 24px */
+  --vp-radius-full: 9999px;
+
+  /* Shadows - Subtle for flat design */
+  --vp-shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.03);
+  --vp-shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.05), 0 1px 2px -1px rgb(0 0 0 / 0.05);
+  --vp-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.07), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+  --vp-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.08), 0 4px 6px -4px rgb(0 0 0 / 0.05);
+  --vp-shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.08), 0 8px 10px -6px rgb(0 0 0 / 0.05);
+  --vp-shadow-inner: inset 0 2px 4px 0 rgb(0 0 0 / 0.05);
+  --vp-shadow-none: 0 0 #0000;
+
+  /* Transitions */
+  --vp-transition-color: 0.2s ease;
+  --vp-transition-transform: 0.2s ease;
+  --vp-transition-all: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Z-Index */
+  --vp-z-index-base: 1;
+  --vp-z-index-dropdown: 10;
+  --vp-z-index-sticky: 20;
+  --vp-z-index-fixed: 50;
+  --vp-z-index-modal: 100;
+  --vp-z-index-toast: 200;
+
+  /* Responsive Breakpoints (VitePress standard) */
+  --bp-xs: 480px;        /* Extra Small: < 480px */
+  --bp-sm: 768px;        /* Small (Mobile): < 768px */
+  --bp-md: 1024px;       /* Medium (Tablet): 768px - 1024px */
+  --bp-lg: 1440px;       /* Large (Desktop): > 1024px, extra large: > 1440px */
+
+  /* Legacy aliases for backward compatibility */
+  --bp-mobile: var(--bp-sm);
+  --bp-tablet: var(--bp-md);
+  --bp-desktop: var(--bp-lg);
+
+  /* Container Query Breakpoints
+   * Aligned with media query breakpoints for consistency
+   */
+  --container-bp-sm: 480px;   /* Small container */
+  --container-bp-md: 768px;   /* Medium container */
+  --container-bp-lg: 1024px;  /* Large container */
+  --container-bp-xl: 1280px;  /* Extra large container */
+}
+
+/* ============================================
+ * Dark Mode
+ * ============================================ */
+.dark {
+  /* Logo Colors (Dark Mode) - follow theme */
+  --logo-dot-color: var(--vp-c-primary);
+
+  /* Background Colors (Dark Mode) */
+  --vp-c-bg: #111827;
+  --vp-c-bg-soft: #1f2937;
+  --vp-c-bg-mute: #374151;
+  --vp-c-bg-alt: #0f172a;
+
+  /* Surface Colors */
+  --vp-c-surface: #1f2937;
+  --vp-c-surface-1: #374151;
+  --vp-c-surface-2: #4b5563;
+  --vp-c-surface-3: #6b7280;
+
+  /* Border Colors */
+  --vp-c-border: #374151;
+  --vp-c-border-soft: #1f2937;
+  --vp-c-divider: #374151;
+
+  /* Text Colors */
+  --vp-c-text-1: #f9fafb;
+  --vp-c-text-2: #e5e7eb;
+  --vp-c-text-3: #d1d5db;
+  --vp-c-text-4: #9ca3af;
+  --vp-c-text-code: #fca5a5;
+
+  /* Primary Colors (adjusted for dark mode) */
+  --vp-c-primary-50: #1e3a8a;
+  --vp-c-primary-100: #1e40af;
+  --vp-c-primary-200: #1d4ed8;
+  --vp-c-primary-300: #2563eb;
+  --vp-c-primary-400: #3b82f6;
+  --vp-c-primary-500: #60a5fa;
+  --vp-c-primary-600: #93c5fd;
+  --vp-c-primary-700: #bfdbfe;
+  --vp-c-primary-800: #dbeafe;
+  --vp-c-primary-900: #eff6ff;
+  --vp-c-primary: var(--vp-c-primary-400);
+  --vp-c-brand-1: var(--vp-c-primary-400);
+  --vp-c-brand-2: var(--vp-c-secondary-400);
+  --vp-c-brand-soft: rgba(96, 165, 250, 0.2);
+
+  /* Secondary Colors (adjusted for dark mode) */
+  --vp-c-secondary-50: #064e3b;
+  --vp-c-secondary-100: #065f46;
+  --vp-c-secondary-200: #047857;
+  --vp-c-secondary-300: #059669;
+  --vp-c-secondary-400: #10b981;
+  --vp-c-secondary-500: #34d399;
+  --vp-c-secondary-600: #6ee7b7;
+  --vp-c-secondary-700: #a7f3d0;
+  --vp-c-secondary-800: #d1fae5;
+  --vp-c-secondary-900: #ecfdf5;
+  --vp-c-secondary: var(--vp-c-secondary-400);
+
+  /* Accent Colors (adjusted for dark mode) */
+  --vp-c-accent-50: #451a03;
+  --vp-c-accent-100: #78350f;
+  --vp-c-accent-200: #92400e;
+  --vp-c-accent-300: #b45309;
+  --vp-c-accent-400: #d97706;
+  --vp-c-accent-500: #f59e0b;
+  --vp-c-accent-600: #fbbf24;
+  --vp-c-accent-700: #fcd34d;
+  --vp-c-accent-800: #fde68a;
+  --vp-c-accent-900: #fef3c7;
+  --vp-c-accent: var(--vp-c-accent-400);
+}
+
+/* ============================================
+ * Color Scheme: Green
+ * ============================================ */
+
+/* Green - Light Mode */
+[data-theme="green"] {
+  --vp-c-primary-50: #ecfdf5;
+  --vp-c-primary-100: #d1fae5;
+  --vp-c-primary-200: #a7f3d0;
+  --vp-c-primary-300: #6ee7b7;
+  --vp-c-primary-400: #34d399;
+  --vp-c-primary-500: #22c55e;
+  --vp-c-primary-600: #10b981;
+  --vp-c-primary-700: #059669;
+  --vp-c-primary-800: #047857;
+  --vp-c-primary-900: #065f46;
+  --vp-c-primary: var(--vp-c-primary-500);
+  --vp-c-brand-1: var(--vp-c-primary-500);
+  --vp-c-brand-soft: rgba(34, 197, 94, 0.1);
+}
+
+/* Green - Dark Mode */
+.dark[data-theme="green"],
+[data-theme="green"].dark {
+  --vp-c-primary-50: #064e3b;
+  --vp-c-primary-100: #065f46;
+  --vp-c-primary-200: #047857;
+  --vp-c-primary-300: #059669;
+  --vp-c-primary-400: #10b981;
+  --vp-c-primary-500: #34d399;
+  --vp-c-primary-600: #6ee7b7;
+  --vp-c-primary-700: #a7f3d0;
+  --vp-c-primary-800: #d1fae5;
+  --vp-c-primary-900: #ecfdf5;
+  --vp-c-primary: var(--vp-c-primary-400);
+  --vp-c-brand-1: var(--vp-c-primary-400);
+  --vp-c-brand-soft: rgba(52, 211, 153, 0.2);
+}
+
+/* ============================================
+ * Color Scheme: Orange
+ * ============================================ */
+
+/* Orange - Light Mode */
+[data-theme="orange"] {
+  --vp-c-primary-50: #fffbeb;
+  --vp-c-primary-100: #fef3c7;
+  --vp-c-primary-200: #fde68a;
+  --vp-c-primary-300: #fcd34d;
+  --vp-c-primary-400: #fbbf24;
+  --vp-c-primary-500: #f59e0b;
+  --vp-c-primary-600: #d97706;
+  --vp-c-primary-700: #b45309;
+  --vp-c-primary-800: #92400e;
+  --vp-c-primary-900: #78350f;
+  --vp-c-primary: var(--vp-c-primary-500);
+  --vp-c-brand-1: var(--vp-c-primary-500);
+  --vp-c-brand-soft: rgba(245, 158, 11, 0.1);
+}
+
+/* Orange - Dark Mode */
+.dark[data-theme="orange"],
+[data-theme="orange"].dark {
+  --vp-c-primary-50: #451a03;
+  --vp-c-primary-100: #78350f;
+  --vp-c-primary-200: #92400e;
+  --vp-c-primary-300: #b45309;
+  --vp-c-primary-400: #d97706;
+  --vp-c-primary-500: #f59e0b;
+  --vp-c-primary-600: #fbbf24;
+  --vp-c-primary-700: #fcd34d;
+  --vp-c-primary-800: #fde68a;
+  --vp-c-primary-900: #fef3c7;
+  --vp-c-primary: var(--vp-c-primary-400);
+  --vp-c-brand-1: var(--vp-c-primary-400);
+  --vp-c-brand-soft: rgba(251, 191, 36, 0.2);
+}
+
+/* ============================================
+ * Color Scheme: Purple
+ * ============================================ */
+
+/* Purple - Light Mode */
+[data-theme="purple"] {
+  --vp-c-primary-50: #faf5ff;
+  --vp-c-primary-100: #f3e8ff;
+  --vp-c-primary-200: #e9d5ff;
+  --vp-c-primary-300: #d8b4fe;
+  --vp-c-primary-400: #c084fc;
+  --vp-c-primary-500: #a855f7;
+  --vp-c-primary-600: #8b5cf6;
+  --vp-c-primary-700: #7c3aed;
+  --vp-c-primary-800: #6d28d9;
+  --vp-c-primary-900: #5b21b6;
+  --vp-c-primary: var(--vp-c-primary-600);
+  --vp-c-brand-1: var(--vp-c-primary-600);
+  --vp-c-brand-soft: rgba(139, 92, 246, 0.1);
+}
+
+/* Purple - Dark Mode */
+.dark[data-theme="purple"],
+[data-theme="purple"].dark {
+  --vp-c-primary-50: #2e1065;
+  --vp-c-primary-100: #3b0764;
+  --vp-c-primary-200: #581c87;
+  --vp-c-primary-300: #6d28d9;
+  --vp-c-primary-400: #7c3aed;
+  --vp-c-primary-500: #8b5cf6;
+  --vp-c-primary-600: #a78bfa;
+  --vp-c-primary-700: #c4b5fd;
+  --vp-c-primary-800: #ddd6fe;
+  --vp-c-primary-900: #f3e8ff;
+  --vp-c-primary: var(--vp-c-primary-400);
+  --vp-c-brand-1: var(--vp-c-primary-400);
+  --vp-c-brand-soft: rgba(167, 139, 250, 0.2);
+}
+
+/* ============================================
+ * Utility Classes
+ * ============================================ */
+.text-primary { color: var(--vp-c-primary); }
+.text-secondary { color: var(--vp-c-secondary); }
+.bg-surface { background-color: var(--vp-c-surface); }
+.border-primary { border-color: var(--vp-c-primary); }
+.rounded-md { border-radius: var(--vp-radius-md); }
+.shadow-md { box-shadow: var(--vp-shadow-md); }
+.transition { transition: var(--vp-transition-all); }

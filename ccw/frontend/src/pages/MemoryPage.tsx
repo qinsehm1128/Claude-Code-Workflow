@@ -42,6 +42,7 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import { useMemory, useMemoryMutations, useUnifiedSearch, useUnifiedStats, useRecommendations, useReindex } from '@/hooks';
 import type { CoreMemory, UnifiedSearchResult } from '@/lib/api';
 import { cn, parseMemoryMetadata } from '@/lib/utils';
+import { V2PipelineTab } from '@/components/memory/V2PipelineTab';
 
 // ========== Source Type Helpers ==========
 
@@ -624,7 +625,7 @@ export function MemoryPage() {
   const [isNewMemoryOpen, setIsNewMemoryOpen] = useState(false);
   const [editingMemory, setEditingMemory] = useState<CoreMemory | null>(null);
   const [viewingMemory, setViewingMemory] = useState<CoreMemory | null>(null);
-  const [currentTab, setCurrentTab] = useState<'memories' | 'favorites' | 'archived' | 'unifiedSearch'>('memories');
+  const [currentTab, setCurrentTab] = useState<'memories' | 'favorites' | 'archived' | 'unifiedSearch' | 'v2pipeline'>('memories');
   const [unifiedQuery, setUnifiedQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const isImmersiveMode = useAppStore(selectIsImmersiveMode);
@@ -866,6 +867,11 @@ export function MemoryPage() {
             label: formatMessage({ id: 'memory.tabs.unifiedSearch' }),
             icon: <Search className="h-4 w-4" />,
           },
+          {
+            value: 'v2pipeline',
+            label: 'V2 Pipeline',
+            icon: <Zap className="h-4 w-4" />,
+          },
         ]}
       />
 
@@ -1062,7 +1068,10 @@ export function MemoryPage() {
       )}
 
       {/* Content Area */}
-      {isUnifiedTab ? (
+      {currentTab === 'v2pipeline' ? (
+        /* V2 Pipeline Tab */
+        <V2PipelineTab />
+      ) : isUnifiedTab ? (
         /* Unified Search Results */
         unifiedLoading ? (
           <div className="flex items-center justify-center py-12">

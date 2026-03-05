@@ -23,6 +23,7 @@ import {
   getEnrichedConversation,
   getHistoryWithNativeInfo
 } from '../../tools/cli-executor.js';
+import { listAllNativeSessions } from '../../tools/native-session-discovery.js';
 import { SmartContentFormatter } from '../../tools/cli-output-converter.js';
 import { generateSmartContext, formatSmartContext } from '../../tools/smart-context.js';
 import {
@@ -851,6 +852,57 @@ export async function handleCliRoutes(ctx: RouteContext): Promise<boolean> {
     return true;
   }
 
+  // API: List Native CLI Sessions (with pagination support)
+  if (pathname === '/api/cli/native-sessions' && req.method === 'GET') {
+    const projectPath = url.searchParams.get('path') || null;
+    const limit = parseInt(url.searchParams.get('limit') || '50', 10);
+    const offset = parseInt(url.searchParams.get('offset') || '0', 10);
+    const cursor = url.searchParams.get('cursor'); // ISO timestamp for cursor-based pagination
+
+    try {
+      // Parse cursor timestamp if provided
+      const afterTimestamp = cursor ? new Date(cursor) : undefined;
+
+      // Fetch sessions with limit + 1 to detect if there are more
+      const allSessions = listAllNativeSessions({
+        workingDir: projectPath || undefined,
+        limit: limit + 1, // Fetch one extra to check hasMore
+        afterTimestamp
+      });
+
+      // Determine if there are more results
+      const hasMore = allSessions.length > limit;
+      const sessions = hasMore ? allSessions.slice(0, limit) : allSessions;
+
+      // Get next cursor (timestamp of last item for cursor-based pagination)
+      const nextCursor = sessions.length > 0
+        ? sessions[sessions.length - 1].updatedAt.toISOString()
+        : null;
+
+      // Group sessions by tool
+      const byTool: Record<string, typeof sessions> = {};
+      for (const session of sessions) {
+        if (!byTool[session.tool]) {
+          byTool[session.tool] = [];
+        }
+        byTool[session.tool].push(session);
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        sessions,
+        byTool,
+        hasMore,
+        nextCursor,
+        count: sessions.length
+      }));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: (err as Error).message }));
+    }
+    return true;
+  }
+
   // API: Execute CLI Tool
   if (pathname === '/api/cli/execute' && req.method === 'POST') {
     handlePostRequest(req, res, async (body) => {
@@ -1041,7 +1093,7 @@ export async function handleCliRoutes(ctx: RouteContext): Promise<boolean> {
           return { error: 'Execution not found', status: 404 };
         }
 
-        const review = historyStore.saveReview({
+        const review = await historyStore.saveReview({
           execution_id: executionId,
           status,
           rating,

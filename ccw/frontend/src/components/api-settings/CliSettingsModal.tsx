@@ -164,7 +164,7 @@ export function CliSettingsModal({ open, onClose, cliSettings, defaultProvider }
       setCliProvider(p);
       setMode('direct');
       setProviderId('');
-      setModel(p === 'claude' ? 'sonnet' : '');
+      setModel('');
       setSettingsFile('');
       setAuthToken('');
       setBaseUrl('');
@@ -291,7 +291,7 @@ export function CliSettingsModal({ open, onClose, cliSettings, defaultProvider }
         }
         settings = {
           env,
-          model: model || 'sonnet',
+          model: model || undefined,
           settingsFile: settingsFile.trim() || undefined,
           availableModels,
           tags,
@@ -505,7 +505,7 @@ export function CliSettingsModal({ open, onClose, cliSettings, defaultProvider }
 
                   <div className="space-y-2">
                     <Label htmlFor="model-pb">{formatMessage({ id: 'apiSettings.cliSettings.model' })}</Label>
-                    <Input id="model-pb" value={model} onChange={(e) => setModel(e.target.value)} placeholder="sonnet" />
+                    <Input id="model-pb" value={model} onChange={(e) => setModel(e.target.value)} placeholder="" />
                   </div>
                 </TabsContent>
 
@@ -545,7 +545,7 @@ export function CliSettingsModal({ open, onClose, cliSettings, defaultProvider }
 
                   <div className="space-y-2">
                     <Label htmlFor="model-direct">{formatMessage({ id: 'apiSettings.cliSettings.model' })}</Label>
-                    <Input id="model-direct" value={model} onChange={(e) => setModel(e.target.value)} placeholder="sonnet" />
+                    <Input id="model-direct" value={model} onChange={(e) => setModel(e.target.value)} placeholder="" />
                   </div>
                 </TabsContent>
               </Tabs>
@@ -644,7 +644,7 @@ export function CliSettingsModal({ open, onClose, cliSettings, defaultProvider }
                   id="codex-model"
                   value={model}
                   onChange={(e) => setModel(e.target.value)}
-                  placeholder="gpt-5.2"
+                  placeholder=""
                 />
                 <p className="text-xs text-muted-foreground">
                   指定使用的模型，将自动更新到 config.toml 中
@@ -711,7 +711,7 @@ export function CliSettingsModal({ open, onClose, cliSettings, defaultProvider }
                   id="codex-configtoml"
                   value={configToml}
                   onChange={(e) => setConfigToml(e.target.value)}
-                  placeholder={'model = "gpt-5.2"\nmodel_reasoning_effort = "xhigh"'}
+                  placeholder=""
                   className="font-mono text-sm"
                   rows={6}
                 />
@@ -778,7 +778,7 @@ export function CliSettingsModal({ open, onClose, cliSettings, defaultProvider }
                   id="gemini-model"
                   value={model}
                   onChange={(e) => setModel(e.target.value)}
-                  placeholder="gemini-2.5-flash"
+                  placeholder=""
                 />
               </div>
 
@@ -803,7 +803,7 @@ export function CliSettingsModal({ open, onClose, cliSettings, defaultProvider }
                     id="gemini-settingsjson"
                     value={geminiSettingsJson}
                     onChange={(e) => setGeminiSettingsJson(e.target.value)}
-                    placeholder='{"model": "gemini-2.5-flash", ...}'
+                    placeholder="{}"
                     className="font-mono text-sm"
                     rows={8}
                     readOnly

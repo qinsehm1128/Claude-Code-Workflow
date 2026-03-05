@@ -180,8 +180,17 @@ class TestConfig:
                 assert "typescript" in config.supported_languages
                 assert "java" in config.supported_languages
                 assert "go" in config.supported_languages
+                assert "swift" in config.supported_languages
             finally:
                 del os.environ["CODEXLENS_DATA_DIR"]
+
+    def test_language_for_path_swift(self):
+        """Swift (.swift) files should be recognized as code."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = Config(data_dir=Path(tmpdir))
+            assert config.language_for_path("x.swift") == "swift"
+            assert config.language_for_path("X.SWIFT") == "swift"
+            assert config.category_for_path("x.swift") == "code"
 
     def test_cache_dir_property(self):
         """Test cache_dir property."""

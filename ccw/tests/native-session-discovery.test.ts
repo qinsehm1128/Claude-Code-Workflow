@@ -18,9 +18,10 @@ import { after, afterEach, before, beforeEach, describe, it, mock } from 'node:t
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 const TEST_CCW_HOME = mkdtempSync(join(tmpdir(), 'ccw-session-discovery-home-'));
+const TEST_USER_HOME = mkdtempSync(join(tmpdir(), 'ccw-session-discovery-user-home-'));
 const TEST_PROJECT_ROOT = mkdtempSync(join(tmpdir(), 'ccw-session-discovery-project-'));
 
 const sessionDiscoveryUrl = new URL('../dist/tools/native-session-discovery.js', import.meta.url);
@@ -34,7 +35,17 @@ let mod: any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let cliExecutorMod: any;
 
-const originalEnv = { CCW_DATA_DIR: process.env.CCW_DATA_DIR };
+const originalEnv = {
+  CCW_DATA_DIR: process.env.CCW_DATA_DIR,
+  HOME: process.env.HOME,
+  USERPROFILE: process.env.USERPROFILE
+};
+
+function normalizeGeminiProjectRootPath(projectDir: string): string {
+  const absolutePath = resolve(projectDir);
+  if (process.platform !== 'win32') return absolutePath;
+  return absolutePath.replace(/\//g, '\\').toLowerCase();
+}
 
 function resetDir(dirPath: string): void {
   if (existsSync(dirPath)) {
@@ -49,11 +60,13 @@ function resetDir(dirPath: string): void {
 function createMockGeminiSession(filePath: string, options: {
   sessionId: string;
   startTime: string;
+  projectHash?: string;
   transactionId?: string;
   firstPrompt?: string;
 }): void {
   const sessionData = {
     sessionId: options.sessionId,
+    projectHash: options.projectHash,
     startTime: options.startTime,
     lastUpdated: new Date().toISOString(),
     messages: [
@@ -121,6 +134,8 @@ function createMockCodexSession(filePath: string, options: {
 describe('Native Session Discovery - Resume Mechanism Fixes (L0-L2)', async () => {
   before(async () => {
     process.env.CCW_DATA_DIR = TEST_CCW_HOME;
+    process.env.HOME = TEST_USER_HOME;
+    process.env.USERPROFILE = TEST_USER_HOME;
     mod = await import(sessionDiscoveryUrl.href);
     cliExecutorMod = await import(cliExecutorUrl.href);
   });
@@ -132,6 +147,7 @@ describe('Native Session Discovery - Resume Mechanism Fixes (L0-L2)', async () =
     mock.method(console, 'log', () => {});
 
     resetDir(TEST_CCW_HOME);
+    resetDir(TEST_USER_HOME);
   });
 
   afterEach(() => {
@@ -140,7 +156,10 @@ describe('Native Session Discovery - Resume Mechanism Fixes (L0-L2)', async () =
 
   after(() => {
     process.env.CCW_DATA_DIR = originalEnv.CCW_DATA_DIR;
+    process.env.HOME = originalEnv.HOME;
+    process.env.USERPROFILE = originalEnv.USERPROFILE;
     rmSync(TEST_CCW_HOME, { recursive: true, force: true });
+    rmSync(TEST_USER_HOME, { recursive: true, force: true });
     rmSync(TEST_PROJECT_ROOT, { recursive: true, force: true });
   });
 
@@ -358,6 +377,39 @@ describe('Native Session Discovery - Resume Mechanism Fixes (L0-L2)', async () =
       const content = readFileSync(sessionPath, 'utf8');
       assert.ok(content.includes('[CCW-TX-ID:'));
       assert.ok(content.includes('ccw-tx-codex-test-789'));
+    });
+  });
+
+  describe('L1: Gemini discovery - project-name folder layout', () => {
+    it('discovers sessions under ~/.gemini/tmp/<projectName>/chats via projects.json mapping', () => {
+      const projectName = `proj-${Date.now()}`;
+      const projectRootKey = normalizeGeminiProjectRootPath(TEST_PROJECT_ROOT);
+
+      const geminiHome = join(TEST_USER_HOME, '.gemini');
+      const tmpDir = join(geminiHome, 'tmp');
+      const projectDir = join(tmpDir, projectName);
+      const chatsDir = join(projectDir, 'chats');
+      mkdirSync(chatsDir, { recursive: true });
+
+      // Gemini uses both projects.json mapping and a `.project_root` marker.
+      mkdirSync(geminiHome, { recursive: true });
+      writeFileSync(
+        join(geminiHome, 'projects.json'),
+        JSON.stringify({ projects: { [projectRootKey]: projectName } }),
+        'utf8'
+      );
+      writeFileSync(join(projectDir, '.project_root'), projectRootKey, 'utf8');
+
+      const sessionPath = join(chatsDir, `session-test-${Date.now()}.json`);
+      createMockGeminiSession(sessionPath, {
+        sessionId: `uuid-${Date.now()}`,
+        startTime: new Date().toISOString(),
+        projectHash: 'abc123',
+        firstPrompt: 'Test Gemini prompt'
+      });
+
+      const sessions = mod.getNativeSessions('gemini', { workingDir: TEST_PROJECT_ROOT });
+      assert.ok(sessions.some((s: { filePath: string }) => s.filePath === sessionPath));
     });
   });
 

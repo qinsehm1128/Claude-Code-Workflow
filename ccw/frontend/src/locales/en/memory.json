@@ -109,5 +109,99 @@
     "vectorRank": "Vector #{rank}",
     "ftsRank": "FTS #{rank}",
     "heatScore": "Heat: {score}"
+  },
+  "v2": {
+    "title": "Memory V2 Pipeline",
+    "extraction": {
+      "title": "Extraction",
+      "description": "Extract structured memories from CLI sessions",
+      "trigger": "Trigger Extraction",
+      "extracting": "Extracting...",
+      "extracted": "Extracted",
+      "recentJobs": "Recent Jobs",
+      "lastRun": "Last run",
+      "triggered": "Extraction triggered",
+      "triggerError": "Failed to trigger extraction"
+    },
+    "consolidation": {
+      "title": "Consolidation",
+      "description": "Consolidate extraction results into MEMORY.md",
+      "trigger": "Trigger Consolidation",
+      "consolidating": "Consolidating...",
+      "preview": "Preview",
+      "memoryMd": "MEMORY.md",
+      "exists": "Exists",
+      "notExists": "Not Exists",
+      "inputs": "Inputs",
+      "lastRun": "Last run",
+      "triggered": "Consolidation triggered",
+      "triggerError": "Failed to trigger consolidation",
+      "copySuccess": "Copied",
+      "noContent": "No content available"
+    },
+    "jobs": {
+      "title": "Jobs",
+      "kind": "Kind",
+      "key": "Key",
+      "status": "Status",
+      "error": "Error",
+      "noJobs": "No jobs found",
+      "allKinds": "All Kinds",
+      "extraction": "Extraction",
+      "consolidation": "Consolidation",
+      "statusFilter": {
+        "all": "All Status",
+        "pending": "Pending",
+        "running": "Running",
+        "done": "Done",
+        "error": "Error"
+      },
+      "detail": {
+        "title": "Job Details",
+        "kind": "Kind",
+        "jobKey": "Job ID",
+        "status": "Status",
+        "startedAt": "Started At",
+        "finishedAt": "Finished At",
+        "workerId": "Worker ID",
+        "retryRemaining": "Retry Remaining",
+        "error": "Error",
+        "noError": "No error"
+      }
+    },
+    "status": {
+      "idle": "Idle",
+      "running": "Running",
+      "completed": "Completed",
+      "done": "Done",
+      "error": "Error",
+      "pending": "Pending"
+    },
+    "statusBanner": {
+      "running": "Pipeline Running - {count} job(s) in progress",
+      "hasErrors": "Pipeline Idle - {count} job(s) failed"
+    },
+    "preview": {
+      "title": "Extraction Queue Preview",
+      "selectSessions": "Search sessions...",
+      "sourceCcw": "CCW",
+      "sourceNative": "Native",
+      "selectAll": "Select All",
+      "selectNone": "Select None",
+      "extractSelected": "Extract Selected ({count})",
+      "noSessions": "No sessions found",
+      "total": "Total",
+      "eligible": "Eligible",
+      "extracted": "Already Extracted",
+      "ready": "Ready",
+      "previewQueue": "Preview Queue",
+      "includeNative": "Include Native Sessions",
+      "selected": "{count} sessions selected",
+      "selectHint": "Select sessions to extract",
+      "ineligible": "Ineligible"
+    },
+    "extraction": {
+      "selectiveTriggered": "Selective extraction triggered"
+    }
   }
 }

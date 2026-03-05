@@ -3531,8 +3531,20 @@ class ChainSearchEngine:
             self.logger.debug("Using single-threaded mode for vector search (GPU safety)")
             # Pre-load embedder to avoid initialization overhead per-search
             try:
-                from codexlens.semantic.embedder import get_embedder
-                get_embedder(profile="code", use_gpu=True)
+                from codexlens.semantic.factory import get_embedder as get_embedder_factory
+
+                embedding_backend = "fastembed"
+                embedding_model = "code"
+                use_gpu = True
+                if self._config is not None:
+                    embedding_backend = getattr(self._config, "embedding_backend", embedding_backend) or embedding_backend
+                    embedding_model = getattr(self._config, "embedding_model", embedding_model) or embedding_model
+                    use_gpu = bool(getattr(self._config, "embedding_use_gpu", use_gpu))
+
+                if embedding_backend == "litellm":
+                    get_embedder_factory(backend="litellm", model=embedding_model)
+                else:
+                    get_embedder_factory(backend="fastembed", profile=embedding_model, use_gpu=use_gpu)
             except Exception:
                 pass  # Ignore pre-load failures
 

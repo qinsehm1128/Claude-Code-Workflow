@@ -19,12 +19,27 @@ import {
 import { useProjectOperations, useMcpServerMutations } from '@/hooks';
 import { cn } from '@/lib/utils';
 import type { McpServer } from '@/lib/api';
+import { isHttpMcpServer, isStdioMcpServer } from '@/lib/api';
 
 // ========== Types ==========
 
-export interface OtherProjectServer extends McpServer {
+/**
+ * Server from another project
+ * Contains base server fields plus project metadata
+ */
+export interface OtherProjectServer {
+  name: string;
+  enabled: boolean;
+  /** Display text - command for STDIO, URL for HTTP */
+  displayText: string;
+  /** Transport type */
+  transport: 'stdio' | 'http';
+  /** Project path */
   projectPath: string;
+  /** Project name */
   projectName: string;
+  /** Original server data */
+  originalServer: McpServer;
 }
 
 export interface OtherProjectsSectionProps {
@@ -63,12 +78,17 @@ export function OtherProjectsSection({
 
       for (const [path, serverList] of Object.entries(response.servers)) {
         const projectName = path.split(/[/\\]/).filter(Boolean).pop() || path;
-        for (const server of (serverList as Omit<McpServer, 'scope'>[])) {
+        for (const server of (serverList as McpServer[])) {
           servers.push({
-            ...server,
-            scope: 'project',
+            name: server.name,
+            enabled: server.enabled,
+            displayText: isHttpMcpServer(server)
+              ? server.url
+              : (isStdioMcpServer(server) ? server.command : ''),
+            transport: server.transport,
             projectPath: path,
             projectName,
+            originalServer: server,
           });
         }
       }
@@ -88,14 +108,14 @@ export function OtherProjectsSection({
       // Generate a unique name by combining project name and server name
       const uniqueName = `${server.projectName}-${server.name}`.toLowerCase().replace(/\s+/g, '-');
 
-      await createServer({
+      // Create server based on transport type
+      const serverToCreate: McpServer = {
+        ...server.originalServer,
         name: uniqueName,
-        command: server.command,
-        args: server.args,
-        env: server.env,
         scope: 'project',
-        enabled: server.enabled,
-      });
+      };
+
+      await createServer(serverToCreate);
 
       onImportSuccess?.(uniqueName, server.projectPath);
     } catch (error) {
@@ -203,7 +223,7 @@ export function OtherProjectsSection({
                       )}
                     </div>
                     <p className="text-xs text-muted-foreground font-mono truncate">
-                      {server.command} {(server.args || []).join(' ')}
+                      {server.displayText}
                     </p>
                     <p className="text-xs text-muted-foreground truncate">
                       <span className="font-medium">{server.projectName}</span>

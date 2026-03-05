@@ -5,7 +5,7 @@
 
 <!-- Badges -->
 <p>
-  <a href="https://github.com/catlog22/Claude-Code-Workflow/releases"><img src="https://img.shields.io/badge/version-v6.3.33-6366F1?style=flat-square" alt="Version"/></a>
+  <a href="https://github.com/catlog22/Claude-Code-Workflow/releases"><img src="https://img.shields.io/badge/version-v7.0.0-6366F1?style=flat-square" alt="Version"/></a>
   <a href="https://www.npmjs.com/package/claude-code-workflow"><img src="https://img.shields.io/npm/v/claude-code-workflow?style=flat-square&color=cb3837" alt="npm"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-10B981?style=flat-square" alt="License"/></a>
   <a href="https://github.com/catlog22/Claude-Code-Workflow/stargazers"><img src="https://img.shields.io/github/stars/catlog22/Claude-Code-Workflow?style=flat-square&color=F59E0B" alt="Stars"/></a>
@@ -17,7 +17,7 @@
 <br/>
 
 <!-- Typing Animation -->
-<a href="https://git.io/typing-svg"><img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=22&pause=1000&color=6366F1&center=true&vCenter=true&random=false&width=600&lines=JSON+驱动的多智能体框架;4+级工作流系统;语义化+CLI+编排;Gemini+%7C+Codex+%7C+OpenCode+%7C+Qwen+%7C+Claude" alt="Typing SVG" /></a>
+<a href="https://git.io/typing-svg"><img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=22&pause=1000&color=6366F1&center=true&vCenter=true&random=false&width=600&lines=JSON+驱动的多智能体框架;Skill+工作流系统;语义化+CLI+编排;Gemini+%7C+Codex+%7C+OpenCode+%7C+Qwen+%7C+Claude" alt="Typing SVG" /></a>
 
 </div>
 
@@ -42,33 +42,39 @@
 <tr>
 <td width="50%">
 
-### 🎯 4 级工作流
-从 `lite-lite-lite`（即时执行）到 `brainstorm`（多角色分析）
+### 🎯 Skill 工作流
+从 `lite-plan`（轻量规划）到 `brainstorm`（多角色分析）
 
 ### 🔄 多 CLI 编排
 Gemini、Qwen、Codex、Claude - 自动选择或手动指定
 
-### ⚡ 依赖感知并行
-Agent 并行执行，无需 worktree 复杂性
+### ⚡ Team 架构 v2
+基于角色的智能体，支持内循环执行
+
+### 🔧 队列调度器
+后台队列执行服务
 
 </td>
 <td width="50%">
 
-### 🔧 Issue 工作流
-开发后维护，可选 worktree 隔离
+### 📦 会话生命周期
+启动/恢复/完成/同步工作流会话
 
-### 📦 JSON 优先状态
-`.task/IMPL-*.json` 作为唯一事实来源
+### 🖥️ 终端仪表板
+多终端网格带执行监控器
 
-### 🖥️ Dashboard
-可视化会话管理、CodexLens 搜索、图浏览器
+### 🎨 编排器编辑器
+基于模板的可视化工作流编辑
+
+### 💬 A2UI
+智能体到用户的交互界面
 
 </td>
 </tr>
 </table>
 </div>
 
-> 📖 **新用户？** 查看 [工作流指南](WORKFLOW_GUIDE_CN.md) 了解完整的 4 级工作流系统。
+> 📖 **新用户？** 查看 [工作流指南](WORKFLOW_GUIDE_CN.md) 了解完整的工作流文档。
 
 ---
 
@@ -81,39 +87,44 @@ npm install -g claude-code-workflow
 ccw install -m Global
 ```
 
-### 选择工作流级别
+### 工作流 Skill 与命令
+
+CCW 使用两种调用方式：
+
+| 类型 | 格式 | 示例 |
+|------|------|------|
+| **Skills** | 触发短语（无斜杠） | `workflow-lite-planex`, `brainstorm`, `workflow-plan` |
+| **Commands** | 斜杠命令 | `/ccw`, `/workflow/session:start`, `/issue/new` |
+
+### 选择工作流 Skill
 
 <div align="center">
 <table>
-<tr><th>级别</th><th>命令</th><th>使用场景</th></tr>
-<tr><td><b>1</b></td><td><code>/workflow:lite-lite-lite</code></td><td>快速修复、配置调整</td></tr>
-<tr><td><b>2</b></td><td><code>/workflow:lite-plan</code></td><td>明确的单模块功能</td></tr>
-<tr><td><b>2</b></td><td><code>/workflow:lite-fix</code></td><td>Bug 诊断修复</td></tr>
-<tr><td><b>2</b></td><td><code>/workflow:multi-cli-plan</code></td><td>多视角分析</td></tr>
-<tr><td><b>3</b></td><td><code>/workflow:plan</code></td><td>多模块开发</td></tr>
-<tr><td><b>3</b></td><td><code>/workflow:tdd-plan</code></td><td>测试驱动开发</td></tr>
-<tr><td><b>4</b></td><td><code>/workflow:brainstorm:auto-parallel</code></td><td>新功能、架构设计</td></tr>
+<tr><th>Skill 触发词</th><th>使用场景</th></tr>
+<tr><td><code>workflow-lite-planex</code></td><td>轻量规划、单模块功能</td></tr>
+<tr><td><code>workflow-multi-cli-plan</code></td><td>多 CLI 协同分析</td></tr>
+<tr><td><code>workflow-plan</code></td><td>完整规划与会话持久化</td></tr>
+<tr><td><code>workflow-tdd-plan</code></td><td>测试驱动开发</td></tr>
+<tr><td><code>workflow-test-fix</code></td><td>测试生成与修复循环</td></tr>
+<tr><td><code>brainstorm</code></td><td>多角色头脑风暴分析</td></tr>
 </table>
 </div>
 
 ### 工作流示例
 
 ```bash
-# Level 1: 即时执行
-/workflow:lite-lite-lite "修复 README 中的拼写错误"
+# Skill 触发（无斜杠 - 直接描述你想做什么）
+workflow-lite-planex "添加 JWT 认证"
+workflow-plan "实现支付网关集成"
+workflow-execute
 
-# Level 2: 轻量规划
-/workflow:lite-plan "添加 JWT 认证"
-/workflow:lite-fix "用户上传失败返回 413 错误"
+# 头脑风暴
+brainstorm "设计实时协作系统"
 
-# Level 3: 标准规划 + Session
-/workflow:plan "实现支付网关集成"
-/workflow:execute
-
-# Level 4: 多角色头脑风暴
-/workflow:brainstorm:auto-parallel "设计实时协作系统" --count 5
-/workflow:plan --session WFS-xxx
-/workflow:execute
+# 会话管理命令
+/workflow:session:start
+/workflow:session:resume
+/workflow:session:complete
 ```
 
 ---
@@ -168,49 +179,6 @@ ccw install -m Global
 
 </div>
 
-<details>
-<summary><b>📝 更多示例</b></summary>
-
-```text
-# 单 CLI 调用
-用户: "使用 Gemini 分析数据库查询性能"
-→ 系统自动调用: gemini CLI 执行分析任务
-
-# 协同分析
-用户: "使用 Gemini 和 Codex 协同审查认证流程"
-→ 系统自动调用: gemini + codex CLI，综合分析结果
-
-# 并行多视角
-用户: "让所有可用的 CLI 并行分析这个架构设计"
-→ 系统自动调用: gemini, codex, qwen 并行执行 → 合并报告
-
-# 顺序流水线
-用户: "用 Gemini 规划重构方案，然后 Codex 实现"
-→ 系统自动调用: gemini（规划）→ codex（实现）顺序执行
-```
-
-</details>
-
-### 自定义 CLI 注册
-
-通过 Dashboard 界面 **注册任意 API 为自定义 CLI**：
-
-```bash
-ccw view  # 打开 Dashboard → Status → API Settings → 添加自定义 CLI
-```
-
-<div align="center">
-
-| 字段 | 示例 |
-|------|------|
-| **名称** | `deepseek` |
-| **端点** | `https://api.deepseek.com/v1/chat` |
-| **API Key** | `your-api-key` |
-
-</div>
-
-> ⚙️ 注册一次，永久语义调用 - 无需修改代码。
-
 ---
 
 ## 🔍 ACE Tool 配置
@@ -241,42 +209,24 @@ ACE (Augment Context Engine) 提供强大的语义代码搜索能力。
 </table>
 </div>
 
-<details>
-<summary><b>📦 安装</b></summary>
-
-```bash
-# 进入 codex-lens 目录
-cd codex-lens
-
-# 安装依赖
-pip install -e .
-
-# 初始化索引
-codexlens index /path/to/project
-```
-
-通过 `ccw view` 打开 Dashboard，在 **CodexLens Manager** 中管理索引和执行搜索。
-
-</details>
-
 ---
 
 ## 💻 CCW CLI 命令
 
-### 🌟 推荐命令（核心功能）
+### 🌟 推荐命令
 
 <div align="center">
 <table>
 <tr><th>命令</th><th>说明</th><th>适用场景</th></tr>
 <tr>
   <td><b>/ccw</b></td>
-  <td>自动工作流编排器 - 分析意图、自动选择工作流级别、在主进程中执行命令链</td>
-  <td>✅ 通用任务、自动选择工作流、快速开发</td>
+  <td>自动工作流编排器 - 分析意图、选择工作流、执行</td>
+  <td>✅ 通用任务、自动选择工作流</td>
 </tr>
 <tr>
   <td><b>/ccw-coordinator</b></td>
-  <td>智能编排器 - 智能推荐命令链、支持手动调整、通过外部 CLI 执行、持久化状态</td>
-  <td>🔧 复杂多步骤工作流、可自定义链、可恢复会话</td>
+  <td>智能编排器 - 推荐命令链、支持手动调整</td>
+  <td>🔧 复杂多步骤工作流</td>
 </tr>
 </table>
 </div>
@@ -284,25 +234,33 @@ codexlens index /path/to/project
 **快速示例**：
 
 ```bash
-# /ccw - 自动工作流选择（主进程）
-/ccw "添加用户认证"                    # 自动根据意图选择工作流
-/ccw "修复 WebSocket 中的内存泄漏"     # 识别为 bugfix 工作流
-/ccw "使用 TDD 方式实现"                # 路由到 TDD 工作流
+# /ccw - 自动工作流选择
+/ccw "添加用户认证"
+/ccw "修复 WebSocket 中的内存泄漏"
+/ccw "使用 TDD 方式实现"
 
-# /ccw-coordinator - 手动链编排（外部 CLI）
-/ccw-coordinator "实现 OAuth2 系统"     # 分析 → 推荐链 → 用户确认 → 执行
+# /ccw-coordinator - 手动链编排
+/ccw-coordinator "实现 OAuth2 系统"
 ```
 
-**主要区别**：
+### 会话管理命令
 
-| 方面 | /ccw | /ccw-coordinator |
-|------|------|------------------|
-| **执行方式** | 主进程（SlashCommand） | 外部 CLI（后台任务） |
-| **选择方式** | 自动基于意图识别 | 智能推荐 + 可选调整 |
-| **状态管理** | TodoWrite 跟踪 | 持久化 state.json |
-| **适用场景** | 通用任务、快速开发 | 复杂链条、可恢复 |
+```bash
+/workflow:session:start     # 启动新工作流会话
+/workflow:session:resume    # 恢复暂停的会话
+/workflow:session:list      # 列出所有会话
+/workflow:session:sync      # 同步会话工作
+/workflow:session:complete  # 完成会话
+```
 
----
+### Issue 工作流命令
+
+```bash
+/issue/new       # 创建新 issue
+/issue/plan      # 规划 issue 解决方案
+/issue/queue     # 形成执行队列
+/issue/execute   # 执行 issue 队列
+```
 
 ### 其他 CLI 命令
 
@@ -313,57 +271,130 @@ ccw cli -p "..."      # 执行 CLI 工具 (Gemini/Qwen/Codex)
 ccw upgrade -a        # 升级所有安装
 ```
 
-### Dashboard 功能
-
-<div align="center">
-<table>
-<tr><th>功能</th><th>说明</th></tr>
-<tr><td><b>会话概览</b></td><td>跟踪工作流会话和进度</td></tr>
-<tr><td><b>CodexLens</b></td><td>FTS + 语义 + 混合代码搜索</td></tr>
-<tr><td><b>图浏览器</b></td><td>交互式代码关系可视化</td></tr>
-<tr><td><b>CLI 管理器</b></td><td>执行历史与会话恢复</td></tr>
-</table>
-</div>
-
----
-
-## 📖 文档
-
-<div align="center">
-
-| 文档 | 说明 |
-|------|------|
-| [**工作流指南**](WORKFLOW_GUIDE_CN.md) | 4 级工作流系统（推荐） |
-| [**快速开始**](GETTING_STARTED_CN.md) | 5 分钟快速入门 |
-| [**Dashboard 指南**](DASHBOARD_GUIDE.md) | Dashboard 用户指南 |
-| [**常见问题**](FAQ.md) | 常见问题解答 |
-| [**更新日志**](CHANGELOG.md) | 版本历史 |
-
-</div>
-
 ---
 
 ## 🏗️ 架构概览
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     主干工作流 (4 级)                            │
-│  ⚡ Level 1: lite-lite-lite (即时执行，无产物)                   │
-│  📝 Level 2: lite-plan / lite-fix / multi-cli-plan (→ execute)  │
-│  📊 Level 3: plan / tdd-plan / test-fix-gen (Session 持久化)     │
-│  🧠 Level 4: brainstorm:auto-parallel → plan → execute          │
+│                     工作流 Skills                                │
+│  📝 workflow-lite-planex / workflow-multi-cli-plan (轻量级)       │
+│  📊 workflow-plan / workflow-tdd-plan (会话式)                  │
+│  🧪 workflow-test-fix / workflow-test-fix         │
+│  🧠 brainstorm (多角色分析)                                      │
 └─────────────────────────────────────────────────────────────────┘
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│                     Issue 工作流 (补充)                          │
-│  🔍 discover → 📋 plan → 📦 queue → ▶️ execute (worktree)        │
+│                     Team 架构 v2                                 │
+│  🤖 基于 role-spec 的 team-worker 智能体执行                     │
+│  🔄 内循环框架用于顺序任务处理                                   │
+│  📢 消息总线协议与团队协调                                       │
+│  🧠 智慧积累 (learnings/decisions/conventions)                   │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                     队列调度服务                                  │
+│  ⚙️ 后台执行服务与 API 端点                                      │
+│  📊 队列管理与统一的 CLI 执行设置                                │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                     终端仪表板与编排器                            │
+│  🖥️ 多终端网格与执行监控器                                       │
+│  🎨 基于模板的工作流编辑器与斜杠命令                             │
+│  📡 通过 A2UI 实现实时智能体通信                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**核心原则：**
-- ⚡ **依赖分析** 解决并行问题 - 主干工作流无需 worktree
-- 🔧 **Issue 工作流** 补充主干工作流，用于开发后维护
-- 🎯 根据复杂度选择工作流级别 - 避免过度工程化
+---
+
+## 📦 项目结构
+
+```
+Claude-Code-Workflow/
+├── .claude/
+│   ├── agents/          # 22 个专业化智能体 (team-worker, cli-discuss 等)
+│   ├── commands/        # 斜杠命令（5 个类别）
+│   │   ├── ccw.md       # 主编排器
+│   │   ├── ccw-coordinator.md
+│   │   ├── cli/         # CLI 命令 (cli-init, codex-review)
+│   │   ├── issue/       # Issue 管理 (plan, execute, queue)
+│   │   ├── memory/      # 内存命令 (prepare, style-skill-memory)
+│   │   └── workflow/    # 工作流命令 (session, ui-design 等)
+│   └── skills/          # 37 个模块化技能
+│       ├── workflow-lite-planex/
+│       ├── workflow-plan/
+│       ├── workflow-tdd-plan/
+│       ├── workflow-test-fix/
+│       ├── brainstorm/
+│       ├── team-*/      # 团队协调技能
+│       └── ...
+├── ccw/
+│   ├── src/             # TypeScript 源码
+│   │   ├── commands/    # CLI 命令实现
+│   │   ├── core/        # 核心服务 (a2ui, auth, hooks, routes)
+│   │   ├── mcp-server/  # MCP 服务器实现
+│   │   └── tools/       # 工具实现
+│   └── frontend/        # React 前端（终端仪表板、编排器）
+├── codex-lens/          # 本地语义代码搜索引擎
+└── docs/                # 文档
+```
+
+---
+
+## 🎼 团队节拍控制 (Beat Model)
+
+v2 团队架构引入了**事件驱动的节拍模型**，实现高效编排：
+
+```
+节拍循环 (单个节拍)
+======================================================================
+  事件                    协调器                    工作者
+----------------------------------------------------------------------
+  回调/恢复 --> +- 处理回调 ------+
+                |  标记已完成      |
+                |  检查流水线      |
+                +- 处理下一批 -----+
+                |  查找就绪任务    |
+                |  生成工作者 -----+--> [team-worker A] 阶段 1-5
+                |  (可并行)      --+--> [team-worker B] 阶段 1-5
+                +- 停止 (空闲) ----+         |
+                                             |
+  回调 <--------------------------------------+
+  (下一节拍)        SendMessage + TaskUpdate(completed)
+======================================================================
+```
+
+**核心优势：**
+- 🎯 **事件驱动**：协调器仅在需要时唤醒（回调/恢复）
+- ⚡ **快速推进**：简单后继直接生成，无需协调器往返
+- 🔄 **动态流水线**：根据依赖图按任务生成
+- 📊 **并行执行**：独立任务并发运行
+
+---
+
+## 🖥️ 前端亮点
+
+### 终端仪表板 (Terminal Dashboard)
+
+多终端网格布局，实时执行监控。
+
+**功能特性：**
+- 🖥️ 多终端网格，可调整窗格大小
+- 📊 带智能体列表的执行监控器
+- 📁 项目导航文件侧边栏
+- 🎯 按项目标签分组会话
+- 🌙 全屏/沉浸模式
+
+### 编排器编辑器 (Orchestrator Editor)
+
+可视化工作流模板编辑器，支持拖放。
+
+**功能特性：**
+- 🎨 基于 React Flow 的可视化编辑
+- 📦 预构建工作流的模板库
+- 🔧 节点配置属性面板
+- ⚡ 斜杠命令集成
 
 ---
 
@@ -372,7 +403,6 @@ ccw upgrade -a        # 升级所有安装
 <div align="center">
   <a href="https://github.com/catlog22/Claude-Code-Workflow"><img src="https://img.shields.io/badge/GitHub-仓库-181717?style=flat-square" alt="GitHub"/></a>
   <a href="https://github.com/catlog22/Claude-Code-Workflow/issues"><img src="https://img.shields.io/badge/Issues-报告问题-EF4444?style=flat-square" alt="Issues"/></a>
-  <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/贡献-指南-10B981?style=flat-square" alt="Contributing"/></a>
 </div>
 
 ---

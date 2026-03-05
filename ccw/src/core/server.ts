@@ -1,5 +1,8 @@
 import http from 'http';
 import { URL } from 'url';
+import { readFile } from 'fs/promises';
+import { join, extname } from 'path';
+import { existsSync } from 'fs';
 // Import route handlers
 import { handleStatusRoutes } from './routes/status-routes.js';
 import { handleCliRoutes, cleanupStaleExecutions } from './routes/cli-routes.js';
@@ -21,6 +24,7 @@ import { handleSkillsRoutes } from './routes/skills-routes.js';
 import { handleSkillHubRoutes } from './routes/skill-hub-routes.js';
 import { handleCommandsRoutes } from './routes/commands-routes.js';
 import { handleIssueRoutes } from './routes/issue-routes.js';
+import { handleQueueSchedulerRoutes } from './routes/queue-routes.js';
 import { handleDiscoveryRoutes } from './routes/discovery-routes.js';
 import { handleRulesRoutes } from './routes/rules-routes.js';
 import { handleSessionRoutes } from './routes/session-routes.js';
@@ -40,20 +44,26 @@ import { handleOrchestratorRoutes } from './routes/orchestrator-routes.js';
 import { handleConfigRoutes } from './routes/config-routes.js';
 import { handleTeamRoutes } from './routes/team-routes.js';
 import { handleNotificationRoutes } from './routes/notification-routes.js';
+import { handleAnalysisRoutes } from './routes/analysis-routes.js';
+import { handleSpecRoutes } from './routes/spec-routes.js';
+import { handleDeepWikiRoutes } from './routes/deepwiki-routes.js';
 
 // Import WebSocket handling
 import { handleWebSocketUpgrade, broadcastToClients, extractSessionIdFromPath } from './websocket.js';
 
 import { getTokenManager } from './auth/token-manager.js';
-import { authMiddleware, isLocalhostRequest, setAuthCookie } from './auth/middleware.js';
+import { authMiddleware, isLocalhostRequest, isWildcardHost, setAuthCookie } from './auth/middleware.js';
 import { getCorsOrigin } from './cors.js';
 import { csrfValidation } from './auth/csrf-middleware.js';
 import { getCsrfTokenManager } from './auth/csrf-manager.js';
 import { randomBytes } from 'crypto';
+import { getFrontendStaticDir } from '../utils/react-frontend.js';
 
 // Import health check service
 import { getHealthCheckService } from './services/health-check-service.js';
 import { getCliSessionShareManager } from './services/cli-session-share.js';
+import { getCliSessionManager } from './services/cli-session-manager.js';
+import { QueueSchedulerService } from './services/queue-scheduler-service.js';
 
 // Import status check functions for warmup
 import { checkSemanticStatus, checkVenvStatus } from '../tools/codex-lens.js';
@@ -71,6 +81,80 @@ interface ServerOptions {
 }
 
 type PostHandler = PostRequestHandler;
+
+/**
+ * MIME type mapping for static files
+ */
+const MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html',
+  '.js': 'application/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.eot': 'application/vnd.ms-fontobject',
+};
+
+/**
+ * Serve static file from frontend dist directory
+ */
+async function serveStaticFile(
+  filePath: string,
+  res: http.ServerResponse
+): Promise<boolean> {
+  try {
+    if (!existsSync(filePath)) {
+      return false;
+    }
+
+    const content = await readFile(filePath);
+    const ext = extname(filePath);
+    const mimeType = MIME_TYPES[ext] || 'application/octet-stream';
+
+    // Determine cache strategy based on file type
+    const fileName = filePath.split('/').pop() || '';
+    const isIndexHtml = filePath.endsWith('index.html');
+    const isAssetFile = fileName.startsWith('index-') && (ext === '.js' || ext === '.css');
+
+    // For index.html: use no-cache to prevent stale content issues
+    if (isIndexHtml) {
+      res.writeHead(200, {
+        'Content-Type': mimeType,
+        'Cache-Control': 'no-cache',
+      });
+      res.end(content);
+      return true;
+    }
+
+    // For assets (JS/CSS with hash in filenames), use long-term cache
+    if (isAssetFile) {
+      res.writeHead(200, {
+        'Content-Type': mimeType,
+        'Cache-Control': 'public, max-age=31536000, immutable',
+      });
+      res.end(content);
+      return true;
+    }
+
+    // For other files (fallback to index.html for SPA), use no-cache
+    res.writeHead(200, {
+      'Content-Type': mimeType,
+      'Cache-Control': 'no-cache',
+    });
+    res.end(content);
+    return true;
+  } catch (error) {
+    console.error(`[Static] Error serving ${filePath}:`, error);
+    return false;
+  }
+}
 
 /**
  * Handle POST request with JSON body
@@ -200,7 +284,8 @@ function setCsrfCookie(res: http.ServerResponse, token: string, maxAgeSeconds: n
   const attributes = [
     `XSRF-TOKEN=${encodeURIComponent(token)}`,
     'Path=/',
-    'HttpOnly',
+    // Note: XSRF-TOKEN must be readable by JavaScript for CSRF protection to work
+    // The token is also sent via X-CSRF-Token header, so not having HttpOnly is safe
     'SameSite=Strict',
     `Max-Age=${maxAgeSeconds}`,
   ];
@@ -292,6 +377,10 @@ export async function startServer(options: ServerOptions = {}): Promise<http.Ser
   const unauthenticatedPaths = new Set<string>(['/api/auth/token', '/api/csrf-token', '/api/hook', '/api/test/ask-question', '/api/a2ui/answer']);
   const cliSessionShareManager = getCliSessionShareManager();
 
+  // Initialize Queue Scheduler Service (needs broadcastToClients and cliSessionManager)
+  const cliSessionManager = getCliSessionManager(initialPath);
+  const queueSchedulerService = new QueueSchedulerService(broadcastToClients, cliSessionManager);
+
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://localhost:${serverPort}`);
     const pathname = url.pathname;
@@ -330,9 +419,11 @@ export async function startServer(options: ServerOptions = {}): Promise<http.Ser
         server
       };
 
-      // Token acquisition endpoint (localhost-only)
+      // Token acquisition endpoint (localhost-only, or any interface when bound to 0.0.0.0)
       if (pathname === '/api/auth/token') {
-        if (!isLocalhostRequest(req)) {
+        // Allow from any interface when server is bound to 0.0.0.0 or ::
+        const allowAllInterfaces = isWildcardHost(host);
+        if (!isLocalhostRequest(req, allowAllInterfaces)) {
           res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
           res.end(JSON.stringify({ error: 'Forbidden' }));
           return;
@@ -434,6 +525,11 @@ export async function startServer(options: ServerOptions = {}): Promise<http.Ser
         if (await handleDashboardRoutes(routeContext)) return;
       }
 
+      // Analysis routes (/api/analysis/*)
+      if (pathname.startsWith('/api/analysis')) {
+        if (await handleAnalysisRoutes(routeContext)) return;
+      }
+
       // CLI sessions (PTY) routes (/api/cli-sessions/*) - independent from /api/cli/*
       if (pathname.startsWith('/api/cli-sessions')) {
         if (await handleCliSessionsRoutes(routeContext)) return;
@@ -517,6 +613,11 @@ export async function startServer(options: ServerOptions = {}): Promise<http.Ser
         if (await handleGraphRoutes(routeContext)) return;
       }
 
+      // Spec routes (/api/specs/*)
+      if (pathname.startsWith('/api/specs/')) {
+        if (await handleSpecRoutes(routeContext)) return;
+      }
+
       // CCW routes (/api/ccw and /api/ccw/*)
       if (pathname.startsWith('/api/ccw')) {
         if (await handleCcwRoutes(routeContext)) return;
@@ -577,7 +678,12 @@ export async function startServer(options: ServerOptions = {}): Promise<http.Ser
         if (await handleCommandsRoutes(routeContext)) return;
       }
 
-      // Queue routes (/api/queue*) - top-level queue API
+      // Queue Scheduler routes (/api/queue/execute, /api/queue/scheduler/*)
+      if (pathname === '/api/queue/execute' || pathname.startsWith('/api/queue/scheduler')) {
+        if (await handleQueueSchedulerRoutes(routeContext, queueSchedulerService)) return;
+      }
+
+      // Queue routes (/api/queue*) - top-level queue API (issue-based)
       if (pathname.startsWith('/api/queue')) {
         if (await handleIssueRoutes(routeContext)) return;
       }
@@ -614,12 +720,13 @@ export async function startServer(options: ServerOptions = {}): Promise<http.Ser
         if (await handleFilesRoutes(routeContext)) return;
       }
 
-      // System routes (data, health, version, paths, shutdown, notify, storage, dialog, a2ui answer broker)
+      // System routes (data, health, version, paths, shutdown, notify, storage, dialog, a2ui answer broker, system settings, project-tech)
       if (pathname === '/api/data' || pathname === '/api/health' ||
           pathname === '/api/version-check' || pathname === '/api/shutdown' ||
           pathname === '/api/recent-paths' || pathname === '/api/switch-path' ||
           pathname === '/api/remove-recent-path' || pathname === '/api/system/notify' ||
-          pathname === '/api/a2ui/answer' ||
+          pathname === '/api/system/settings' || pathname === '/api/system/hooks/install-recommended' ||
+          pathname === '/api/a2ui/answer' || pathname === '/api/project-tech/stats' ||
           pathname.startsWith('/api/storage/') || pathname.startsWith('/api/dialog/')) {
         if (await handleSystemRoutes(routeContext)) return;
       }
@@ -639,8 +746,31 @@ export async function startServer(options: ServerOptions = {}): Promise<http.Ser
         return;
       }
 
-      // React frontend proxy - forward all non-API requests to Vite dev server
+      // React frontend proxy - forward all non-API requests to Vite dev server or serve static files
       {
+        const frontendStaticDir = getFrontendStaticDir();
+
+        // If we have a static build, serve files directly
+        if (frontendStaticDir) {
+          let filePath = join(frontendStaticDir, pathname === '/' ? 'index.html' : pathname.slice(1));
+
+          // Try to serve the file
+          const served = await serveStaticFile(filePath, res);
+
+          // If file not found, serve index.html for SPA routing
+          if (!served && !pathname.startsWith('/api/')) {
+            filePath = join(frontendStaticDir, 'index.html');
+            const indexServed = await serveStaticFile(filePath, res);
+
+            if (!indexServed) {
+              res.writeHead(404, { 'Content-Type': 'text/plain' });
+              res.end('Frontend not found');
+            }
+          }
+          return;
+        }
+
+        // Otherwise, proxy to Vite dev server
         const reactUrl = `http://localhost:${reactPort}${pathname}${url.search}`;
 
         try {

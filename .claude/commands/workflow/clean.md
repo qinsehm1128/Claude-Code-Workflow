@@ -2,7 +2,7 @@
 name: clean
 description: Intelligent code cleanup with mainline detection, stale artifact discovery, and safe execution
 argument-hint: "[-y|--yes] [--dry-run] [\"focus area\"]"
-allowed-tools: TodoWrite(*), Task(*), AskUserQuestion(*), Read(*), Glob(*), Bash(*), Write(*)
+allowed-tools: TodoWrite(*), Agent(*), AskUserQuestion(*), Read(*), Glob(*), Bash(*), Write(*)
 ---
 
 # Clean Command (/workflow:clean)
@@ -495,8 +495,8 @@ if (fileExists(projectPath)) {
   Write(projectPath, JSON.stringify(project, null, 2))
 }
 
-// Update project-guidelines.json: remove learnings referencing deleted sessions
-const guidelinesPath = '.workflow/project-guidelines.json'
+// Update specs/*.md: remove learnings referencing deleted sessions
+const guidelinesPath = '.ccw/specs/*.md'
 if (fileExists(guidelinesPath)) {
   const guidelines = JSON.parse(Read(guidelinesPath))
   const deletedSessionIds = results.deleted
@@ -566,7 +566,7 @@ Cleanup manifest archived to: ${sessionFolder}/cleanup-manifest.json
 
 ## Related Commands
 
-- `/workflow:session:sync` - Sync session work to project-guidelines + project-tech (正向写入)
+- `/workflow:session:sync` - Sync session work to specs/*.md + project-tech (正向写入)
 - `/workflow:session:complete` - Properly archive active sessions
 - `memory-capture` skill - Save session memory before cleanup
 - `workflow-execute` skill - View current workflow state

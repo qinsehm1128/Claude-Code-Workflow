@@ -341,6 +341,77 @@ export class A2UIWebSocketHandler {
   ): boolean {
     const params = action.parameters ?? {};
     const questionId = typeof params.questionId === 'string' ? params.questionId : undefined;
+
+    // Handle submit-all first - it uses compositeId instead of questionId
+    if (action.actionId === 'submit-all') {
+      const compositeId = typeof params.compositeId === 'string' ? params.compositeId : undefined;
+      const questionIds = Array.isArray(params.questionIds) ? params.questionIds as string[] : undefined;
+      if (!compositeId || !questionIds) {
+        return false;
+      }
+
+      // DEBUG: NDJSON log for submit-all received
+      console.log(JSON.stringify({
+        timestamp: new Date().toISOString(),
+        level: 'DEBUG',
+        hid: 'H2',
+        event: 'submit_all_received_in_handleQuestionAction',
+        compositeId,
+        questionCount: questionIds.length
+      }));
+
+      // Collect answers for all sub-questions
+      const answers: QuestionAnswer[] = [];
+      for (const qId of questionIds) {
+        const singleSel = this.singleSelectSelections.get(qId);
+        const multiSel = this.multiSelectSelections.get(qId);
+        const inputVal = this.inputValues.get(qId);
+        const otherText = this.inputValues.get(`__other__:${qId}`);
+
+        if (singleSel !== undefined) {
+          const value = singleSel === '__other__' && otherText ? otherText : singleSel;
+          answers.push({ questionId: qId, value, cancelled: false });
+        } else if (multiSel !== undefined) {
+          const values = Array.from(multiSel).map(v =>
+            v === '__other__' && otherText ? otherText : v
+          );
+          answers.push({ questionId: qId, value: values, cancelled: false });
+        } else if (inputVal !== undefined) {
+          answers.push({ questionId: qId, value: inputVal, cancelled: false });
+        } else {
+          answers.push({ questionId: qId, value: '', cancelled: false });
+        }
+
+        // Cleanup per-question tracking
+        this.singleSelectSelections.delete(qId);
+        this.multiSelectSelections.delete(qId);
+        this.inputValues.delete(qId);
+        this.inputValues.delete(`__other__:${qId}`);
+      }
+
+      // Call multi-answer callback
+      let handled = false;
+      if (this.multiAnswerCallback) {
+        handled = this.multiAnswerCallback(compositeId, answers);
+      }
+      if (!handled) {
+        // Store for HTTP polling retrieval
+        this.resolvedMultiAnswers.set(compositeId, { compositeId, answers, timestamp: Date.now() });
+
+        console.log(JSON.stringify({
+          timestamp: new Date().toISOString(),
+          level: 'DEBUG',
+          hid: 'H2',
+          event: 'answer_stored_for_polling',
+          compositeId,
+          answerCount: answers.length
+        }));
+      }
+      this.activeSurfaces.delete(compositeId);
+      return true;
+    }
+
+    // For other actions, questionId is required
     if (!questionId) {
       return false;
     }
@@ -405,7 +476,7 @@ export class A2UIWebSocketHandler {
       case 'submit': {
         const otherText = this.inputValues.get(`__other__:${questionId}`);
 
-        // Check if this is a single-select or multi-select
+        // Check if this is a single-select
         const singleSelection = this.singleSelectSelections.get(questionId);
         if (singleSelection !== undefined) {
           // Resolve __other__ to actual text input
@@ -413,14 +484,27 @@ export class A2UIWebSocketHandler {
           this.inputValues.delete(`__other__:${questionId}`);
           return resolveAndCleanup({ questionId, value, cancelled: false });
         }
-        // Multi-select submit
-        const multiSelected = this.multiSelectSelections.get(questionId) ?? new Set<string>();
-        // Resolve __other__ in multi-select: replace with actual text
-        const values = Array.from(multiSelected).map(v =>
-          v === '__other__' && otherText ? otherText : v
-        );
-        this.inputValues.delete(`__other__:${questionId}`);
-        return resolveAndCleanup({ questionId, value: values, cancelled: false });
+
+        // Check if this is a multi-select
+        const multiSelected = this.multiSelectSelections.get(questionId);
+        if (multiSelected !== undefined && multiSelected.size > 0) {
+          // Resolve __other__ in multi-select: replace with actual text
+          const values = Array.from(multiSelected).map(v =>
+            v === '__other__' && otherText ? otherText : v
+          );
+          this.inputValues.delete(`__other__:${questionId}`);
+          return resolveAndCleanup({ questionId, value: values, cancelled: false });
+        }
+
+        // Check if this is a text input (no selections, but has input value)
+        const inputValue = this.inputValues.get(questionId);
+        if (inputValue !== undefined) {
+          this.inputValues.delete(questionId);
+          return resolveAndCleanup({ questionId, value: inputValue, cancelled: false });
+        }
+
+        // No value found - submit empty string
+        return resolveAndCleanup({ questionId, value: '', cancelled: false });
       }
 
       case 'input-change': {
@@ -430,60 +514,6 @@ export class A2UIWebSocketHandler {
           return false;
         }
         this.inputValues.set(questionId, value);
-        return true;
-      }
-
-      case 'submit-all': {
-        // Multi-question composite submit
-        const compositeId = typeof params.compositeId === 'string' ? params.compositeId : undefined;
-        const questionIds = Array.isArray(params.questionIds) ? params.questionIds as string[] : undefined;
-        if (!compositeId || !questionIds) {
-          return false;
-        }
-
-        // Collect answers for all sub-questions
-        const answers: QuestionAnswer[] = [];
-        for (const qId of questionIds) {
-          const singleSel = this.singleSelectSelections.get(qId);
-          const multiSel = this.multiSelectSelections.get(qId);
-          const inputVal = this.inputValues.get(qId);
-          const otherText = this.inputValues.get(`__other__:${qId}`);
-
-          if (singleSel !== undefined) {
-            // Resolve __other__ to actual text input
-            const value = singleSel === '__other__' && otherText ? otherText : singleSel;
-            answers.push({ questionId: qId, value, cancelled: false });
-          } else if (multiSel !== undefined) {
-            // Resolve __other__ in multi-select: replace with actual text
-            const values = Array.from(multiSel).map(v =>
-              v === '__other__' && otherText ? otherText : v
-            );
-            answers.push({ questionId: qId, value: values, cancelled: false });
-          } else if (inputVal !== undefined) {
-            answers.push({ questionId: qId, value: inputVal, cancelled: false });
-          } else {
-            // No value recorded — include empty
-            answers.push({ questionId: qId, value: '', cancelled: false });
-          }
-
-          // Cleanup per-question tracking
-          this.singleSelectSelections.delete(qId);
-          this.multiSelectSelections.delete(qId);
-          this.inputValues.delete(qId);
-          this.inputValues.delete(`__other__:${qId}`);
-        }
-
-        // Call multi-answer callback
-        let handled = false;
-        if (this.multiAnswerCallback) {
-          handled = this.multiAnswerCallback(compositeId, answers);
-        }
-        if (!handled) {
-          // Store for HTTP polling retrieval
-          this.resolvedMultiAnswers.set(compositeId, { compositeId, answers, timestamp: Date.now() });
-        }
-        // Always clean up UI state
-        this.activeSurfaces.delete(compositeId);
         return true;
       }
 

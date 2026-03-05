@@ -765,13 +765,32 @@ export function ReviewSessionPage() {
       {filteredFindings.length === 0 ? (
         <Card>
           <CardContent className="p-12 text-center">
-            <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-foreground mb-2">
-              {formatMessage({ id: 'reviewSession.empty.title' })}
-            </h3>
-            <p className="text-sm text-muted-foreground">
-              {formatMessage({ id: 'reviewSession.empty.message' })}
-            </p>
+            {/* Check if review hasn't been executed yet */}
+            {reviewSession?.reviewSummary?.status === 'in_progress' &&
+             (!reviewSession?.reviewDimensions || reviewSession.reviewDimensions.length === 0) ? (
+              <>
+                <AlertTriangle className="h-12 w-12 text-amber-500 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-foreground mb-2">
+                  {formatMessage({ id: 'reviewSession.notExecuted.title' })}
+                </h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  {formatMessage({ id: 'reviewSession.notExecuted.message' })}
+                </p>
+                <div className="text-xs text-muted-foreground bg-muted p-3 rounded-lg inline-block">
+                  {formatMessage({ id: 'reviewSession.notExecuted.hint' })}
+                </div>
+              </>
+            ) : (
+              <>
+                <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-foreground mb-2">
+                  {formatMessage({ id: 'reviewSession.empty.title' })}
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  {formatMessage({ id: 'reviewSession.empty.message' })}
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
       ) : (

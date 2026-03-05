@@ -331,13 +331,39 @@ function addCodexMcpServer(serverName: string, serverConfig: Record<string, any>
     }
 
     // Handle HTTP servers (url-based)
+    // Supports dual-format parsing:
+    // - Claude format: { type: 'http', url, headers }
+    // - Codex format: { url, bearer_token_env_var, http_headers, env_http_headers }
     if (serverConfig.url) {
       codexServerConfig.url = serverConfig.url;
+
+      // Codex format: bearer_token_env_var
       if (serverConfig.bearer_token_env_var) {
         codexServerConfig.bearer_token_env_var = serverConfig.bearer_token_env_var;
       }
+
+      // Codex format: http_headers
       if (serverConfig.http_headers) {
         codexServerConfig.http_headers = serverConfig.http_headers;
+      }
+
+      // Codex format: env_http_headers (array of env var names)
+      if (serverConfig.env_http_headers) {
+        codexServerConfig.env_http_headers = serverConfig.env_http_headers;
+      }
+
+      // Claude format: headers (convert to Codex http_headers for storage)
+      if (serverConfig.headers) {
+        // Merge with existing http_headers if present
+        codexServerConfig.http_headers = {
+          ...(codexServerConfig.http_headers || {}),
+          ...serverConfig.headers
+        };
+      }
+
+      // Claude format: type field (optional marker)
+      if (serverConfig.type) {
+        codexServerConfig.type = serverConfig.type;
       }
     }
 
@@ -945,6 +971,11 @@ function addGlobalMcpServer(serverName: string, serverConfig: unknown) {
       config.mcpServers = {};
     }
 
+    // Debug logging for ccw-tools
+    if (serverName === 'ccw-tools') {
+      console.log('[addGlobalMcpServer] Saving ccw-tools config:', JSON.stringify(serverConfig, null, 2));
+    }
+
     // Add the server to top-level mcpServers
     config.mcpServers[serverName] = serverConfig;
 
@@ -1179,40 +1210,68 @@ export async function handleMcpRoutes(ctx: RouteContext): Promise<boolean> {
     return true;
   }
 
-  // API: Install CCW MCP server to project
+  // API: Install CCW MCP server (global or project scope)
   if (pathname === '/api/mcp-install-ccw' && req.method === 'POST') {
     handlePostRequest(req, res, async (body) => {
       if (!isRecord(body)) {
         return { error: 'Invalid request body', status: 400 };
       }
 
-      const projectPath = body.projectPath;
-      if (typeof projectPath !== 'string' || !projectPath.trim()) {
-        return { error: 'projectPath is required', status: 400 };
+      const rawScope = body.scope;
+      const scope = rawScope === 'global' || rawScope === 'project' ? rawScope : undefined;
+
+      // Backward compatibility: allow legacy fields at top-level as well as body.env
+      const envInput = (isRecord(body.env) ? body.env : body) as Record<string, unknown>;
+
+      const projectPath = typeof body.projectPath === 'string' ? body.projectPath : undefined;
+
+      const enableSandbox = envInput.enableSandbox === true;
+
+      const enabledToolsRaw = envInput.enabledTools;
+      let enabledToolsEnv: string;
+      if (enabledToolsRaw === undefined || enabledToolsRaw === null) {
+        enabledToolsEnv = 'write_file,edit_file,read_file,core_memory,ask_question,smart_search';
+      } else if (Array.isArray(enabledToolsRaw)) {
+        enabledToolsEnv = enabledToolsRaw.filter((t): t is string => typeof t === 'string').join(',');
+      } else if (typeof enabledToolsRaw === 'string') {
+        enabledToolsEnv = enabledToolsRaw;
+      } else {
+        enabledToolsEnv = 'write_file,edit_file,read_file,core_memory,ask_question,smart_search';
       }
 
-      // Check if sandbox should be enabled
-      const enableSandbox = body.enableSandbox === true;
+      const projectRoot = typeof envInput.projectRoot === 'string' ? envInput.projectRoot : undefined;
 
-      // Parse enabled tools from request body
-      const enabledTools = Array.isArray(body.enabledTools) && body.enabledTools.length > 0
-        ? (body.enabledTools as string[]).join(',')
-        : 'write_file,edit_file,read_file,core_memory,ask_question,smart_search';
+      const allowedDirsRaw = envInput.allowedDirs;
+      let allowedDirsEnv: string | undefined;
+      if (Array.isArray(allowedDirsRaw)) {
+        allowedDirsEnv = allowedDirsRaw.filter((d): d is string => typeof d === 'string').join(',');
+      } else if (typeof allowedDirsRaw === 'string') {
+        allowedDirsEnv = allowedDirsRaw;
+      }
 
-      // Generate CCW MCP server config
-      // Use cmd /c on Windows to inherit Claude Code's working directory
+      // Generate CCW MCP server config using *server-side* platform detection.
+      // On WSL/Linux, this ensures we produce `npx -y ccw-mcp` even when the browser runs on Windows.
       const isWin = process.platform === 'win32';
+      const env: Record<string, string> = { CCW_ENABLED_TOOLS: enabledToolsEnv };
+      if (projectRoot) env.CCW_PROJECT_ROOT = projectRoot;
+      if (allowedDirsEnv) env.CCW_ALLOWED_DIRS = allowedDirsEnv;
+      if (enableSandbox) env.CCW_ENABLE_SANDBOX = '1';
+
       const ccwMcpConfig: Record<string, any> = {
-        command: isWin ? "cmd" : "npx",
-        args: isWin ? ["/c", "npx", "-y", "ccw-mcp"] : ["-y", "ccw-mcp"],
-        env: {
-          CCW_ENABLED_TOOLS: enabledTools,
-          ...(enableSandbox && { CCW_ENABLE_SANDBOX: "1" })
-        }
+        command: isWin ? 'cmd' : 'npx',
+        args: isWin ? ['/c', 'npx', '-y', 'ccw-mcp'] : ['-y', 'ccw-mcp'],
+        env
       };
 
-      // Use existing addMcpServerToProject to install CCW MCP
-      return addMcpServerToProject(projectPath, 'ccw-tools', ccwMcpConfig);
+      const resolvedScope: 'global' | 'project' = scope ?? (projectPath ? 'project' : 'global');
+      if (resolvedScope === 'project') {
+        if (!projectPath || !projectPath.trim()) {
+          return { error: 'projectPath is required for project scope', status: 400 };
+        }
+        return addMcpServerToProject(projectPath, 'ccw-tools', ccwMcpConfig);
+      }
+
+      return addGlobalMcpServer('ccw-tools', ccwMcpConfig);
     });
     return true;
   }

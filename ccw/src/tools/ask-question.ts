@@ -409,9 +409,34 @@ function generateQuestionSurface(question: Question, surfaceId: string, timeoutM
         component: {
           TextField: {
             value: question.defaultValue ? { literalString: String(question.defaultValue) } : undefined,
-            onChange: { actionId: 'answer', parameters: { questionId: question.id } },
+            onChange: { actionId: 'input-change', parameters: { questionId: question.id } },
             placeholder: question.placeholder || 'Enter your answer',
             type: 'text',
+          },
+        },
+      });
+      // Add Submit/Cancel buttons for input type
+      components.push({
+        id: 'submit-btn',
+        component: {
+          Button: {
+            onClick: { actionId: 'submit', parameters: { questionId: question.id } },
+            content: {
+              Text: { text: { literalString: 'Submit' } },
+            },
+            variant: 'primary',
+          },
+        },
+      });
+      components.push({
+        id: 'cancel-btn',
+        component: {
+          Button: {
+            onClick: { actionId: 'cancel', parameters: { questionId: question.id } },
+            content: {
+              Text: { text: { literalString: 'Cancel' } },
+            },
+            variant: 'secondary',
           },
         },
       });
@@ -586,8 +611,29 @@ export function handleAnswer(answer: QuestionAnswer): boolean {
  * @returns True if answer was processed
  */
 export function handleMultiAnswer(compositeId: string, answers: QuestionAnswer[]): boolean {
+  const handleStartTime = Date.now();
+
+  // DEBUG: NDJSON log for handleMultiAnswer start
+  console.log(JSON.stringify({
+    timestamp: new Date().toISOString(),
+    level: 'DEBUG',
+    hid: 'H3',
+    event: 'handle_multi_answer_start',
+    compositeId,
+    answerCount: answers.length
+  }));
+
   const pending = getPendingQuestion(compositeId);
   if (!pending) {
+    // DEBUG: NDJSON log for missing pending question
+    console.log(JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level: 'DEBUG',
+      hid: 'H3',
+      event: 'handle_multi_answer_no_pending',
+      compositeId,
+      elapsedMs: Date.now() - handleStartTime
+    }));
     return false;
   }
 
@@ -600,6 +646,17 @@ export function handleMultiAnswer(compositeId: string, answers: QuestionAnswer[]
   });
 
   removePendingQuestion(compositeId);
+
+  // DEBUG: NDJSON log for handleMultiAnswer complete
+  console.log(JSON.stringify({
+    timestamp: new Date().toISOString(),
+    level: 'DEBUG',
+    hid: 'H3',
+    event: 'handle_multi_answer_complete',
+    compositeId,
+    elapsedMs: Date.now() - handleStartTime
+  }));
+
   return true;
 }
 
@@ -612,8 +669,23 @@ export function handleMultiAnswer(compositeId: string, answers: QuestionAnswer[]
  */
 function startAnswerPolling(questionId: string, isComposite: boolean = false): void {
   const pollPath = `/api/a2ui/answer?questionId=${encodeURIComponent(questionId)}&composite=${isComposite}`;
+  const startTime = Date.now();
+
+  // DEBUG: NDJSON log for polling start
+  console.log(JSON.stringify({
+    timestamp: new Date().toISOString(),
+    level: 'DEBUG',
+    hid: 'H1',
+    event: 'polling_start',
+    questionId,
+    isComposite,
+    port: DASHBOARD_PORT,
+    firstPollDelayMs: POLL_INTERVAL_MS
+  }));
 
   console.error(`[A2UI-Poll] Starting polling for questionId=${questionId}, composite=${isComposite}, port=${DASHBOARD_PORT}`);
+
+  let pollCount = 0;
 
   const poll = () => {
     // Stop if the question was already resolved or timed out
@@ -621,6 +693,20 @@ function startAnswerPolling(questionId: string, isComposite: boolean = false): v
       console.error(`[A2UI-Poll] Stopping: questionId=${questionId} no longer pending`);
       return;
     }
+
+    pollCount++;
+    const pollStartTime = Date.now();
+
+    // DEBUG: NDJSON log for each poll attempt
+    console.log(JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level: 'DEBUG',
+      hid: 'H1',
+      event: 'poll_attempt',
+      questionId,
+      pollCount,
+      elapsedMs: pollStartTime - startTime
+    }));
 
     const req = http.get({ hostname: '127.0.0.1', port: DASHBOARD_PORT, path: pollPath, timeout: 2000 }, (res) => {
       let data = '';
@@ -641,6 +727,20 @@ function startAnswerPolling(questionId: string, isComposite: boolean = false): v
           }
 
           console.error(`[A2UI-Poll] Answer received for questionId=${questionId}:`, JSON.stringify(parsed).slice(0, 200));
+
+          // DEBUG: NDJSON log for answer received
+          console.log(JSON.stringify({
+            timestamp: new Date().toISOString(),
+            level: 'DEBUG',
+            hid: 'H1',
+            event: 'answer_received',
+            questionId,
+            pollCount,
+            elapsedMs: Date.now() - startTime,
+            pollLatencyMs: Date.now() - pollStartTime,
+            isComposite,
+            answerPreview: JSON.stringify(parsed).slice(0, 100)
+          }));
 
           if (isComposite && Array.isArray(parsed.answers)) {
             const ok = handleMultiAnswer(questionId, parsed.answers as QuestionAnswer[]);

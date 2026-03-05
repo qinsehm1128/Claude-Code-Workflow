@@ -53,13 +53,18 @@ function QueryInvalidator() {
   const registerQueryInvalidator = useWorkflowStore((state) => state.registerQueryInvalidator);
 
   useEffect(() => {
-    // Register callback to invalidate all 'workspace' prefixed queries
+    // Register callback to invalidate all workspace-related queries on workspace switch
     const callback = () => {
       queryClient.invalidateQueries({
         predicate: (query) => {
           const queryKey = query.queryKey;
-          // Check if the first element of the query key is 'workspace'
-          return Array.isArray(queryKey) && queryKey[0] === 'workspace';
+          if (!Array.isArray(queryKey)) return false;
+          const prefix = queryKey[0];
+          // Invalidate all query families that depend on workspace data
+          return prefix === 'workspace'
+            || prefix === 'projectOverview'
+            || prefix === 'workflowStatusCounts'
+            || prefix === 'dashboardStats';
         },
       });
     };

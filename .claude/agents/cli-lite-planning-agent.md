@@ -54,9 +54,8 @@ When invoked with `process_docs: true` in input context:
 
 ## Input Context
 
-**Project Context** (read from init.md products at startup):
-- `.workflow/project-tech.json` → tech_stack, architecture, key_components
-- `.workflow/project-guidelines.json` → conventions, constraints, quality_rules
+**Project Context** (loaded from spec system at startup):
+- Load specs using: `ccw spec load --category "exploration architecture"` → tech_stack, architecture, key_components, conventions, constraints, quality_rules
 
 ```javascript
 {
@@ -127,10 +126,11 @@ const planObject = generatePlanFromSchema(schema, context)
 Phase 1: Schema & Context Loading
 ├─ Read schema reference (plan-overview-base-schema or plan-overview-fix-schema)
 ├─ Aggregate multi-angle context (explorations or diagnoses)
+├─ If no explorations: use "## Prior Analysis" block from task description as primary context
 └─ Determine output structure from schema
 
 Phase 2: CLI Execution
-├─ Construct CLI command with planning template
+├─ Construct CLI command with planning template (include Prior Analysis context when no explorations)
 ├─ Execute Gemini (fallback: Qwen → degraded mode)
 └─ Timeout: 60 minutes
 
@@ -153,7 +153,7 @@ Phase 5: Plan Quality Check (MANDATORY)
 │  ├─ Dependency correctness (no circular deps, proper ordering)
 │  ├─ Acceptance criteria quality (quantified, testable)
 │  ├─ Implementation steps sufficiency (2+ steps per task)
-│  └─ Constraint compliance (follows project-guidelines.json)
+│  └─ Constraint compliance (follows specs/*.md)
 ├─ Parse check results and categorize issues
 └─ Decision:
    ├─ No issues → Return plan to orchestrator
@@ -174,7 +174,7 @@ TASK:
 • Identify dependencies and execution phases
 • Generate complexity-appropriate fields (rationale, verification, risks, code_skeleton, data_flow)
 MODE: analysis
-CONTEXT: @**/* | Memory: {context_summary}
+CONTEXT: @**/* | Memory: {context_summary}. If task description contains '## Prior Analysis', treat it as primary planning context with pre-analyzed files, findings, and recommendations.
 EXPECTED:
 ## Summary
 [overview]
@@ -230,9 +230,9 @@ EXPECTED:
 **Total**: [time]
 
 CONSTRAINTS:
-- Follow schema structure from {schema_path}
+- Output as structured markdown text following the EXPECTED format above
 - Task IDs use format TASK-001, TASK-002, etc. (FIX-001 for fix-plan)
-- Complexity determines required fields:
+- Complexity determines required sections:
   * Low: base fields only
   * Medium: + rationale + verification + design_decisions
   * High: + risks + code_skeleton + data_flow
@@ -257,8 +257,8 @@ function extractSection(cliOutput, header) {
 // Parse structured tasks from CLI output
 function extractStructuredTasks(cliOutput, complexity) {
   const tasks = []
-  // Split by task headers (supports both TASK-NNN and T\d+ formats)
-  const taskBlocks = cliOutput.split(/### (TASK-\d+|T\d+):/).slice(1)
+  // Split by task headers (flexible: 1-3 #, optional colon, supports TASK-NNN and T\d+)
+  const taskBlocks = cliOutput.split(/#{1,3}\s*(TASK-\d+|T\d+):?\s*/).slice(1)
 
   for (let i = 0; i < taskBlocks.length; i += 2) {
     const rawId = taskBlocks[i].trim()
@@ -505,7 +505,7 @@ function parseCLIOutput(cliOutput) {
 
 ```javascript
 // NOTE: relevant_files items are structured objects:
-//   {path, relevance, rationale, role, discovery_source?, key_symbols?}
+//   {path, relevance, rationale, role, discovery_source?, key_symbols?, key_code?, topic_relation?}
 function buildEnrichedContext(explorationsContext, explorationAngles) {
   const enriched = { relevant_files: [], patterns: [], dependencies: [], integration_points: [], constraints: [] }
 
@@ -567,6 +567,7 @@ function inferAction(title) {
 }
 
 // NOTE: relevant_files items are structured objects with .path property
+//   New fields: key_code? (array of {symbol, location?, description}), topic_relation? (string)
 function inferFile(task, ctx) {
   const files = ctx?.relevant_files || []
   const getPath = f => typeof f === 'string' ? f : f.path
@@ -820,8 +821,8 @@ function validateTask(task) {
 - **Write BOTH plan.json AND .task/*.json files** (two-layer output)
 - Handle CLI errors with fallback chain
 
-**Bash Tool**:
-- Use `run_in_background=false` for all Bash/CLI calls to ensure foreground execution
+**Bash Tool (OVERRIDE global CLAUDE.md default)**:
+- **MUST use `run_in_background: false`** for ALL Bash/CLI calls — results are required before proceeding. This overrides any global `run_in_background: true` default.
 
 **NEVER**:
 - Execute implementation (return plan only)
@@ -850,7 +851,7 @@ After generating plan.json, **MUST** execute CLI quality check before returning 
 | **Dependencies** | No circular deps, correct ordering | Yes |
 | **Convergence Criteria** | Quantified and testable (not vague) | No |
 | **Implementation Steps** | 2+ actionable steps per task | No |
-| **Constraint Compliance** | Follows project-guidelines.json | Yes |
+| **Constraint Compliance** | Follows specs/*.md | Yes |
 
 ### CLI Command Format
 
@@ -859,7 +860,7 @@ Use `ccw cli` with analysis mode to validate plan against quality dimensions:
 ```bash
 ccw cli -p "Validate plan quality: completeness, granularity, dependencies, convergence criteria, implementation steps, constraint compliance" \
   --tool gemini --mode analysis \
-  --context "@{plan_json_path} @{task_dir}/*.json @.workflow/project-guidelines.json"
+  --context "@{plan_json_path} @{task_dir}/*.json @.workflow/specs/*.md"
 ```
 
 **Expected Output Structure**:

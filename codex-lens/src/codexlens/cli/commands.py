@@ -79,6 +79,46 @@ def _parse_languages(raw: Optional[List[str]]) -> Optional[List[str]]:
     return langs or None
 
 
+def _fail_mutually_exclusive(option_a: str, option_b: str, json_mode: bool) -> None:
+    msg = f"Options {option_a} and {option_b} are mutually exclusive."
+    if json_mode:
+        print_json(success=False, error=msg)
+    else:
+        console.print(f"[red]Error:[/red] {msg}")
+    raise typer.Exit(code=1)
+
+
+def _extract_embedding_error(embed_result: Dict[str, Any]) -> str:
+    """Best-effort error extraction for embedding generation results."""
+    raw_error = embed_result.get("error")
+    if isinstance(raw_error, str) and raw_error.strip():
+        return raw_error.strip()
+
+    result = embed_result.get("result")
+    if isinstance(result, dict):
+        details = result.get("details")
+        if isinstance(details, list):
+            collected: List[str] = []
+            for item in details:
+                if not isinstance(item, dict):
+                    continue
+                item_error = item.get("error")
+                if isinstance(item_error, str) and item_error.strip():
+                    collected.append(item_error.strip())
+
+            if collected:
+                # De-dupe while preserving order, then keep output short.
+                seen: set[str] = set()
+                unique: List[str] = []
+                for err in collected:
+                    if err not in seen:
+                        seen.add(err)
+                        unique.append(err)
+                return "; ".join(unique[:3])
+
+    return "Embedding generation failed (no error details provided)"
+
+
 def _get_index_root() -> Path:
     """Get the index root directory from config or default.
 
@@ -126,15 +166,25 @@ def index_init(
     no_embeddings: bool = typer.Option(False, "--no-embeddings", help="Skip automatic embedding generation (if semantic deps installed)."),
     backend: Optional[str] = typer.Option(None, "--backend", "-b", help="Embedding backend: fastembed (local) or litellm (remote API). Defaults to settings.json config."),
     model: Optional[str] = typer.Option(None, "--model", "-m", help="Embedding model: profile name for fastembed or model name for litellm. Defaults to settings.json config."),
-    use_astgrep: Optional[bool] = typer.Option(
-        None,
-        "--use-astgrep/--no-use-astgrep",
+    use_astgrep: bool = typer.Option(
+        False,
+        "--use-astgrep",
         help="Prefer ast-grep parsers when available (experimental). Overrides settings.json config.",
     ),
-    static_graph: Optional[bool] = typer.Option(
-        None,
-        "--static-graph/--no-static-graph",
+    no_use_astgrep: bool = typer.Option(
+        False,
+        "--no-use-astgrep",
+        help="Disable ast-grep parsers. Overrides settings.json config.",
+    ),
+    static_graph: bool = typer.Option(
+        False,
+        "--static-graph",
         help="Persist global relationships during indexing for static graph expansion. Overrides settings.json config.",
+    ),
+    no_static_graph: bool = typer.Option(
+        False,
+        "--no-static-graph",
+        help="Disable persisting global relationships. Overrides settings.json config.",
     ),
     static_graph_types: Optional[str] = typer.Option(
         None,
@@ -171,10 +221,19 @@ def index_init(
     config.load_settings()  # Ensure settings are loaded
 
     # Apply CLI overrides for parsing/indexing behavior
-    if use_astgrep is not None:
-        config.use_astgrep = bool(use_astgrep)
-    if static_graph is not None:
-        config.static_graph_enabled = bool(static_graph)
+    if use_astgrep and no_use_astgrep:
+        _fail_mutually_exclusive("--use-astgrep", "--no-use-astgrep", json_mode)
+    if use_astgrep:
+        config.use_astgrep = True
+    elif no_use_astgrep:
+        config.use_astgrep = False
+
+    if static_graph and no_static_graph:
+        _fail_mutually_exclusive("--static-graph", "--no-static-graph", json_mode)
+    if static_graph:
+        config.static_graph_enabled = True
+    elif no_static_graph:
+        config.static_graph_enabled = False
     if static_graph_types is not None:
         allowed = {"imports", "inherits", "calls"}
         parsed = [
@@ -323,10 +382,11 @@ def index_init(
                             console.print(f"  Indexes processed: [bold]{embed_data['indexes_successful']}/{embed_data['indexes_processed']}[/bold]")
                     else:
                         if not json_mode:
-                            console.print(f"[yellow]Warning:[/yellow] Embedding generation failed: {embed_result.get('error', 'Unknown error')}")
+                            error_msg = _extract_embedding_error(embed_result)
+                            console.print(f"[yellow]Warning:[/yellow] Embedding generation failed: {error_msg}")
                         result["embeddings"] = {
                             "generated": False,
-                            "error": embed_result.get("error"),
+                            "error": _extract_embedding_error(embed_result),
                         }
                 else:
                     if not json_mode and verbose:
@@ -848,12 +908,16 @@ def symbol(
 @app.command()
 def inspect(
     file: Path = typer.Argument(..., exists=True, dir_okay=False, help="File to analyze."),
-    symbols: bool = typer.Option(True, "--symbols/--no-symbols", help="Show discovered symbols."),
+    symbols: bool = typer.Option(False, "--symbols", help="Show discovered symbols (default)."),
+    no_symbols: bool = typer.Option(False, "--no-symbols", help="Hide discovered symbols."),
     json_mode: bool = typer.Option(False, "--json", help="Output JSON response."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging."),
 ) -> None:
     """Analyze a single file and display symbols."""
     _configure_logging(verbose, json_mode)
+    if symbols and no_symbols:
+        _fail_mutually_exclusive("--symbols", "--no-symbols", json_mode)
+    show_symbols = True if (symbols or not no_symbols) else False
     config = Config.load()
     factory = ParserFactory(config)
 
@@ -867,7 +931,7 @@ def inspect(
         if json_mode:
             print_json(success=True, result=payload)
         else:
-            if symbols:
+            if show_symbols:
                 render_file_inspect(indexed.path, indexed.language, indexed.symbols)
             else:
                 render_status({"file": indexed.path, "language": indexed.language})
@@ -2690,10 +2754,16 @@ def index_embeddings(
     json_mode: bool = typer.Option(False, "--json", help="Output JSON response."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output."),
     centralized: bool = typer.Option(
-        True,
-        "--centralized/--distributed",
-        "-c/-d",
-        help="Use centralized vector storage (default) or distributed per-directory indexes.",
+        False,
+        "--centralized",
+        "-c",
+        help="Use centralized vector storage (default).",
+    ),
+    distributed: bool = typer.Option(
+        False,
+        "--distributed",
+        "-d",
+        help="Use distributed per-directory indexes.",
     ),
 ) -> None:
     """Generate semantic embeddings for code search.
@@ -2730,6 +2800,9 @@ def index_embeddings(
         codexlens index embeddings ~/projects/my-app --centralized  # Centralized vector storage
     """
     _configure_logging(verbose, json_mode)
+    if centralized and distributed:
+        _fail_mutually_exclusive("--centralized", "--distributed", json_mode)
+    use_centralized = not distributed
 
     from codexlens.cli.embedding_manager import (
         generate_embeddings,
@@ -2867,7 +2940,7 @@ def index_embeddings(
                         console.print("[yellow]Cancelled.[/yellow] Use --force to skip this prompt.")
                         raise typer.Exit(code=0)
 
-    if centralized:
+    if use_centralized:
         # Centralized mode: single HNSW index at project root
         if not index_root:
             index_root = index_path.parent if index_path else target_path
@@ -2895,7 +2968,7 @@ def index_embeddings(
         print_json(**result)
     else:
         if not result["success"]:
-            error_msg = result.get("error", "Unknown error")
+            error_msg = _extract_embedding_error(result)
             console.print(f"[red]Error:[/red] {error_msg}")
 
             # Provide helpful hints
@@ -4245,14 +4318,22 @@ def embeddings_generate_deprecated(
     json_mode: bool = typer.Option(False, "--json", help="Output JSON response."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output."),
     centralized: bool = typer.Option(
-        True,
-        "--centralized/--distributed",
-        "-c/-d",
-        help="Use centralized vector storage (default) or distributed.",
+        False,
+        "--centralized",
+        "-c",
+        help="Use centralized vector storage (default).",
+    ),
+    distributed: bool = typer.Option(
+        False,
+        "--distributed",
+        "-d",
+        help="Use distributed per-directory indexes.",
     ),
 ) -> None:
     """[Deprecated] Use 'codexlens index embeddings' instead."""
     _deprecated_command_warning("embeddings-generate", "index embeddings")
+    if centralized and distributed:
+        _fail_mutually_exclusive("--centralized", "--distributed", json_mode)
     index_embeddings(
         path=path,
         backend=backend,
@@ -4263,6 +4344,7 @@ def embeddings_generate_deprecated(
         json_mode=json_mode,
         verbose=verbose,
         centralized=centralized,
+        distributed=distributed,
     )
 
 
@@ -4332,3 +4414,95 @@ def index_migrate_deprecated(
         json_mode=json_mode,
         verbose=verbose,
     )
+
+
+# ==================== DeepWiki Commands ====================
+
+deepwiki_app = typer.Typer(help="DeepWiki documentation generation commands")
+app.add_typer(deepwiki_app, name="deepwiki")
+
+
+@deepwiki_app.command("generate")
+def deepwiki_generate(
+    path: Annotated[Path, typer.Argument(help="File or directory to generate docs for")] = Path("."),
+    force: Annotated[bool, typer.Option("--force", "-f", help="Force regeneration")] = False,
+    json_mode: Annotated[bool, typer.Option("--json", help="Output JSON response")] = False,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Enable verbose logging")] = False,
+) -> None:
+    """Generate DeepWiki documentation for source files.
+
+    Scans source code, extracts symbols, and generates Markdown documentation
+    with incremental updates using SHA256 hashes for change detection.
+
+    Examples:
+        codexlens deepwiki generate ./src
+        codexlens deepwiki generate ./src/auth.py
+    """
+    from codexlens.tools.deepwiki_generator import DeepWikiGenerator
+
+    _configure_logging(verbose, json_mode)
+
+    path = Path(path).resolve()
+    if not path.exists():
+        msg = f"Path not found: {path}"
+        if json_mode:
+            print_json(success=False, error=msg)
+        else:
+            console.print(f"[red]Error:[/red] {msg}")
+        raise typer.Exit(code=1)
+
+    try:
+        generator = DeepWikiGenerator()
+        result = generator.run(path)
+
+        if json_mode:
+            print_json(success=True, result=result)
+        else:
+            console.print(f"[green]DeepWiki generation complete:[/green]")
+            console.print(f"  Files processed: {result['processed_files']}/{result['total_files']}")
+            console.print(f"  Symbols found: {result['total_symbols']}")
+            console.print(f"  Docs generated: {result['docs_generated']}")
+            if result['skipped_files'] > 0:
+                console.print(f"  Files skipped (unchanged): {result['skipped_files']}")
+
+    except Exception as e:
+        msg = f"DeepWiki generation failed: {e}"
+        if json_mode:
+            print_json(success=False, error=msg)
+        else:
+            console.print(f"[red]Error:[/red] {msg}")
+        raise typer.Exit(code=1)
+
+
+@deepwiki_app.command("status")
+def deepwiki_status(
+    json_mode: Annotated[bool, typer.Option("--json", help="Output JSON response")] = False,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Enable verbose logging")] = False,
+) -> None:
+    """Show DeepWiki documentation status.
+
+    Displays statistics about indexed files and generated documentation.
+    """
+    from codexlens.storage.deepwiki_store import DeepWikiStore
+
+    _configure_logging(verbose, json_mode)
+
+    try:
+        store = DeepWikiStore()
+        stats = store.get_stats()
+
+        if json_mode:
+            print_json(success=True, result=stats)
+        else:
+            console.print("[cyan]DeepWiki Status:[/cyan]")
+            console.print(f"  Files tracked: {stats.get('files_count', 0)}")
+            console.print(f"  Symbols indexed: {stats.get('symbols_count', 0)}")
+            console.print(f"  Docs generated: {stats.get('docs_count', 0)}")
+
+    except Exception as e:
+        msg = f"Failed to get DeepWiki status: {e}"
+        if json_mode:
+            print_json(success=False, error=msg)
+        else:
+            console.print(f"[red]Error:[/red] {msg}")
+        raise typer.Exit(code=1)

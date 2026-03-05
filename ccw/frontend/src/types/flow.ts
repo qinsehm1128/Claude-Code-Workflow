@@ -48,7 +48,7 @@ export type ExecutionMode = 'analysis' | 'write' | 'mainprocess' | 'async';
  * - prompt -> instruction (direct)
  *
  * @example Slash command equivalent
- * { instruction: "Execute /workflow:plan for login feature", outputName: "plan", mode: "mainprocess" }
+ * { instruction: "Execute /workflow-plan for login feature", outputName: "plan", mode: "mainprocess" }
  *
  * @example CLI command equivalent
  * { instruction: "Analyze code architecture", outputName: "analysis", tool: "gemini", mode: "analysis" }
@@ -132,7 +132,7 @@ export interface PromptTemplateNodeData {
   skillName?: string;
 
   /**
-   * Selected slash command name (e.g., "workflow:plan", "review-code")
+   * Selected slash command name (e.g., "workflow-plan", "review-code")
    * When set, overrides instruction during execution.
    * Used when mode is 'mainprocess' or 'async'.
    */

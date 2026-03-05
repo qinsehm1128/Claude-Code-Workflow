@@ -295,7 +295,7 @@ export function EndpointModal({ open, onClose, endpoint }: EndpointModalProps) {
                   id="model"
                   value={model}
                   onChange={(e) => setModel(e.target.value)}
-                  placeholder="gpt-4o"
+                  placeholder=""
                   className="font-mono"
                 />
               ) : (

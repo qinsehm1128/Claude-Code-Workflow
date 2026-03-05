@@ -118,7 +118,7 @@ selectedPerspectives.forEach(perspective => {
 ### MANDATORY FIRST STEPS (Agent Execute)
 1. **Read role definition**: ~/.codex/agents/cli-explore-agent.md (MUST read first)
 2. Read: {projectRoot}/.workflow/project-tech.json
-3. Read: {projectRoot}/.workflow/project-guidelines.json
+3. Read: {projectRoot}/.workflow/specs/*.md
 
 ---
 
@@ -196,7 +196,7 @@ if (selectedPerspectives.includes('security') || selectedPerspectives.includes('
 ### MANDATORY FIRST STEPS (Agent Execute)
 1. **Read role definition**: ~/.codex/agents/cli-explore-agent.md (MUST read first)
 2. Read: {projectRoot}/.workflow/project-tech.json
-3. Read: {projectRoot}/.workflow/project-guidelines.json
+3. Read: {projectRoot}/.workflow/specs/*.md
 
 ---
 

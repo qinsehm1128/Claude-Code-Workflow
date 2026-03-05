@@ -27,6 +27,17 @@
   "command": "Command",
   "args": "Arguments",
   "env": "Environment Variables",
+  "transport": {
+    "http": "HTTP",
+    "stdio": "STDIO"
+  },
+  "http": {
+    "url": "Server URL",
+    "headers": "HTTP Headers",
+    "showValue": "Show value",
+    "hideValue": "Hide value",
+    "envVar": "Env Var"
+  },
   "codex": {
     "configPath": "Config Path",
     "readOnly": "Read-only",
@@ -84,7 +95,25 @@
       "envPlaceholder": "Key=value pairs (one per line), e.g.,\nAPI_KEY=your_key\nDEBUG=true",
       "envHint": "Enter one key=value pair per line",
       "scope": "Scope",
-      "enabled": "Enable this server"
+      "enabled": "Enable this server",
+      "transportType": "Transport Type",
+      "transportStdio": "STDIO (Local Process)",
+      "transportHttp": "HTTP (Remote Server)",
+      "transportHint": "STDIO runs a local command, HTTP connects to a remote MCP server",
+      "http": {
+        "url": "Server URL",
+        "urlPlaceholder": "https://api.example.com/mcp",
+        "urlHint": "The MCP server endpoint URL",
+        "bearerToken": "Bearer Token Env Var",
+        "bearerTokenPlaceholder": "API_TOKEN",
+        "bearerTokenHint": "Environment variable name containing the bearer token for Authorization header",
+        "headers": "Custom Headers",
+        "headersHint": "Add custom HTTP headers for authentication or configuration",
+        "headerName": "Header Name",
+        "headerValue": "Header Value",
+        "isEnvVar": "Env Var",
+        "addHeader": "Add Header"
+      }
     },
     "templates": {
       "npx-stdio": "NPX STDIO",
@@ -94,7 +123,9 @@
     "validation": {
       "nameRequired": "Server name is required",
       "nameExists": "A server with this name already exists",
-      "commandRequired": "Command is required"
+      "commandRequired": "Command is required",
+      "urlRequired": "Server URL is required",
+      "urlInvalid": "Please enter a valid URL"
     },
     "actions": {
       "save": "Save",
@@ -112,6 +143,7 @@
     },
     "tools": {
       "label": "Available Tools",
+      "hint": "Install CCW MCP first to select tools",
       "core": "Core",
       "write_file": {
         "name": "write_file",
@@ -167,6 +199,10 @@
       "uninstallScopeConfirm": "Are you sure you want to remove CCW MCP from {scope}?",
       "saveConfig": "Save Configuration",
       "saving": "Saving..."
+    },
+    "feedback": {
+      "saveSuccess": "Configuration saved",
+      "saveError": "Failed to save configuration"
     },
     "scope": {
       "global": "Global",
@@ -389,5 +425,42 @@
   "enterprise": {
     "label": "Enterprise",
     "tooltip": "Enterprise MCP server"
+  },
+  "specs": {
+    "settings": {
+      "personalSpecDefaults": "Personal Spec Defaults",
+      "personalSpecDefaultsDesc": "These settings will be applied when creating new personal specs",
+      "defaultReadMode": "Default Read Mode",
+      "selectReadMode": "Select read mode",
+      "defaultReadModeHelp": "The default read mode for newly created personal specs",
+      "autoEnable": "Auto Enable New Specs",
+      "autoEnableDescription": "Automatically enable newly created personal specs",
+      "specStatistics": "Spec Statistics",
+      "totalSpecs": "Total: {count} spec files",
+      "required": "required",
+      "readMode": {
+        "required": "Required",
+        "optional": "Optional"
+      },
+      "dimension": {
+        "specs": "Project Specs",
+        "personal": "Personal Specs"
+      },
+      "devProgressInjection": "Development Progress Injection",
+      "devProgressInjectionDesc": "Control how development progress from project-tech.json is injected into AI context",
+      "enableDevProgress": "Enable Injection",
+      "enableDevProgressDesc": "Include development history in AI context",
+      "maxEntries": "Max Entries per Category",
+      "maxEntriesDesc": "Maximum number of entries to include per category (1-50)",
+      "includeCategories": "Include Categories",
+      "categoriesDesc": "Click to toggle category inclusion",
+      "devProgressStats": "{total} entries from {sessions} sessions, last updated: {date}",
+      "devProgressStatsNoDate": "{total} entries from {sessions} sessions"
+    },
+    "injection": {
+      "saveSuccess": "Settings saved successfully",
+      "saveError": "Failed to save settings: {error}",
+      "loadError": "Failed to load statistics"
+    }
   }
 }

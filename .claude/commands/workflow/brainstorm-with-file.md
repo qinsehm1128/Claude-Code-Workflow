@@ -2,7 +2,7 @@
 name: brainstorm-with-file
 description: Interactive brainstorming with multi-CLI collaboration, idea expansion, and documented thought evolution
 argument-hint: "[-y|--yes] [-c|--continue] [-m|--mode creative|structured] \"idea or topic\""
-allowed-tools: TodoWrite(*), Task(*), AskUserQuestion(*), Read(*), Grep(*), Glob(*), Bash(*), Edit(*), Write(*)
+allowed-tools: TodoWrite(*), Agent(*), AskUserQuestion(*), Read(*), Grep(*), Glob(*), Bash(*), Edit(*), Write(*)
 ---
 
 ## Auto Mode
@@ -245,7 +245,7 @@ Output as structured exploration vectors for multi-perspective analysis.
 
 **Agent Call Example**:
 ```javascript
-Task({
+Agent({
   subagent_type: "cli-explore-agent",
   run_in_background: false,
   description: `Explore codebase for brainstorm: ${topicSlug}`,
@@ -410,7 +410,7 @@ CONSTRAINTS: Consider existing system architecture
 - perspectives.json contains initial ideas
 - brainstorm.md has Round 2 findings
 
-**Guideline**: For complex tasks (code analysis, implementation, POC creation), delegate to agents via Task tool (cli-explore-agent, code-developer, universal-executor) or CLI calls (ccw cli). Avoid direct analysis/execution in main process.
+**Guideline**: For complex tasks (code analysis, implementation, POC creation), delegate to agents via Agent tool (cli-explore-agent, code-developer, universal-executor) or CLI calls (ccw cli). Avoid direct analysis/execution in main process.
 
 **Workflow Steps**:
 
@@ -725,7 +725,7 @@ Dimensions matched against topic keywords to identify focus areas:
 ## Best Practices
 
 1. **Clear Topic Definition**: Detailed topics → better role selection and exploration
-2. **Agent-First for Complex Tasks**: For code analysis, POC implementation, or technical validation during refinement, delegate to agents via Task tool (cli-explore-agent, code-developer, universal-executor) or CLI calls (ccw cli). Avoid direct analysis/execution in main process
+2. **Agent-First for Complex Tasks**: For code analysis, POC implementation, or technical validation during refinement, delegate to agents via Agent tool (cli-explore-agent, code-developer, universal-executor) or CLI calls (ccw cli). Avoid direct analysis/execution in main process
 3. **Review brainstorm.md**: Check thought evolution before final decisions
 4. **Embrace Conflicts**: Perspective conflicts often reveal important tradeoffs
 5. **Document Evolution**: brainstorm.md captures full thinking process for team review
@@ -769,7 +769,7 @@ See full markdown template in original file (lines 955-1161).
 - Want shared collaborative planning document
 - Need structured task breakdown with agent coordination
 
-**Use `Skill(skill="workflow-lite-plan", args="\"task description\"")` when:**
+**Use `Skill(skill="workflow-lite-planex", args="\"task description\"")` when:**
 - Direction is already clear
 - Ready to move from ideas to execution
 - Need simple implementation breakdown

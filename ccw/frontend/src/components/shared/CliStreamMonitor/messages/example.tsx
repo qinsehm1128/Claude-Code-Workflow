@@ -17,7 +17,7 @@ export function MessageExample() {
       <SystemMessage
         title="Session Started"
         timestamp={Date.now()}
-        metadata="gemini-2.5-pro | Context: 28 files"
+        metadata="Context: 28 files"
         content="CLI execution started: gemini (analysis mode)"
       />
 

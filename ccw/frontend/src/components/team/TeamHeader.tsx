@@ -4,7 +4,7 @@
 // Detail view header with back button, stats, and controls
 
 import { useIntl } from 'react-intl';
-import { Users, MessageSquare, RefreshCw, ArrowLeft } from 'lucide-react';
+import { Users, MessageSquare, RefreshCw, ArrowLeft, GitBranch } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Switch } from '@/components/ui/Switch';
@@ -18,6 +18,8 @@ interface TeamHeaderProps {
   totalMessages: number;
   autoRefresh: boolean;
   onToggleAutoRefresh: () => void;
+  skillType?: string;
+  pipelineMode?: string;
 }
 
 export function TeamHeader({
@@ -27,6 +29,8 @@ export function TeamHeader({
   totalMessages,
   autoRefresh,
   onToggleAutoRefresh,
+  skillType,
+  pipelineMode,
 }: TeamHeaderProps) {
   const { formatMessage } = useIntl();
 
@@ -55,6 +59,23 @@ export function TeamHeader({
                 {formatMessage({ id: 'team.messages' })}: {totalMessages}
               </Badge>
             </div>
+
+            {/* Skill type and pipeline mode badges */}
+            {(skillType || pipelineMode) && (
+              <div className="flex items-center gap-2">
+                {skillType && (
+                  <Badge variant="outline" className="gap-1">
+                    {skillType}
+                  </Badge>
+                )}
+                {pipelineMode && (
+                  <Badge variant="default" className="gap-1">
+                    <GitBranch className="w-3 h-3" />
+                    {pipelineMode}
+                  </Badge>
+                )}
+              </div>
+            )}
           </>
         )}
       </div>

@@ -51,10 +51,10 @@ function buildPipeline(pipelineMode) {
 ```javascript
 // Session directory already created in Phase 2
 // Write pipeline config to shared memory
-const sharedMemory = JSON.parse(Read(`${sessionFolder}/shared-memory.json`))
+const sharedMemory = JSON.parse(Read(`${sessionFolder}/.msg/meta.json`))
 sharedMemory.pipeline_mode = pipelineMode
 sharedMemory.pipeline_stages = buildPipeline(pipelineMode).map(s => `${s.prefix}-${s.suffix}`)
-Write(`${sessionFolder}/shared-memory.json`, JSON.stringify(sharedMemory, null, 2))
+Write(`${sessionFolder}/.msg/meta.json`, JSON.stringify(sharedMemory, null, 2))
 ```
 
 ### Step 2: Create Task Chain
@@ -110,16 +110,14 @@ const chainValid = chainTasks.length === pipeline.length
 
 if (!chainValid) {
   mcp__ccw-tools__team_msg({
-    operation: "log", team: teamName, from: "coordinator",
-    to: "user", type: "error",
-    summary: `[coordinator] Task chain incomplete: ${chainTasks.length}/${pipeline.length}`
+    operation: "log", session_id: sessionId, from: "coordinator",
+    type: "error",
   })
 }
 
 mcp__ccw-tools__team_msg({
-  operation: "log", team: teamName, from: "coordinator",
+  operation: "log", session_id: sessionId, from: "coordinator",
   to: "all", type: "dispatch_ready",
-  summary: `[coordinator] Task chain created: ${pipeline.map(s => `${s.prefix}-${s.suffix}`).join(' -> ')} (mode: ${pipelineMode})`
 })
 ```
 

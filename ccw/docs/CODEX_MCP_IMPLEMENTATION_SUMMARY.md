@@ -1,18 +1,21 @@
 # Codex MCP 功能实现总结
 
+> **注意**: 此文档描述的是旧的 vanilla JS 前端架构。当前版本 (v7.0+) 使用 React SPA 前端。
+> 请参考 `ccw/frontend/src/` 目录中的 React 组件。
+
 ## 📝 已完成的修复
 
 ### 1. CCW Tools MCP 卡片样式修复
 
-**文件**: `ccw/src/templates/dashboard-js/views/mcp-manager.js`
+**文件**: `ccw/frontend/src/components/McpManager.tsx` (React)
 
 **修改内容**:
-- ✅ 卡片边框: `border-primary` → `border-orange-500` (第345行)
-- ✅ 图标背景: `bg-primary` → `bg-orange-500` (第348行)
-- ✅ 图标颜色: `text-primary-foreground` → `text-white` (第349行)
-- ✅ "Available"徽章: `bg-primary/20 text-primary` → `bg-orange-500/20 text-orange-600` (第360行)
-- ✅ 选择按钮颜色: `text-primary` → `text-orange-500` (第378-379行)
-- ✅ 安装按钮: `bg-primary` → `bg-orange-500` (第386行、第399行)
+- ✅ 卡片边框: `border-primary` → `border-orange-500`
+- ✅ 图标背景: `bg-primary` → `bg-orange-500`
+- ✅ 图标颜色: `text-primary-foreground` → `text-white`
+- ✅ "Available"徽章: `bg-primary/20 text-primary` → `bg-orange-500/20 text-orange-600`
+- ✅ 选择按钮颜色: `text-primary` → `text-orange-500`
+- ✅ 安装按钮: `bg-primary` → `bg-orange-500`
 
 **影响范围**: Claude 模式下的 CCW Tools MCP 卡片
 
@@ -20,10 +23,10 @@
 
 ### 2. Toast 消息显示时间增强
 
-**文件**: `ccw/src/templates/dashboard-js/components/navigation.js`
+**文件**: `ccw/frontend/src/hooks/useToast.ts` (React)
 
 **修改内容**:
-- ✅ 显示时间: 2000ms → 3500ms (第300行)
+- ✅ 显示时间: 2000ms → 3500ms
 
 **影响范围**: 所有 Toast 消息（MCP 安装、删除、切换等操作反馈）
 
@@ -55,38 +58,33 @@ API 请求: POST /api/codex-mcp-add
     ↓
 前端更新:
   1. loadMcpConfig() - 重新加载配置
-  2. renderMcpManager() - 重新渲染 UI
-  3. showRefreshToast(...) - 显示成功/失败消息 (3.5秒)
+  2. 状态更新触发 UI 重新渲染
+  3. Toast 显示成功/失败消息 (3.5秒)
 ```
 
 ---
 
 ## 📍 关键代码位置
 
-### 前端
+### 前端 (React SPA)
 
-| 功能 | 文件 | 行号 | 说明 |
-|------|------|------|------|
-| 复制到 Codex | `components/mcp-manager.js` | 175-177 | `copyClaudeServerToCodex()` 函数 |
-| 添加到 Codex | `components/mcp-manager.js` | 87-114 | `addCodexMcpServer()` 函数 |
-| Toast 消息 | `components/navigation.js` | 286-301 | `showRefreshToast()` 函数 |
-| CCW Tools 样式 | `views/mcp-manager.js` | 342-415 | Claude 模式卡片渲染 |
-| 其他项目按钮 | `views/mcp-manager.js` | 1015-1020 | "Install to Codex" 按钮 |
+| 功能 | 文件 | 说明 |
+|------|------|------|
+| MCP 管理 | `ccw/frontend/src/components/McpManager.tsx` | MCP 管理组件 |
+| Toast 消息 | `ccw/frontend/src/hooks/useToast.ts` | Toast hook |
+| 复制到 Codex | `ccw/frontend/src/api/mcp.ts` | MCP API 调用 |
 
 ### 后端
 
-| 功能 | 文件 | 行号 | 说明 |
-|------|------|------|------|
-| API 端点 | `core/routes/mcp-routes.ts` | 1001-1010 | `/api/codex-mcp-add` 路由 |
-| 添加服务器 | `core/routes/mcp-routes.ts` | 251-330 | `addCodexMcpServer()` 函数 |
-| TOML 序列化 | `core/routes/mcp-routes.ts` | 166-188 | `serializeToml()` 函数 |
+| 功能 | 文件 | 说明 |
+|------|------|------|
+| API 端点 | `ccw/src/core/routes/mcp-routes.ts` | `/api/codex-mcp-add` 路由 |
+| 添加服务器 | `ccw/src/core/routes/mcp-routes.ts` | `addCodexMcpServer()` 函数 |
+| TOML 序列化 | `ccw/src/core/routes/mcp-routes.ts` | `serializeToml()` 函数 |
 
-### CSS
+### CSS (Tailwind)
 
-| 功能 | 文件 | 行号 | 说明 |
-|------|------|------|------|
-| Toast 样式 | `dashboard-css/06-cards.css` | 1501-1538 | Toast 容器和类型样式 |
-| Toast 动画 | `dashboard-css/06-cards.css` | 1540-1551 | 滑入/淡出动画 |
+Toast 样式使用 Tailwind CSS 内联样式，定义在 React 组件中。
 
 ---
 
@@ -220,32 +218,30 @@ API 请求: POST /api/codex-mcp-add
 
 ## 📦 相关文件清单
 
-### 已修改文件
+### 前端文件 (React SPA)
 
-1. `ccw/src/templates/dashboard-js/views/mcp-manager.js`
-   - 修改: CCW Tools 卡片样式（第342-415行）
-   
-2. `ccw/src/templates/dashboard-js/components/navigation.js`
-   - 修改: Toast 显示时间（第300行）
+1. `ccw/frontend/src/components/McpManager.tsx`
+   - MCP 管理组件（包含 CCW Tools 卡片样式）
 
-### 核心功能文件（未修改但相关）
+2. `ccw/frontend/src/hooks/useToast.ts`
+   - Toast 消息 hook（显示时间 3.5秒）
 
-3. `ccw/src/templates/dashboard-js/components/mcp-manager.js`
-   - 包含: `addCodexMcpServer()`, `copyClaudeServerToCodex()` 函数
+3. `ccw/frontend/src/api/mcp.ts`
+   - MCP API 调用函数
+
+### 后端文件
 
 4. `ccw/src/core/routes/mcp-routes.ts`
-   - 包含: Codex MCP API 端点和后端逻辑
+   - Codex MCP API 端点和后端逻辑
 
-5. `ccw/src/templates/dashboard-css/06-cards.css`
-   - 包含: Toast 样式定义
+### 文档
 
-### 新增文档
-
-6. `ccw/docs/CODEX_MCP_TESTING_GUIDE.md`
+5. `ccw/docs/CODEX_MCP_TESTING_GUIDE.md`
    - 详细测试指南
 
-7. `ccw/docs/QUICK_TEST_CODEX_MCP.md`
+6. `ccw/docs/QUICK_TEST_CODEX_MCP.md`
    - 快速测试步骤
+
 
 8. `ccw/docs/CODEX_MCP_IMPLEMENTATION_SUMMARY.md`
    - 本文档

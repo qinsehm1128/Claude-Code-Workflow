@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Project Guidelines Schema",
-  "description": "Schema for project-guidelines.json - user-maintained rules and constraints",
+  "description": "Legacy schema - project guidelines now managed by spec system (`ccw spec load --dimension specs`)",
   "type": "object",
   "required": ["conventions", "constraints", "_metadata"],
   "properties": {

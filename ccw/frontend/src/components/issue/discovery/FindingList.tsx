@@ -24,14 +24,14 @@ interface FindingListProps {
 }
 
 const severityConfig: Record<string, { variant: 'destructive' | 'warning' | 'secondary' | 'outline' | 'success' | 'info' | 'default'; label: string }> = {
-  critical: { variant: 'destructive', label: 'issues.discovery.severity.critical' },
-  high: { variant: 'destructive', label: 'issues.discovery.severity.high' },
-  medium: { variant: 'warning', label: 'issues.discovery.severity.medium' },
-  low: { variant: 'secondary', label: 'issues.discovery.severity.low' },
+  critical: { variant: 'destructive', label: 'issues.discovery.findings.severity.critical' },
+  high: { variant: 'destructive', label: 'issues.discovery.findings.severity.high' },
+  medium: { variant: 'warning', label: 'issues.discovery.findings.severity.medium' },
+  low: { variant: 'secondary', label: 'issues.discovery.findings.severity.low' },
 };
 
 function getSeverityConfig(severity: string) {
-  return severityConfig[severity] || { variant: 'outline', label: 'issues.discovery.severity.unknown' };
+  return severityConfig[severity] || { variant: 'outline', label: 'issues.discovery.findings.severity.unknown' };
 }
 
 export function FindingList({
@@ -116,10 +116,10 @@ export function FindingList({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">{formatMessage({ id: 'issues.discovery.findings.severity.all' })}</SelectItem>
-            <SelectItem value="critical">{formatMessage({ id: 'issues.discovery.severity.critical' })}</SelectItem>
-            <SelectItem value="high">{formatMessage({ id: 'issues.discovery.severity.high' })}</SelectItem>
-            <SelectItem value="medium">{formatMessage({ id: 'issues.discovery.severity.medium' })}</SelectItem>
-            <SelectItem value="low">{formatMessage({ id: 'issues.discovery.severity.low' })}</SelectItem>
+            <SelectItem value="critical">{formatMessage({ id: 'issues.discovery.findings.severity.critical' })}</SelectItem>
+            <SelectItem value="high">{formatMessage({ id: 'issues.discovery.findings.severity.high' })}</SelectItem>
+            <SelectItem value="medium">{formatMessage({ id: 'issues.discovery.findings.severity.medium' })}</SelectItem>
+            <SelectItem value="low">{formatMessage({ id: 'issues.discovery.findings.severity.low' })}</SelectItem>
           </SelectContent>
         </Select>
         {uniqueTypes.length > 0 && (

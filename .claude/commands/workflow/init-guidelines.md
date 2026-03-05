@@ -1,6 +1,6 @@
 ---
 name: init-guidelines
-description: Interactive wizard to fill project-guidelines.json based on project analysis
+description: Interactive wizard to fill specs/*.md based on project analysis
 argument-hint: "[--reset]"
 examples:
   - /workflow:init-guidelines
@@ -11,7 +11,7 @@ examples:
 
 ## Overview
 
-Interactive multi-round wizard that analyzes the current project (via `project-tech.json`) and asks targeted questions to populate `.workflow/project-guidelines.json` with coding conventions, constraints, and quality rules.
+Interactive multi-round wizard that analyzes the current project (via `project-tech.json`) and asks targeted questions to populate `.ccw/specs/*.md` with coding conventions, constraints, and quality rules.
 
 **Design Principle**: Questions are dynamically generated based on the project's tech stack, architecture, and patterns — not generic boilerplate.
 
@@ -31,7 +31,7 @@ Input Parsing:
 
 Step 1: Check Prerequisites
    ├─ project-tech.json must exist (run /workflow:init first)
-   ├─ project-guidelines.json: check if populated or scaffold-only
+   ├─ specs/*.md: check if populated or scaffold-only
    └─ If populated + no --reset → Ask: "Guidelines already exist. Overwrite or append?"
 
 Step 2: Load Project Context
@@ -44,7 +44,7 @@ Step 3: Multi-Round Interactive Questionnaire
    ├─ Round 4: Performance & Security Constraints (performance, security)
    └─ Round 5: Quality Rules (quality_rules)
 
-Step 4: Write project-guidelines.json
+Step 4: Write specs/*.md
 
 Step 5: Display Summary
 ```
@@ -55,7 +55,7 @@ Step 5: Display Summary
 
 ```bash
 bash(test -f .workflow/project-tech.json && echo "TECH_EXISTS" || echo "TECH_NOT_FOUND")
-bash(test -f .workflow/project-guidelines.json && echo "GUIDELINES_EXISTS" || echo "GUIDELINES_NOT_FOUND")
+bash(test -f .ccw/specs/coding-conventions.md && echo "SPECS_EXISTS" || echo "SPECS_NOT_FOUND")
 ```
 
 **If TECH_NOT_FOUND**: Exit with message
@@ -71,12 +71,10 @@ const reset = $ARGUMENTS.includes('--reset')
 **If GUIDELINES_EXISTS and not --reset**: Check if guidelines are populated (not just scaffold)
 
 ```javascript
-const guidelines = JSON.parse(Read('.workflow/project-guidelines.json'))
-const isPopulated =
-  guidelines.conventions.coding_style.length > 0 ||
-  guidelines.conventions.naming_patterns.length > 0 ||
-  guidelines.constraints.architecture.length > 0 ||
-  guidelines.constraints.tech_stack.length > 0
+// Check if specs already have content via ccw spec list
+const specsList = Bash('ccw spec list --json 2>/dev/null || echo "{}"')
+const specsData = JSON.parse(specsList)
+const isPopulated = (specsData.total || 0) > 5  // More than seed docs
 
 if (isPopulated) {
   AskUserQuestion({
@@ -100,22 +98,18 @@ if (isPopulated) {
 ### Step 2: Load Project Context
 
 ```javascript
-const projectTech = JSON.parse(Read('.workflow/project-tech.json'))
+// Load project context via ccw spec load for planning context
+const projectContext = Bash('ccw spec load --category planning 2>/dev/null || echo "{}"')
+const specData = JSON.parse(projectContext)
 
-// Extract key info for generating smart questions
-const languages = projectTech.technology_analysis?.technology_stack?.languages
-  || projectTech.overview?.technology_stack?.languages || []
+// Extract key info from loaded specs for generating smart questions
+const languages = specData.overview?.technology_stack?.languages || []
 const primaryLang = languages.find(l => l.primary)?.name || languages[0]?.name || 'Unknown'
-const frameworks = projectTech.technology_analysis?.technology_stack?.frameworks
-  || projectTech.overview?.technology_stack?.frameworks || []
-const testFrameworks = projectTech.technology_analysis?.technology_stack?.test_frameworks
-  || projectTech.overview?.technology_stack?.test_frameworks || []
-const archStyle = projectTech.technology_analysis?.architecture?.style
-  || projectTech.overview?.architecture?.style || 'Unknown'
-const archPatterns = projectTech.technology_analysis?.architecture?.patterns
-  || projectTech.overview?.architecture?.patterns || []
-const buildTools = projectTech.technology_analysis?.technology_stack?.build_tools
-  || projectTech.overview?.technology_stack?.build_tools || []
+const frameworks = specData.overview?.technology_stack?.frameworks || []
+const testFrameworks = specData.overview?.technology_stack?.test_frameworks || []
+const archStyle = specData.overview?.architecture?.style || 'Unknown'
+const archPatterns = specData.overview?.architecture?.patterns || []
+const buildTools = specData.overview?.technology_stack?.build_tools || []
 ```
 
 ### Step 3: Multi-Round Interactive Questionnaire
@@ -326,64 +320,115 @@ AskUserQuestion({
 
 **Process Round 5 answers** → add to `quality_rules` array as `{ rule, scope, enforced_by }` objects.
 
-### Step 4: Write project-guidelines.json
+### Step 4: Write specs/*.md
+
+For each category of collected answers, append rules to the corresponding spec MD file. Each spec file uses YAML frontmatter with `readMode`, `priority`, `category`, and `keywords`.
+
+**Category Assignment**: Based on the round and question type:
+- Round 1-2 (conventions): `category: general` (applies to all stages)
+- Round 3 (architecture/tech): `category: planning` (planning phase)
+- Round 4 (performance/security): `category: execution` (implementation phase)
+- Round 5 (quality): `category: execution` (testing phase)
 
 ```javascript
-// Build the final guidelines object
-const finalGuidelines = {
-  conventions: {
-    coding_style: existingCodingStyle.concat(newCodingStyle),
-    naming_patterns: existingNamingPatterns.concat(newNamingPatterns),
-    file_structure: existingFileStructure.concat(newFileStructure),
-    documentation: existingDocumentation.concat(newDocumentation)
-  },
-  constraints: {
-    architecture: existingArchitecture.concat(newArchitecture),
-    tech_stack: existingTechStack.concat(newTechStack),
-    performance: existingPerformance.concat(newPerformance),
-    security: existingSecurity.concat(newSecurity)
-  },
-  quality_rules: existingQualityRules.concat(newQualityRules),
-  learnings: existingLearnings, // Preserve existing learnings
-  _metadata: {
-    created_at: existingMetadata?.created_at || new Date().toISOString(),
-    version: "1.0.0",
-    last_updated: new Date().toISOString(),
-    updated_by: "workflow:init-guidelines"
+// Helper: append rules to a spec MD file with category support
+// Uses .ccw/specs/ directory (same as frontend/backend spec-index-builder)
+function appendRulesToSpecFile(filePath, rules, defaultCategory = 'general') {
+  if (rules.length === 0) return
+
+  // Ensure .ccw/specs/ directory exists
+  const specDir = path.dirname(filePath)
+  if (!fs.existsSync(specDir)) {
+    fs.mkdirSync(specDir, { recursive: true })
   }
+
+  // Check if file exists
+  if (!file_exists(filePath)) {
+    // Create file with frontmatter including category
+    const frontmatter = `---
+title: ${filePath.includes('conventions') ? 'Coding Conventions' : filePath.includes('constraints') ? 'Architecture Constraints' : 'Quality Rules'}
+readMode: optional
+priority: medium
+category: ${defaultCategory}
+scope: project
+dimension: specs
+keywords: [${defaultCategory}, ${filePath.includes('conventions') ? 'convention' : filePath.includes('constraints') ? 'constraint' : 'quality'}]
+---
+
+# ${filePath.includes('conventions') ? 'Coding Conventions' : filePath.includes('constraints') ? 'Architecture Constraints' : 'Quality Rules'}
+
+`
+    Write(filePath, frontmatter)
+  }
+
+  const existing = Read(filePath)
+  // Append new rules as markdown list items after existing content
+  const newContent = existing.trimEnd() + '\n' + rules.map(r => `- ${r}`).join('\n') + '\n'
+  Write(filePath, newContent)
 }
 
-Write('.workflow/project-guidelines.json', JSON.stringify(finalGuidelines, null, 2))
+// Write conventions (general category) - use .ccw/specs/ (same as frontend/backend)
+appendRulesToSpecFile('.ccw/specs/coding-conventions.md',
+  [...newCodingStyle, ...newNamingPatterns, ...newFileStructure, ...newDocumentation],
+  'general')
+
+// Write constraints (planning category)
+appendRulesToSpecFile('.ccw/specs/architecture-constraints.md',
+  [...newArchitecture, ...newTechStack, ...newPerformance, ...newSecurity],
+  'planning')
+
+// Write quality rules (execution category)
+if (newQualityRules.length > 0) {
+  const qualityPath = '.ccw/specs/quality-rules.md'
+  if (!file_exists(qualityPath)) {
+    Write(qualityPath, `---
+title: Quality Rules
+readMode: required
+priority: high
+category: execution
+scope: project
+dimension: specs
+keywords: [execution, quality, testing, coverage, lint]
+---
+
+# Quality Rules
+
+`)
+  }
+  appendRulesToSpecFile(qualityPath,
+    newQualityRules.map(q => `${q.rule} (scope: ${q.scope}, enforced by: ${q.enforced_by})`),
+    'execution')
+}
+
+// Rebuild spec index after writing
+Bash('ccw spec rebuild')
 ```
 
 ### Step 5: Display Summary
 
 ```javascript
-const countConventions = finalGuidelines.conventions.coding_style.length
-  + finalGuidelines.conventions.naming_patterns.length
-  + finalGuidelines.conventions.file_structure.length
-  + finalGuidelines.conventions.documentation.length
+const countConventions = newCodingStyle.length + newNamingPatterns.length
+  + newFileStructure.length + newDocumentation.length
+const countConstraints = newArchitecture.length + newTechStack.length
+  + newPerformance.length + newSecurity.length
+const countQuality = newQualityRules.length
 
-const countConstraints = finalGuidelines.constraints.architecture.length
-  + finalGuidelines.constraints.tech_stack.length
-  + finalGuidelines.constraints.performance.length
-  + finalGuidelines.constraints.security.length
-
-const countQuality = finalGuidelines.quality_rules.length
+// Get updated spec list
+const specsList = Bash('ccw spec list --json 2>/dev/null || echo "{}"')
 
 console.log(`
 ✓ Project guidelines configured
 
 ## Summary
-- Conventions: ${countConventions} rules (coding: ${cs}, naming: ${np}, files: ${fs}, docs: ${doc})
-- Constraints: ${countConstraints} rules (arch: ${ar}, tech: ${ts}, perf: ${pf}, security: ${sc})
-- Quality rules: ${countQuality}
+- Conventions: ${countConventions} rules added to coding-conventions.md
+- Constraints: ${countConstraints} rules added to architecture-constraints.md
+- Quality rules: ${countQuality} rules added to quality-rules.md
 
-File: .workflow/project-guidelines.json
+Spec index rebuilt. Use \`ccw spec list\` to view all specs.
 
 Next steps:
 - Use /workflow:session:solidify to add individual rules later
-- Guidelines will be auto-loaded by /workflow:plan for task generation
+- Specs are auto-loaded via hook on each prompt
 `)
 ```
 
@@ -405,4 +450,5 @@ When converting user selections to guideline entries:
 ## Related Commands
 
 - `/workflow:init` - Creates scaffold; optionally calls this command
+- `/workflow:init-specs` - Interactive wizard to create individual specs with scope selection
 - `/workflow:session:solidify` - Add individual rules one at a time

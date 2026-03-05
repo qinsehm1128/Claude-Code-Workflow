@@ -16,10 +16,16 @@ import {
   X,
   Maximize2,
   Minimize2,
+  ChevronDown,
+  ChevronRight,
+  FileJson,
+  Clock,
 } from 'lucide-react';
 import { useAppStore, selectIsImmersiveMode } from '@/stores/appStore';
 import { cn } from '@/lib/utils';
 import { useHistory } from '@/hooks/useHistory';
+import { useNotifications } from '@/hooks/useNotifications';
+import { useNativeSessionsInfinite } from '@/hooks/useNativeSessions';
 import { ConversationCard } from '@/components/shared/ConversationCard';
 import { CliStreamPanel } from '@/components/shared/CliStreamPanel';
 import { NativeSessionPanel } from '@/components/shared/NativeSessionPanel';
@@ -42,15 +48,18 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from '@/components/ui/Dropdown';
-import type { CliExecution } from '@/lib/api';
+import { Badge } from '@/components/ui/Badge';
+import type { CliExecution, NativeSessionListItem } from '@/lib/api';
+import { getToolVariant } from '@/lib/cli-tool-theme';
 
-type HistoryTab = 'executions' | 'observability';
+type HistoryTab = 'executions' | 'observability' | 'native-sessions';
 
 /**
  * HistoryPage component - Display CLI execution history
  */
 export function HistoryPage() {
   const { formatMessage } = useIntl();
+  const { error: showError } = useNotifications();
   const [currentTab, setCurrentTab] = React.useState<HistoryTab>('executions');
   const [searchQuery, setSearchQuery] = React.useState('');
   const [toolFilter, setToolFilter] = React.useState<string | undefined>(undefined);
@@ -59,6 +68,7 @@ export function HistoryPage() {
   const [deleteTarget, setDeleteTarget] = React.useState<string | null>(null);
   const [selectedExecution, setSelectedExecution] = React.useState<string | null>(null);
   const [isPanelOpen, setIsPanelOpen] = React.useState(false);
+  const [selectedNativeSession, setSelectedNativeSession] = React.useState<NativeSessionListItem | null>(null);
   const [nativeExecutionId, setNativeExecutionId] = React.useState<string | null>(null);
   const [isNativePanelOpen, setIsNativePanelOpen] = React.useState(false);
   const isImmersiveMode = useAppStore(selectIsImmersiveMode);
@@ -77,6 +87,43 @@ export function HistoryPage() {
   } = useHistory({
     filter: { search: searchQuery || undefined, tool: toolFilter },
   });
+
+  // Native sessions hook (infinite loading)
+  const {
+    sessions: nativeSessions,
+    byTool: nativeSessionsByTool,
+    isLoading: isLoadingNativeSessions,
+    isFetching: isFetchingNativeSessions,
+    isFetchingNextPage: isLoadingMoreNativeSessions,
+    hasNextPage: hasMoreNativeSessions,
+    error: nativeSessionsError,
+    fetchNextPage: loadMoreNativeSessions,
+    refetch: refetchNativeSessions,
+  } = useNativeSessionsInfinite();
+
+  // Track expanded tool groups in native sessions tab
+  const [expandedTools, setExpandedTools] = React.useState<Set<string>>(new Set());
+
+  const toggleToolExpand = (tool: string) => {
+    setExpandedTools((prev) => {
+      const next = new Set(prev);
+      if (next.has(tool)) {
+        next.delete(tool);
+      } else {
+        next.add(tool);
+      }
+      return next;
+    });
+  };
+
+  // Native session click handler - opens NativeSessionPanel
+  const handleNativeSessionClick = (session: NativeSessionListItem) => {
+    setSelectedNativeSession(session);
+    setIsNativePanelOpen(true);
+  };
+
+  // Tool order for display
+  const toolOrder = ['gemini', 'qwen', 'codex', 'claude', 'opencode'] as const;
 
   const tools = React.useMemo(() => {
     const toolSet = new Set(executions.map((e) => e.tool));
@@ -139,6 +186,7 @@ export function HistoryPage() {
       setDeleteType(null);
       setDeleteTarget(null);
     } catch (err) {
+      showError(formatMessage({ id: 'history.deleteFailed' }), err instanceof Error ? err.message : String(err));
       console.error('Failed to delete:', err);
     }
   };
@@ -196,6 +244,19 @@ export function HistoryPage() {
           onClick={() => setCurrentTab('observability')}
         >
           {formatMessage({ id: 'history.tabs.observability' })}
+        </Button>
+        <Button
+          variant="ghost"
+          className={cn(
+            "border-b-2 rounded-none h-11 px-4",
+            currentTab === 'native-sessions'
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          )}
+          onClick={() => setCurrentTab('native-sessions')}
+        >
+          <FileJson className="h-4 w-4 mr-2" />
+          {formatMessage({ id: 'history.tabs.nativeSessions' })}
         </Button>
       </div>
 
@@ -354,6 +415,194 @@ export function HistoryPage() {
         </div>
       )}
 
+      {currentTab === 'native-sessions' && (
+        <div className="space-y-4">
+          {/* Header with refresh */}
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-muted-foreground">
+              {formatMessage(
+                { id: 'history.nativeSessions.count' },
+                { count: nativeSessions.length }
+              )}
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetchNativeSessions()}
+              disabled={isFetchingNativeSessions && !isLoadingMoreNativeSessions}
+            >
+              <RefreshCw className={cn('h-4 w-4 mr-2', isFetchingNativeSessions && 'animate-spin')} />
+              {formatMessage({ id: 'common.actions.refresh' })}
+            </Button>
+          </div>
+
+          {/* Error alert */}
+          {nativeSessionsError && (
+            <div className="flex items-center gap-2 p-4 rounded-lg bg-destructive/10 border border-destructive/30 text-destructive">
+              <Terminal className="h-5 w-5 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-medium">{formatMessage({ id: 'common.errors.loadFailed' })}</p>
+                <p className="text-xs mt-0.5">{nativeSessionsError.message}</p>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => refetchNativeSessions()}>
+                {formatMessage({ id: 'common.actions.retry' })}
+              </Button>
+            </div>
+          )}
+
+          {/* Loading state */}
+          {isLoadingNativeSessions ? (
+            <div className="grid gap-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="h-20 rounded-lg bg-muted animate-pulse" />
+              ))}
+            </div>
+          ) : nativeSessions.length === 0 ? (
+            /* Empty state */
+            <div className="flex flex-col items-center justify-center py-16 px-4">
+              <FileJson className="h-12 w-12 text-muted-foreground mb-4" />
+              <h3 className="text-lg font-medium text-foreground mb-2">
+                {formatMessage({ id: 'history.nativeSessions.empty.title' })}
+              </h3>
+              <p className="text-sm text-muted-foreground text-center">
+                {formatMessage({ id: 'history.nativeSessions.empty.message' })}
+              </p>
+            </div>
+          ) : (
+            /* Sessions grouped by tool */
+            <div className="space-y-2">
+              {toolOrder
+                .filter((tool) => nativeSessionsByTool[tool]?.length > 0)
+                .map((tool) => {
+                  const sessions = nativeSessionsByTool[tool];
+                  const isExpanded = expandedTools.has(tool);
+                  return (
+                    <div key={tool} className="border rounded-lg">
+                      {/* Tool header - clickable to expand/collapse */}
+                      <button
+                        className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/50 transition-colors"
+                        onClick={() => toggleToolExpand(tool)}
+                      >
+                        <div className="flex items-center gap-3">
+                          {isExpanded ? (
+                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                          )}
+                          <Badge variant={getToolVariant(tool)}>
+                            {tool.toUpperCase()}
+                          </Badge>
+                          <span className="text-sm text-muted-foreground">
+                            {sessions.length} {formatMessage({ id: 'history.nativeSessions.sessions' })}
+                          </span>
+                        </div>
+                      </button>
+                      {/* Sessions list */}
+                      {isExpanded && (
+                        <div className="border-t divide-y">
+                          {sessions.map((session) => (
+                            <button
+                              key={session.sessionId}
+                              className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/30 transition-colors text-left"
+                              onClick={() => handleNativeSessionClick(session)}
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <span className="font-mono text-sm truncate max-w-48" title={session.sessionId}>
+                                  {session.sessionId.length > 24 ? session.sessionId.slice(0, 24) + '...' : session.sessionId}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0">
+                                <span className="flex items-center gap-1">
+                                  <Clock className="h-3 w-3" />
+                                  {new Date(session.updatedAt).toLocaleString()}
+                                </span>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              {/* Other tools not in predefined order */}
+              {Object.keys(nativeSessionsByTool)
+                .filter((tool) => !toolOrder.includes(tool as typeof toolOrder[number]))
+                .sort()
+                .map((tool) => {
+                  const sessions = nativeSessionsByTool[tool];
+                  const isExpanded = expandedTools.has(tool);
+                  return (
+                    <div key={tool} className="border rounded-lg">
+                      <button
+                        className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/50 transition-colors"
+                        onClick={() => toggleToolExpand(tool)}
+                      >
+                        <div className="flex items-center gap-3">
+                          {isExpanded ? (
+                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                          )}
+                          <Badge variant="secondary">
+                            {tool.toUpperCase()}
+                          </Badge>
+                          <span className="text-sm text-muted-foreground">
+                            {sessions.length} {formatMessage({ id: 'history.nativeSessions.sessions' })}
+                          </span>
+                        </div>
+                      </button>
+                      {isExpanded && (
+                        <div className="border-t divide-y">
+                          {sessions.map((session) => (
+                            <button
+                              key={session.sessionId}
+                              className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/30 transition-colors text-left"
+                              onClick={() => handleNativeSessionClick(session)}
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <span className="font-mono text-sm truncate max-w-48" title={session.sessionId}>
+                                  {session.sessionId.length > 24 ? session.sessionId.slice(0, 24) + '...' : session.sessionId}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0">
+                                <span className="flex items-center gap-1">
+                                  <Clock className="h-3 w-3" />
+                                  {new Date(session.updatedAt).toLocaleString()}
+                                </span>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+              {/* Load More Button */}
+              {hasMoreNativeSessions && (
+                <div className="flex justify-center pt-4">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => loadMoreNativeSessions()}
+                    disabled={isLoadingMoreNativeSessions}
+                  >
+                    {isLoadingMoreNativeSessions ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                        {formatMessage({ id: 'history.nativeSessions.loading', defaultMessage: 'Loading...' })}
+                      </>
+                    ) : (
+                      formatMessage({ id: 'history.nativeSessions.loadMore', defaultMessage: 'Load More' })
+                    )}
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* CLI Stream Panel */}
       <CliStreamPanel
         executionId={selectedExecution || ''}
@@ -363,7 +612,8 @@ export function HistoryPage() {
 
       {/* Native Session Panel */}
       <NativeSessionPanel
-        executionId={nativeExecutionId || ''}
+        session={selectedNativeSession}
+        executionId={nativeExecutionId || undefined}
         open={isNativePanelOpen}
         onOpenChange={setIsNativePanelOpen}
       />

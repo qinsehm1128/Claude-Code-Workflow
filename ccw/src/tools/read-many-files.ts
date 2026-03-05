@@ -96,7 +96,30 @@ export async function handler(params: Record<string, unknown>): Promise<ToolResu
   const cwd = getProjectRoot();
 
   // Normalize paths to array
-  const inputPaths = Array.isArray(paths) ? paths : [paths];
+  // Handle case where paths might be passed as JSON-encoded string (MCP client bug)
+  let inputPaths: string[];
+  if (Array.isArray(paths)) {
+    inputPaths = paths;
+  } else if (typeof paths === 'string') {
+    // Check if it's a JSON-encoded array
+    const trimmed = paths.trim();
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          inputPaths = parsed;
+        } else {
+          inputPaths = [paths];
+        }
+      } catch {
+        inputPaths = [paths];
+      }
+    } else {
+      inputPaths = [paths];
+    }
+  } else {
+    inputPaths = [String(paths)];
+  }
 
   // Collect all files to read
   const allFiles: string[] = [];

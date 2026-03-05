@@ -1,6 +1,17 @@
 /**
  * Hook Command - CLI endpoint for Claude Code hooks
  * Provides simplified interface for hook operations, replacing complex bash/curl commands
+ *
+ * Subcommands:
+ *   parse-status     - Parse CCW status.json
+ *   session-context  - Progressive session context loading
+ *   session-end      - Trigger background memory tasks
+ *   stop             - Handle Stop hook events
+ *   keyword          - Detect mode keywords
+ *   pre-compact      - Handle PreCompact events
+ *   notify           - Send notification to dashboard
+ *   project-state    - Output project state summary
+ *   template         - Manage and execute hook templates
  */
 
 import chalk from 'chalk';
@@ -37,6 +48,7 @@ interface HookData {
 
 /**
  * Read JSON data from stdin (for Claude Code hooks)
+ * Returns the raw string data
  */
 async function readStdin(): Promise<string> {
   return new Promise((resolve) => {
@@ -716,7 +728,165 @@ async function notifyAction(options: HookOptions): Promise<void> {
 }
 
 /**
- * Project state action - reads project-tech.json and project-guidelines.json
+ * Template action - manage and execute hook templates
+ *
+ * Subcommands:
+ *   list             - List all available templates
+ *   install <id>     - Install a template to settings.json
+ *   exec <id>        - Execute a template (for hooks)
+ */
+async function templateAction(subcommand: string, args: string[], options: HookOptions): Promise<void> {
+  const { stdin } = options;
+
+  // Dynamic import to avoid circular dependencies
+  const {
+    getTemplate,
+    getAllTemplates,
+    listTemplatesByCategory,
+    executeTemplate,
+    installTemplateToSettings,
+  } = await import('../core/hooks/hook-templates.js');
+  type HookInputData = import('../core/hooks/hook-templates.js').HookInputData;
+
+  switch (subcommand) {
+    case 'list': {
+      const byCategory = listTemplatesByCategory();
+      const categoryNames: Record<string, string> = {
+        notification: 'Notification',
+        indexing: 'Indexing',
+        automation: 'Automation',
+        utility: 'Utility',
+        protection: 'Protection',
+      };
+
+      if (stdin) {
+        // JSON output for programmatic use
+        process.stdout.write(JSON.stringify(byCategory, null, 2));
+        process.exit(0);
+      }
+
+      console.log(chalk.green('Hook Templates'));
+      console.log(chalk.gray('─'.repeat(50)));
+
+      for (const [category, templates] of Object.entries(byCategory)) {
+        if (templates.length === 0) continue;
+        console.log(chalk.cyan(`\n${categoryNames[category] || category}:`));
+        for (const t of templates) {
+          console.log(`  ${chalk.yellow(t.id)}`);
+          console.log(`    ${chalk.gray(t.description)}`);
+          console.log(`    Trigger: ${t.trigger}${t.matcher ? ` (${t.matcher})` : ''}`);
+        }
+      }
+
+      console.log(chalk.gray('\n─'.repeat(50)));
+      console.log(chalk.gray('Usage: ccw hook template install <id> [--scope project|global]'));
+      console.log(chalk.gray('       ccw hook template exec <id> --stdin'));
+      process.exit(0);
+    }
+
+    case 'install': {
+      const templateId = args[0];
+      if (!templateId) {
+        console.error(chalk.red('Error: template ID required'));
+        console.error(chalk.gray('Usage: ccw hook template install <id> [--scope project|global]'));
+        process.exit(1);
+      }
+
+      const scope = args.includes('--global') ? 'global' : 'project';
+      const result = installTemplateToSettings(templateId, scope);
+
+      if (stdin) {
+        process.stdout.write(JSON.stringify(result));
+        process.exit(result.success ? 0 : 1);
+      }
+
+      if (result.success) {
+        console.log(chalk.green(result.message));
+        process.exit(0);
+      } else {
+        console.error(chalk.red(result.message));
+        process.exit(1);
+      }
+      break;
+    }
+
+    case 'exec': {
+      const templateId = args[0];
+      if (!templateId) {
+        if (stdin) {
+          process.exit(0);
+        }
+        console.error(chalk.red('Error: template ID required'));
+        console.error(chalk.gray('Usage: ccw hook template exec <id> --stdin'));
+        process.exit(1);
+      }
+
+      const template = getTemplate(templateId);
+      if (!template) {
+        if (stdin) {
+          process.exit(0);
+        }
+        console.error(chalk.red(`Template not found: ${templateId}`));
+        process.exit(1);
+      }
+
+      // Read hook data from stdin
+      let hookData: HookInputData = {};
+      if (stdin) {
+        try {
+          const stdinData = await readStdin();
+          if (stdinData) {
+            hookData = JSON.parse(stdinData) as HookInputData;
+          }
+        } catch {
+          // Continue with empty data
+        }
+      }
+
+      try {
+        const output = await executeTemplate(templateId, hookData);
+
+        // Handle JSON output for hook decisions
+        if (output.jsonOutput) {
+          process.stdout.write(JSON.stringify(output.jsonOutput));
+          process.exit(output.exitCode || 0);
+        }
+
+        // Handle stderr
+        if (output.stderr) {
+          process.stderr.write(output.stderr);
+        }
+
+        // Handle stdout
+        if (output.stdout) {
+          process.stdout.write(output.stdout);
+        }
+
+        process.exit(output.exitCode || 0);
+      } catch (error) {
+        if (stdin) {
+          // Silent failure for hooks
+          process.exit(0);
+        }
+        console.error(chalk.red(`Error: ${(error as Error).message}`));
+        process.exit(1);
+      }
+      break;
+    }
+
+    default: {
+      if (stdin) {
+        process.exit(0);
+      }
+      console.error(chalk.red(`Unknown template subcommand: ${subcommand}`));
+      console.error(chalk.gray('Usage: ccw hook template <list|install|exec> [args]'));
+      process.exit(1);
+    }
+  }
+}
+
+/**
+ * Project state action - reads project-tech.json and specs
  * and outputs a concise summary for session context injection.
  *
  * Used as SessionStart hook: stdout → injected as system message.
@@ -767,31 +937,19 @@ async function projectStateAction(options: HookOptions): Promise<void> {
     } catch { /* ignore parse errors */ }
   }
 
-  // Read project-guidelines.json
-  const guidelinesPath = join(projectPath, '.workflow', 'project-guidelines.json');
-  if (existsSync(guidelinesPath)) {
-    try {
-      const gl = JSON.parse(readFileSync(guidelinesPath, 'utf8'));
-      // constraints is Record<string, array> - flatten all categories
-      const allConstraints: string[] = [];
-      if (gl.constraints && typeof gl.constraints === 'object') {
-        for (const entries of Object.values(gl.constraints)) {
-          if (Array.isArray(entries)) {
-            for (const c of entries) {
-              allConstraints.push(typeof c === 'string' ? c : (c as { rule?: string }).rule || JSON.stringify(c));
-            }
-          }
-        }
+  // Read specs from spec system (ccw spec load --dimension specs)
+  try {
+    const { getDimensionIndex } = await import('../tools/spec-index-builder.js');
+    const specsIndex = await getDimensionIndex(projectPath, 'specs');
+    const constraints: string[] = [];
+    for (const entry of specsIndex.entries) {
+      if (entry.readMode === 'required') {
+        constraints.push(entry.title);
       }
-      result.guidelines.constraints = allConstraints.slice(0, limit);
-
-      const learnings = Array.isArray(gl.learnings) ? gl.learnings : [];
-      learnings.sort((a: { date?: string }, b: { date?: string }) => (b.date || '').localeCompare(a.date || ''));
-      result.guidelines.recent_learnings = learnings.slice(0, limit).map(
-        (l: { insight?: string; date?: string }) => ({ insight: l.insight || '', date: l.date || '' })
-      );
-    } catch { /* ignore parse errors */ }
-  }
+    }
+    result.guidelines.constraints = constraints.slice(0, limit);
+    result.guidelines.recent_learnings = [];
+  } catch { /* ignore errors */ }
 
   if (stdin) {
     // Format as <project-state> tag for system message injection
@@ -870,6 +1028,7 @@ ${chalk.bold('SUBCOMMANDS')}
   pre-compact       Handle PreCompact hook events (checkpoint creation)
   notify            Send notification to ccw view dashboard
   project-state     Output project guidelines and recent dev history summary
+  template          Manage and execute hook templates (list, install, exec)
 
 ${chalk.bold('OPTIONS')}
   --stdin           Read input from stdin (for Claude Code hooks)
@@ -877,6 +1036,11 @@ ${chalk.bold('OPTIONS')}
   --limit           Max entries to return (for project-state, default: 5)
   --session-id      Session ID (alternative to stdin)
   --prompt          Current prompt text (alternative to stdin)
+
+${chalk.bold('TEMPLATE SUBCOMMANDS')}
+  template list                     List all available hook templates
+  template install <id> [--global]  Install a template to settings.json
+  template exec <id> --stdin        Execute a template (for Claude Code hooks)
 
 ${chalk.bold('EXAMPLES')}
   ${chalk.gray('# Parse CCW status file:')}
@@ -906,6 +1070,15 @@ ${chalk.bold('EXAMPLES')}
   ${chalk.gray('# Project state summary (hook, reads cwd from stdin):')}
   ccw hook project-state --stdin
 
+  ${chalk.gray('# List available templates:')}
+  ccw hook template list
+
+  ${chalk.gray('# Install a template:')}
+  ccw hook template install block-sensitive-files
+
+  ${chalk.gray('# Execute a template (for hooks):')}
+  ccw hook template exec block-sensitive-files --stdin
+
 ${chalk.bold('HOOK CONFIGURATION')}
   ${chalk.gray('Add to .claude/settings.json for Stop hook:')}
   {
@@ -920,14 +1093,16 @@ ${chalk.bold('HOOK CONFIGURATION')}
     }
   }
 
-  ${chalk.gray('Add to .claude/settings.json for status tracking:')}
+  ${chalk.gray('Add to .claude/settings.json using templates (recommended):')}
   {
     "hooks": {
-      "PostToolUse": [{
-        "trigger": "PostToolUse",
-        "matcher": "Write",
-        "command": "bash",
-        "args": ["-c", "INPUT=$(cat); FILE_PATH=$(echo \\"$INPUT\\" | jq -r \\".tool_input.file_path // empty\\"); [ -n \\"$FILE_PATH\\" ] && ccw hook parse-status --path \\"$FILE_PATH\\""]
+      "PreToolUse": [{
+        "_templateId": "block-sensitive-files",
+        "matcher": "Write|Edit",
+        "hooks": [{
+          "type": "command",
+          "command": "ccw hook template exec block-sensitive-files --stdin"
+        }]
       }]
     }
   }
@@ -942,6 +1117,8 @@ export async function hookCommand(
   args: string | string[],
   options: HookOptions
 ): Promise<void> {
+  const argsArray = Array.isArray(args) ? args : [args];
+
   switch (subcommand) {
     case 'parse-status':
       await parseStatusAction(options);
@@ -968,6 +1145,10 @@ export async function hookCommand(
       break;
     case 'project-state':
       await projectStateAction(options);
+      break;
+    case 'template':
+      // template has its own subcommands: list, install, exec
+      await templateAction(argsArray[0] || 'list', argsArray.slice(1), options);
       break;
     case 'help':
     case undefined:

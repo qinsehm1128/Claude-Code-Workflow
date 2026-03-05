@@ -18,7 +18,7 @@ When `--yes` or `-y`: Auto-categorize and add guideline without confirmation.
 
 ## Overview
 
-Crystallizes ephemeral session context (insights, decisions, constraints) into permanent project guidelines stored in `.workflow/project-guidelines.json`. This ensures valuable learnings persist across sessions and inform future planning.
+Crystallizes ephemeral session context (insights, decisions, constraints) into permanent project guidelines stored in `.ccw/specs/*.md`. This ensures valuable learnings persist across sessions and inform future planning.
 
 ## Use Cases
 
@@ -112,35 +112,17 @@ ELSE (convention/constraint/learning):
 
 ### Step 1: Ensure Guidelines File Exists
 
+**Uses .ccw/specs/ directory (same as frontend/backend spec-index-builder)**
+
 ```bash
-bash(test -f .workflow/project-guidelines.json && echo "EXISTS" || echo "NOT_FOUND")
+bash(test -f .ccw/specs/coding-conventions.md && echo "EXISTS" || echo "NOT_FOUND")
 ```
 
-**If NOT_FOUND**, create scaffold:
+**If NOT_FOUND**, initialize spec system:
 
-```javascript
-const scaffold = {
-  conventions: {
-    coding_style: [],
-    naming_patterns: [],
-    file_structure: [],
-    documentation: []
-  },
-  constraints: {
-    architecture: [],
-    tech_stack: [],
-    performance: [],
-    security: []
-  },
-  quality_rules: [],
-  learnings: [],
-  _metadata: {
-    created_at: new Date().toISOString(),
-    version: "1.0.0"
-  }
-};
-
-Write('.workflow/project-guidelines.json', JSON.stringify(scaffold, null, 2));
+```bash
+Bash('ccw spec init')
+Bash('ccw spec rebuild')
 ```
 
 ### Step 2: Auto-detect Type (if not specified)
@@ -203,33 +185,42 @@ function buildEntry(rule, type, category, sessionId) {
 }
 ```
 
-### Step 4: Update Guidelines File
+### Step 4: Update Spec Files
 
 ```javascript
-const guidelines = JSON.parse(Read('.workflow/project-guidelines.json'));
-
-if (type === 'convention') {
-  if (!guidelines.conventions[category]) {
-    guidelines.conventions[category] = [];
-  }
-  if (!guidelines.conventions[category].includes(rule)) {
-    guidelines.conventions[category].push(rule);
-  }
-} else if (type === 'constraint') {
-  if (!guidelines.constraints[category]) {
-    guidelines.constraints[category] = [];
-  }
-  if (!guidelines.constraints[category].includes(rule)) {
-    guidelines.constraints[category].push(rule);
-  }
-} else if (type === 'learning') {
-  guidelines.learnings.push(buildEntry(rule, type, category, sessionId));
+// Map type+category to target spec file
+// Uses .ccw/specs/ directory (same as frontend/backend spec-index-builder)
+const specFileMap = {
+  convention: '.ccw/specs/coding-conventions.md',
+  constraint: '.ccw/specs/architecture-constraints.md'
 }
 
-guidelines._metadata.updated_at = new Date().toISOString();
-guidelines._metadata.last_solidified_by = sessionId;
+if (type === 'convention' || type === 'constraint') {
+  const targetFile = specFileMap[type]
+  const existing = Read(targetFile)
 
-Write('.workflow/project-guidelines.json', JSON.stringify(guidelines, null, 2));
+  // Deduplicate: skip if rule text already exists in the file
+  if (!existing.includes(rule)) {
+    const ruleText = `- [${category}] ${rule}`
+    const newContent = existing.trimEnd() + '\n' + ruleText + '\n'
+    Write(targetFile, newContent)
+  }
+} else if (type === 'learning') {
+  // Learnings go to coding-conventions.md as a special section
+  // Uses .ccw/specs/ directory (same as frontend/backend spec-index-builder)
+  const targetFile = '.ccw/specs/coding-conventions.md'
+  const existing = Read(targetFile)
+  const entry = buildEntry(rule, type, category, sessionId)
+  const learningText = `- [learning/${category}] ${entry.insight} (${entry.date})`
+
+  if (!existing.includes(entry.insight)) {
+    const newContent = existing.trimEnd() + '\n' + learningText + '\n'
+    Write(targetFile, newContent)
+  }
+}
+
+// Rebuild spec index after modification
+Bash('ccw spec rebuild')
 ```
 
 ### Step 5: Display Confirmation
@@ -241,7 +232,7 @@ Type: ${type}
 Category: ${category}
 Rule: "${rule}"
 
-Location: .workflow/project-guidelines.json -> ${type}s.${category}
+Location: .ccw/specs/*.md -> ${type}s.${category}
 
 Total ${type}s in ${category}: ${count}
 ```
@@ -386,13 +377,9 @@ AskUserQuestion({
 /workflow:session:solidify "Use async/await instead of callbacks" --type convention --category coding_style
 ```
 
-Result in `project-guidelines.json`:
-```json
-{
-  "conventions": {
-    "coding_style": ["Use async/await instead of callbacks"]
-  }
-}
+Result in `.ccw/specs/coding-conventions.md`:
+```markdown
+- [coding_style] Use async/await instead of callbacks
 ```
 
 ### Add an Architectural Constraint
@@ -400,13 +387,9 @@ Result in `project-guidelines.json`:
 /workflow:session:solidify "No direct DB access from controllers" --type constraint --category architecture
 ```
 
-Result:
-```json
-{
-  "constraints": {
-    "architecture": ["No direct DB access from controllers"]
-  }
-}
+Result in `.ccw/specs/architecture-constraints.md`:
+```markdown
+- [architecture] No direct DB access from controllers
 ```
 
 ### Capture a Session Learning
@@ -414,18 +397,9 @@ Result:
 /workflow:session:solidify "Cache invalidation requires event sourcing for consistency" --type learning
 ```
 
-Result:
-```json
-{
-  "learnings": [
-    {
-      "date": "2024-12-28",
-      "session_id": "WFS-auth-feature",
-      "insight": "Cache invalidation requires event sourcing for consistency",
-      "category": "architecture"
-    }
-  ]
-}
+Result in `.ccw/specs/coding-conventions.md`:
+```markdown
+- [learning/architecture] Cache invalidation requires event sourcing for consistency (2024-12-28)
 ```
 
 ### Compress Recent Memories
@@ -444,7 +418,7 @@ Result: Creates a new CMEM with consolidated content from the 10 most recent non
 
 ## Integration with Planning
 
-The `project-guidelines.json` is consumed by:
+The `specs/*.md` is consumed by:
 
 1. **`workflow-plan` skill (context-gather phase)**: Loads guidelines into context-package.json
 2. **`workflow-plan` skill**: Passes guidelines to task generation agent
@@ -462,4 +436,5 @@ This ensures all future planning respects solidified rules without users needing
 
 - `/workflow:session:start` - Start a session (may prompt for solidify at end)
 - `/workflow:session:complete` - Complete session (prompts for learnings to solidify)
-- `/workflow:init` - Creates project-guidelines.json scaffold if missing
+- `/workflow:init` - Creates specs/*.md scaffold if missing
+- `/workflow:init-specs` - Interactive wizard to create individual specs with scope selection

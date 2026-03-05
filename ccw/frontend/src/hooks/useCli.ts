@@ -410,6 +410,7 @@ export function useUpgradeCliTool() {
 import {
   fetchHooks,
   toggleHook,
+  deleteHook,
   type Hook,
   type HooksResponse,
 } from '../lib/api';
@@ -507,6 +508,51 @@ export function useToggleHook() {
   return {
     toggleHook: (hookName: string, enabled: boolean) => mutation.mutateAsync({ hookName, enabled }),
     isToggling: mutation.isPending,
+    error: mutation.error,
+  };
+}
+
+export function useDeleteHook() {
+  const queryClient = useQueryClient();
+  const projectPath = useWorkflowStore(selectProjectPath);
+
+  const mutation = useMutation({
+    mutationFn: (hook: { name: string; scope?: 'global' | 'project'; trigger: string; index?: number }) => {
+      const scope = hook.scope || 'project';
+      const hookIndex = hook.index ?? 0;
+      return deleteHook({
+        projectPath: projectPath || undefined,
+        scope,
+        event: hook.trigger,
+        hookIndex,
+      });
+    },
+    onMutate: async (hook) => {
+      await queryClient.cancelQueries({ queryKey: hooksKeys.all });
+      const previousHooks = queryClient.getQueryData<HooksResponse>(hooksKeys.lists());
+
+      queryClient.setQueryData<HooksResponse>(hooksKeys.lists(), (old) => {
+        if (!old) return old;
+        return {
+          hooks: old.hooks.filter((h) => h.name !== hook.name),
+        };
+      });
+
+      return { previousHooks };
+    },
+    onError: (_error, _hook, context) => {
+      if (context?.previousHooks) {
+        queryClient.setQueryData(hooksKeys.lists(), context.previousHooks);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: hooksKeys.all });
+    },
+  });
+
+  return {
+    deleteHook: mutation.mutateAsync,
+    isDeleting: mutation.isPending,
     error: mutation.error,
   };
 }

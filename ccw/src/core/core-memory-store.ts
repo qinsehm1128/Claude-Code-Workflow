@@ -1643,7 +1643,45 @@ function getCCWHome(): string {
 }
 
 /**
- * List all projects with their memory counts
+ * Recursively find all core-memory databases in nested project structure
+ * Handles both flat structure (projects/my-project/) and nested structure (projects/d-/my-project/)
+ */
+function findAllCoreMemoryDatabases(
+  projectsDir: string,
+  baseRelPath: string = ''
+): Array<{ projectId: string; dbPath: string }> {
+  const results: Array<{ projectId: string; dbPath: string }> = [];
+  const entries = readdirSync(projectsDir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+
+    // Skip hidden directories
+    if (entry.name.startsWith('.')) continue;
+
+    const currentPath = join(projectsDir, entry.name);
+    const currentRelPath = baseRelPath ? join(baseRelPath, entry.name) : entry.name;
+
+    // Check if this directory has a core-memory database
+    const coreMemoryDb = join(currentPath, 'core-memory', 'core_memory.db');
+    if (existsSync(coreMemoryDb)) {
+      // Found a project - use relative path as project ID
+      results.push({
+        projectId: currentRelPath,
+        dbPath: coreMemoryDb
+      });
+    }
+
+    // Recurse into subdirectories to find nested projects
+    const nestedResults = findAllCoreMemoryDatabases(currentPath, currentRelPath);
+    results.push(...nestedResults);
+  }
+
+  return results;
+}
+
+/**
+ * List all projects with their memory counts (supports nested project structure)
  */
 export function listAllProjects(): ProjectInfo[] {
   const projectsDir = join(getCCWHome(), 'projects');
@@ -1652,43 +1690,38 @@ export function listAllProjects(): ProjectInfo[] {
     return [];
   }
 
+  // Find all core-memory databases recursively
+  const allProjects = findAllCoreMemoryDatabases(projectsDir);
+
   const projects: ProjectInfo[] = [];
-  const entries = readdirSync(projectsDir, { withFileTypes: true });
 
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-
-    const projectId = entry.name;
-    const coreMemoryDb = join(projectsDir, projectId, 'core-memory', 'core_memory.db');
-
+  for (const { projectId, dbPath } of allProjects) {
     let memoriesCount = 0;
     let clustersCount = 0;
     let lastUpdated: string | undefined;
 
-    if (existsSync(coreMemoryDb)) {
+    try {
+      const db = new Database(dbPath, { readonly: true });
+
+      // Count memories
+      const memResult = db.prepare('SELECT COUNT(*) as count FROM memories').get() as { count: number };
+      memoriesCount = memResult?.count || 0;
+
+      // Count clusters
       try {
-        const db = new Database(coreMemoryDb, { readonly: true });
-
-        // Count memories
-        const memResult = db.prepare('SELECT COUNT(*) as count FROM memories').get() as { count: number };
-        memoriesCount = memResult?.count || 0;
-
-        // Count clusters
-        try {
-          const clusterResult = db.prepare('SELECT COUNT(*) as count FROM session_clusters').get() as { count: number };
-          clustersCount = clusterResult?.count || 0;
-        } catch {
-          // Table might not exist
-        }
-
-        // Get last update time
-        const lastMemory = db.prepare('SELECT MAX(updated_at) as last FROM memories').get() as { last: string };
-        lastUpdated = lastMemory?.last;
-
-        db.close();
+        const clusterResult = db.prepare('SELECT COUNT(*) as count FROM session_clusters').get() as { count: number };
+        clustersCount = clusterResult?.count || 0;
       } catch {
-        // Database might be locked or corrupted
+        // Table might not exist
       }
+
+      // Get last update time
+      const lastMemory = db.prepare('SELECT MAX(updated_at) as last FROM memories').get() as { last: string };
+      lastUpdated = lastMemory?.last;
+
+      db.close();
+    } catch {
+      // Database might be locked or corrupted
     }
 
     // Convert project ID back to approximate path
@@ -1715,7 +1748,8 @@ export function listAllProjects(): ProjectInfo[] {
 }
 
 /**
- * Get memories from another project by ID
+ * Get memories from another project by ID (supports nested project structure)
+ * @param projectId - Project ID which can be a nested path like "d-/ccws"
  */
 export function getMemoriesFromProject(projectId: string): CoreMemory[] {
   const projectsDir = join(getCCWHome(), 'projects');
@@ -1746,8 +1780,8 @@ export function getMemoriesFromProject(projectId: string): CoreMemory[] {
 }
 
 /**
- * Find a memory by ID across all projects
- * Searches through all project databases to locate a specific memory
+ * Find a memory by ID across all projects (supports nested project structure)
+ * Searches through all project databases recursively to locate a specific memory
  */
 export function findMemoryAcrossProjects(memoryId: string): { memory: CoreMemory; projectId: string } | null {
   const projectsDir = join(getCCWHome(), 'projects');
@@ -1756,18 +1790,12 @@ export function findMemoryAcrossProjects(memoryId: string): { memory: CoreMemory
     return null;
   }
 
-  const entries = readdirSync(projectsDir, { withFileTypes: true });
+  // Find all core-memory databases recursively
+  const allProjects = findAllCoreMemoryDatabases(projectsDir);
 
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-
-    const projectId = entry.name;
-    const coreMemoryDb = join(projectsDir, projectId, 'core-memory', 'core_memory.db');
-
-    if (!existsSync(coreMemoryDb)) continue;
-
+  for (const { projectId, dbPath } of allProjects) {
     try {
-      const db = new Database(coreMemoryDb, { readonly: true });
+      const db = new Database(dbPath, { readonly: true });
       const row = db.prepare('SELECT * FROM memories WHERE id = ?').get(memoryId) as any;
       db.close();
 

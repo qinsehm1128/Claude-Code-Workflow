@@ -47,9 +47,29 @@ export function extractAuthToken(req: IncomingMessage): string | null {
   return null;
 }
 
-export function isLocalhostRequest(req: IncomingMessage): boolean {
+/**
+ * Check if request is from localhost
+ * @param req - The incoming request
+ * @param allowAllInterfaces - When true (server bound to 0.0.0.0), allows requests from any interface
+ */
+export function isLocalhostRequest(req: IncomingMessage, allowAllInterfaces: boolean = false): boolean {
+  // When server is bound to 0.0.0.0, allow token acquisition from any interface
+  // This is safe because the token endpoint only provides auth for the dashboard
+  if (allowAllInterfaces) {
+    return true;
+  }
+
   const remote = req.socket?.remoteAddress ?? '';
   return remote === '127.0.0.1' || remote === '::1' || remote === '::ffff:127.0.0.1';
+}
+
+/**
+ * Check if host binding allows all network interfaces
+ * @param host - The host address the server is bound to
+ */
+export function isWildcardHost(host: string | undefined): boolean {
+  if (!host) return false;
+  return host === '0.0.0.0' || host === '::' || host === '';
 }
 
 export function setAuthCookie(res: ServerResponse, token: string, expiresAt: Date): void {

@@ -332,7 +332,7 @@ for (let i = 0; i < batches.length; i += MAX_PARALLEL) {
 
   // Launch agents in parallel (run_in_background=true)
   for (const batch of chunk) {
-    const taskId = Task({
+    const taskId = Agent({
       subagent_type: "cli-planning-agent",
       run_in_background: true,
       description: `Plan batch ${batch.batch_id}: ${batch.findings.length} findings`,
@@ -386,7 +386,7 @@ for (let i = 1; i <= aggregatedPlan.groups.length; i++) {
 
 **Planning Agent (Batch Mode - Partial Plan Only)**:
 ```javascript
-Task({
+Agent({
   subagent_type: "cli-planning-agent",
   run_in_background: true,
   description: `Plan batch ${batch.batch_id}: ${batch.findings.length} findings`,
@@ -488,7 +488,7 @@ Before finalizing outputs:
 
 **Execution Agent** (per group):
 ```javascript
-Task({
+Agent({
   subagent_type: "cli-execute-agent",
   description: `Fix ${group.findings.length} issues: ${group.group_name}`,
   prompt: `
@@ -736,7 +736,7 @@ TodoWrite({
 
 ## Post-Completion Expansion
 
-**Auto-sync**: 执行 `/workflow:session:sync -y "{summary}"` 更新 project-guidelines + project-tech。
+**Auto-sync**: 执行 `/workflow:session:sync -y "{summary}"` 更新 specs/*.md + project-tech。
 
 完成后询问用户是否扩展为issue(test/enhance/refactor/doc)，选中项调用 `/issue:new "{summary} - {dimension}"`
 

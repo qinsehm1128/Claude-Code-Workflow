@@ -1,7 +1,6 @@
 ---
 name: review-cycle
 description: Unified multi-dimensional code review with automated fix orchestration. Supports session-based (git changes) and module-based (path patterns) review modes with 7-dimension parallel analysis, iterative deep-dive, and automated fix pipeline. Triggers on "workflow:review-cycle", "workflow:review-session-cycle", "workflow:review-module-cycle", "workflow:review-cycle-fix".
-allowed-tools: spawn_agent, wait, send_input, close_agent, AskUserQuestion, Read, Write, Edit, Bash, Glob, Grep
 ---
 
 # Review Cycle
@@ -303,8 +302,7 @@ const agentId = spawn_agent({
 
 ### MANDATORY FIRST STEPS (Agent Execute)
 1. **Read role definition**: ~/.codex/agents/{agent-type}.md (MUST read first)
-2. Read: ${projectRoot}/.workflow/project-tech.json
-3. Read: ${projectRoot}/.workflow/project-guidelines.json
+2. Execute: ccw spec load --category "exploration execution"
 
 ---
 

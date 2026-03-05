@@ -17,7 +17,7 @@ import {
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Badge } from '@/components/ui/Badge';
 import { useMcpServers } from '@/hooks';
-import { crossCliCopy, fetchCodexMcpServers } from '@/lib/api';
+import { crossCliCopy, fetchCodexMcpServers, isHttpMcpServer, isStdioMcpServer } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useWorkflowStore, selectProjectPath } from '@/stores/workflowStore';
 
@@ -41,7 +41,8 @@ export interface CrossCliCopyButtonProps {
 
 interface ServerCheckboxItem {
   name: string;
-  command: string;
+  /** Display text - command for STDIO, URL for HTTP */
+  displayText: string;
   enabled: boolean;
   selected: boolean;
 }
@@ -78,7 +79,7 @@ export function CrossCliCopyButton({
       setServerItems(
         servers.map((s) => ({
           name: s.name,
-          command: s.command,
+          displayText: isHttpMcpServer(s) ? s.url : (isStdioMcpServer(s) ? s.command : ''),
           enabled: s.enabled,
           selected: false,
         }))
@@ -91,7 +92,7 @@ export function CrossCliCopyButton({
       setServerItems(
         (codex.servers ?? []).map((s) => ({
           name: s.name,
-          command: s.command,
+          displayText: isHttpMcpServer(s) ? s.url : (isStdioMcpServer(s) ? s.command : ''),
           enabled: s.enabled,
           selected: false,
         }))
@@ -281,7 +282,7 @@ export function CrossCliCopyButton({
                           )}
                         </div>
                         <p className="text-xs text-muted-foreground font-mono truncate">
-                          {server.command}
+                          {server.displayText}
                         </p>
                       </label>
                     </div>

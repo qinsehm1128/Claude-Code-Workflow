@@ -95,6 +95,75 @@ function getHooksConfig(projectPath: string): { global: { path: string; hooks: u
 }
 
 /**
+ * Normalize hook data to Claude Code's official nested format
+ * Official format: { matcher?: string, hooks: [{ type: 'command', command: string, timeout?: number }] }
+ *
+ * IMPORTANT: All timeout values from frontend are in MILLISECONDS and must be converted to SECONDS.
+ * Official Claude Code spec requires timeout in seconds.
+ *
+ * @param {Object} hookData - Hook configuration (may be flat or nested format)
+ * @returns {Object} Normalized hook data in official format
+ */
+function normalizeHookFormat(hookData: Record<string, unknown>): Record<string, unknown> {
+  /**
+   * Convert timeout from milliseconds to seconds
+   * Frontend always sends milliseconds, Claude Code expects seconds
+   */
+  const convertTimeout = (timeout: number): number => {
+    // Always convert from milliseconds to seconds
+    // This is safe because:
+    // - Frontend (HookWizard) uses milliseconds (e.g., 5000ms)
+    // - Claude Code official spec requires seconds
+    // - Minimum valid timeout is 1 second, so any value < 1000ms becomes 1s
+    return Math.max(1, Math.ceil(timeout / 1000));
+  };
+
+  // If already in nested format with hooks array, validate and convert
+  if (hookData.hooks && Array.isArray(hookData.hooks)) {
+    // Ensure each hook in the array has required fields
+    const normalizedHooks = (hookData.hooks as Array<Record<string, unknown>>).map(h => {
+      const normalized: Record<string, unknown> = {
+        type: h.type || 'command',
+        command: h.command || '',
+      };
+      // Convert timeout from milliseconds to seconds
+      if (typeof h.timeout === 'number') {
+        normalized.timeout = convertTimeout(h.timeout);
+      }
+      return normalized;
+    });
+
+    return {
+      ...(hookData.matcher !== undefined ? { matcher: hookData.matcher } : { matcher: '' }),
+      hooks: normalizedHooks,
+    };
+  }
+
+  // Convert flat format to nested format
+  // Old format: { command: '...', timeout: 5000, name: '...', failMode: '...' }
+  // New format: { matcher: '', hooks: [{ type: 'command', command: '...', timeout: 5 }] }
+  if (hookData.command && typeof hookData.command === 'string') {
+    const nestedHook: Record<string, unknown> = {
+      type: 'command',
+      command: hookData.command,
+    };
+
+    // Convert timeout from milliseconds to seconds
+    if (typeof hookData.timeout === 'number') {
+      nestedHook.timeout = convertTimeout(hookData.timeout);
+    }
+
+    return {
+      matcher: typeof hookData.matcher === 'string' ? hookData.matcher : '',
+      hooks: [nestedHook],
+    };
+  }
+
+  // Return as-is if we can't normalize (let Claude Code validate)
+  return hookData;
+}
+
+/**
  * Save a hook to settings file
  * @param {string} projectPath
  * @param {string} scope - 'global' or 'project'
@@ -125,17 +194,19 @@ function saveHookToSettings(
       settings.hooks[event] = [settings.hooks[event]];
     }
 
+    // Normalize hook data to official format
+    const normalizedData = normalizeHookFormat(hookData);
+
     // Check if we're replacing an existing hook
     if (typeof hookData.replaceIndex === 'number') {
       const index = hookData.replaceIndex;
-      delete hookData.replaceIndex;
       const hooksForEvent = settings.hooks[event] as unknown[];
       if (index >= 0 && index < hooksForEvent.length) {
-        hooksForEvent[index] = hookData;
+        hooksForEvent[index] = normalizedData;
       }
     } else {
       // Add new hook
-      (settings.hooks[event] as unknown[]).push(hookData);
+      (settings.hooks[event] as unknown[]).push(normalizedData);
     }
 
     // Ensure directory exists and write file
@@ -343,7 +414,19 @@ export async function handleHooksRoutes(ctx: HooksRouteContext): Promise<boolean
         const initState = extraData.initialState as Record<string, unknown>;
         const questionId = initState.questionId as string | undefined;
         const questionType = initState.questionType as string | undefined;
-        if (questionId && questionType === 'select') {
+
+        // Handle multi-question surfaces (multi-page): initialize tracking for each page
+        if (questionType === 'multi-question' && Array.isArray(initState.pages)) {
+          const pages = initState.pages as Array<{ questionId: string; type: string }>;
+          for (const page of pages) {
+            if (page.type === 'multi-select') {
+              a2uiWebSocketHandler.initMultiSelect(page.questionId);
+            } else if (page.type === 'select') {
+              a2uiWebSocketHandler.initSingleSelect(page.questionId);
+            }
+          }
+        } else if (questionId && questionType === 'select') {
+          // Single-question surface: initialize based on question type
           a2uiWebSocketHandler.initSingleSelect(questionId);
         } else if (questionId && questionType === 'multi-select') {
           a2uiWebSocketHandler.initMultiSelect(questionId);
@@ -548,29 +631,20 @@ export async function handleHooksRoutes(ctx: HooksRouteContext): Promise<boolean
       } catch { /* ignore parse errors */ }
     }
 
-    // Read project-guidelines.json
-    const guidelinesPath = join(projectPath, '.workflow', 'project-guidelines.json');
-    if (existsSync(guidelinesPath)) {
-      try {
-        const gl = JSON.parse(readFileSync(guidelinesPath, 'utf8'));
-        const g = result.guidelines as Record<string, unknown>;
-        // constraints is Record<string, array> - flatten all categories
-        const allConstraints: string[] = [];
-        if (gl.constraints && typeof gl.constraints === 'object') {
-          for (const entries of Object.values(gl.constraints)) {
-            if (Array.isArray(entries)) {
-              for (const c of entries) {
-                allConstraints.push(typeof c === 'string' ? c : (c as { rule?: string }).rule || JSON.stringify(c));
-              }
-            }
-          }
+    // Read specs from spec system (ccw spec load --dimension specs)
+    try {
+      const { getDimensionIndex } = await import('../../tools/spec-index-builder.js');
+      const specsIndex = await getDimensionIndex(projectPath, 'specs');
+      const g = result.guidelines as Record<string, unknown>;
+      const constraints: string[] = [];
+      for (const entry of specsIndex.entries) {
+        if (entry.readMode === 'required') {
+          constraints.push(entry.title);
         }
-        g.constraints = allConstraints.slice(0, limit);
-        const learnings = Array.isArray(gl.learnings) ? gl.learnings : [];
-        learnings.sort((a: { date?: string }, b: { date?: string }) => (b.date || '').localeCompare(a.date || ''));
-        g.recent_learnings = learnings.slice(0, limit).map((l: { insight?: string; date?: string }) => ({ insight: l.insight || '', date: l.date || '' }));
-      } catch { /* ignore parse errors */ }
-    }
+      }
+      g.constraints = constraints.slice(0, limit);
+      g.recent_learnings = [];
+    } catch { /* ignore errors */ }
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(result));
@@ -630,6 +704,78 @@ export async function handleHooksRoutes(ctx: HooksRouteContext): Promise<boolean
 
       const resolvedProjectPath = typeof projectPath === 'string' && projectPath.trim().length > 0 ? projectPath : initialPath;
       return deleteHookFromSettings(resolvedProjectPath, scope, event, hookIndex);
+    });
+    return true;
+  }
+
+  // API: Get hook templates list
+  if (pathname === '/api/hooks/templates' && req.method === 'GET') {
+    (async () => {
+      try {
+        const { getAllTemplates, listTemplatesByCategory } = await import('../hooks/hook-templates.js');
+        const category = url.searchParams.get('category');
+
+        if (category) {
+          const byCategory = listTemplatesByCategory();
+          const templates = byCategory[category as keyof typeof byCategory] || [];
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, templates }));
+        } else {
+          const templates = getAllTemplates();
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, templates }));
+        }
+      } catch (error) {
+        console.error('[Hooks] Failed to get templates:', error);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: (error as Error).message }));
+      }
+    })();
+    return true;
+  }
+
+  // API: Install hook template
+  if (pathname === '/api/hooks/templates/install' && req.method === 'POST') {
+    handlePostRequest(req, res, async (body) => {
+      if (typeof body !== 'object' || body === null) {
+        return { error: 'Invalid request body', status: 400 };
+      }
+
+      const { templateId, scope = 'project', projectPath } = body as {
+        templateId?: unknown;
+        scope?: unknown;
+        projectPath?: unknown;
+      };
+
+      if (typeof templateId !== 'string') {
+        return { error: 'templateId is required', status: 400 };
+      }
+
+      try {
+        const { installTemplateToSettings } = await import('../hooks/hook-templates.js');
+        const resolvedProjectPath = typeof projectPath === 'string' && projectPath.trim().length > 0
+          ? projectPath
+          : initialPath;
+
+        // Override process.cwd() for project-scoped installation
+        const originalCwd = process.cwd;
+        if (scope === 'project') {
+          process.cwd = () => resolvedProjectPath;
+        }
+
+        const result = installTemplateToSettings(
+          templateId,
+          (scope === 'global' ? 'global' : 'project') as 'global' | 'project'
+        );
+
+        // Restore original cwd
+        process.cwd = originalCwd;
+
+        return result;
+      } catch (error) {
+        console.error('[Hooks] Failed to install template:', error);
+        return { success: false, error: (error as Error).message };
+      }
     });
     return true;
   }

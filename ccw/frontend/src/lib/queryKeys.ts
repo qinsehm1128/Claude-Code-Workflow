@@ -118,6 +118,11 @@ export const workspaceQueryKeys = {
   cliExecutionDetail: (projectPath: string, executionId: string) =>
     [...workspaceQueryKeys.cliHistory(projectPath), 'detail', executionId] as const,
 
+  // ========== Native Sessions ==========
+  nativeSessions: (projectPath: string) => [...workspaceQueryKeys.all(projectPath), 'nativeSessions'] as const,
+  nativeSessionsList: (projectPath: string, tool?: string) =>
+    [...workspaceQueryKeys.nativeSessions(projectPath), 'list', tool] as const,
+
   // ========== Audit ==========
   audit: (projectPath: string) => [...workspaceQueryKeys.all(projectPath), 'audit'] as const,
   cliSessionAudit: (

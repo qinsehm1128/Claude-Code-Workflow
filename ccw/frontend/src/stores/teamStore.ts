@@ -7,7 +7,7 @@ import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 import type { TeamMessageFilter } from '@/types/team';
 
-export type TeamDetailTab = 'artifacts' | 'messages';
+export type TeamDetailTab = 'pipeline' | 'artifacts' | 'messages';
 
 interface TeamStore {
   selectedTeam: string | null;
@@ -42,7 +42,7 @@ export const useTeamStore = create<TeamStore>()(
         viewMode: 'list',
         locationFilter: 'active',
         searchQuery: '',
-        detailTab: 'artifacts',
+        detailTab: 'pipeline',
         setSelectedTeam: (name) => set({ selectedTeam: name }),
         toggleAutoRefresh: () => set((s) => ({ autoRefresh: !s.autoRefresh })),
         setMessageFilter: (filter) =>
@@ -53,8 +53,8 @@ export const useTeamStore = create<TeamStore>()(
         setLocationFilter: (filter) => set({ locationFilter: filter }),
         setSearchQuery: (query) => set({ searchQuery: query }),
         setDetailTab: (tab) => set({ detailTab: tab }),
-        selectTeamAndShowDetail: (name) => set({ selectedTeam: name, viewMode: 'detail', detailTab: 'artifacts' }),
-        backToList: () => set({ viewMode: 'list', detailTab: 'artifacts' }),
+        selectTeamAndShowDetail: (name) => set({ selectedTeam: name, viewMode: 'detail', detailTab: 'pipeline' }),
+        backToList: () => set({ viewMode: 'list', detailTab: 'pipeline' }),
       }),
       { name: 'ccw-team-store' }
     ),

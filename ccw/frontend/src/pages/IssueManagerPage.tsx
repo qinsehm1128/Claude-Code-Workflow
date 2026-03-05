@@ -138,7 +138,7 @@ function EditIssueDialog({ open, onOpenChange, issue, onSubmit, isUpdating }: Ed
   const [title, setTitle] = useState('');
   const [context, setContext] = useState('');
   const [priority, setPriority] = useState<Issue['priority']>('medium');
-  const [status, setStatus] = useState<Issue['status']>('open');
+  const [status, setStatus] = useState<Issue['status']>('registered');
 
   // Reset form when dialog opens or issue changes
   useEffect(() => {
@@ -146,12 +146,12 @@ function EditIssueDialog({ open, onOpenChange, issue, onSubmit, isUpdating }: Ed
       setTitle(issue.title ?? '');
       setContext(issue.context ?? '');
       setPriority(issue.priority ?? 'medium');
-      setStatus(issue.status ?? 'open');
+      setStatus(issue.status ?? 'registered');
     } else if (!open) {
       setTitle('');
       setContext('');
       setPriority('medium');
-      setStatus('open');
+      setStatus('registered');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, issue?.id]);
@@ -217,10 +217,11 @@ function EditIssueDialog({ open, onOpenChange, issue, onSubmit, isUpdating }: Ed
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="open">{formatMessage({ id: 'issues.status.open' })}</SelectItem>
-                  <SelectItem value="in_progress">{formatMessage({ id: 'issues.status.inProgress' })}</SelectItem>
-                  <SelectItem value="resolved">{formatMessage({ id: 'issues.status.resolved' })}</SelectItem>
-                  <SelectItem value="closed">{formatMessage({ id: 'issues.status.closed' })}</SelectItem>
+                  <SelectItem value="registered">{formatMessage({ id: 'issues.status.registered', defaultMessage: 'Registered' })}</SelectItem>
+                  <SelectItem value="planning">{formatMessage({ id: 'issues.status.planning', defaultMessage: 'Planning' })}</SelectItem>
+                  <SelectItem value="planned">{formatMessage({ id: 'issues.status.planned', defaultMessage: 'Planned' })}</SelectItem>
+                  <SelectItem value="queued">{formatMessage({ id: 'issues.status.queued', defaultMessage: 'Queued' })}</SelectItem>
+                  <SelectItem value="executing">{formatMessage({ id: 'issues.status.executing', defaultMessage: 'Executing' })}</SelectItem>
                   <SelectItem value="completed">{formatMessage({ id: 'issues.status.completed' })}</SelectItem>
                 </SelectContent>
               </Select>
@@ -341,11 +342,14 @@ export function IssueManagerPage() {
   // Filter counts
   const statusCounts = useMemo(() => ({
     all: issues.length,
-    open: issuesByStatus.open?.length || 0,
-    in_progress: issuesByStatus.in_progress?.length || 0,
-    resolved: issuesByStatus.resolved?.length || 0,
-    closed: issuesByStatus.closed?.length || 0,
+    registered: issuesByStatus.registered?.length || 0,
+    planning: issuesByStatus.planning?.length || 0,
+    planned: issuesByStatus.planned?.length || 0,
+    queued: issuesByStatus.queued?.length || 0,
+    executing: issuesByStatus.executing?.length || 0,
     completed: issuesByStatus.completed?.length || 0,
+    failed: issuesByStatus.failed?.length || 0,
+    paused: issuesByStatus.paused?.length || 0,
   }), [issues, issuesByStatus]);
 
   const handleCreateIssue = async (data: { title: string; context?: string; priority?: Issue['priority'] }) => {
@@ -440,9 +444,9 @@ export function IssueManagerPage() {
         <Card className="p-4">
           <div className="flex items-center gap-2">
             <Clock className="w-5 h-5 text-warning" />
-            <span className="text-2xl font-bold">{issuesByStatus.in_progress?.length || 0}</span>
+            <span className="text-2xl font-bold">{issuesByStatus.executing?.length || 0}</span>
           </div>
-          <p className="text-sm text-muted-foreground mt-1">{formatMessage({ id: 'issues.status.inProgress' })}</p>
+          <p className="text-sm text-muted-foreground mt-1">{formatMessage({ id: 'issues.status.executing', defaultMessage: 'Executing' })}</p>
         </Card>
         <Card className="p-4">
           <div className="flex items-center gap-2">
@@ -454,9 +458,9 @@ export function IssueManagerPage() {
         <Card className="p-4">
           <div className="flex items-center gap-2">
             <CheckCircle className="w-5 h-5 text-success" />
-            <span className="text-2xl font-bold">{issuesByStatus.resolved?.length || 0}</span>
+            <span className="text-2xl font-bold">{issuesByStatus.completed?.length || 0}</span>
           </div>
-          <p className="text-sm text-muted-foreground mt-1">{formatMessage({ id: 'issues.status.resolved' })}</p>
+          <p className="text-sm text-muted-foreground mt-1">{formatMessage({ id: 'issues.status.completed' })}</p>
         </Card>
       </div>
 
@@ -478,10 +482,12 @@ export function IssueManagerPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">{formatMessage({ id: 'issues.filters.all' })}</SelectItem>
-              <SelectItem value="open">{formatMessage({ id: 'issues.status.open' })}</SelectItem>
-              <SelectItem value="in_progress">{formatMessage({ id: 'issues.status.inProgress' })}</SelectItem>
-              <SelectItem value="resolved">{formatMessage({ id: 'issues.status.resolved' })}</SelectItem>
-              <SelectItem value="closed">{formatMessage({ id: 'issues.status.closed' })}</SelectItem>
+              <SelectItem value="registered">{formatMessage({ id: 'issues.status.registered', defaultMessage: 'Registered' })}</SelectItem>
+              <SelectItem value="planning">{formatMessage({ id: 'issues.status.planning', defaultMessage: 'Planning' })}</SelectItem>
+              <SelectItem value="planned">{formatMessage({ id: 'issues.status.planned', defaultMessage: 'Planned' })}</SelectItem>
+              <SelectItem value="queued">{formatMessage({ id: 'issues.status.queued', defaultMessage: 'Queued' })}</SelectItem>
+              <SelectItem value="executing">{formatMessage({ id: 'issues.status.executing', defaultMessage: 'Executing' })}</SelectItem>
+              <SelectItem value="completed">{formatMessage({ id: 'issues.status.completed' })}</SelectItem>
             </SelectContent>
           </Select>
           <Select value={priorityFilter} onValueChange={(v) => setPriorityFilter(v as PriorityFilter)}>
@@ -509,20 +515,20 @@ export function IssueManagerPage() {
           {formatMessage({ id: 'issues.filters.all' })} ({statusCounts.all})
         </Button>
         <Button
-          variant={statusFilter === 'open' ? 'default' : 'outline'}
+          variant={statusFilter === 'registered' ? 'default' : 'outline'}
           size="sm"
-          onClick={() => setStatusFilter('open')}
+          onClick={() => setStatusFilter('registered')}
         >
-          <Badge variant="info" className="mr-2">{statusCounts.open}</Badge>
-          {formatMessage({ id: 'issues.status.open' })}
+          <Badge variant="info" className="mr-2">{statusCounts.registered}</Badge>
+          {formatMessage({ id: 'issues.status.registered', defaultMessage: 'Registered' })}
         </Button>
         <Button
-          variant={statusFilter === 'in_progress' ? 'default' : 'outline'}
+          variant={statusFilter === 'executing' ? 'default' : 'outline'}
           size="sm"
-          onClick={() => setStatusFilter('in_progress')}
+          onClick={() => setStatusFilter('executing')}
         >
-          <Badge variant="warning" className="mr-2">{statusCounts.in_progress}</Badge>
-          {formatMessage({ id: 'issues.status.inProgress' })}
+          <Badge variant="warning" className="mr-2">{statusCounts.executing}</Badge>
+          {formatMessage({ id: 'issues.status.executing', defaultMessage: 'Executing' })}
         </Button>
         <Button
           variant={priorityFilter === 'critical' ? 'destructive' : 'outline'}

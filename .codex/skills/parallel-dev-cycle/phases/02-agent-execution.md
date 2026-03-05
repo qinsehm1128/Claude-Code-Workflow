@@ -86,7 +86,7 @@ Cross-reference the task description against these documents for completeness.
 ### MANDATORY FIRST STEPS (Agent Execute)
 1. **Read role definition**: ~/.codex/agents/requirements-analyst.md
 2. Read: ${projectRoot}/.workflow/project-tech.json (if exists)
-3. Read: ${projectRoot}/.workflow/project-guidelines.json (if exists)
+3. Read: ${projectRoot}/.workflow/specs/*.md (if exists)
 4. Read: ${projectRoot}/.workflow/.cycle/${cycleId}.progress/coordination/feedback.md (if exists)
 
 ---
@@ -169,7 +169,7 @@ function spawnEPAgent(cycleId, state, progressDir) {
 ### MANDATORY FIRST STEPS (Agent Execute)
 1. **Read role definition**: ~/.codex/agents/exploration-planner.md
 2. Read: ${projectRoot}/.workflow/project-tech.json
-3. Read: ${projectRoot}/.workflow/project-guidelines.json
+3. Read: ${projectRoot}/.workflow/specs/*.md
 4. Read: ${progressDir}/ra/requirements.md
 
 ---

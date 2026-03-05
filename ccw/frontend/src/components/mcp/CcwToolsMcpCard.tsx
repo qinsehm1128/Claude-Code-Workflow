@@ -37,7 +37,7 @@ import {
   uninstallCcwMcpFromCodex,
   updateCcwConfigForCodex,
 } from '@/lib/api';
-import { mcpServersKeys } from '@/hooks';
+import { mcpServersKeys, useNotifications } from '@/hooks';
 import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { useWorkflowStore, selectProjectPath } from '@/stores/workflowStore';
@@ -128,6 +128,7 @@ export function CcwToolsMcpCard({
 }: CcwToolsMcpCardProps) {
   const { formatMessage } = useIntl();
   const queryClient = useQueryClient();
+  const { success: notifySuccess, error: notifyError } = useNotifications();
   const currentProjectPath = useWorkflowStore(selectProjectPath);
 
   // Local state for config inputs
@@ -179,9 +180,19 @@ export function CcwToolsMcpCard({
     onSuccess: () => {
       if (isCodex) {
         queryClient.invalidateQueries({ queryKey: ['codexMcpServers'] });
+        queryClient.invalidateQueries({ queryKey: ['ccwMcpConfigCodex'] });
       } else {
         queryClient.invalidateQueries({ queryKey: mcpServersKeys.all });
+        queryClient.invalidateQueries({ queryKey: ['ccwMcpConfig'] });
       }
+      notifySuccess(formatMessage({ id: 'mcp.ccw.feedback.saveSuccess' }));
+    },
+    onError: (error) => {
+      console.error('Failed to update CCW config:', error);
+      notifyError(
+        formatMessage({ id: 'mcp.ccw.feedback.saveError' }),
+        error instanceof Error ? error.message : String(error)
+      );
     },
   });
 
@@ -201,6 +212,9 @@ export function CcwToolsMcpCard({
 
   const handleConfigSave = () => {
     updateConfigMutation.mutate({
+      // Preserve current tool selection; otherwise updateCcwConfig* falls back to defaults
+      // and can unintentionally overwrite user-chosen enabled tools.
+      enabledTools,
       projectRoot: projectRootInput || undefined,
       allowedDirs: allowedDirsInput || undefined,
       enableSandbox: enableSandboxInput,
@@ -324,9 +338,16 @@ export function CcwToolsMcpCard({
 
           {/* Tool Checkboxes */}
           <div className="space-y-2">
-            <p className="text-xs font-medium text-muted-foreground uppercase">
-              {formatMessage({ id: 'mcp.ccw.tools.label' })}
-            </p>
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium text-muted-foreground uppercase">
+                {formatMessage({ id: 'mcp.ccw.tools.label' })}
+              </p>
+              {!isInstalled && (
+                <p className="text-xs text-amber-600 dark:text-amber-500">
+                  {formatMessage({ id: 'mcp.ccw.tools.hint' })}
+                </p>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-2">
               {CCW_MCP_TOOLS.map((tool) => {
                 const isEnabled = enabledTools.includes(tool.name);

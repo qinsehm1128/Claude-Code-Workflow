@@ -1,218 +1,284 @@
-# Command: monitor
+# Command: Monitor
 
-> Stop-Wait stage execution. Spawns each worker via Skill(), blocks until return, drives transitions.
+Handle all coordinator monitoring events for the review pipeline using the async Spawn-and-Stop pattern. One operation per invocation, then STOP and wait for the next callback.
 
-## When to Use
+## Constants
 
-- Phase 4 of Coordinator, after dispatch complete
+| Key | Value | Description |
+|-----|-------|-------------|
+| SPAWN_MODE | background | All workers spawned via `Task(run_in_background: true)` |
+| ONE_STEP_PER_INVOCATION | true | Coordinator does one operation then STOPS |
+| WORKER_AGENT | team-worker | All workers spawned as team-worker agents |
 
-## Strategy
+### Role-Worker Map
 
-**Mode**: Stop-Wait (synchronous Skill call, not polling)
+| Prefix | Role | Role Spec | inner_loop |
+|--------|------|-----------|------------|
+| SCAN | scanner | `.claude/skills/team-review/role-specs/scanner.md` | false |
+| REV | reviewer | `.claude/skills/team-review/role-specs/reviewer.md` | false |
+| FIX | fixer | `.claude/skills/team-review/role-specs/fixer.md` | false |
 
-> **No polling. Synchronous Skill() call IS the wait mechanism.**
->
-> - FORBIDDEN: `while` + `sleep` + check status
-> - REQUIRED: `Skill()` blocking call = worker return = stage done
+### Pipeline Modes
 
-### Stage-Worker Map
+| Mode | Stages |
+|------|--------|
+| scan-only | SCAN-001 |
+| default | SCAN-001 -> REV-001 |
+| full | SCAN-001 -> REV-001 -> FIX-001 |
+| fix-only | FIX-001 |
 
-```javascript
-const STAGE_WORKER_MAP = {
-  'SCAN': { role: 'scanner',  skillArgs: '--role=scanner' },
-  'REV':  { role: 'reviewer', skillArgs: '--role=reviewer' },
-  'FIX':  { role: 'fixer',    skillArgs: '--role=fixer' }
-}
+## Phase 2: Context Loading
+
+| Input | Source | Required |
+|-------|--------|----------|
+| Session file | `<session-folder>/.msg/meta.json` | Yes |
+| Task list | `TaskList()` | Yes |
+| Active workers | session.active_workers[] | Yes |
+| Pipeline mode | session.pipeline_mode | Yes |
+
+```
+Load session state:
+  1. Read <session-folder>/.msg/meta.json -> session
+  2. TaskList() -> allTasks
+  3. Extract pipeline_mode from session
+  4. Extract active_workers[] from session (default: [])
+  5. Parse $ARGUMENTS to determine trigger event
+  6. autoYes = /\b(-y|--yes)\b/.test(args)
 ```
 
-## Execution Steps
+## Phase 3: Event Handlers
 
-### Step 1: Context Preparation
+### Wake-up Source Detection
 
-```javascript
-const sharedMemory = JSON.parse(Read(`${sessionFolder}/shared-memory.json`))
+Parse `$ARGUMENTS` to determine handler:
 
-// Get pipeline tasks in creation order (= dependency order)
-const allTasks = TaskList()
-const pipelineTasks = allTasks
-  .filter(t => t.owner && t.owner !== 'coordinator')
-  .sort((a, b) => Number(a.id) - Number(b.id))
+| Priority | Condition | Handler |
+|----------|-----------|---------|
+| 1 | Message contains `[scanner]`, `[reviewer]`, or `[fixer]` | handleCallback |
+| 2 | Contains "check" or "status" | handleCheck |
+| 3 | Contains "resume", "continue", or "next" | handleResume |
+| 4 | Pipeline detected as complete (no pending, no in_progress) | handleComplete |
+| 5 | None of the above (initial spawn after dispatch) | handleSpawnNext |
 
-// Auto mode detection
-const autoYes = /\b(-y|--yes)\b/.test(args)
+---
+
+### Handler: handleCallback
+
+Worker completed a task. Verify completion, check pipeline conditions, advance.
+
+```
+Receive callback from [<role>]
+  +- Find matching active worker by role tag
+  +- Task status = completed?
+  |   +- YES -> remove from active_workers -> update session
+  |   |   +- role = scanner?
+  |   |   |   +- Read session.findings_count from meta.json
+  |   |   |   +- findings_count === 0?
+  |   |   |   |   +- YES -> Skip remaining stages:
+  |   |   |   |   |   Delete all REV-* and FIX-* tasks (TaskUpdate status='deleted')
+  |   |   |   |   |   Log: "0 findings, skipping review/fix stages"
+  |   |   |   |   |   -> handleComplete
+  |   |   |   |   +- NO -> normal advance
+  |   |   |   +- -> handleSpawnNext
+  |   |   +- role = reviewer?
+  |   |   |   +- pipeline_mode === 'full'?
+  |   |   |   |   +- YES -> Need fix confirmation gate
+  |   |   |   |   |   +- autoYes?
+  |   |   |   |   |   |   +- YES -> Set fix_scope='all' in meta.json
+  |   |   |   |   |   |   +- Write fix-manifest.json
+  |   |   |   |   |   |   +- -> handleSpawnNext
+  |   |   |   |   |   +- NO -> AskUserQuestion:
+  |   |   |   |   |       question: "<N> findings reviewed. Proceed with fix?"
+  |   |   |   |   |       header: "Fix Confirmation"
+  |   |   |   |   |       options:
+  |   |   |   |   |         - "Fix all": Set fix_scope='all'
+  |   |   |   |   |         - "Fix critical/high only": Set fix_scope='critical,high'
+  |   |   |   |   |         - "Skip fix": Delete FIX-* tasks -> handleComplete
+  |   |   |   |   |       +- Write fix_scope to meta.json
+  |   |   |   |   |       +- Write fix-manifest.json:
+  |   |   |   |   |           { source: "<session>/review/review-report.json",
+  |   |   |   |   |             scope: fix_scope, session: sessionFolder }
+  |   |   |   |   |       +- -> handleSpawnNext
+  |   |   |   |   +- NO -> normal advance -> handleSpawnNext
+  |   |   +- role = fixer?
+  |   |       +- -> handleSpawnNext (checks for completion naturally)
+  |   +- NO -> progress message, do not advance -> STOP
+  +- No matching worker found
+      +- Scan all active workers for completed tasks
+      +- Found completed -> process each -> handleSpawnNext
+      +- None completed -> STOP
 ```
 
-### Step 2: Sequential Stage Execution (Stop-Wait)
+---
 
-> **Core**: Spawn one worker per stage, block until return.
-> Worker return = stage complete. No sleep, no polling.
+### Handler: handleSpawnNext
 
-```javascript
-for (const stageTask of pipelineTasks) {
-  // 1. Extract stage prefix -> determine worker role
-  const stagePrefix = stageTask.subject.match(/^(\w+)-/)?.[1]
-  const workerConfig = STAGE_WORKER_MAP[stagePrefix]
+Find all ready tasks, spawn one team-worker agent in background, update session, STOP.
 
-  if (!workerConfig) {
-    mcp__ccw-tools__team_msg({
-      operation: "log", team: teamName, from: "coordinator",
-      to: "user", type: "error",
-      summary: `[coordinator] Unknown stage prefix: ${stagePrefix}, skipping`
-    })
-    continue
-  }
+```
+Collect task states from TaskList()
+  +- completedSubjects: status = completed
+  +- inProgressSubjects: status = in_progress
+  +- deletedSubjects: status = deleted
+  +- readySubjects: status = pending
+      AND (no blockedBy OR all blockedBy in completedSubjects)
 
-  // 2. Mark task in progress
-  TaskUpdate({ taskId: stageTask.id, status: 'in_progress' })
-
-  mcp__ccw-tools__team_msg({
-    operation: "log", team: teamName, from: "coordinator",
-    to: workerConfig.role, type: "stage_transition",
-    summary: `[coordinator] Starting stage: ${stageTask.subject} -> ${workerConfig.role}`
-  })
-
-  // 3. Build worker arguments
-  const workerArgs = buildWorkerArgs(stageTask, workerConfig)
-
-  // 4. Spawn worker via Skill — blocks until return (Stop-Wait core)
-  Skill(skill="team-review", args=workerArgs)
-
-  // 5. Worker returned — check result
-  const taskState = TaskGet({ taskId: stageTask.id })
-
-  if (taskState.status !== 'completed') {
-    const action = handleStageFailure(stageTask, taskState, workerConfig, autoYes)
-    if (action === 'abort') break
-    if (action === 'skip') continue
-  } else {
-    mcp__ccw-tools__team_msg({
-      operation: "log", team: teamName, from: "coordinator",
-      to: "user", type: "stage_transition",
-      summary: `[coordinator] Stage complete: ${stageTask.subject}`
-    })
-  }
-
-  // 6. Post-stage: After SCAN check findings
-  if (stagePrefix === 'SCAN') {
-    const mem = JSON.parse(Read(`${sessionFolder}/shared-memory.json`))
-    if ((mem.findings_count || 0) === 0) {
-      mcp__ccw-tools__team_msg({ operation: "log", team: teamName, from: "coordinator",
-        to: "user", type: "pipeline_complete",
-        summary: `[coordinator] 0 findings. Code is clean. Skipping review/fix.` })
-      for (const r of pipelineTasks.slice(pipelineTasks.indexOf(stageTask) + 1))
-        TaskUpdate({ taskId: r.id, status: 'deleted' })
-      break
-    }
-  }
-
-  // 7. Post-stage: After REV confirm fix scope
-  if (stagePrefix === 'REV' && pipelineMode === 'full') {
-    const mem = JSON.parse(Read(`${sessionFolder}/shared-memory.json`))
-
-    if (!autoYes) {
-      const conf = AskUserQuestion({ questions: [{
-        question: `${mem.findings_count || 0} findings reviewed. Proceed with fix?`,
-        header: "Fix Confirmation", multiSelect: false,
-        options: [
-          { label: "Fix all", description: "All actionable findings" },
-          { label: "Fix critical/high only", description: "Severity filter" },
-          { label: "Skip fix", description: "No code changes" }
-        ]
-      }] })
-
-      if (conf["Fix Confirmation"] === "Skip fix") {
-        pipelineTasks.filter(t => t.subject.startsWith('FIX-'))
-          .forEach(ft => TaskUpdate({ taskId: ft.id, status: 'deleted' }))
-        break
-      }
-      mem.fix_scope = conf["Fix Confirmation"] === "Fix critical/high only" ? 'critical,high' : 'all'
-      Write(`${sessionFolder}/shared-memory.json`, JSON.stringify(mem, null, 2))
-    }
-
-    Write(`${sessionFolder}/fix/fix-manifest.json`, JSON.stringify({
-      source: `${sessionFolder}/review/review-report.json`,
-      scope: mem.fix_scope || 'all', session: sessionFolder
-    }, null, 2))
-  }
-}
+Ready tasks found?
+  +- NONE + work in progress -> report waiting -> STOP
+  +- NONE + nothing in progress -> PIPELINE_COMPLETE -> handleComplete
+  +- HAS ready tasks -> take first ready task:
+      +- Determine role from prefix:
+      |   SCAN-* -> scanner
+      |   REV-*  -> reviewer
+      |   FIX-*  -> fixer
+      +- TaskUpdate -> in_progress
+      +- team_msg log -> task_unblocked (team_session_id=<session-id>)
+      +- Spawn team-worker (see spawn call below)
+      +- Add to session.active_workers
+      +- Update session file
+      +- Output: "[coordinator] Spawned <role> for <subject>"
+      +- STOP
 ```
 
-### Step 2.1: Worker Argument Builder
+**Spawn worker tool call**:
 
-```javascript
-function buildWorkerArgs(stageTask, workerConfig) {
-  const stagePrefix = stageTask.subject.match(/^(\w+)-/)?.[1]
-  let workerArgs = `${workerConfig.skillArgs} --session ${sessionFolder}`
+```
+Agent({
+  agent_type: "team-worker",
+  description: "Spawn <role> worker for <subject>",
+  team_name: "review",
+  name: "<role>",
+  run_in_background: true,
+  prompt: `## Role Assignment
+role: <role>
+role_spec: .claude/skills/team-review/role-specs/<role>.md
+session: <session-folder>
+session_id: <session-id>
+team_name: review
+requirement: <task-description>
+inner_loop: false
 
-  if (stagePrefix === 'SCAN') {
-    workerArgs += ` ${target} --dimensions ${dimensions.join(',')}`
-    if (stageTask.description?.includes('quick: true')) workerArgs += ' -q'
-  } else if (stagePrefix === 'REV') {
-    workerArgs += ` --input ${sessionFolder}/scan/scan-results.json --dimensions ${dimensions.join(',')}`
-  } else if (stagePrefix === 'FIX') {
-    workerArgs += ` --input ${sessionFolder}/fix/fix-manifest.json`
-  }
+## Current Task
+- Task ID: <task-id>
+- Task: <subject>
 
-  if (autoYes) workerArgs += ' -y'
-  return workerArgs
-}
+Read role_spec file to load Phase 2-4 domain instructions.
+Execute built-in Phase 1 -> role-spec Phase 2-4 -> built-in Phase 5.`
+})
 ```
 
-### Step 2.2: Stage Failure Handler
+---
 
-```javascript
-function handleStageFailure(stageTask, taskState, workerConfig, autoYes) {
-  if (autoYes) {
-    mcp__ccw-tools__team_msg({ operation: "log", team: teamName, from: "coordinator",
-      to: "user", type: "error",
-      summary: `[coordinator] [auto] ${stageTask.subject} incomplete, skipping` })
-    TaskUpdate({ taskId: stageTask.id, status: 'deleted' })
-    return 'skip'
-  }
+### Handler: handleCheck
 
-  const decision = AskUserQuestion({ questions: [{
-    question: `Stage "${stageTask.subject}" incomplete (${taskState.status}). Action?`,
-    header: "Stage Failure", multiSelect: false,
-    options: [
-      { label: "Retry", description: "Re-spawn worker" },
-      { label: "Skip", description: "Continue pipeline" },
-      { label: "Abort", description: "Stop pipeline" }
-    ]
-  }] })
+Read-only status report. No pipeline advancement.
 
-  const answer = decision["Stage Failure"]
-  if (answer === "Retry") {
-    TaskUpdate({ taskId: stageTask.id, status: 'in_progress' })
-    Skill(skill="team-review", args=buildWorkerArgs(stageTask, workerConfig))
-    if (TaskGet({ taskId: stageTask.id }).status !== 'completed')
-      TaskUpdate({ taskId: stageTask.id, status: 'deleted' })
-    return 'retried'
-  } else if (answer === "Skip") {
-    TaskUpdate({ taskId: stageTask.id, status: 'deleted' })
-    return 'skip'
-  } else {
-    mcp__ccw-tools__team_msg({ operation: "log", team: teamName, from: "coordinator",
-      to: "user", type: "error",
-      summary: `[coordinator] User aborted at: ${stageTask.subject}` })
-    return 'abort'
-  }
-}
+**Output format**:
+
+```
+[coordinator] Review Pipeline Status
+[coordinator] Mode: <pipeline_mode>
+[coordinator] Progress: <completed>/<total> (<percent>%)
+
+[coordinator] Pipeline Graph:
+  SCAN-001: <status-icon> <summary>
+  REV-001:  <status-icon> <summary>
+  FIX-001:  <status-icon> <summary>
+
+  done=completed  >>>=running  o=pending  x=deleted  .=not created
+
+[coordinator] Active Workers:
+  > <subject> (<role>) - running
+
+[coordinator] Ready to spawn: <subjects>
+[coordinator] Commands: 'resume' to advance | 'check' to refresh
 ```
 
-### Step 3: Finalize
+Then STOP.
 
-```javascript
-const finalMemory = JSON.parse(Read(`${sessionFolder}/shared-memory.json`))
-finalMemory.pipeline_status = 'complete'
-finalMemory.completed_at = new Date().toISOString()
-Write(`${sessionFolder}/shared-memory.json`, JSON.stringify(finalMemory, null, 2))
+---
+
+### Handler: handleResume
+
+Check active worker completion, process results, advance pipeline.
+
+```
+Load active_workers from session
+  +- No active workers -> handleSpawnNext
+  +- Has active workers -> check each:
+      +- status = completed -> mark done, remove from active_workers, log
+      +- status = in_progress -> still running, log
+      +- other status -> worker failure -> reset to pending
+      After processing:
+        +- Some completed -> handleSpawnNext
+        +- All still running -> report status -> STOP
+        +- All failed -> handleSpawnNext (retry)
+```
+
+---
+
+### Handler: handleComplete
+
+Pipeline complete. Generate summary and finalize session.
+
+```
+All tasks completed or deleted (no pending, no in_progress)
+  +- Read final session state from meta.json
+  +- Generate pipeline summary:
+  |   - Pipeline mode
+  |   - Findings count
+  |   - Stages completed
+  |   - Fix results (if applicable)
+  |   - Deliverable paths
+  |
+  +- Update session:
+  |   session.pipeline_status = 'complete'
+  |   session.completed_at = <timestamp>
+  |   Write meta.json
+  |
+  +- team_msg log -> pipeline_complete
+  +- Output summary to user
+  +- STOP
+```
+
+---
+
+### Worker Failure Handling
+
+When a worker has unexpected status (not completed, not in_progress):
+
+1. Reset task -> pending via TaskUpdate
+2. Remove from active_workers
+3. Log via team_msg (type: error)
+4. Report to user: task reset, will retry on next resume
+
+## Phase 4: State Persistence
+
+After every handler action, before STOP:
+
+| Check | Action |
+|-------|--------|
+| Session state consistent | active_workers matches TaskList in_progress tasks |
+| No orphaned tasks | Every in_progress task has an active_worker entry |
+| Meta.json updated | Write updated session state |
+| Completion detection | readySubjects=0 + inProgressSubjects=0 -> handleComplete |
+
+```
+Persist:
+  1. Reconcile active_workers with actual TaskList states
+  2. Remove entries for completed/deleted tasks
+  3. Write updated meta.json
+  4. Verify consistency
+  5. STOP (wait for next callback)
 ```
 
 ## Error Handling
 
 | Scenario | Resolution |
 |----------|------------|
-| Worker incomplete (interactive) | AskUser: Retry / Skip / Abort |
-| Worker incomplete (auto) | Auto-skip, log warning |
-| 0 findings after scan | Skip remaining stages |
-| User declines fix | Delete FIX tasks, report review-only |
+| Session file not found | Error, suggest re-initialization |
+| Worker callback from unknown role | Log info, scan for other completions |
+| All workers still running on resume | Report status, suggest check later |
+| Pipeline stall (no ready, no running, has pending) | Check blockedBy chains, report to user |
+| 0 findings after scan | Delete remaining stages, complete pipeline |
+| User declines fix | Delete FIX tasks, complete with review-only results |

@@ -56,6 +56,9 @@ const initialState: WorkflowState = {
   // Filters and sorting
   filters: defaultFilters,
   sorting: defaultSorting,
+
+  // Hydration state (internal)
+  _hasHydrated: false,
 };
 
 export const useWorkflowStore = create<WorkflowStore>()(
@@ -414,6 +417,10 @@ export const useWorkflowStore = create<WorkflowStore>()(
         set({ _invalidateQueriesCallback: callback }, false, 'registerQueryInvalidator');
       },
 
+      setHasHydrated: (state: boolean) => {
+        set({ _hasHydrated: state }, false, 'setHasHydrated');
+      },
+
       // ========== Filters and Sorting ==========
 
       setFilters: (filters: Partial<WorkflowFilters>) => {
@@ -538,6 +545,8 @@ export const useWorkflowStore = create<WorkflowStore>()(
               console.error('[WorkflowStore] Rehydration error:', error);
               return;
             }
+            // Mark hydration as complete
+            useWorkflowStore.getState().setHasHydrated(true);
             if (state?.projectPath) {
               if (process.env.NODE_ENV === 'development') {
                 // eslint-disable-next-line no-console

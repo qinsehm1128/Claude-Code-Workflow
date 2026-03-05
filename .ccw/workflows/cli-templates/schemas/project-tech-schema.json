@@ -155,7 +155,7 @@
     },
     "development_index": {
       "type": "object",
-      "description": "Categorized development history (lite-plan/lite-execute)",
+      "description": "Categorized development history (lite-planex sessions)",
       "properties": {
         "feature": { "type": "array", "items": { "$ref": "#/$defs/devIndexEntry" } },
         "enhancement": { "type": "array", "items": { "$ref": "#/$defs/devIndexEntry" } },

@@ -153,10 +153,12 @@ tests/test_hybrid_chunker.py
 tests/test_hybrid_search_e2e.py
 tests/test_hybrid_search_reranker_backend.py
 tests/test_hybrid_search_unit.py
+tests/test_incremental_indexer.py
 tests/test_incremental_indexing.py
 tests/test_litellm_reranker.py
 tests/test_lsp_graph_builder_depth.py
 tests/test_merkle_detection.py
+tests/test_migrations.py
 tests/test_parser_integration.py
 tests/test_parsers.py
 tests/test_path_mapper_windows_drive.py

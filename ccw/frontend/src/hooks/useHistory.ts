@@ -85,9 +85,14 @@ export function useHistory(options: UseHistoryOptions = {}): UseHistoryReturn {
     if (filter?.search) {
       const searchLower = filter.search.toLowerCase();
       executions = executions.filter(
-        (exec) =>
-          exec.prompt_preview.toLowerCase().includes(searchLower) ||
-          exec.tool.toLowerCase().includes(searchLower)
+        (exec) => {
+          // Guard against prompt_preview being an object instead of string
+          const preview = typeof exec.prompt_preview === 'string'
+            ? exec.prompt_preview
+            : JSON.stringify(exec.prompt_preview);
+          return preview.toLowerCase().includes(searchLower) ||
+            exec.tool.toLowerCase().includes(searchLower);
+        }
       );
     }
 

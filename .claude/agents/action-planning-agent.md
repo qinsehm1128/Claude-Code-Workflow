@@ -63,7 +63,7 @@ color: yellow
         align task tech choices with actual project stack
       → If missing: Fall back to context-package.project_context fields
 
-   b. Read .workflow/project-guidelines.json (if exists)
+   b. Read .workflow/specs/*.md (if exists)
       → coding_conventions, naming_rules, forbidden_patterns, quality_gates, custom_constraints
       → Usage: Apply as HARD CONSTRAINTS on all tasks — implementation steps,
         acceptance criteria, and convergence.verification MUST respect these rules
@@ -1005,7 +1005,7 @@ Use `analysis_results.complexity` or task count to determine structure:
 ### 3.4 Guidelines Checklist
 
 **ALWAYS:**
-- **Load project context FIRST**: Read `.workflow/project-tech.json` and `.workflow/project-guidelines.json` before any session-specific files. Apply project-guidelines as hard constraints on all tasks
+- **Load project context FIRST**: Read `.workflow/project-tech.json` and `.workflow/specs/*.md` before any session-specific files. Apply specs/*.md as hard constraints on all tasks
 - **Load planning-notes.md SECOND**: Read planning-notes.md before context-package.json. Use its Consolidated Constraints as primary constraint source for all task generation
 - **Record N+1 Context**: Update `## N+1 Context` section with key decisions and deferred items
 - **Search Tool Priority**: ACE (`mcp__ace-tool__search_context`) → CCW (`mcp__ccw-tools__smart_search`) / Built-in (`Grep`, `Glob`, `Read`)

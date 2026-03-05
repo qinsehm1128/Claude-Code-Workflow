@@ -1,183 +1,190 @@
 ---
 name: team-ultra-analyze
 description: Unified team skill for deep collaborative analysis. All roles invoke this skill with --role arg for role-specific execution. Triggers on "team ultra-analyze", "team analyze".
-allowed-tools: TeamCreate(*), TeamDelete(*), SendMessage(*), TaskCreate(*), TaskUpdate(*), TaskList(*), TaskGet(*), Task(*), AskUserQuestion(*), Read(*), Write(*), Edit(*), Bash(*), Glob(*), Grep(*)
+allowed-tools: TeamCreate(*), TeamDelete(*), SendMessage(*), TaskCreate(*), TaskUpdate(*), TaskList(*), TaskGet(*), Agent(*), AskUserQuestion(*), Read(*), Write(*), Edit(*), Bash(*), Glob(*), Grep(*)
 ---
 
 # Team Ultra Analyze
 
-深度协作分析团队技能。将单体分析工作流拆分为 5 角色协作：探索→分析→讨论→综合。支持 Quick/Standard/Deep 三种管道模式，通过讨论循环实现用户引导的渐进式理解深化。所有成员通过 `--role=xxx` 路由到角色执行逻辑。
+Deep collaborative analysis team skill. Splits monolithic analysis into 5-role collaboration: explore -> analyze -> discuss -> synthesize. Supports Quick/Standard/Deep pipeline modes with configurable depth (N parallel agents). Discussion loops enable user-guided progressive understanding. All members route via `--role=xxx`.
 
-## Architecture Overview
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│  Skill(skill="team-ultra-analyze", args="--role=xxx")    │
-└──────────────────────┬──────────────────────────────────┘
-                       │ Role Router
-    ┌──────────┬───────┼───────────┬───────────┐
-    ↓          ↓       ↓           ↓           ↓
-┌────────┐┌────────┐┌────────┐┌──────────┐┌───────────┐
-│coordi- ││explorer││analyst ││discussant││synthesizer│
-│nator   ││EXPLORE-││ANALYZE-││DISCUSS-* ││SYNTH-*    │
-│ roles/ ││* roles/││* roles/││ roles/   ││ roles/    │
-└────────┘└────────┘└────────┘└──────────┘└───────────┘
++---------------------------------------------------+
+|  Skill(skill="team-ultra-analyze")                 |
+|  args="<topic-description>"                        |
++-------------------+-------------------------------+
+                    |
+         Orchestration Mode (auto -> coordinator)
+                    |
+              Coordinator (inline)
+              Phase 0-5 orchestration
+                    |
+    +-------+-------+-------+-------+
+    v       v       v       v
+ [tw]    [tw]    [tw]    [tw]
+explor- analy-  discu-  synthe-
+er      st      ssant   sizer
+
+(tw) = team-worker agent
 ```
 
 ## Command Architecture
 
 ```
 roles/
-├── coordinator/
-│   ├── role.md              # 编排：话题澄清、管道选择、讨论循环、结果汇报
-│   └── commands/
-│       ├── dispatch.md      # 任务链创建与依赖管理
-│       └── monitor.md       # 进度监控 + 讨论循环
-├── explorer/
-│   ├── role.md              # 代码库探索
-│   └── commands/
-│       └── explore.md       # cli-explore-agent 并行探索
-├── analyst/
-│   ├── role.md              # 深度分析
-│   └── commands/
-│       └── analyze.md       # CLI 多视角分析
-├── discussant/
-│   ├── role.md              # 讨论处理 + 方向调整
-│   └── commands/
-│       └── deepen.md        # 深入探索
-└── synthesizer/
-    ├── role.md              # 综合结论
-    └── commands/
-        └── synthesize.md    # 跨视角整合
++-- coordinator/
+|   +-- role.md              # Orchestration: topic clarification, pipeline selection, discussion loop, reporting
+|   +-- commands/
+|       +-- dispatch.md      # Task chain creation and dependency management
+|       +-- monitor.md       # Progress monitoring + discussion loop
++-- explorer/
+|   +-- role.md              # Codebase exploration
+|   +-- commands/
+|       +-- explore.md       # cli-explore-agent parallel exploration
++-- analyst/
+|   +-- role.md              # Deep analysis
+|   +-- commands/
+|       +-- analyze.md       # CLI multi-perspective analysis
++-- discussant/
+|   +-- role.md              # Discussion processing + direction adjustment
+|   +-- commands/
+|       +-- deepen.md        # Deep-dive exploration
++-- synthesizer/
+    +-- role.md              # Synthesis and conclusions
+    +-- commands/
+        +-- synthesize.md    # Cross-perspective integration
 ```
 
-**设计原则**: role.md 保留 Phase 1（Task Discovery）和 Phase 5（Report）内联。Phase 2-4 根据复杂度决定内联或委派到 `commands/*.md`。
+**Design principle**: role.md retains Phase 1 (Task Discovery) and Phase 5 (Report) inline. Phase 2-4 delegate to `commands/*.md` based on complexity.
 
 ## Role Router
 
 ### Input Parsing
 
-Parse `$ARGUMENTS` to extract `--role` and optional `--agent-name`:
+Parse `$ARGUMENTS` to extract `--role` and optional `--agent-name`. If `--role` is absent, enter Orchestration Mode (auto route to coordinator). The `--agent-name` parameter supports parallel instances (e.g., explorer-1, analyst-2) and is passed through to role.md for task discovery filtering.
 
-```javascript
-const args = "$ARGUMENTS"
-const roleMatch = args.match(/--role[=\s]+(\w+)/)
+### Role Registry
 
-if (!roleMatch) {
-  throw new Error("Missing --role argument. Available roles: coordinator, explorer, analyst, discussant, synthesizer")
-}
+| Role | Spec | Task Prefix | Inner Loop |
+|------|------|-------------|------------|
+| coordinator | [roles/coordinator/role.md](roles/coordinator/role.md) | (none) | - |
+| explorer | [role-specs/explorer.md](role-specs/explorer.md) | EXPLORE-* | false |
+| analyst | [role-specs/analyst.md](role-specs/analyst.md) | ANALYZE-* | false |
+| discussant | [role-specs/discussant.md](role-specs/discussant.md) | DISCUSS-* | false |
+| synthesizer | [role-specs/synthesizer.md](role-specs/synthesizer.md) | SYNTH-* | false |
 
-const role = roleMatch[1]
-const teamName = args.match(/--team[=\s]+([\w-]+)/)?.[1] || "ultra-analyze"
-// --agent-name for parallel instances (e.g., explorer-1, analyst-2)
-// Passed through to role.md for task discovery filtering
-const agentName = args.match(/--agent-name[=\s]+([\w-]+)/)?.[1] || role
+> **COMPACT PROTECTION**: Role files are execution documents, not reference material. When context compression occurs and role instructions are reduced to summaries, you **must immediately `Read` the corresponding role.md to reload before continuing execution**. Never execute any Phase based on compressed summaries alone.
+
+### Dispatch
+
+1. Extract `--role` from arguments
+2. If no `--role` -> route to coordinator (Orchestration Mode)
+3. Look up role in registry -> Read the role file -> Execute its phases
+
+### Orchestration Mode
+
+When invoked without `--role`, coordinator auto-starts. User just provides the analysis topic.
+
+**Invocation**: `Skill(skill="team-ultra-analyze", args="analysis topic description")`
+
+**Lifecycle**:
+```
+User provides analysis topic
+  -> coordinator Phase 1-3: topic clarification -> TeamCreate -> pipeline selection -> create task chain
+  -> coordinator Phase 4: spawn depth explorers in parallel (background) -> STOP
+  -> Explorers execute -> SendMessage callback -> coordinator spawns analysts
+  -> Analysts execute -> SendMessage callback -> coordinator spawns discussant
+  -> Discussion loop (Deep mode: user feedback -> deepen -> re-analyze -> repeat)
+  -> coordinator spawns synthesizer -> final conclusions -> Phase 5 report
 ```
 
-### Role Dispatch
+**User Commands** (wake suspended coordinator):
 
-```javascript
-const VALID_ROLES = {
-  "coordinator":  { file: "roles/coordinator/role.md",  prefix: null },
-  "explorer":     { file: "roles/explorer/role.md",     prefix: "EXPLORE" },
-  "analyst":      { file: "roles/analyst/role.md",       prefix: "ANALYZE" },
-  "discussant":   { file: "roles/discussant/role.md",    prefix: "DISCUSS" },
-  "synthesizer":  { file: "roles/synthesizer/role.md",   prefix: "SYNTH" }
-}
+| Command | Action |
+|---------|--------|
+| `check` / `status` | Output execution status diagram, do not advance pipeline |
+| `resume` / `continue` | Check worker status, advance to next pipeline step |
 
-if (!VALID_ROLES[role]) {
-  throw new Error(`Unknown role: ${role}. Available: ${Object.keys(VALID_ROLES).join(', ')}`)
-}
-
-// Read and execute role-specific logic
-Read(VALID_ROLES[role].file)
-// → Execute the 5-phase process defined in that file
-```
-
-### Available Roles
-
-| Role | Task Prefix | Responsibility | Role File |
-|------|-------------|----------------|-----------|
-| `coordinator` | N/A | 话题澄清、管道选择、会话管理、讨论循环 | [roles/coordinator/role.md](roles/coordinator/role.md) |
-| `explorer` | EXPLORE-* | cli-explore-agent 多角度并行代码库探索 | [roles/explorer/role.md](roles/explorer/role.md) |
-| `analyst` | ANALYZE-* | CLI 多视角深度分析 | [roles/analyst/role.md](roles/analyst/role.md) |
-| `discussant` | DISCUSS-* | 用户反馈处理、方向调整、深入分析 | [roles/discussant/role.md](roles/discussant/role.md) |
-| `synthesizer` | SYNTH-* | 跨视角整合、结论生成、决策追踪 | [roles/synthesizer/role.md](roles/synthesizer/role.md) |
+---
 
 ## Shared Infrastructure
 
+The following templates apply to all worker roles. Each role.md only needs to define **Phase 2-4** role-specific logic.
+
+### Worker Phase 1: Task Discovery (shared by all workers)
+
+Each worker executes the same task discovery flow on startup:
+
+1. Call `TaskList()` to get all tasks
+2. Filter: subject matches this role's prefix + owner matches this agent's name + status is pending + blockedBy is empty
+3. No tasks -> idle wait
+4. Has tasks -> `TaskGet` for details -> `TaskUpdate` mark in_progress
+
+**Resume Artifact Check** (prevent duplicate output after recovery):
+- Check if this task's output artifacts already exist
+- Artifacts complete -> skip to Phase 5 report completion
+- Artifacts incomplete or missing -> execute Phase 2-4 normally
+
+### Worker Phase 5: Report (shared by all workers)
+
+Standard report flow after task completion:
+
+1. **Message Bus**: Call `mcp__ccw-tools__team_msg` to log message
+   - Parameters: operation="log", session_id=<session-id>, from=<role>, type=<message-type>, data={ref: "<artifact-path>"}
+   - `to` and `summary` auto-defaulted -- do NOT specify explicitly
+   - **CLI fallback**: `ccw team log --session-id <session-id> --from <role> --type <type> --json`
+2. **SendMessage**: Send result to coordinator (both content and summary prefixed with `[<role>]`)
+3. **TaskUpdate**: Mark task completed
+4. **Loop**: Return to Phase 1 to check for next task
+
+### Wisdom Accumulation (all roles)
+
+Cross-task knowledge accumulation. Coordinator creates `wisdom/` directory during session initialization.
+
+**Directory**:
+```
+<session-folder>/wisdom/
++-- learnings.md      # Patterns and insights
++-- decisions.md      # Analysis direction decisions
++-- conventions.md    # Codebase conventions discovered
++-- issues.md         # Known risks and issues
+```
+
+**Worker load** (Phase 2): Extract `Session: <path>` from task description, read wisdom directory files.
+**Worker contribute** (Phase 4/5): Write discoveries from this task into corresponding wisdom files.
+
 ### Role Isolation Rules
 
-**核心原则**: 每个角色仅能执行自己职责范围内的工作。
+| Allowed | Prohibited |
+|---------|-----------|
+| Process tasks matching own prefix | Process tasks with other role prefixes |
+| SendMessage to coordinator | Communicate directly with other workers |
+| Share state via team_msg(type='state_update') | Create tasks for other roles |
+| Delegate to commands/*.md | Modify resources outside own responsibility |
 
-#### Output Tagging（强制）
+Coordinator additionally prohibited: directly executing code exploration or analysis, directly calling cli-explore-agent or CLI analysis tools, bypassing workers to complete work.
 
-所有角色的输出必须带 `[role_name]` 标识前缀：
+### Cross-Role State
 
-```javascript
-SendMessage({ content: `## [${role}] ...`, summary: `[${role}] ...` })
-mcp__ccw-tools__team_msg({ summary: `[${role}] ...` })
-```
+Cross-role state managed via `team_msg(type='state_update')`, stored in `.msg/meta.json.role_state`. Each role reads all states but writes only to its own designated field:
 
-#### Coordinator 隔离
+| Role | State Field |
+|------|-------------|
+| explorer | `explorations` |
+| analyst | `analyses` |
+| discussant | `discussions` |
+| synthesizer | `synthesis` |
+| coordinator | `decision_trail` + `current_understanding` |
 
-| 允许 | 禁止 |
-|------|------|
-| 话题澄清 (AskUserQuestion) | ❌ 直接执行代码探索或分析 |
-| 创建任务链 (TaskCreate) | ❌ 直接调用 cli-explore-agent |
-| 管道选择 + 讨论循环驱动 | ❌ 直接调用 CLI 分析工具 |
-| 监控进度 (消息总线) | ❌ 绕过 worker 自行完成 |
-
-#### Worker 隔离
-
-| 允许 | 禁止 |
-|------|------|
-| 处理自己前缀的任务 | ❌ 处理其他角色前缀的任务 |
-| 读写 shared-memory.json (自己的字段) | ❌ 为其他角色创建任务 |
-| SendMessage 给 coordinator | ❌ 直接与其他 worker 通信 |
-
-### Team Configuration
-
-```javascript
-const TEAM_CONFIG = {
-  name: "ultra-analyze",
-  sessionDir: ".workflow/.team/UAN-{slug}-{date}/",
-  sharedMemory: "shared-memory.json",
-  analysisDimensions: ["architecture", "implementation", "performance", "security", "concept", "comparison", "decision"],
-  maxDiscussionRounds: 5
-}
-```
-
-### Shared Memory（核心产物）
-
-```javascript
-// 各角色读取共享记忆
-const memoryPath = `${sessionFolder}/shared-memory.json`
-let sharedMemory = {}
-try { sharedMemory = JSON.parse(Read(memoryPath)) } catch {}
-
-// 各角色写入自己负责的字段：
-// explorer    → sharedMemory.explorations
-// analyst     → sharedMemory.analyses
-// discussant  → sharedMemory.discussions
-// synthesizer → sharedMemory.synthesis
-// coordinator → sharedMemory.decision_trail + current_understanding
-Write(memoryPath, JSON.stringify(sharedMemory, null, 2))
-```
+On startup, read role states via `team_msg(operation="get_state", session_id=<session-id>)`. After completing work, share results via `team_msg(operation="log", session_id=<session-id>, from=<role>, type="state_update", data={...})`.
 
 ### Message Bus (All Roles)
 
-```javascript
-mcp__ccw-tools__team_msg({
-  operation: "log",
-  team: teamName,
-  from: role,
-  to: "coordinator",
-  type: "<type>",
-  summary: `[${role}] <summary>`,
-  ref: "<file_path>"
-})
-```
+All roles log messages before sending via SendMessage. Call `mcp__ccw-tools__team_msg` with: operation="log", session_id=<session-id>, from=<role>, type=<message-type>, data={ref: "<file-path>"}. `to` and `summary` are auto-defaulted.
+
+
 
 | Role | Types |
 |------|-------|
@@ -187,280 +194,270 @@ mcp__ccw-tools__team_msg({
 | discussant | `discussion_processed`, `error` |
 | synthesizer | `synthesis_ready`, `error` |
 
-### CLI 回退
+**CLI fallback**: When MCP unavailable -> `ccw team log --session-id <session-id> --from <role> --type <type> --json`
 
-```javascript
-Bash(`ccw team log --team "${teamName}" --from "${role}" --to "coordinator" --type "<type>" --summary "<摘要>" --json`)
-```
 
-### Task Lifecycle (All Worker Roles)
-
-```javascript
-const tasks = TaskList()
-const myTasks = tasks.filter(t =>
-  t.subject.startsWith(`${VALID_ROLES[role].prefix}-`) &&
-  t.owner === role &&
-  t.status === 'pending' &&
-  t.blockedBy.length === 0
-)
-if (myTasks.length === 0) return
-const task = TaskGet({ taskId: myTasks[0].id })
-TaskUpdate({ taskId: task.id, status: 'in_progress' })
-
-// Phase 2-4: Role-specific
-// Phase 5: Report + Loop
-mcp__ccw-tools__team_msg({ operation: "log", team: teamName, from: role, to: "coordinator", type: "...", summary: `[${role}] ...` })
-SendMessage({ type: "message", recipient: "coordinator", content: `## [${role}] ...`, summary: `[${role}] ...` })
-TaskUpdate({ taskId: task.id, status: 'completed' })
-```
+---
 
 ## Three-Mode Pipeline Architecture
 
 ```
-Quick:    EXPLORE-001 → ANALYZE-001 → SYNTH-001
-Standard: [EXPLORE-001..N](parallel) → [ANALYZE-001..N](parallel) → DISCUSS-001 → SYNTH-001
-Deep:     [EXPLORE-001..N] → [ANALYZE-001..N] → DISCUSS-001 → ANALYZE-fix → DISCUSS-002 → ... → SYNTH-001
+Quick:    EXPLORE-001 -> ANALYZE-001 -> SYNTH-001
+Standard: [EXPLORE-001..depth](parallel) -> [ANALYZE-001..depth](parallel) -> DISCUSS-001 -> SYNTH-001
+Deep:     [EXPLORE-001..depth] -> [ANALYZE-001..depth] -> DISCUSS-001 -> ANALYZE-fix -> DISCUSS-002 -> ... -> SYNTH-001
 ```
 
 ### Mode Auto-Detection
 
-```javascript
-function detectPipelineMode(args, taskDescription) {
-  const modeMatch = args.match(/--mode[=\s]+(quick|standard|deep)/)
-  if (modeMatch) return modeMatch[1]
-  // 自动检测
-  if (/快速|quick|overview|概览/.test(taskDescription)) return 'quick'
-  if (/深入|deep|thorough|详细|全面/.test(taskDescription)) return 'deep'
-  return 'standard'
-}
-```
+Parse `--mode` from arguments first. If not specified, auto-detect from topic description:
+
+| Condition | Mode | Depth |
+|-----------|------|-------|
+| `--mode=quick` explicit or topic contains "quick/overview/fast" | Quick | 1 |
+| `--mode=deep` explicit or topic contains "deep/thorough/detailed/comprehensive" | Deep | N (from perspectives) |
+| Default (no match) | Standard | N (from perspectives) |
+
+**Depth** is determined by the number of selected analysis perspectives (e.g., architecture, implementation, performance, security, concept, comparison, decision). Quick mode always uses depth=1. Standard/Deep mode uses depth = number of selected perspectives.
 
 ### Discussion Loop (Deep Mode)
 
 ```
-coordinator(AskUser) → DISCUSS-N(deepen) → [optional ANALYZE-fix] → coordinator(AskUser) → ... → SYNTH
+coordinator(AskUser) -> DISCUSS-N(deepen) -> [optional ANALYZE-fix] -> coordinator(AskUser) -> ... -> SYNTH
 ```
+
+Maximum 5 discussion rounds. If exceeded, force synthesis and offer continuation option.
 
 ## Decision Recording Protocol
 
-**⚠️ CRITICAL**: 继承自原 analyze-with-file 命令。分析过程中以下情况必须立即记录到 discussion.md：
+**CRITICAL**: Inherited from the original analyze-with-file command. During analysis, the following must be immediately recorded to discussion.md:
 
 | Trigger | What to Record | Target Section |
 |---------|---------------|----------------|
-| **Direction choice** | 选择了什么、为什么、放弃了哪些替代方案 | `#### Decision Log` |
-| **Key finding** | 发现内容、影响范围、置信度 | `#### Key Findings` |
-| **Assumption change** | 旧假设→新理解、变更原因、影响 | `#### Corrected Assumptions` |
-| **User feedback** | 用户原始输入、采纳/调整理由 | `#### User Input` |
+| **Direction choice** | What was chosen, why, which alternatives were rejected | `#### Decision Log` |
+| **Key finding** | Discovery content, impact scope, confidence level | `#### Key Findings` |
+| **Assumption change** | Old assumption -> new understanding, reason for change, impact | `#### Corrected Assumptions` |
+| **User feedback** | User's raw input, adoption/adjustment rationale | `#### User Input` |
+
+## Cadence Control
+
+**Beat model**: Event-driven. Each beat = coordinator wakes -> processes callback -> spawns next phase -> STOP.
+
+```
+Beat Cycle (single beat)
+=====================================================================
+  Event                   Coordinator              Workers
+---------------------------------------------------------------------
+  callback/resume --> +- handleCallback -+
+                      |  mark completed   |
+                      |  check pipeline   |
+                      +- handleSpawnNext -+
+                      |  find ready tasks |
+                      |  spawn workers ---+--> [Worker A] Phase 1-5
+                      |  (parallel OK)  --+--> [Worker B] Phase 1-5
+                      +- STOP (idle) -----+         |
+                                                    |
+  callback <----------------------------------------+
+  (next beat)              SendMessage + TaskUpdate(completed)
+=====================================================================
+```
+
+**Discussion Loop Beat (Deep mode with configurable depth)**:
+
+```
+Phase 1 (explore):  Spawn depth explorers simultaneously
+                    EXPLORE-1, EXPLORE-2, ..., EXPLORE-depth (all parallel)
+                    -> All complete -> coordinator wakes
+
+Phase 2 (analyze):  Spawn depth analysts simultaneously
+                    ANALYZE-1, ANALYZE-2, ..., ANALYZE-depth (all parallel)
+                    -> All complete -> coordinator wakes
+
+Phase 3 (discuss):  Spawn 1 discussant
+                    DISCUSS-001
+                    -> Complete -> coordinator asks user for direction
+
+Phase 3a (loop):    If user requests deeper analysis (Deep mode only):
+                    -> Spawn ANALYZE-fix tasks -> DISCUSS-002 -> ask user -> repeat
+                    -> Maximum 5 rounds
+
+Phase 4 (synth):    Spawn 1 synthesizer
+                    SYNTHESIZE-001
+                    -> Complete -> coordinator reports to user
+```
+
+**Pipeline Beat Views**:
+
+```
+Quick (3 beats, serial)
+------------------------------------------------------
+Beat  1          2          3
+      |          |          |
+      EXPLORE -> ANALYZE -> SYNTH
+
+Standard (4 beats, parallel windows)
+------------------------------------------------------
+Beat  1              2              3         4
+      +----- ... ----+  +----- ... ----+      |         |
+      E1 || E2 || EN    A1 || A2 || AN  ->  DISCUSS -> SYNTH
+      +---- parallel ---+  +---- parallel ---+
+
+Deep (4+ beats, with discussion loop)
+------------------------------------------------------
+Beat  1          2          3         3a...       4
+      +-...-+    +-...-+    |    +-- loop --+     |
+      E1||EN    A1||AN -> DISC -> A-fix->DISC -> SYNTH
+                                  (max 5 rounds)
+```
+
+**Checkpoints**:
+
+| Trigger | Location | Behavior |
+|---------|----------|----------|
+| Discussion round (Deep mode) | After DISCUSS-N completes | Pause, AskUser for direction/continuation |
+| Discussion loop limit | >5 rounds | Force synthesis, offer continuation |
+| Pipeline stall | No ready + no running | Check missing tasks, report to user |
+
+**Stall detection** (coordinator `handleCheck`):
+
+| Check | Condition | Resolution |
+|-------|-----------|------------|
+| Worker unresponsive | in_progress task with no callback | Report waiting tasks, suggest user `resume` |
+| Pipeline deadlock | No ready + no running + has pending | Check blockedBy chain, report blockage |
+| Discussion loop over limit | DISCUSS round > 5 | Terminate loop, output latest discussion state |
+
+## Task Metadata Registry
+
+| Task ID | Role | Phase | Dependencies | Description |
+|---------|------|-------|-------------|-------------|
+| EXPLORE-1..depth | explorer | explore | (none) | Parallel codebase exploration, one per perspective |
+| ANALYZE-1..depth | analyst | analyze | EXPLORE-1..depth (all complete) | Parallel deep analysis, one per perspective |
+| DISCUSS-001 | discussant | discuss | ANALYZE-1..depth (all complete) | Process analysis results, identify gaps |
+| ANALYZE-fix-N | analyst | discuss-loop | DISCUSS-N | Re-analysis for specific areas (Deep mode only) |
+| DISCUSS-002..N | discussant | discuss-loop | ANALYZE-fix-N | Subsequent discussion rounds (Deep mode, max 5) |
+| SYNTHESIZE-001 | synthesizer | synthesize | Last DISCUSS-N | Cross-perspective integration and conclusions |
+
+**Dynamic task creation**: Coordinator creates EXPLORE-1 through EXPLORE-depth and ANALYZE-1 through ANALYZE-depth based on the number of selected perspectives. Discussion loop tasks (ANALYZE-fix-N, DISCUSS-002+) are created dynamically in Deep mode based on user feedback.
+
+## Coordinator Spawn Template
+
+### v5 Worker Spawn (all roles)
+
+When coordinator spawns workers, use `team-worker` agent with role-spec path. The coordinator determines depth (number of parallel agents) based on selected perspectives.
+
+**Phase 1 - Spawn Explorers**: Create depth explorer team-worker agents in parallel (EXPLORE-1 through EXPLORE-depth). Each receives its assigned perspective/domain and agent name for task matching.
+
+**Phase 2 - Spawn Analysts**: After all explorers complete, create depth analyst team-worker agents in parallel (ANALYZE-1 through ANALYZE-depth).
+
+**Phase 3 - Spawn Discussant**: After all analysts complete, create 1 discussant. Coordinator stops.
+
+**Phase 3a - Discussion Loop** (Deep mode only): Based on user feedback, coordinator may create additional ANALYZE-fix and DISCUSS tasks.
+
+**Phase 4 - Spawn Synthesizer**: After final discussion round, create 1 synthesizer.
+
+**Quick mode exception**: When depth=1, spawn single explorer, single analyst, single discussant, single synthesizer without numbered suffixes.
+
+**Single spawn template** (worker template used for all roles):
+
+```
+Agent({
+  subagent_type: "team-worker",
+  description: "Spawn <role> worker",
+  team_name: "ultra-analyze",
+  name: "<agent-name>",
+  run_in_background: true,
+  prompt: `## Role Assignment
+role: <role>
+role_spec: .claude/skills/team-ultra-analyze/role-specs/<role>.md
+session: <session-folder>
+session_id: <session-id>
+team_name: ultra-analyze
+requirement: <topic-description>
+agent_name: <agent-name>
+inner_loop: false
+
+Read role_spec file to load Phase 2-4 domain instructions.
+Execute built-in Phase 1 (task discovery, owner=<agent-name>) -> role-spec Phase 2-4 -> built-in Phase 5 (report).`
+})
+```
+
+## Team Configuration
+
+| Setting | Value |
+|---------|-------|
+| Team name | ultra-analyze |
+| Session directory | .workflow/.team/UAN-{slug}-{date}/ |
+
+| Analysis dimensions | architecture, implementation, performance, security, concept, comparison, decision |
+| Max discussion rounds | 5 |
 
 ## Unified Session Directory
 
 ```
 .workflow/.team/UAN-{slug}-{YYYY-MM-DD}/
-├── shared-memory.json          # 探索/分析/讨论/综合 共享记忆
-├── discussion.md               # ⭐ 理解演进 & 讨论时间线
-├── explorations/               # Explorer output
-│   ├── exploration-001.json
-│   └── exploration-002.json
-├── analyses/                   # Analyst output
-│   ├── analysis-001.json
-│   └── analysis-002.json
-├── discussions/                # Discussant output
-│   └── discussion-round-001.json
-└── conclusions.json            # Synthesizer output
++-- .msg/messages.jsonl          # Message bus log
++-- .msg/meta.json               # Session metadata
++-- discussion.md               # Understanding evolution and discussion timeline
++-- explorations/               # Explorer output
+|   +-- exploration-001.json
+|   +-- exploration-002.json
++-- analyses/                   # Analyst output
+|   +-- analysis-001.json
+|   +-- analysis-002.json
++-- discussions/                # Discussant output
+|   +-- discussion-round-001.json
++-- conclusions.json            # Synthesizer output
++-- wisdom/                     # Cross-task knowledge
+|   +-- learnings.md
+|   +-- decisions.md
+|   +-- conventions.md
+|   +-- issues.md
 ```
 
-## Coordinator Spawn Template
+## Completion Action
 
-```javascript
-TeamCreate({ team_name: teamName })
+When the pipeline completes (all tasks done, coordinator Phase 5):
 
-// ── Determine parallel agent count ──
-const perspectiveCount = selectedPerspectives.length
-const isParallel = perspectiveCount > 1
-
-// ── Explorers ──
-// Quick mode (1 perspective): single "explorer"
-// Standard/Deep mode (N perspectives): "explorer-1", "explorer-2", ...
-if (isParallel) {
-  for (let i = 0; i < perspectiveCount; i++) {
-    const agentName = `explorer-${i + 1}`
-    Task({
-      subagent_type: "general-purpose",
-      team_name: teamName,
-      name: agentName,
-      prompt: `你是 team "${teamName}" 的 EXPLORER (${agentName})。
-你的 agent 名称是 "${agentName}"，任务发现时用此名称匹配 owner。
-
-当你收到 EXPLORE-* 任务时，调用 Skill(skill="team-ultra-analyze", args="--role=explorer --agent-name=${agentName}") 执行。
-
-当前需求: ${taskDescription}
-约束: ${constraints}
-
-## 角色准则（强制）
-- 你只能处理 owner 为 "${agentName}" 的 EXPLORE-* 前缀任务
-- 所有输出（SendMessage、team_msg）必须带 [explorer] 标识前缀
-- 仅与 coordinator 通信，不得直接联系其他 worker
-- 不得使用 TaskCreate 为其他角色创建任务
-
-## 消息总线（必须）
-每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
-
-工作流程:
-1. TaskList → 找到 owner === "${agentName}" 的 EXPLORE-* 任务
-2. Skill(skill="team-ultra-analyze", args="--role=explorer --agent-name=${agentName}") 执行
-3. team_msg log + SendMessage 结果给 coordinator（带 [explorer] 标识）
-4. TaskUpdate completed → 检查下一个任务`
-    })
-  }
-} else {
-  // Single explorer for quick mode
-  Task({
-    subagent_type: "general-purpose",
-    team_name: teamName,
-    name: "explorer",
-    prompt: `你是 team "${teamName}" 的 EXPLORER。
-
-当你收到 EXPLORE-* 任务时，调用 Skill(skill="team-ultra-analyze", args="--role=explorer") 执行。
-
-当前需求: ${taskDescription}
-约束: ${constraints}
-
-## 角色准则（强制）
-- 你只能处理 EXPLORE-* 前缀的任务，不得执行其他角色的工作
-- 所有输出（SendMessage、team_msg）必须带 [explorer] 标识前缀
-- 仅与 coordinator 通信，不得直接联系其他 worker
-- 不得使用 TaskCreate 为其他角色创建任务
-
-## 消息总线（必须）
-每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
-
-工作流程:
-1. TaskList → 找到 EXPLORE-* 任务
-2. Skill(skill="team-ultra-analyze", args="--role=explorer") 执行
-3. team_msg log + SendMessage 结果给 coordinator（带 [explorer] 标识）
-4. TaskUpdate completed → 检查下一个任务`
-  })
-}
-
-// ── Analysts ──
-// Same pattern: parallel mode spawns N analysts, quick mode spawns 1
-if (isParallel) {
-  for (let i = 0; i < perspectiveCount; i++) {
-    const agentName = `analyst-${i + 1}`
-    Task({
-      subagent_type: "general-purpose",
-      team_name: teamName,
-      name: agentName,
-      prompt: `你是 team "${teamName}" 的 ANALYST (${agentName})。
-你的 agent 名称是 "${agentName}"，任务发现时用此名称匹配 owner。
-
-当你收到 ANALYZE-* 任务时，调用 Skill(skill="team-ultra-analyze", args="--role=analyst --agent-name=${agentName}") 执行。
-
-当前需求: ${taskDescription}
-约束: ${constraints}
-
-## 角色准则（强制）
-- 你只能处理 owner 为 "${agentName}" 的 ANALYZE-* 前缀任务
-- 所有输出必须带 [analyst] 标识前缀
-- 仅与 coordinator 通信
-
-## 消息总线（必须）
-每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
-
-工作流程:
-1. TaskList → 找到 owner === "${agentName}" 的 ANALYZE-* 任务
-2. Skill(skill="team-ultra-analyze", args="--role=analyst --agent-name=${agentName}") 执行
-3. team_msg log + SendMessage 结果给 coordinator
-4. TaskUpdate completed → 检查下一个任务`
-    })
-  }
-} else {
-  Task({
-    subagent_type: "general-purpose",
-    team_name: teamName,
-    name: "analyst",
-    prompt: `你是 team "${teamName}" 的 ANALYST。
-
-当你收到 ANALYZE-* 任务时，调用 Skill(skill="team-ultra-analyze", args="--role=analyst") 执行。
-
-当前需求: ${taskDescription}
-约束: ${constraints}
-
-## 角色准则（强制）
-- 你只能处理 ANALYZE-* 前缀的任务
-- 所有输出必须带 [analyst] 标识前缀
-- 仅与 coordinator 通信
-
-## 消息总线（必须）
-每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
-
-工作流程:
-1. TaskList → 找到 ANALYZE-* 任务
-2. Skill(skill="team-ultra-analyze", args="--role=analyst") 执行
-3. team_msg log + SendMessage 结果给 coordinator
-4. TaskUpdate completed → 检查下一个任务`
-  })
-}
-
-// ── Discussant (always single) ──
-Task({
-  subagent_type: "general-purpose",
-  team_name: teamName,
-  name: "discussant",
-  prompt: `你是 team "${teamName}" 的 DISCUSSANT。
-
-当你收到 DISCUSS-* 任务时，调用 Skill(skill="team-ultra-analyze", args="--role=discussant") 执行。
-
-当前需求: ${taskDescription}
-
-## 角色准则（强制）
-- 你只能处理 DISCUSS-* 前缀的任务
-- 所有输出必须带 [discussant] 标识前缀
-
-## 消息总线（必须）
-每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
-
-工作流程:
-1. TaskList → 找到 DISCUSS-* 任务
-2. Skill(skill="team-ultra-analyze", args="--role=discussant") 执行
-3. team_msg log + SendMessage
-4. TaskUpdate completed → 检查下一个任务`
-})
-
-// ── Synthesizer (always single) ──
-Task({
-  subagent_type: "general-purpose",
-  team_name: teamName,
-  name: "synthesizer",
-  prompt: `你是 team "${teamName}" 的 SYNTHESIZER。
-
-当你收到 SYNTH-* 任务时，调用 Skill(skill="team-ultra-analyze", args="--role=synthesizer") 执行。
-
-当前需求: ${taskDescription}
-
-## 角色准则（强制）
-- 你只能处理 SYNTH-* 前缀的任务
-- 所有输出必须带 [synthesizer] 标识前缀
-
-## 消息总线（必须）
-每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
-
-工作流程:
-1. TaskList → 找到 SYNTH-* 任务
-2. Skill(skill="team-ultra-analyze", args="--role=synthesizer") 执行
-3. team_msg log + SendMessage
-4. TaskUpdate completed → 检查下一个任务`
+```
+AskUserQuestion({
+  questions: [{
+    question: "Ultra-Analyze pipeline complete. What would you like to do?",
+    header: "Completion",
+    multiSelect: false,
+    options: [
+      { label: "Archive & Clean (Recommended)", description: "Archive session, clean up tasks and team resources" },
+      { label: "Keep Active", description: "Keep session active for follow-up work or inspection" },
+      { label: "Export Results", description: "Export deliverables to a specified location, then clean" }
+    ]
+  }]
 })
 ```
+
+| Choice | Action |
+|--------|--------|
+| Archive & Clean | Update session status="completed" -> TeamDelete() -> output final summary |
+| Keep Active | Update session status="paused" -> output resume instructions: `Skill(skill="team-ultra-analyze", args="resume")` |
+| Export Results | AskUserQuestion for target path -> copy deliverables -> Archive & Clean |
+
+## Session Resume
+
+Coordinator supports `--resume` / `--continue` for interrupted sessions:
+
+1. Scan `.workflow/.team/UAN-*/` for active/paused sessions
+2. Multiple matches -> AskUserQuestion for selection
+3. Audit TaskList -> reconcile session state with task status
+4. Reset in_progress -> pending (interrupted tasks)
+5. Rebuild team and spawn needed workers only
+6. Create missing tasks with correct blockedBy
+7. Kick first executable task -> Phase 4 coordination loop
 
 ## Error Handling
 
 | Scenario | Resolution |
 |----------|------------|
 | Unknown --role value | Error with available role list |
-| Missing --role arg | Error with usage hint |
+| Missing --role arg | Orchestration Mode -> coordinator |
 | Role file not found | Error with expected path (roles/{name}/role.md) |
 | Task prefix conflict | Log warning, proceed |
 | Discussion loop stuck >5 rounds | Force synthesis, offer continuation |
-| CLI tool unavailable | Fallback chain: gemini → codex → manual analysis |
+| CLI tool unavailable | Fallback chain: gemini -> codex -> manual analysis |
 | Explorer agent fails | Continue with available context, note limitation |

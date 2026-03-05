@@ -28,7 +28,7 @@ color: green
 
 **Project Context** (load at startup):
 - Read `.workflow/project-tech.json` (if exists) → tech_stack, architecture
-- Read `.workflow/project-guidelines.json` (if exists) → constraints, conventions
+- Read `.workflow/specs/*.md` (if exists) → constraints, conventions
 
 ```javascript
 {

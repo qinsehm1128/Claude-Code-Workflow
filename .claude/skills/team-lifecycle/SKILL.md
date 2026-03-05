@@ -1,403 +1,319 @@
 ---
 name: team-lifecycle
-description: Unified team skill for full lifecycle - spec/impl/test. All roles invoke this skill with --role arg for role-specific execution.
-allowed-tools: TeamCreate(*), TeamDelete(*), SendMessage(*), TaskCreate(*), TaskUpdate(*), TaskList(*), TaskGet(*), Task(*), AskUserQuestion(*), TodoWrite(*), Read(*), Write(*), Edit(*), Bash(*), Glob(*), Grep(*)
+description: Unified team skill for full lifecycle - spec/impl/test. Uses team-worker agent architecture with role-spec files for domain logic. Coordinator orchestrates pipeline, workers are team-worker agents loaded with role-specific Phase 2-4 specs. Triggers on "team lifecycle".
+allowed-tools: TeamCreate(*), TeamDelete(*), SendMessage(*), TaskCreate(*), TaskUpdate(*), TaskList(*), TaskGet(*), Agent(*), AskUserQuestion(*), TodoWrite(*), Read(*), Write(*), Edit(*), Bash(*), Glob(*), Grep(*)
 ---
 
 # Team Lifecycle
 
-Unified team skill covering specification, implementation, testing, and review. All team members invoke this skill with `--role=xxx` to route to role-specific execution.
+Unified team skill: specification -> implementation -> testing -> review. Built on **team-worker agent architecture** — all worker roles share a single agent definition with role-specific Phase 2-4 loaded from markdown specs.
 
-## Architecture Overview
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│  Skill(skill="team-lifecycle", args="--role=xxx") │
-└───────────────────┬─────────────────────────────┘
-                    │ Role Router
-    ┌───────┬───────┼───────┬───────┬───────┬───────┬───────┐
-    ↓       ↓       ↓       ↓       ↓       ↓       ↓       ↓
-┌─────────┐┌───────┐┌──────┐┌──────────┐┌───────┐┌────────┐┌──────┐┌────────┐
-│coordinator││analyst││writer││discussant││planner││executor││tester││reviewer│
-│ roles/   ││roles/ ││roles/││ roles/   ││roles/ ││ roles/ ││roles/││ roles/ │
-└─────────┘└───────┘└──────┘└──────────┘└───────┘└────────┘└──────┘└────────┘
++---------------------------------------------------+
+|  Skill(skill="team-lifecycle")                  |
+|  args="task description"                           |
++-------------------+-------------------------------+
+                    |
+         Orchestration Mode (auto -> coordinator)
+                    |
+              Coordinator (inline)
+              Phase 0-5 orchestration
+                    |
+    +----+-----+-------+-------+-------+-------+
+    v    v     v       v       v       v       v
+ [team-worker agents, each loaded with a role-spec]
+  analyst writer planner executor tester reviewer
+                                    ^        ^
+                              on-demand by coordinator
+                            +---------+ +--------+
+                            |architect| |fe-dev  |
+                            +---------+ +--------+
+                                        +--------+
+                                        | fe-qa  |
+                                        +--------+
+
+  Utility Functions (callable by workers):
+    [multi-perspective discussion]  - CLI tools for critique
+    [codebase exploration]          - Explore agent with cache
+    [document generation]           - CLI execution
 ```
 
 ## Role Router
 
+This skill is **coordinator-only**. Workers do NOT invoke this skill — they are spawned as `team-worker` agents directly.
+
 ### Input Parsing
 
-Parse `$ARGUMENTS` to extract `--role`:
+Parse `$ARGUMENTS`. No `--role` needed — always routes to coordinator.
 
-```javascript
-const args = "$ARGUMENTS"
-const roleMatch = args.match(/--role[=\s]+(\w+)/)
+### Role Registry
 
-if (!roleMatch) {
-  throw new Error("Missing --role argument. Available roles: coordinator, analyst, writer, discussant, planner, executor, tester, reviewer")
-}
+| Role | Spec | Task Prefix | Type | Inner Loop |
+|------|------|-------------|------|------------|
+| coordinator | [roles/coordinator/role.md](roles/coordinator/role.md) | (none) | orchestrator | - |
+| analyst | [role-specs/analyst.md](role-specs/analyst.md) | RESEARCH-* | pipeline | false |
+| writer | [role-specs/writer.md](role-specs/writer.md) | DRAFT-* | pipeline | true |
+| planner | [role-specs/planner.md](role-specs/planner.md) | PLAN-* | pipeline | true |
+| executor | [role-specs/executor.md](role-specs/executor.md) | IMPL-* | pipeline | true |
+| tester | [role-specs/tester.md](role-specs/tester.md) | TEST-* | pipeline | false |
+| reviewer | [role-specs/reviewer.md](role-specs/reviewer.md) | REVIEW-* + QUALITY-* + IMPROVE-* | pipeline | false |
+| architect | [role-specs/architect.md](role-specs/architect.md) | ARCH-* | consulting | false |
+| fe-developer | [role-specs/fe-developer.md](role-specs/fe-developer.md) | DEV-FE-* | frontend | false |
+| fe-qa | [role-specs/fe-qa.md](role-specs/fe-qa.md) | QA-FE-* | frontend | false |
 
-const role = roleMatch[1]
-const teamName = args.match(/--team[=\s]+([\w-]+)/)?.[1] || "lifecycle"
+### Utility Functions
+
+| Function | Implementation | Callable By | Purpose |
+|----------|----------------|-------------|---------|
+| Multi-perspective discussion | CLI tools (ccw cli --mode analysis) | analyst, writer, reviewer | Multi-perspective critique |
+| Codebase exploration | Explore agent | analyst, planner, any role | Codebase exploration with cache |
+| Document generation | CLI tools (ccw cli --mode write) | writer | Document generation |
+
+### Dispatch
+
+Always route to coordinator. Coordinator reads `roles/coordinator/role.md` and executes its phases.
+
+### Orchestration Mode
+
+User just provides task description.
+
+**Invocation**: `Skill(skill="team-lifecycle", args="task description")`
+
+**Lifecycle**:
+```
+User provides task description
+  -> coordinator Phase 1-3: requirement clarification -> TeamCreate -> create task chain
+  -> coordinator Phase 4: spawn first batch workers (background) -> STOP
+  -> Worker executes -> SendMessage callback -> coordinator advances next step
+  -> Loop until pipeline complete -> Phase 5 report
 ```
 
-### Role Dispatch
+**User Commands** (wake paused coordinator):
 
-```javascript
-const VALID_ROLES = {
-  "coordinator": { file: "roles/coordinator.md", prefix: null },
-  "analyst":     { file: "roles/analyst.md",     prefix: "RESEARCH" },
-  "writer":      { file: "roles/writer.md",      prefix: "DRAFT" },
-  "discussant":  { file: "roles/discussant.md",  prefix: "DISCUSS" },
-  "planner":     { file: "roles/planner.md",     prefix: "PLAN" },
-  "executor":    { file: "roles/executor.md",    prefix: "IMPL" },
-  "tester":      { file: "roles/tester.md",      prefix: "TEST" },
-  "reviewer":    { file: "roles/reviewer.md",    prefix: ["REVIEW", "QUALITY"] }
-}
+| Command | Action |
+|---------|--------|
+| `check` / `status` | Output execution status graph, no advancement |
+| `resume` / `continue` | Check worker states, advance next step |
+| `revise <TASK-ID> [feedback]` | Create revision task + cascade downstream |
+| `feedback <text>` | Analyze feedback impact, create targeted revision chain |
+| `recheck` | Re-run QUALITY-001 quality check |
+| `improve [dimension]` | Auto-improve weakest dimension from readiness-report |
 
-if (!VALID_ROLES[role]) {
-  throw new Error(`Unknown role: ${role}. Available: ${Object.keys(VALID_ROLES).join(', ')}`)
-}
-
-// Read and execute role-specific logic
-Read(VALID_ROLES[role].file)
-// → Execute the 5-phase process defined in that file
-```
-
-### Available Roles
-
-| Role | Task Prefix | Responsibility | Role File |
-|------|-------------|----------------|-----------|
-| `coordinator` | N/A | Pipeline orchestration, requirement clarification, task dispatch | [roles/coordinator.md](roles/coordinator.md) |
-| `analyst` | RESEARCH-* | Seed analysis, codebase exploration, context gathering | [roles/analyst.md](roles/analyst.md) |
-| `writer` | DRAFT-* | Product Brief / PRD / Architecture / Epics generation | [roles/writer.md](roles/writer.md) |
-| `discussant` | DISCUSS-* | Multi-perspective critique, consensus building | [roles/discussant.md](roles/discussant.md) |
-| `planner` | PLAN-* | Multi-angle exploration, structured planning | [roles/planner.md](roles/planner.md) |
-| `executor` | IMPL-* | Code implementation following plans | [roles/executor.md](roles/executor.md) |
-| `tester` | TEST-* | Adaptive test-fix cycles, quality gates | [roles/tester.md](roles/tester.md) |
-| `reviewer` | `REVIEW-*` + `QUALITY-*` | Code review + Spec quality validation (auto-switch by prefix) | [roles/reviewer.md](roles/reviewer.md) |
-
-## Shared Infrastructure
-
-### Message Bus (All Roles)
-
-Every SendMessage **before**, must call `mcp__ccw-tools__team_msg` to log:
-
-```javascript
-mcp__ccw-tools__team_msg({
-  operation: "log",
-  team: teamName,
-  from: role,
-  to: "coordinator",
-  type: "<type>",
-  summary: "<summary>",
-  ref: "<file_path>"
-})
-```
-
-**Message types by role**:
-
-| Role | Types |
-|------|-------|
-| coordinator | `plan_approved`, `plan_revision`, `task_unblocked`, `fix_required`, `error`, `shutdown` |
-| analyst | `research_ready`, `research_progress`, `error` |
-| writer | `draft_ready`, `draft_revision`, `impl_progress`, `error` |
-| discussant | `discussion_ready`, `discussion_blocked`, `impl_progress`, `error` |
-| planner | `plan_ready`, `plan_revision`, `impl_progress`, `error` |
-| executor | `impl_complete`, `impl_progress`, `error` |
-| tester | `test_result`, `impl_progress`, `fix_required`, `error` |
-| reviewer | `review_result`, `quality_result`, `fix_required`, `error` |
-
-### CLI Fallback
-
-When `mcp__ccw-tools__team_msg` MCP is unavailable:
-
-```javascript
-Bash(`ccw team log --team "${teamName}" --from "${role}" --to "coordinator" --type "<type>" --summary "<summary>" --json`)
-Bash(`ccw team list --team "${teamName}" --last 10 --json`)
-Bash(`ccw team status --team "${teamName}" --json`)
-```
-
-### Task Lifecycle (All Worker Roles)
-
-```javascript
-// Standard task lifecycle every worker role follows
-// Phase 1: Discovery
-const tasks = TaskList()
-const prefixes = Array.isArray(VALID_ROLES[role].prefix) ? VALID_ROLES[role].prefix : [VALID_ROLES[role].prefix]
-const myTasks = tasks.filter(t =>
-  prefixes.some(p => t.subject.startsWith(`${p}-`)) &&
-  t.owner === role &&
-  t.status === 'pending' &&
-  t.blockedBy.length === 0
-)
-if (myTasks.length === 0) return // idle
-const task = TaskGet({ taskId: myTasks[0].id })
-TaskUpdate({ taskId: task.id, status: 'in_progress' })
-
-// Phase 1.5: Resume Artifact Check (防止重复产出)
-// 当 session 从暂停恢复时，coordinator 已将 in_progress 任务重置为 pending。
-// Worker 在开始工作前，必须检查该任务的输出产物是否已存在。
-// 如果产物已存在且内容完整：
-//   → 直接跳到 Phase 5 报告完成（避免覆盖上次成果）
-// 如果产物存在但不完整（如文件为空或缺少关键 section）：
-//   → 正常执行 Phase 2-4（基于已有产物继续，而非从头开始）
-// 如果产物不存在：
-//   → 正常执行 Phase 2-4
-//
-// 每个 role 检查自己的输出路径:
-//   analyst  → sessionFolder/spec/discovery-context.json
-//   writer   → sessionFolder/spec/{product-brief.md | requirements/ | architecture/ | epics/}
-//   discussant → sessionFolder/discussions/discuss-NNN-*.md
-//   planner  → sessionFolder/plan/plan.json
-//   executor → git diff (已提交的代码变更)
-//   tester   → test pass rate
-//   reviewer → sessionFolder/spec/readiness-report.md (quality) 或 review findings (code)
-
-// Phase 2-4: Role-specific (see roles/{role}.md)
-
-// Phase 5: Report + Loop
-mcp__ccw-tools__team_msg({ operation: "log", team: teamName, from: role, to: "coordinator", type: "...", summary: "..." })
-SendMessage({ type: "message", recipient: "coordinator", content: "...", summary: "..." })
-TaskUpdate({ taskId: task.id, status: 'completed' })
-// Check for next task → back to Phase 1
-```
-
-## Three-Mode Pipeline
-
-```
-Spec-only:
-  RESEARCH-001 → DISCUSS-001 → DRAFT-001 → DISCUSS-002
-  → DRAFT-002 → DISCUSS-003 → DRAFT-003 → DISCUSS-004
-  → DRAFT-004 → DISCUSS-005 → QUALITY-001 → DISCUSS-006
-
-Impl-only:
-  PLAN-001 → IMPL-001 → TEST-001 + REVIEW-001
-
-Full-lifecycle:
-  [Spec pipeline] → PLAN-001(blockedBy: DISCUSS-006) → IMPL-001 → TEST-001 + REVIEW-001
-```
-
-## Unified Session Directory
-
-All session artifacts are stored under a single session folder:
-
-```
-.workflow/.team/TLS-{slug}-{YYYY-MM-DD}/
-├── team-session.json           # Session state (status, progress, completed_tasks)
-├── spec/                       # Spec artifacts (analyst, writer, reviewer output)
-│   ├── spec-config.json
-│   ├── discovery-context.json
-│   ├── product-brief.md
-│   ├── requirements/           # _index.md + REQ-*.md + NFR-*.md
-│   ├── architecture/           # _index.md + ADR-*.md
-│   ├── epics/                  # _index.md + EPIC-*.md
-│   ├── readiness-report.md
-│   └── spec-summary.md
-├── discussions/                # Discussion records (discussant output)
-│   └── discuss-001..006.md
-└── plan/                       # Plan artifacts (planner output)
-    ├── exploration-{angle}.json
-    ├── explorations-manifest.json
-    ├── plan.json
-    └── .task/
-        └── TASK-*.json
-```
-
-Messages remain at `.workflow/.team-msg/{team-name}/` (unchanged).
-
-## Session Resume
-
-Coordinator supports `--resume` / `--continue` flags to resume interrupted sessions:
-
-1. Scans `.workflow/.team/TLS-*/team-session.json` for `status: "active"` or `"paused"`
-2. Multiple matches → `AskUserQuestion` for user selection
-3. **Audit TaskList** — 获取当前所有任务的真实状态
-4. **Reconcile** — 双向同步 session.completed_tasks ↔ TaskList 状态:
-   - session 已完成但 TaskList 未标记 → 修正 TaskList 为 completed
-   - TaskList 已完成但 session 未记录 → 补录到 session
-   - in_progress 状态（暂停中断）→ 重置为 pending
-5. Determines remaining pipeline from reconciled state
-6. Rebuilds team (`TeamCreate` + worker spawns for needed roles only)
-7. Creates missing tasks with correct `blockedBy` dependency chain (uses `TASK_METADATA` lookup)
-8. Verifies dependency chain integrity for existing tasks
-9. Updates session file with reconciled state + current_phase
-10. **Kick** — 向首个可执行任务的 worker 发送 `task_unblocked` 消息，打破 resume 死锁
-11. Jumps to Phase 4 coordination loop
+---
 
 ## Coordinator Spawn Template
 
-When coordinator creates teammates:
+### v5 Worker Spawn (all roles)
 
-```javascript
-TeamCreate({ team_name: teamName })
+When coordinator spawns workers, use `team-worker` agent with role-spec path:
 
-// Analyst (spec-only / full)
-Task({
-  subagent_type: "general-purpose",
-  team_name: teamName,
-  name: "analyst",
-  prompt: `你是 team "${teamName}" 的 ANALYST。
-当你收到 RESEARCH-* 任务时，调用 Skill(skill="team-lifecycle", args="--role=analyst") 执行。
-当前需求: ${taskDescription}
-约束: ${constraints}
-Session: ${sessionFolder}
+```
+Agent({
+  agent_type: "team-worker",
+  description: "Spawn <role> worker",
+  team_name: <team-name>,
+  name: "<role>",
+  run_in_background: true,
+  prompt: `## Role Assignment
+role: <role>
+role_spec: .claude/skills/team-lifecycle/role-specs/<role>.md
+session: <session-folder>
+session_id: <session-id>
+team_name: <team-name>
+requirement: <task-description>
+inner_loop: <true|false>
 
-## 消息总线（必须）
-每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
-
-工作流程:
-1. TaskList → 找到 RESEARCH-* 任务
-2. Skill(skill="team-lifecycle", args="--role=analyst") 执行
-3. team_msg log + SendMessage 结果给 coordinator
-4. TaskUpdate completed → 检查下一个任务`
-})
-
-// Writer (spec-only / full)
-Task({
-  subagent_type: "general-purpose",
-  team_name: teamName,
-  name: "writer",
-  prompt: `你是 team "${teamName}" 的 WRITER。
-当你收到 DRAFT-* 任务时，调用 Skill(skill="team-lifecycle", args="--role=writer") 执行。
-当前需求: ${taskDescription}
-Session: ${sessionFolder}
-
-## 消息总线（必须）
-每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
-
-工作流程:
-1. TaskList → 找到 DRAFT-* 任务
-2. Skill(skill="team-lifecycle", args="--role=writer") 执行
-3. team_msg log + SendMessage 结果给 coordinator
-4. TaskUpdate completed → 检查下一个任务`
-})
-
-// Discussant (spec-only / full)
-Task({
-  subagent_type: "general-purpose",
-  team_name: teamName,
-  name: "discussant",
-  prompt: `你是 team "${teamName}" 的 DISCUSSANT。
-当你收到 DISCUSS-* 任务时，调用 Skill(skill="team-lifecycle", args="--role=discussant") 执行。
-当前需求: ${taskDescription}
-Session: ${sessionFolder}
-讨论深度: ${discussionDepth}
-
-## 消息总线（必须）
-每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
-
-工作流程:
-1. TaskList → 找到 DISCUSS-* 任务
-2. Skill(skill="team-lifecycle", args="--role=discussant") 执行
-3. team_msg log + SendMessage 结果给 coordinator
-4. TaskUpdate completed → 检查下一个任务`
-})
-
-// Planner (impl-only / full)
-Task({
-  subagent_type: "general-purpose",
-  team_name: teamName,
-  name: "planner",
-  prompt: `你是 team "${teamName}" 的 PLANNER。
-当你收到 PLAN-* 任务时，调用 Skill(skill="team-lifecycle", args="--role=planner") 执行。
-当前需求: ${taskDescription}
-约束: ${constraints}
-Session: ${sessionFolder}
-
-## 消息总线（必须）
-每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
-
-工作流程:
-1. TaskList → 找到 PLAN-* 任务
-2. Skill(skill="team-lifecycle", args="--role=planner") 执行
-3. team_msg log + SendMessage 结果给 coordinator
-4. TaskUpdate completed → 检查下一个任务`
-})
-
-// Executor (impl-only / full)
-Task({
-  subagent_type: "general-purpose",
-  team_name: teamName,
-  name: "executor",
-  prompt: `你是 team "${teamName}" 的 EXECUTOR。
-当你收到 IMPL-* 任务时，调用 Skill(skill="team-lifecycle", args="--role=executor") 执行。
-当前需求: ${taskDescription}
-约束: ${constraints}
-
-## 消息总线（必须）
-每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
-
-工作流程:
-1. TaskList → 找到 IMPL-* 任务
-2. Skill(skill="team-lifecycle", args="--role=executor") 执行
-3. team_msg log + SendMessage 结果给 coordinator
-4. TaskUpdate completed → 检查下一个任务`
-})
-
-// Tester (impl-only / full)
-Task({
-  subagent_type: "general-purpose",
-  team_name: teamName,
-  name: "tester",
-  prompt: `你是 team "${teamName}" 的 TESTER。
-当你收到 TEST-* 任务时，调用 Skill(skill="team-lifecycle", args="--role=tester") 执行。
-当前需求: ${taskDescription}
-约束: ${constraints}
-
-## 消息总线（必须）
-每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
-
-工作流程:
-1. TaskList → 找到 TEST-* 任务
-2. Skill(skill="team-lifecycle", args="--role=tester") 执行
-3. team_msg log + SendMessage 结果给 coordinator
-4. TaskUpdate completed → 检查下一个任务`
-})
-
-// Reviewer (all modes)
-Task({
-  subagent_type: "general-purpose",
-  team_name: teamName,
-  name: "reviewer",
-  prompt: `你是 team "${teamName}" 的 REVIEWER。
-当你收到 REVIEW-* 或 QUALITY-* 任务时，调用 Skill(skill="team-lifecycle", args="--role=reviewer") 执行。
-- REVIEW-* → 代码审查逻辑
-- QUALITY-* → 规格质量检查逻辑
-当前需求: ${taskDescription}
-
-## 消息总线（必须）
-每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
-
-工作流程:
-1. TaskList → 找到 REVIEW-* 或 QUALITY-* 任务
-2. Skill(skill="team-lifecycle", args="--role=reviewer") 执行
-3. team_msg log + SendMessage 结果给 coordinator
-4. TaskUpdate completed → 检查下一个任务`
+Read role_spec file to load Phase 2-4 domain instructions.
+Execute built-in Phase 1 (task discovery) -> role-spec Phase 2-4 -> built-in Phase 5 (report).`
 })
 ```
 
-## Shared Spec Resources
+**Inner Loop roles** (writer, planner, executor): Set `inner_loop: true`. The team-worker agent handles the loop internally.
 
-Writer 和 Reviewer 角色在 spec 模式下使用本 skill 内置的标准和模板（从 spec-generator 复制，独立维护）：
+**Single-task roles** (analyst, tester, reviewer, architect, fe-developer, fe-qa): Set `inner_loop: false`.
+
+---
+
+## Pipeline Definitions
+
+### Spec-only (6 tasks)
+
+```
+RESEARCH-001(+D1) -> DRAFT-001(+D2) -> DRAFT-002(+D3) -> DRAFT-003(+D4) -> DRAFT-004(+D5) -> QUALITY-001(+D6)
+```
+
+### Impl-only (4 tasks)
+
+```
+PLAN-001 -> IMPL-001 -> TEST-001 + REVIEW-001
+```
+
+### Full-lifecycle (10 tasks)
+
+```
+[Spec pipeline] -> PLAN-001(blockedBy: QUALITY-001) -> IMPL-001 -> TEST-001 + REVIEW-001
+```
+
+### Frontend Pipelines
+
+```
+FE-only:       PLAN-001 -> DEV-FE-001 -> QA-FE-001
+               (GC loop: QA-FE verdict=NEEDS_FIX -> DEV-FE-002 -> QA-FE-002, max 2 rounds)
+
+Fullstack:     PLAN-001 -> IMPL-001 || DEV-FE-001 -> TEST-001 || QA-FE-001 -> REVIEW-001
+
+Full + FE:     [Spec pipeline] -> PLAN-001 -> IMPL-001 || DEV-FE-001 -> TEST-001 || QA-FE-001 -> REVIEW-001
+```
+
+### Cadence Control
+
+**Beat model**: Event-driven, each beat = coordinator wake -> process -> spawn -> STOP.
+
+```
+Beat Cycle (single beat)
+======================================================================
+  Event                   Coordinator              Workers
+----------------------------------------------------------------------
+  callback/resume --> +- handleCallback -+
+                      |  mark completed   |
+                      |  check pipeline   |
+                      +- handleSpawnNext -+
+                      |  find ready tasks |
+                      |  spawn workers ---+--> [team-worker A] Phase 1-5
+                      |  (parallel OK)  --+--> [team-worker B] Phase 1-5
+                      +- STOP (idle) -----+         |
+                                                     |
+  callback <-----------------------------------------+
+  (next beat)              SendMessage + TaskUpdate(completed)
+======================================================================
+
+  Fast-Advance (skips coordinator for simple linear successors)
+======================================================================
+  [Worker A] Phase 5 complete
+    +- 1 ready task? simple successor?
+    |   --> spawn team-worker B directly
+    |   --> log fast_advance to message bus (coordinator syncs on next wake)
+    +- complex case? --> SendMessage to coordinator
+======================================================================
+```
+
+### Checkpoints
+
+| Trigger | Position | Behavior |
+|---------|----------|----------|
+| Spec->Impl transition | QUALITY-001 completed | Read readiness-report.md, display checkpoint, pause for user action |
+| GC loop max | QA-FE max 2 rounds | Stop iteration, report current state |
+| Pipeline stall | No ready + no running | Check missing tasks, report to user |
+
+**Checkpoint Output Template** (QUALITY-001 completion):
+
+```
+[coordinator] ══════════════════════════════════════════
+[coordinator] SPEC PHASE COMPLETE
+[coordinator] Quality Gate: <PASS|REVIEW|FAIL> (<score>%)
+[coordinator]
+[coordinator] Dimension Scores:
+[coordinator]   Completeness:  <bar> <n>%
+[coordinator]   Consistency:   <bar> <n>%
+[coordinator]   Traceability:  <bar> <n>%
+[coordinator]   Depth:         <bar> <n>%
+[coordinator]   Coverage:      <bar> <n>%
+[coordinator]
+[coordinator] Available Actions:
+[coordinator]   resume              -> Proceed to implementation
+[coordinator]   improve             -> Auto-improve weakest dimension
+[coordinator]   improve <dimension> -> Improve specific dimension
+[coordinator]   revise <TASK-ID>    -> Revise specific document
+[coordinator]   recheck             -> Re-run quality check
+[coordinator]   feedback <text>     -> Inject feedback, create revision
+[coordinator] ══════════════════════════════════════════
+```
+
+### Task Metadata Registry
+
+| Task ID | Role | Phase | Dependencies | Inline Discuss |
+|---------|------|-------|-------------|---------------|
+| RESEARCH-001 | analyst | spec | (none) | DISCUSS-001 |
+| DRAFT-001 | writer | spec | RESEARCH-001 | DISCUSS-002 |
+| DRAFT-002 | writer | spec | DRAFT-001 | DISCUSS-003 |
+| DRAFT-003 | writer | spec | DRAFT-002 | DISCUSS-004 |
+| DRAFT-004 | writer | spec | DRAFT-003 | DISCUSS-005 |
+| QUALITY-001 | reviewer | spec | DRAFT-004 | DISCUSS-006 |
+| PLAN-001 | planner | impl | (none or QUALITY-001) | - |
+| IMPL-001 | executor | impl | PLAN-001 | - |
+| TEST-001 | tester | impl | IMPL-001 | - |
+| REVIEW-001 | reviewer | impl | IMPL-001 | - |
+| DEV-FE-001 | fe-developer | impl | PLAN-001 | - |
+| QA-FE-001 | fe-qa | impl | DEV-FE-001 | - |
+
+---
+
+## Session Directory
+
+```
+.workflow/.team/TLS-<slug>-<date>/
++-- team-session.json
++-- spec/
+|   +-- spec-config.json
+|   +-- discovery-context.json
+|   +-- product-brief.md
+|   +-- requirements/
+|   +-- architecture/
+|   +-- epics/
+|   +-- readiness-report.md
+|   +-- spec-summary.md
++-- discussions/
++-- plan/
+|   +-- plan.json
+|   +-- .task/TASK-*.json
++-- explorations/
+|   +-- cache-index.json
+|   +-- explore-<angle>.json
++-- architecture/
++-- analysis/
++-- qa/
++-- wisdom/
+|   +-- learnings.md
+|   +-- decisions.md
+|   +-- conventions.md
+|   +-- issues.md
++-- .msg/
++-- shared-memory.json
+```
+
+## Session Resume
+
+Coordinator supports `--resume` / `--continue` for interrupted sessions:
+
+1. Scan `.workflow/.team/TLS-*/team-session.json` for active/paused sessions
+2. Multiple matches -> AskUserQuestion for selection
+3. Audit TaskList -> reconcile session state <-> task status
+4. Reset in_progress -> pending (interrupted tasks)
+5. Rebuild team and spawn needed workers only
+6. Create missing tasks with correct blockedBy
+7. Kick first executable task -> Phase 4 coordination loop
+
+## Shared Resources
 
 | Resource | Path | Usage |
 |----------|------|-------|
-| Document Standards | `specs/document-standards.md` | YAML frontmatter、命名规范、内容结构 |
-| Quality Gates | `specs/quality-gates.md` | Per-phase 质量门禁、评分标尺 |
-| Product Brief Template | `templates/product-brief.md` | DRAFT-001 文档生成 |
-| Requirements Template | `templates/requirements-prd.md` | DRAFT-002 文档生成 |
-| Architecture Template | `templates/architecture-doc.md` | DRAFT-003 文档生成 |
-| Epics Template | `templates/epics-template.md` | DRAFT-004 文档生成 |
-
-> Writer 在执行每个 DRAFT-* 任务前 **必须先 Read** 对应的 template 文件和 document-standards.md。
-> 从 `roles/` 子目录引用时路径为 `../specs/` 和 `../templates/`。
+| Document Standards | [specs/document-standards.md](specs/document-standards.md) | YAML frontmatter, naming, structure |
+| Quality Gates | [specs/quality-gates.md](specs/quality-gates.md) | Per-phase quality gates |
+| Team Config | [specs/team-config.json](specs/team-config.json) | Role registry, pipeline definitions |
+| Product Brief Template | [templates/product-brief.md](templates/product-brief.md) | DRAFT-001 |
+| Requirements Template | [templates/requirements-prd.md](templates/requirements-prd.md) | DRAFT-002 |
+| Architecture Template | [templates/architecture-doc.md](templates/architecture-doc.md) | DRAFT-003 |
+| Epics Template | [templates/epics-template.md](templates/epics-template.md) | DRAFT-004 |
 
 ## Error Handling
 
 | Scenario | Resolution |
 |----------|------------|
-| Unknown --role value | Error with available role list |
-| Missing --role arg | Error with usage hint |
-| Role file not found | Error with expected path |
-| Task prefix conflict | Log warning, proceed |
+| Unknown command | Error with available command list |
+| Role spec file not found | Error with expected path |
+| Command file not found | Fallback to inline execution |
+| Multi-perspective discussion fails | Worker proceeds without discuss, logs warning |
+| Explore cache corrupt | Clear cache, re-explore |
+| Fast-advance spawns wrong task | Coordinator reconciles on next callback |

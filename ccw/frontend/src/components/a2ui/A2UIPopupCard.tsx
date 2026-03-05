@@ -329,11 +329,11 @@ function SinglePagePopup({ surface, onClose }: A2UIPopupCardProps) {
           'data-[state=open]:duration-300 data-[state=closed]:duration-200'
         )}
         onInteractOutside={(e) => {
-          // Prevent closing when clicking outside
+          // Prevent closing when clicking outside - only cancel button can close
           e.preventDefault();
         }}
         onEscapeKeyDown={(e) => {
-          // Prevent closing with ESC key
+          // Prevent closing with ESC key - only cancel button can close
           e.preventDefault();
         }}
       >
@@ -574,8 +574,14 @@ function MultiPagePopup({ surface, onClose }: A2UIPopupCardProps) {
           'data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95',
           'data-[state=open]:duration-300 data-[state=closed]:duration-200'
         )}
-        onInteractOutside={(e) => e.preventDefault()}
-        onEscapeKeyDown={(e) => e.preventDefault()}
+        onInteractOutside={(e) => {
+          // Prevent closing when clicking outside - only cancel button can close
+          e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          // Prevent closing with ESC key - only cancel button can close
+          e.preventDefault();
+        }}
       >
         {/* Header with current page title */}
         <DialogHeader className="space-y-2 pb-4">

@@ -25,11 +25,12 @@ type ToolName = 'claude' | 'codex' | 'gemini';
 type ResumeStrategy = 'nativeResume' | 'promptConcat';
 
 const BOARD_COLUMNS: Array<{ id: IssueBoardStatus; titleKey: string }> = [
-  { id: 'open', titleKey: 'issues.status.open' },
-  { id: 'in_progress', titleKey: 'issues.status.inProgress' },
-  { id: 'resolved', titleKey: 'issues.status.resolved' },
+  { id: 'registered', titleKey: 'issues.status.registered' },
+  { id: 'planning', titleKey: 'issues.status.planning' },
+  { id: 'planned', titleKey: 'issues.status.planned' },
+  { id: 'executing', titleKey: 'issues.status.executing' },
   { id: 'completed', titleKey: 'issues.status.completed' },
-  { id: 'closed', titleKey: 'issues.status.closed' },
+  { id: 'failed', titleKey: 'issues.status.failed' },
 ];
 
 type BoardOrder = Partial<Record<IssueBoardStatus, string[]>>;
@@ -294,8 +295,8 @@ export function IssueBoardPanel() {
         try {
           await updateIssue(issueId, { status: destStatus });
 
-          // Auto action: drag to in_progress opens the drawer on terminal tab.
-          if (destStatus === 'in_progress' && sourceStatus !== 'in_progress') {
+          // Auto action: drag to executing opens the drawer on terminal tab.
+          if (destStatus === 'executing' && sourceStatus !== 'executing') {
             setDrawerInitialTab('terminal');
             setSelectedIssue({ ...issue, status: destStatus });
 

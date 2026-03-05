@@ -21,10 +21,8 @@ Check these items. Report results as a checklist.
 
 ### 1.2 Strongly Recommended (warn if missing)
 
-- **project-tech.json**: Check `{projectRoot}/.workflow/project-tech.json`
-  - If missing: Read `package.json` / `tsconfig.json` / `pyproject.toml` and generate a minimal version. Ask user: "检测到项目使用 [tech stack], 是否正确？需要补充什么？"
-- **project-guidelines.json**: Check `{projectRoot}/.workflow/project-guidelines.json`
-  - If missing: Scan for `.eslintrc`, `.prettierrc`, `ruff.toml` etc. Ask user: "未找到 project-guidelines.json, 是否有特定的编码规范需要遵循？"
+- **Project specs**: Run `ccw spec load --category execution` to load project context
+  - If spec system unavailable: Read `package.json` / `tsconfig.json` / `pyproject.toml` and generate a minimal version. Ask user: "检测到项目使用 [tech stack], 是否正确？需要补充什么？"
 - **Test framework**: Detect from config files (jest.config, vitest.config, pytest.ini, etc.)
   - If missing: Ask user: "未检测到测试框架配置，请指定测试命令（如 `npm test`, `pytest`），或输入 'skip' 跳过测试验证"
 
@@ -38,8 +36,8 @@ Print formatted checklist:
 ✓ 项目根目录: D:\myproject
 ✓ 工作空间: .workflow/.cycle/ 就绪
 ⚠ Git: 3 个未提交变更
-✓ project-tech.json: 已检测 (Express + TypeORM + PostgreSQL)
-⚠ project-guidelines.json: 未找到 (已跳过)
+✓ Project specs: 已加载 (ccw spec load --category execution)
+⚠ specs: 未找到 (已跳过)
 ✓ 测试框架: jest (npm test)
 ```
 
@@ -166,14 +164,14 @@ Read the user's `$TASK` and score each dimension:
 > 请选择适用的或添加自定义约束"
 
 **上下文不足 (score 0-1)**:
-> "我从项目中检测到: [tech stack from project-tech.json]。还有其他需要知道的技术细节吗？例如现有的认证机制、相关的工具库、数据模型等"
+> "我从项目中检测到: [tech stack from loaded specs]。还有其他需要知道的技术细节吗？例如现有的认证机制、相关的工具库、数据模型等"
 
 ### 2.4 Auto-Enhancement
 
 For dimensions still at score 1 after Q&A, auto-enhance from codebase:
 - **Scope**: Use `Glob` and `Grep` to find related files, list them
-- **Context**: Read `project-tech.json` and key config files
-- **Constraints**: Infer from `project-guidelines.json` and existing patterns
+- **Context**: Run `ccw spec load --category execution` to load project context
+- **Constraints**: Infer from `specs/*.md` and existing patterns
 
 ### 2.5 Assemble Refined Task
 

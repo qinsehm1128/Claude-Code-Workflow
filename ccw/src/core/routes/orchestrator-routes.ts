@@ -31,6 +31,7 @@
  */
 
 import { join, dirname } from 'path';
+import { existsSync } from 'fs';
 import { randomBytes } from 'crypto';
 import { fileURLToPath } from 'url';
 import type { RouteContext } from './types.js';
@@ -635,10 +636,24 @@ function getTemplatesDir(workflowDir: string): string {
 
 /**
  * Get the builtin templates directory path (shipped with CCW)
+ * Returns null if the directory doesn't exist (e.g., in npm package without src/)
  */
-function getBuiltinTemplatesDir(): string {
-  // Resolve relative to this module's location
-  return join(__dirname, '..', '..', '..', 'templates', 'orchestrator');
+function getBuiltinTemplatesDir(): string | null {
+  // Try multiple possible locations for builtin templates
+  const possiblePaths = [
+    // From dist/core/routes/ -> ccw/templates/orchestrator/
+    join(__dirname, '..', '..', '..', 'templates', 'orchestrator'),
+    // From dist/core/routes/ -> ccw/src/templates/orchestrator/ (dev mode)
+    join(__dirname, '..', '..', '..', 'src', 'templates', 'orchestrator'),
+  ];
+
+  for (const path of possiblePaths) {
+    if (existsSync(path)) {
+      return path;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -745,10 +760,10 @@ async function listLocalTemplates(workflowDir: string): Promise<Template[]> {
  */
 async function listBuiltinTemplates(): Promise<Template[]> {
   const { readdir, readFile } = await import('fs/promises');
-  const { existsSync } = await import('fs');
   const builtinDir = getBuiltinTemplatesDir();
 
-  if (!existsSync(builtinDir)) {
+  // getBuiltinTemplatesDir() returns null if no builtin templates directory exists
+  if (!builtinDir) {
     return [];
   }
 

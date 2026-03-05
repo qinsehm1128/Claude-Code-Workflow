@@ -20,6 +20,9 @@ import {
 } from '../core/memory-embedder-bridge.js';
 import { getCoreMemoryStore } from '../core/core-memory-store.js';
 import { CliHistoryStore } from '../tools/cli-history-store.js';
+import { MemoryExtractionPipeline, type PreviewResult, type SessionPreviewItem } from '../core/memory-extraction-pipeline.js';
+import { MemoryConsolidationPipeline } from '../core/memory-consolidation-pipeline.js';
+import { MemoryJobScheduler } from '../core/memory-job-scheduler.js';
 
 interface TrackOptions {
   type?: string;
@@ -71,6 +74,28 @@ interface SearchCommandOptions {
 }
 
 interface EmbedStatusOptions {
+  json?: boolean;
+}
+
+// Memory Pipeline V2 subcommand options
+interface PipelinePreviewOptions {
+  includeNative?: boolean;
+  path?: string;
+  json?: boolean;
+}
+
+interface PipelineExtractOptions {
+  maxSessions?: string;
+  sessionIds?: string;
+  path?: string;
+}
+
+interface PipelineConsolidateOptions {
+  path?: string;
+}
+
+interface PipelineStatusOptions {
+  path?: string;
   json?: boolean;
 }
 
@@ -967,9 +992,388 @@ async function embedStatusAction(options: EmbedStatusOptions): Promise<void> {
   }
 }
 
+// ============================================================
+// Memory Pipeline V2 Subcommands
+// ============================================================
+
+/**
+ * Preview eligible sessions for extraction
+ */
+async function pipelinePreviewAction(options: PipelinePreviewOptions): Promise<void> {
+  const { includeNative, path: projectPath, json } = options;
+  const basePath = projectPath || process.cwd();
+
+  try {
+    const pipeline = new MemoryExtractionPipeline(basePath);
+    const preview = pipeline.previewEligibleSessions({
+      includeNative: includeNative || false,
+    });
+
+    if (json) {
+      console.log(JSON.stringify(preview, null, 2));
+      return;
+    }
+
+    console.log(chalk.bold.cyan('\n  Extraction Queue Preview\n'));
+    console.log(chalk.gray(`  Project: ${basePath}`));
+    console.log(chalk.gray(`  Include Native: ${includeNative ? 'Yes' : 'No'}\n`));
+
+    // Summary
+    const { summary } = preview;
+    console.log(chalk.bold.white('  Summary:'));
+    console.log(chalk.white(`    Total Sessions: ${summary.total}`));
+    console.log(chalk.white(`    Eligible: ${summary.eligible}`));
+    console.log(chalk.white(`    Already Extracted: ${summary.alreadyExtracted}`));
+    console.log(chalk.green(`    Ready for Extraction: ${summary.readyForExtraction}`));
+
+    if (preview.sessions.length === 0) {
+      console.log(chalk.yellow('\n  No eligible sessions found.\n'));
+      return;
+    }
+
+    // Sessions table
+    console.log(chalk.bold.white('\n  Sessions:\n'));
+    console.log(chalk.gray('  ID                   Source      Tool        Turns  Bytes     Status'));
+    console.log(chalk.gray('  ' + '-'.repeat(76)));
+
+    for (const session of preview.sessions) {
+      const id = session.sessionId.padEnd(20);
+      const source = session.source.padEnd(11);
+      const tool = (session.tool || '-').padEnd(11);
+      const turns = String(session.turns).padStart(5);
+      const bytes = String(session.bytes).padStart(9);
+      const status = session.extracted
+        ? chalk.green('extracted')
+        : session.eligible
+          ? chalk.cyan('ready')
+          : chalk.gray('skipped');
+
+      console.log(`  ${chalk.dim(id)} ${source} ${tool} ${turns} ${bytes}  ${status}`);
+    }
+
+    console.log(chalk.gray('\n  ' + '-'.repeat(76)));
+    console.log(chalk.gray(`  Showing ${preview.sessions.length} sessions\n`));
+
+  } catch (error) {
+    if (json) {
+      console.log(JSON.stringify({ error: (error as Error).message }, null, 2));
+    } else {
+      console.error(chalk.red(`\n  Error: ${(error as Error).message}\n`));
+    }
+    process.exit(1);
+  }
+}
+
+/**
+ * Trigger extraction for sessions
+ */
+async function pipelineExtractAction(options: PipelineExtractOptions): Promise<void> {
+  const { maxSessions, sessionIds, path: projectPath } = options;
+  const basePath = projectPath || process.cwd();
+
+  try {
+    const store = getCoreMemoryStore(basePath);
+    const scheduler = new MemoryJobScheduler(store.getDb());
+    const pipeline = new MemoryExtractionPipeline(basePath);
+
+    // Selective extraction with specific session IDs
+    if (sessionIds) {
+      const ids = sessionIds.split(',').map(id => id.trim()).filter(Boolean);
+
+      if (ids.length === 0) {
+        console.error(chalk.red('Error: No valid session IDs provided'));
+        process.exit(1);
+      }
+
+      console.log(chalk.bold.cyan('\n  Selective Extraction\n'));
+      console.log(chalk.gray(`  Project: ${basePath}`));
+      console.log(chalk.gray(`  Session IDs: ${ids.join(', ')}\n`));
+
+      // Validate sessions
+      const preview = pipeline.previewEligibleSessions({ includeNative: false });
+      const validSessionIds = new Set(preview.sessions.map(s => s.sessionId));
+
+      const queued: string[] = [];
+      const skipped: string[] = [];
+      const invalid: string[] = [];
+
+      for (const sessionId of ids) {
+        if (!validSessionIds.has(sessionId)) {
+          invalid.push(sessionId);
+          continue;
+        }
+
+        // Check if already extracted
+        const existingOutput = store.getStage1Output(sessionId);
+        if (existingOutput) {
+          skipped.push(sessionId);
+          continue;
+        }
+
+        // Enqueue job
+        scheduler.enqueueJob('phase1_extraction', sessionId, Math.floor(Date.now() / 1000));
+        queued.push(sessionId);
+      }
+
+      console.log(chalk.green(`  Queued: ${queued.length} sessions`));
+      console.log(chalk.yellow(`  Skipped (already extracted): ${skipped.length}`));
+
+      if (invalid.length > 0) {
+        console.log(chalk.red(`  Invalid: ${invalid.length}`));
+        console.log(chalk.gray(`    ${invalid.join(', ')}`));
+      }
+
+      // Process queued sessions
+      if (queued.length > 0) {
+        console.log(chalk.cyan('\n  Processing extraction jobs...\n'));
+
+        let succeeded = 0;
+        let failed = 0;
+
+        for (const sessionId of queued) {
+          try {
+            await pipeline.runExtractionJob(sessionId);
+            succeeded++;
+            console.log(chalk.green(`  [OK] ${sessionId}`));
+          } catch (err) {
+            failed++;
+            console.log(chalk.red(`  [FAIL] ${sessionId}: ${(err as Error).message}`));
+          }
+        }
+
+        console.log(chalk.bold.white(`\n  Completed: ${succeeded} succeeded, ${failed} failed\n`));
+      } else {
+        console.log();
+      }
+
+      return;
+    }
+
+    // Batch extraction
+    const max = maxSessions ? parseInt(maxSessions, 10) : 10;
+
+    console.log(chalk.bold.cyan('\n  Batch Extraction\n'));
+    console.log(chalk.gray(`  Project: ${basePath}`));
+    console.log(chalk.gray(`  Max Sessions: ${max}\n`));
+
+    // Get eligible sessions
+    const eligible = pipeline.scanEligibleSessions(max);
+    const preview = pipeline.previewEligibleSessions({ maxSessions: max });
+
+    console.log(chalk.white(`  Found ${eligible.length} eligible sessions`));
+    console.log(chalk.white(`  Ready for extraction: ${preview.summary.readyForExtraction}\n`));
+
+    if (eligible.length === 0) {
+      console.log(chalk.yellow('  No eligible sessions to extract.\n'));
+      return;
+    }
+
+    // Queue jobs
+    const jobId = `batch-${Date.now()}`;
+    const queued: string[] = [];
+
+    for (const session of eligible) {
+      const existingOutput = store.getStage1Output(session.id);
+      if (!existingOutput) {
+        const watermark = Math.floor(new Date(session.updated_at).getTime() / 1000);
+        scheduler.enqueueJob('phase1_extraction', session.id, watermark);
+        queued.push(session.id);
+      }
+    }
+
+    console.log(chalk.cyan(`  Job ID: ${jobId}`));
+    console.log(chalk.cyan(`  Queued: ${queued.length} sessions\n`));
+
+    // Process queued sessions
+    if (queued.length > 0) {
+      console.log(chalk.cyan('  Processing extraction jobs...\n'));
+
+      let succeeded = 0;
+      let failed = 0;
+
+      for (const sessionId of queued) {
+        try {
+          await pipeline.runExtractionJob(sessionId);
+          succeeded++;
+          console.log(chalk.green(`  [OK] ${sessionId}`));
+        } catch (err) {
+          failed++;
+          console.log(chalk.red(`  [FAIL] ${sessionId}: ${(err as Error).message}`));
+        }
+      }
+
+      console.log(chalk.bold.white(`\n  Completed: ${succeeded} succeeded, ${failed} failed\n`));
+    } else {
+      console.log(chalk.yellow('  No new sessions to extract.\n'));
+    }
+
+  } catch (error) {
+    console.error(chalk.red(`\n  Error: ${(error as Error).message}\n`));
+    process.exit(1);
+  }
+}
+
+/**
+ * Trigger consolidation pipeline
+ */
+async function pipelineConsolidateAction(options: PipelineConsolidateOptions): Promise<void> {
+  const { path: projectPath } = options;
+  const basePath = projectPath || process.cwd();
+
+  try {
+    const pipeline = new MemoryConsolidationPipeline(basePath);
+
+    console.log(chalk.bold.cyan('\n  Memory Consolidation\n'));
+    console.log(chalk.gray(`  Project: ${basePath}\n`));
+
+    // Get current status
+    const status = pipeline.getStatus();
+
+    if (status) {
+      console.log(chalk.white(`  Current Status: ${status.status}`));
+    }
+
+    console.log(chalk.cyan('\n  Triggering consolidation...\n'));
+
+    // Run consolidation
+    await pipeline.runConsolidation();
+
+    console.log(chalk.green('  Consolidation completed successfully.\n'));
+
+    // Show result
+    const memoryMd = pipeline.getMemoryMdContent();
+    if (memoryMd) {
+      console.log(chalk.white('  Memory.md Preview:'));
+      console.log(chalk.gray('  ' + '-'.repeat(60)));
+      const preview = memoryMd.substring(0, 500);
+      console.log(chalk.dim(preview.split('\n').map(line => '  ' + line).join('\n')));
+      if (memoryMd.length > 500) {
+        console.log(chalk.gray('  ...'));
+      }
+      console.log(chalk.gray('  ' + '-'.repeat(60)));
+      console.log(chalk.gray(`  (${memoryMd.length} bytes total)\n`));
+    }
+
+  } catch (error) {
+    console.error(chalk.red(`\n  Error: ${(error as Error).message}\n`));
+    process.exit(1);
+  }
+}
+
+/**
+ * Show pipeline status
+ */
+async function pipelineStatusAction(options: PipelineStatusOptions): Promise<void> {
+  const { path: projectPath, json } = options;
+  const basePath = projectPath || process.cwd();
+
+  try {
+    const store = getCoreMemoryStore(basePath);
+    const scheduler = new MemoryJobScheduler(store.getDb());
+
+    // Extraction status
+    const stage1Count = store.countStage1Outputs();
+    const extractionJobs = scheduler.listJobs('phase1_extraction');
+
+    // Consolidation status
+    let consolidationStatus = 'unavailable';
+    let memoryMdAvailable = false;
+
+    try {
+      const consolidationPipeline = new MemoryConsolidationPipeline(basePath);
+      const status = consolidationPipeline.getStatus();
+      consolidationStatus = status?.status || 'unknown';
+      memoryMdAvailable = !!consolidationPipeline.getMemoryMdContent();
+    } catch {
+      // Consolidation pipeline may not be initialized
+    }
+
+    // Job counts by status
+    const jobCounts: Record<string, number> = {};
+    for (const job of extractionJobs) {
+      jobCounts[job.status] = (jobCounts[job.status] || 0) + 1;
+    }
+
+    const result = {
+      extraction: {
+        stage1Count,
+        totalJobs: extractionJobs.length,
+        jobCounts,
+        recentJobs: extractionJobs.slice(0, 10).map(j => ({
+          job_key: j.job_key,
+          status: j.status,
+          started_at: j.started_at,
+          finished_at: j.finished_at,
+          last_error: j.last_error,
+        })),
+      },
+      consolidation: {
+        status: consolidationStatus,
+        memoryMdAvailable,
+      },
+    };
+
+    if (json) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+
+    console.log(chalk.bold.cyan('\n  Memory Pipeline Status\n'));
+    console.log(chalk.gray(`  Project: ${basePath}\n`));
+
+    // Extraction status
+    console.log(chalk.bold.white('  Extraction Pipeline:'));
+    console.log(chalk.white(`    Stage 1 Outputs: ${stage1Count}`));
+    console.log(chalk.white(`    Total Jobs: ${extractionJobs.length}`));
+
+    if (Object.keys(jobCounts).length > 0) {
+      console.log(chalk.white('    Job Status:'));
+      for (const [status, count] of Object.entries(jobCounts)) {
+        const statusColor = status === 'completed' ? chalk.green :
+                           status === 'running' ? chalk.yellow : chalk.gray;
+        console.log(`      ${statusColor(status)}: ${count}`);
+      }
+    }
+
+    // Consolidation status
+    console.log(chalk.bold.white('\n  Consolidation Pipeline:'));
+    console.log(chalk.white(`    Status: ${consolidationStatus}`));
+    console.log(chalk.white(`    Memory.md Available: ${memoryMdAvailable ? 'Yes' : 'No'}`));
+
+    // Recent jobs
+    if (extractionJobs.length > 0) {
+      console.log(chalk.bold.white('\n  Recent Extraction Jobs:\n'));
+      console.log(chalk.gray('  Status     Job Key'));
+      console.log(chalk.gray('  ' + '-'.repeat(60)));
+
+      for (const job of extractionJobs.slice(0, 10)) {
+        const statusIcon = job.status === 'done' ? chalk.green('done    ') :
+                          job.status === 'running' ? chalk.yellow('running ') :
+                          job.status === 'pending' ? chalk.gray('pending ') :
+                          chalk.red('error   ');
+        console.log(`  ${statusIcon}  ${chalk.dim(job.job_key)}`);
+      }
+
+      if (extractionJobs.length > 10) {
+        console.log(chalk.gray(`  ... and ${extractionJobs.length - 10} more`));
+      }
+    }
+
+    console.log();
+
+  } catch (error) {
+    if (json) {
+      console.log(JSON.stringify({ error: (error as Error).message }, null, 2));
+    } else {
+      console.error(chalk.red(`\n  Error: ${(error as Error).message}\n`));
+    }
+    process.exit(1);
+  }
+}
+
 /**
  * Memory command entry point
- * @param {string} subcommand - Subcommand (track, import, stats, search, suggest, prune, embed, embed-status)
+ * @param {string} subcommand - Subcommand (track, import, stats, search, suggest, prune, embed, embed-status, preview, extract, consolidate, status)
  * @param {string|string[]} args - Arguments array
  * @param {Object} options - CLI options
  */
@@ -1018,6 +1422,23 @@ export async function memoryCommand(
       await embedStatusAction(options as EmbedStatusOptions);
       break;
 
+    // Memory Pipeline V2 subcommands
+    case 'preview':
+      await pipelinePreviewAction(options as PipelinePreviewOptions);
+      break;
+
+    case 'extract':
+      await pipelineExtractAction(options as PipelineExtractOptions);
+      break;
+
+    case 'consolidate':
+      await pipelineConsolidateAction(options as PipelineConsolidateOptions);
+      break;
+
+    case 'status':
+      await pipelineStatusAction(options as PipelineStatusOptions);
+      break;
+
     default:
       console.log(chalk.bold.cyan('\n  CCW Memory Module\n'));
       console.log('  Context tracking and prompt optimization.\n');
@@ -1030,6 +1451,12 @@ export async function memoryCommand(
       console.log(chalk.gray('    prune               Clean up old data'));
       console.log(chalk.gray('    embed               Generate embeddings for semantic search'));
       console.log(chalk.gray('    embed-status        Show embedding generation status'));
+      console.log();
+      console.log(chalk.bold.cyan('  Memory Pipeline V2:'));
+      console.log(chalk.gray('    preview             Preview eligible sessions for extraction'));
+      console.log(chalk.gray('    extract             Trigger extraction for sessions'));
+      console.log(chalk.gray('    consolidate         Trigger consolidation pipeline'));
+      console.log(chalk.gray('    status              Show pipeline status'));
       console.log();
       console.log('  Track Options:');
       console.log(chalk.gray('    --type <type>       Entity type: file, module, topic'));
@@ -1074,6 +1501,25 @@ export async function memoryCommand(
       console.log(chalk.gray('    --older-than <age>  Age threshold (default: 30d)'));
       console.log(chalk.gray('    --dry-run           Preview without deleting'));
       console.log();
+      console.log(chalk.bold.cyan('  Pipeline V2 Options:'));
+      console.log();
+      console.log('  Preview Options:');
+      console.log(chalk.gray('    --include-native    Include native sessions in preview'));
+      console.log(chalk.gray('    --path <path>       Project path (default: current directory)'));
+      console.log(chalk.gray('    --json              Output as JSON'));
+      console.log();
+      console.log('  Extract Options:');
+      console.log(chalk.gray('    --max-sessions <n>  Max sessions to extract (default: 10)'));
+      console.log(chalk.gray('    --session-ids <ids> Comma-separated session IDs for selective extraction'));
+      console.log(chalk.gray('    --path <path>       Project path (default: current directory)'));
+      console.log();
+      console.log('  Consolidate Options:');
+      console.log(chalk.gray('    --path <path>       Project path (default: current directory)'));
+      console.log();
+      console.log('  Pipeline Status Options:');
+      console.log(chalk.gray('    --path <path>       Project path (default: current directory)'));
+      console.log(chalk.gray('    --json              Output as JSON'));
+      console.log();
       console.log('  Examples:');
       console.log(chalk.gray('    ccw memory track --type file --action read --value "src/auth.ts"'));
       console.log(chalk.gray('    ccw memory import --source history --project "my-app"'));
@@ -1085,6 +1531,14 @@ export async function memoryCommand(
       console.log(chalk.gray('    ccw memory search "auth patterns" --top-k 5   # Semantic search'));
       console.log(chalk.gray('    ccw memory suggest --context "implementing JWT auth"'));
       console.log(chalk.gray('    ccw memory prune --older-than 60d --dry-run'));
+      console.log();
+      console.log(chalk.cyan('  Pipeline V2 Examples:'));
+      console.log(chalk.gray('    ccw memory preview                            # Preview extraction queue'));
+      console.log(chalk.gray('    ccw memory preview --include-native           # Include native sessions'));
+      console.log(chalk.gray('    ccw memory extract --max-sessions 10          # Batch extract up to 10'));
+      console.log(chalk.gray('    ccw memory extract --session-ids sess-1,sess-2  # Selective extraction'));
+      console.log(chalk.gray('    ccw memory consolidate                        # Run consolidation'));
+      console.log(chalk.gray('    ccw memory status                             # Check pipeline status'));
       console.log();
   }
 }

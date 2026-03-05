@@ -118,7 +118,7 @@ export class CommandRegistry {
 
   /**
    * Get single command metadata
-   * @param commandName Command name (e.g., "lite-plan" or "/workflow:lite-plan")
+   * @param commandName Command name (e.g., "lite-plan" or "/workflow-lite-planex")
    * @returns Command metadata or null
    */
   public getCommand(commandName: string): CommandMetadata | null {

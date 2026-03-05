@@ -1,6 +1,6 @@
 # Phase 1: Multi-CLI Collaborative Planning
 
-Complete multi-CLI collaborative planning pipeline with ACE context gathering and iterative cross-verification. This phase document preserves the full content of the original `workflow:multi-cli-plan` command.
+Complete multi-CLI collaborative planning pipeline with ACE context gathering and iterative cross-verification. This phase document preserves the full content of the original `workflow-multi-cli-plan` command.
 
 ## Auto Mode
 
@@ -12,19 +12,19 @@ When `workflowPreferences.autoYes` is true: Auto-approve plan, use recommended s
 
 ```bash
 # Basic usage
-/workflow:multi-cli-plan "Implement user authentication"
+/workflow-multi-cli-plan "Implement user authentication"
 
 # With options
-/workflow:multi-cli-plan "Add dark mode support" --max-rounds=3
-/workflow:multi-cli-plan "Refactor payment module" --tools=gemini,codex,claude
-/workflow:multi-cli-plan "Fix memory leak" --mode=serial
+/workflow-multi-cli-plan "Add dark mode support" --max-rounds=3
+/workflow-multi-cli-plan "Refactor payment module" --tools=gemini,codex,claude
+/workflow-multi-cli-plan "Fix memory leak" --mode=serial
 ```
 
 **Context Source**: ACE semantic search + Multi-CLI analysis
 **Output Directory**: `.workflow/.multi-cli-plan/{session-id}/`
 **Default Max Rounds**: 3 (convergence may complete earlier)
 **CLI Tools**: @cli-discuss-agent (analysis), @cli-lite-planning-agent (plan generation)
-**Execution**: Auto-hands off to `/workflow:lite-execute --in-memory` after plan approval
+**Execution**: Auto-hands off to Phase 2 (lite-execute) after plan approval
 
 ## What & Why
 
@@ -81,7 +81,7 @@ Phase 4: User Decision
 Phase 5: Plan Generation & Execution Handoff
    ├─ Generate plan.json + .task/*.json (via @cli-lite-planning-agent, two-layer output)
    ├─ Build executionContext with user selections and taskFiles
-   └─ Execute to /workflow:lite-execute --in-memory
+   └─ Execute via Phase 2 (lite-execute)
 ```
 
 ### Agent Roles
@@ -132,7 +132,7 @@ const aceQueries = [
 
 **Agent Invocation**:
 ```javascript
-Task({
+Agent({
   subagent_type: "cli-discuss-agent",
   run_in_background: false,
   description: `Discussion round ${currentRound}`,
@@ -258,6 +258,19 @@ AskUserQuestion({
 - Need More Analysis → Phase 2 with feedback
 - Cancel → Save session for resumption
 
+**TodoWrite Update (Phase 4 Decision)**:
+```javascript
+const executionLabel = userSelection.execution_method  // "Agent" / "Codex" / "Auto"
+
+TodoWrite({ todos: [
+  { content: "Phase 1: Context Gathering", status: "completed", activeForm: "Gathering context" },
+  { content: "Phase 2: Multi-CLI Discussion", status: "completed", activeForm: "Running discussion" },
+  { content: "Phase 3: Present Options", status: "completed", activeForm: "Presenting options" },
+  { content: `Phase 4: User Decision [${executionLabel}]`, status: "completed", activeForm: "Decision recorded" },
+  { content: `Phase 5: Plan Generation [${executionLabel}]`, status: "in_progress", activeForm: `Generating plan [${executionLabel}]` }
+]})
+```
+
 ### Phase 5: Plan Generation & Execution Handoff
 
 **Step 1: Build Context-Package** (Orchestrator responsibility):
@@ -351,7 +364,7 @@ Write(`${sessionFolder}/context-package.json`, JSON.stringify(contextPackage, nu
 
 **Step 2: Invoke Planning Agent**:
 ```javascript
-Task({
+Agent({
   subagent_type: "cli-lite-planning-agent",
   run_in_background: false,
   description: "Generate implementation plan",
@@ -373,7 +386,7 @@ ${JSON.stringify(contextPackage, null, 2)}
 
 ## Execution Process
 1. Read plan-overview-base-schema.json + task-schema.json for output structure
-2. Read project-tech.json and project-guidelines.json
+2. Read project-tech.json and specs/*.md
 3. Parse context-package fields:
    - solution: name, feasibility, summary
    - implementation_plan: tasks[], execution_flow, milestones
@@ -585,7 +598,7 @@ TodoWrite({ todos: [
 
 ```bash
 # Simpler single-round planning
-/workflow:lite-plan "task description"
+/workflow-lite-planex "task description"
 
 # Issue-driven discovery
 /issue:discover-by-prompt "find issues"
@@ -596,7 +609,7 @@ cat .workflow/.multi-cli-plan/{session-id}/rounds/1/synthesis.json
 cat .workflow/.multi-cli-plan/{session-id}/context-package.json
 
 # Direct execution (if you have plan.json)
-/workflow:lite-execute plan.json
+# Use workflow-lite-planex or workflow-multi-cli-plan (execution is integrated)
 ```
 
 ## Next Phase

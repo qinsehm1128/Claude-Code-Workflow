@@ -262,7 +262,13 @@ function flattenFindings(perspectiveResults: any[]): any[] {
   const allFindings: any[] = [];
   for (const result of perspectiveResults) {
     if (result.findings) {
-      allFindings.push(...result.findings);
+      // Map backend 'priority' to frontend 'severity' for compatibility
+      const mappedFindings = result.findings.map((f: any) => ({
+        ...f,
+        severity: f.severity || f.priority || 'medium',
+        sessionId: f.discovery_id || result.discovery_id
+      }));
+      allFindings.push(...mappedFindings);
     }
   }
   return allFindings;

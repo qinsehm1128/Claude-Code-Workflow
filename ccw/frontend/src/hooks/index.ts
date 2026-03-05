@@ -161,6 +161,21 @@ export type {
   UseReindexReturn,
 } from './useUnifiedSearch';
 
+// ========== Memory V2 Pipeline ==========
+export {
+  useExtractionStatus,
+  useConsolidationStatus,
+  useV2Jobs,
+  useTriggerExtraction,
+  useTriggerConsolidation,
+  memoryV2Keys,
+} from './useMemoryV2';
+export type {
+  ExtractionStatus,
+  ConsolidationStatus,
+  V2JobsResponse,
+} from './useMemoryV2';
+
 // ========== MCP Servers ==========
 export {
   useMcpServers,
@@ -207,6 +222,7 @@ export {
   cliInstallationsKeys,
   useHooks,
   useToggleHook,
+  useDeleteHook,
   hooksKeys,
   useRules,
   useToggleRule,
@@ -381,3 +397,27 @@ export type {
   SkillCacheResponse,
   SkillHubStats,
 } from './useSkillHub';
+
+// ========== DeepWiki ==========
+export {
+  useDeepWikiFiles,
+  useDeepWikiDoc,
+  useDeepWikiStats,
+  useDeepWikiSearch,
+  deepWikiKeys,
+} from './useDeepWiki';
+export type {
+  DeepWikiFile,
+  DeepWikiSymbol,
+  DeepWikiDoc,
+  DeepWikiStats,
+  DocumentResponse,
+  UseDeepWikiFilesOptions,
+  UseDeepWikiFilesReturn,
+  UseDeepWikiDocOptions,
+  UseDeepWikiDocReturn,
+  UseDeepWikiStatsOptions,
+  UseDeepWikiStatsReturn,
+  UseDeepWikiSearchOptions,
+  UseDeepWikiSearchReturn,
+} from './useDeepWiki';

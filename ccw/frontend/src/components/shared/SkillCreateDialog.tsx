@@ -16,6 +16,7 @@ import {
   XCircle,
   Loader2,
   Info,
+  FolderOpen,
 } from 'lucide-react';
 import {
   Dialog,
@@ -31,6 +32,7 @@ import { Textarea } from '@/components/ui/Textarea';
 import { Label } from '@/components/ui/Label';
 import { validateSkillImport, createSkill } from '@/lib/api';
 import { useWorkflowStore, selectProjectPath } from '@/stores/workflowStore';
+import { FloatingFileBrowser } from '@/components/terminal-dashboard/FloatingFileBrowser';
 import { cn } from '@/lib/utils';
 
 export interface SkillCreateDialogProps {
@@ -58,7 +60,6 @@ export function SkillCreateDialog({ open, onOpenChange, onCreated, cliType = 'cl
 
   // Import mode state
   const [sourcePath, setSourcePath] = useState('');
-  const [customName, setCustomName] = useState('');
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [isValidating, setIsValidating] = useState(false);
 
@@ -68,16 +69,19 @@ export function SkillCreateDialog({ open, onOpenChange, onCreated, cliType = 'cl
 
   const [isCreating, setIsCreating] = useState(false);
 
+  // File browser state
+  const [isFileBrowserOpen, setIsFileBrowserOpen] = useState(false);
+
   const resetState = useCallback(() => {
     setMode('import');
     setLocation('project');
     setSourcePath('');
-    setCustomName('');
     setValidationResult(null);
     setIsValidating(false);
     setSkillName('');
     setDescription('');
     setIsCreating(false);
+    setIsFileBrowserOpen(false);
   }, []);
 
   const handleOpenChange = useCallback((open: boolean) => {
@@ -122,7 +126,7 @@ export function SkillCreateDialog({ open, onOpenChange, onCreated, cliType = 'cl
         mode,
         location,
         sourcePath: mode === 'import' ? sourcePath.trim() : undefined,
-        skillName: mode === 'import' ? (customName.trim() || undefined) : skillName.trim(),
+        skillName: mode === 'cli-generate' ? skillName.trim() : undefined,
         description: mode === 'cli-generate' ? description.trim() : undefined,
         generationType: mode === 'cli-generate' ? 'description' : undefined,
         projectPath,
@@ -142,7 +146,7 @@ export function SkillCreateDialog({ open, onOpenChange, onCreated, cliType = 'cl
     } finally {
       setIsCreating(false);
     }
-  }, [mode, location, sourcePath, customName, skillName, description, validationResult, projectPath, handleOpenChange, onCreated, formatMessage]);
+  }, [mode, location, sourcePath, skillName, description, validationResult, projectPath, handleOpenChange, onCreated, formatMessage]);
 
   const canCreate = mode === 'import'
     ? sourcePath.trim() && validationResult?.valid && !isCreating
@@ -250,30 +254,28 @@ export function SkillCreateDialog({ open, onOpenChange, onCreated, cliType = 'cl
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="sourcePath">{formatMessage({ id: 'skills.create.sourcePath' })}</Label>
-                <Input
-                  id="sourcePath"
-                  value={sourcePath}
-                  onChange={(e) => {
-                    setSourcePath(e.target.value);
-                    setValidationResult(null);
-                  }}
-                  placeholder={formatMessage({ id: 'skills.create.sourcePathPlaceholder' })}
-                  className="font-mono text-sm"
-                />
+                <div className="flex gap-2">
+                  <Input
+                    id="sourcePath"
+                    value={sourcePath}
+                    onChange={(e) => {
+                      setSourcePath(e.target.value);
+                      setValidationResult(null);
+                    }}
+                    placeholder={formatMessage({ id: 'skills.create.sourcePathPlaceholder' })}
+                    className="font-mono text-sm flex-1"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setIsFileBrowserOpen(true)}
+                    title={formatMessage({ id: 'skills.create.browseFolder' })}
+                  >
+                    <FolderOpen className="w-4 h-4" />
+                  </Button>
+                </div>
                 <p className="text-xs text-muted-foreground">{formatMessage({ id: 'skills.create.sourcePathHint' })}</p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="customName">
-                  {formatMessage({ id: 'skills.create.customName' })}
-                  <span className="text-muted-foreground ml-1">({formatMessage({ id: 'skills.create.customNameHint' })})</span>
-                </Label>
-                <Input
-                  id="customName"
-                  value={customName}
-                  onChange={(e) => setCustomName(e.target.value)}
-                  placeholder={formatMessage({ id: 'skills.create.customNamePlaceholder' })}
-                />
               </div>
 
               {/* Validation Result */}
@@ -401,6 +403,19 @@ export function SkillCreateDialog({ open, onOpenChange, onCreated, cliType = 'cl
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      {/* File Browser for selecting source folder */}
+      <FloatingFileBrowser
+        isOpen={isFileBrowserOpen}
+        onClose={() => setIsFileBrowserOpen(false)}
+        rootPath={projectPath}
+        onInsertPath={(path) => {
+          setSourcePath(path);
+          setValidationResult(null);
+          setIsFileBrowserOpen(false);
+        }}
+        initialSelectedPath={sourcePath || null}
+      />
     </Dialog>
   );
 }

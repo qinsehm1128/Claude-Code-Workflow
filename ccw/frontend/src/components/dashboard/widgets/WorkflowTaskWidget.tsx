@@ -102,7 +102,7 @@ function HomeEmptyState({ className }: HomeEmptyStateProps) {
           </div>
           <div className="flex flex-col gap-2 w-full">
             <code className="px-3 py-2 bg-muted rounded text-xs font-mono text-center">
-              /workflow:plan
+              /workflow-plan
             </code>
             <p className="text-xs text-muted-foreground text-center">
               {formatMessage({ id: 'home.emptyState.noSessions.hint' })}
@@ -119,6 +119,10 @@ const sessionStatusColors: Record<string, { bg: string; text: string }> = {
   in_progress: { bg: 'bg-warning/20', text: 'text-warning' },
   completed: { bg: 'bg-success/20', text: 'text-success' },
   paused: { bg: 'bg-slate-400/20', text: 'text-slate-500' },
+  ready: { bg: 'bg-success/20', text: 'text-success' },
+  initialized: { bg: 'bg-info/20', text: 'text-info' },
+  archived: { bg: 'bg-slate-300/20', text: 'text-slate-400' },
+  failed: { bg: 'bg-destructive/20', text: 'text-destructive' },
 };
 
 // ---- Mini Stat Card with Sparkline ----

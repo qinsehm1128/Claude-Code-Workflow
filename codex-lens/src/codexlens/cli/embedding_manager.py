@@ -56,6 +56,11 @@ except ImportError:
         return False, "codexlens.semantic not available"
 
 try:
+    from codexlens.semantic.vector_store import VectorStore
+except ImportError:  # pragma: no cover
+    VectorStore = None  # type: ignore[assignment]
+
+try:
     from codexlens.config import VECTORS_META_DB_NAME
 except ImportError:
     VECTORS_META_DB_NAME = "_vectors_meta.db"
@@ -720,6 +725,11 @@ def generate_embeddings(
     # effective_batch_size is calculated above (dynamic or EMBEDDING_BATCH_SIZE fallback)
 
     try:
+        if VectorStore is None:
+            return {
+                "success": False,
+                "error": "Semantic search not available (VectorStore import failed). Install with: pip install codexlens[semantic]",
+            }
         with VectorStore(index_path) as vector_store:
             # Check model compatibility with existing embeddings
             if not force:

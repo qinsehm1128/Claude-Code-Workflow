@@ -1,7 +1,7 @@
 ---
 name: workflow-test-fix
-description: Unified test-fix pipeline combining test generation (session, context, analysis, task gen) with iterative test-cycle execution (adaptive strategy, progressive testing, CLI fallback). Triggers on "workflow:test-fix-gen", "workflow:test-cycle-execute", "test fix workflow".
-allowed-tools: Skill, Task, AskUserQuestion, TaskCreate, TaskUpdate, TaskList, Read, Write, Edit, Bash, Glob, Grep
+description: Unified test-fix pipeline combining test generation (session, context, analysis, task gen) with iterative test-cycle execution (adaptive strategy, progressive testing, CLI fallback). Triggers on "workflow-test-fix", "workflow-test-fix", "test fix workflow".
+allowed-tools: Skill, Agent, AskUserQuestion, TaskCreate, TaskUpdate, TaskList, Read, Write, Edit, Bash, Glob, Grep
 ---
 
 # Workflow Test Fix
@@ -60,8 +60,8 @@ Task Pipeline (generated in Phase 4, executed in Phase 5):
 
 Full pipeline and execute-only modes are triggered by skill name routing (see Mode Detection). Workflow preferences (auto mode) are collected interactively via AskUserQuestion before dispatching to phases.
 
-**Full pipeline** (workflow:test-fix-gen): Task description or session ID as arguments → interactive preference collection → generate + execute pipeline
-**Execute only** (workflow:test-cycle-execute): Auto-discovers active session → interactive preference collection → execution loop
+**Full pipeline** (workflow-test-fix): Task description or session ID as arguments → interactive preference collection → generate + execute pipeline
+**Execute only** (workflow-test-fix): Auto-discovers active session → interactive preference collection → execution loop
 
 ## Interactive Preference Collection
 
@@ -97,12 +97,20 @@ if (autoYes) {
 
 **workflowPreferences** is passed to phase execution as context variable, referenced as `workflowPreferences.autoYes` within phases.
 
+## Compact Recovery (Phase Persistence)
+
+Multi-phase test-fix pipeline (Phase 1-5) spans long conversations, especially Phase 5 fix loops. Uses **双重保险**: TodoWrite 跟踪 active phase 保护其不被压缩，sentinel 作为兜底。
+
+> **⚠️ COMPACT DIRECTIVE**: Context compression MUST check TodoWrite phase status.
+> The phase currently marked `in_progress` is the active execution phase — preserve its FULL content.
+> Only compress phases marked `completed` or `pending`.
+
 ## Execution Flow
 
 ```
 Entry Point Detection:
-   ├─ /workflow:test-fix-gen → Full Pipeline (Phase 1→2→3→4→Summary→5)
-   └─ /workflow:test-cycle-execute → Execution Only (Phase 5)
+   ├─ /workflow-test-fix → Full Pipeline (Phase 1→2→3→4→Summary→5)
+   └─ /workflow-test-fix → Execution Only (Phase 5)
 
 Phase 1: Session Start (session-start)
    └─ Ref: phases/01-session-start.md
@@ -143,13 +151,18 @@ Phase 5: Test Cycle Execution (test-cycle-execute)
 
 **Phase Reference Documents** (read on-demand when phase executes):
 
-| Phase | Document | Purpose |
-|-------|----------|---------|
-| 1 | [phases/01-session-start.md](phases/01-session-start.md) | Detect input mode, create test session |
-| 2 | [phases/02-test-context-gather.md](phases/02-test-context-gather.md) | Gather test context (coverage/codebase) |
-| 3 | [phases/03-test-concept-enhanced.md](phases/03-test-concept-enhanced.md) | Gemini analysis, L0-L3 test requirements |
-| 4 | [phases/04-test-task-generate.md](phases/04-test-task-generate.md) | Generate task JSONs and IMPL_PLAN.md |
-| 5 | [phases/05-test-cycle-execute.md](phases/05-test-cycle-execute.md) | Execute tasks, iterative fix cycles, completion |
+| Phase | Document | Purpose | Compact |
+|-------|----------|---------|---------|
+| 1 | [phases/01-session-start.md](phases/01-session-start.md) | Detect input mode, create test session | TodoWrite 驱动 |
+| 2 | [phases/02-test-context-gather.md](phases/02-test-context-gather.md) | Gather test context (coverage/codebase) | TodoWrite 驱动 |
+| 3 | [phases/03-test-concept-enhanced.md](phases/03-test-concept-enhanced.md) | Gemini analysis, L0-L3 test requirements | TodoWrite 驱动 |
+| 4 | [phases/04-test-task-generate.md](phases/04-test-task-generate.md) | Generate task JSONs and IMPL_PLAN.md | TodoWrite 驱动 |
+| 5 | [phases/05-test-cycle-execute.md](phases/05-test-cycle-execute.md) | Execute tasks, iterative fix cycles, completion | TodoWrite 驱动 + 🔄 sentinel |
+
+**Compact Rules**:
+1. **TodoWrite `in_progress`** → 保留完整内容，禁止压缩
+2. **TodoWrite `completed`** → 可压缩为摘要
+3. **🔄 sentinel fallback** → Phase 5 包含 compact sentinel；若 compact 后仅存 sentinel 而无完整 Step 协议，必须立即 `Read("phases/05-test-cycle-execute.md")` 恢复
 
 ## Core Rules
 
@@ -396,7 +409,7 @@ Automatic commits at key checkpoints:
 
 ## Post-Completion Expansion
 
-**Auto-sync**: Execute `/workflow:session:sync -y "{summary}"` to update project-guidelines + project-tech.
+**Auto-sync**: Execute `/workflow:session:sync -y "{summary}"` to update specs/*.md + project-tech.
 
 After completion, ask user if they want to expand into issues (test/enhance/refactor/doc). Selected items call `/issue:new "{summary} - {dimension}"`.
 

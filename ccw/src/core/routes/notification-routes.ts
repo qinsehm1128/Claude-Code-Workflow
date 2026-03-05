@@ -30,6 +30,20 @@ import { deepMerge } from '../../types/util.js';
 
 // ========== Input Validation ==========
 
+// Compiled regex patterns for performance (compiled once at module load)
+const TELEGRAM_BOT_TOKEN_REGEX = /^\d{8,15}:[A-Za-z0-9_-]{30,50}$/;
+const TELEGRAM_CHAT_ID_REGEX = /^-?\d{1,20}$/;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const DISCORD_HOSTNAMES = ['discord.com', 'discordapp.com'];
+const FEISHU_HOSTNAMES = ['feishu.cn', 'larksuite.com', 'lark.com'];
+const DINGTALK_HOSTNAMES = ['dingtalk.com', 'oapi.dingtalk.com'];
+const WECOM_HOSTNAMES = ['qyapi.weixin.qq.com', 'work.weixin.qq.com'];
+
+// Pattern for safe header values - only printable ASCII characters (no control chars)
+// This prevents XSS by ensuring header values don't contain HTML/JS metacharacters
+// Space (0x20) through tilde (0x7E) are printable ASCII characters
+const SAFE_HEADER_VALUE_REGEX = /^[\x20-\x7E]+$/;
+
 /**
  * Validate URL format (must be http or https)
  */
@@ -51,7 +65,7 @@ function isValidDiscordWebhookUrl(url: string): boolean {
     const parsed = new URL(url);
     // Discord webhooks are typically: discord.com/api/webhooks/{id}/{token}
     return (
-      (parsed.hostname === 'discord.com' || parsed.hostname === 'discordapp.com') &&
+      DISCORD_HOSTNAMES.includes(parsed.hostname) &&
       parsed.pathname.startsWith('/api/webhooks/')
     );
   } catch {
@@ -65,7 +79,7 @@ function isValidDiscordWebhookUrl(url: string): boolean {
 function isValidTelegramBotToken(token: string): boolean {
   // Telegram bot tokens are in format: {bot_id}:{token}
   // Bot ID is a number, token is alphanumeric with underscores and hyphens
-  return /^\d{8,15}:[A-Za-z0-9_-]{30,50}$/.test(token);
+  return TELEGRAM_BOT_TOKEN_REGEX.test(token);
 }
 
 /**
@@ -73,7 +87,7 @@ function isValidTelegramBotToken(token: string): boolean {
  */
 function isValidTelegramChatId(chatId: string): boolean {
   // Chat IDs are numeric, optionally negative (for groups)
-  return /^-?\d{1,20}$/.test(chatId);
+  return TELEGRAM_CHAT_ID_REGEX.test(chatId);
 }
 
 /**
@@ -103,6 +117,11 @@ function isValidHeaders(headers: unknown): { valid: boolean; error?: string } {
     }
     if (typeof value !== 'string') {
       return { valid: false, error: `Header '${key}' value must be a string` };
+    }
+    // Sanitize header value - only allow printable ASCII characters
+    // This prevents XSS by blocking HTML/JS metacharacters and control characters
+    if (!SAFE_HEADER_VALUE_REGEX.test(value)) {
+      return { valid: false, error: `Header '${key}' contains invalid characters. Only printable ASCII characters (space through tilde) are allowed.` };
     }
     // Block potentially dangerous headers
     const lowerKey = key.toLowerCase();
@@ -138,7 +157,7 @@ function isValidDingTalkWebhookUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
     // DingTalk webhooks are typically: oapi.dingtalk.com/robot/send?access_token=xxx
-    return parsed.hostname.includes('dingtalk.com') && parsed.pathname.includes('robot');
+    return DINGTALK_HOSTNAMES.some(h => parsed.hostname.includes(h)) && parsed.pathname.includes('robot');
   } catch {
     return false;
   }
@@ -152,7 +171,7 @@ function isValidWeComWebhookUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
     // WeCom webhooks are typically: qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx
-    return parsed.hostname.includes('qyapi.weixin.qq.com') && parsed.pathname.includes('webhook');
+    return WECOM_HOSTNAMES.includes(parsed.hostname) && parsed.pathname.includes('webhook');
   } catch {
     return false;
   }
@@ -162,8 +181,8 @@ function isValidWeComWebhookUrl(url: string): boolean {
  * Validate email address format
  */
 function isValidEmail(email: string): boolean {
-  // Basic email validation regex
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  // Basic email validation regex (using compiled constant)
+  return EMAIL_REGEX.test(email);
 }
 
 /**

@@ -63,6 +63,12 @@ import type { ExportedSettings } from '@/lib/api';
 import { RemoteNotificationSection } from '@/components/settings/RemoteNotificationSection';
 import { A2UIPreferencesSection } from '@/components/settings/A2UIPreferencesSection';
 
+// ========== CSRF Token Helper ==========
+function getCsrfToken(): string | null {
+  const match = document.cookie.match(/XSRF-TOKEN=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 // ========== File Path Input with Native File Picker ==========
 
 interface FilePathInputProps {
@@ -1282,10 +1288,17 @@ export function SettingsPage() {
         body.effort = config.effort || null;
       }
 
+      const csrfToken = getCsrfToken();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (csrfToken) {
+        headers['X-CSRF-Token'] = csrfToken;
+      }
+
       const res = await fetch(`/api/cli/config/${toolId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(body),
+        credentials: 'same-origin',
       });
 
       if (!res.ok) {

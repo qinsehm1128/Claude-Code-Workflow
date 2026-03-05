@@ -74,7 +74,8 @@
     "categories": {
       "notification": "通知",
       "indexing": "索引",
-      "automation": "自动化"
+      "automation": "自动化",
+      "utility": "实用工具"
     },
     "templates": {
       "session-start-notify": {
@@ -116,6 +117,30 @@
       "project-state-inject": {
         "name": "项目状态注入",
         "description": "会话启动时注入项目约束和最近开发历史"
+      },
+      "memory-v2-extract": {
+        "name": "Memory V2 提取",
+        "description": "会话结束时触发第一阶段提取（空闲期后）"
+      },
+      "memory-v2-auto-consolidate": {
+        "name": "Memory V2 自动合并",
+        "description": "提取作业完成后触发第二阶段合并"
+      },
+      "memory-sync-dashboard": {
+        "name": "Memory 同步仪表盘",
+        "description": "变更时同步 Memory V2 状态到仪表盘"
+      },
+      "memory-auto-compress": {
+        "name": "自动内存压缩",
+        "description": "当条目超过阈值时自动压缩内存"
+      },
+      "memory-preview-extract": {
+        "name": "内存预览与提取",
+        "description": "预览提取队列并提取符合条件的会话"
+      },
+      "memory-status-check": {
+        "name": "内存状态检查",
+        "description": "检查内存提取和合并状态"
       }
     },
     "actions": {

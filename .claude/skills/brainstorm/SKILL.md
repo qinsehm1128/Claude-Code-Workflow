@@ -1,7 +1,7 @@
 ---
 name: brainstorm
 description: Unified brainstorming skill with dual-mode operation - auto pipeline and single role analysis. Triggers on "brainstorm", "头脑风暴".
-allowed-tools: Skill(*), Task(conceptual-planning-agent, context-search-agent), AskUserQuestion(*), TodoWrite(*), Read(*), Write(*), Edit(*), Glob(*), Bash(*)
+allowed-tools: Skill(*), Agent(conceptual-planning-agent, context-search-agent), AskUserQuestion(*), TodoWrite(*), Read(*), Write(*), Edit(*), Glob(*), Bash(*)
 ---
 
 # Brainstorm
@@ -373,7 +373,7 @@ Initial → Phase 1 Mode Routing (completed)
 - `/workflow:session:start` - Start a new workflow session (optional, brainstorm creates its own)
 
 **Follow-ups** (after brainstorm completes):
-- `/workflow:plan --session {sessionId}` - Generate implementation plan
+- `/workflow-plan --session {sessionId}` - Generate implementation plan
 - `/workflow:brainstorm:synthesis --session {sessionId}` - Run synthesis standalone (if skipped)
 
 ## Reference Information

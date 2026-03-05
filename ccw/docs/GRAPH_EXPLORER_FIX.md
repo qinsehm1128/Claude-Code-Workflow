@@ -218,8 +218,8 @@ To verify the fix works:
 ## Related Files
 
 - **Implementation**: `ccw/src/core/routes/graph-routes.ts`
-- **Frontend**: `ccw/src/templates/dashboard-js/views/graph-explorer.js`
-- **Styles**: `ccw/src/templates/dashboard-css/14-graph-explorer.css`
+- **Frontend**: `ccw/frontend/src/components/GraphExplorer.tsx` (React SPA)
+- **Styles**: Embedded in React components
 - **API Docs**: `ccw/src/core/routes/graph-routes.md`
 - **Migration**: `codex-lens/src/codexlens/storage/migrations/migration_005_cleanup_unused_fields.py`
 

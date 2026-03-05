@@ -51,19 +51,34 @@ function applyDrag(columns: KanbanColumn<QueueBoardItem>[], result: DropResult):
   if (!result.destination) return columns;
   const { source, destination, draggableId } = result;
 
-  const next = columns.map((c) => ({ ...c, items: [...c.items] }));
-  const src = next.find((c) => c.id === source.droppableId);
-  const dst = next.find((c) => c.id === destination.droppableId);
-  if (!src || !dst) return columns;
+  const startCol = columns.find(c => c.id === source.droppableId);
+  const endCol = columns.find(c => c.id === destination.droppableId);
+  if (!startCol || !endCol) return columns;
 
-  const srcIndex = src.items.findIndex((i) => i.id === draggableId);
-  if (srcIndex === -1) return columns;
+  const itemToMove = startCol.items.find(item => item.id === draggableId);
+  if (!itemToMove) return columns;
 
-  const [moved] = src.items.splice(srcIndex, 1);
-  if (!moved) return columns;
+  // 如果在同一列中移动
+  if (startCol.id === endCol.id) {
+    const items = [...startCol.items];
+    const [reorderedItem] = items.splice(source.index, 1);
+    items.splice(destination.index, 0, reorderedItem);
+    return columns.map(c => c.id === startCol.id ? { ...c, items } : c);
+  }
 
-  dst.items.splice(destination.index, 0, moved);
-  return next;
+  // 如果跨列移动
+  const newStartItems = startCol.items.filter(item => item.id !== draggableId);
+  const newEndItems = [
+    ...endCol.items.slice(0, destination.index),
+    itemToMove,
+    ...endCol.items.slice(destination.index),
+  ];
+
+  return columns.map(c => {
+    if (c.id === startCol.id) return { ...c, items: newStartItems };
+    if (c.id === endCol.id) return { ...c, items: newEndItems };
+    return c;
+  });
 }
 
 export function QueueBoard({

@@ -7,10 +7,13 @@
  * - POST /api/commands/:name/toggle - Enable/disable single command
  * - POST /api/commands/group/:groupName/toggle - Batch toggle commands by group
  */
-import { existsSync, readdirSync, readFileSync, mkdirSync, renameSync } from 'fs';
+import { existsSync, readdirSync, readFileSync, mkdirSync, renameSync, copyFileSync } from 'fs';
+import { promises as fsPromises } from 'fs';
 import { join, relative, dirname, basename } from 'path';
 import { homedir } from 'os';
 import { validatePath as validateAllowedPath } from '../../utils/path-validator.js';
+import { executeCliTool } from '../../tools/cli-executor.js';
+import { SmartContentFormatter } from '../../tools/cli-output-converter.js';
 import type { RouteContext } from './types.js';
 
 // ========== Types ==========
@@ -61,6 +64,38 @@ interface CommandGroupsConfig {
   groups: Record<string, GroupDefinition>;  // Custom group definitions
   assignments: Record<string, string>;      // commandName -> groupId mapping
 }
+
+/**
+ * Command creation mode type
+ */
+type CommandCreationMode = 'upload' | 'generate';
+
+/**
+ * Parameters for creating a command
+ */
+interface CreateCommandParams {
+  mode: CommandCreationMode;
+  location: CommandLocation;
+  sourcePath?: string;       // Required for 'upload' mode - path to uploaded file
+  skillName?: string;        // Required for 'generate' mode - skill to generate from
+  description?: string;      // Optional description for generated commands
+  projectPath: string;
+  cliType?: string;          // CLI tool type for generation
+}
+
+/**
+ * Result of command creation operation
+ */
+interface CommandCreationResult extends CommandOperationResult {
+  commandInfo?: CommandMetadata | null;
+}
+
+/**
+ * Validation result for command file
+ */
+type CommandFileValidation =
+  | { valid: true; errors: string[]; commandInfo: CommandMetadata }
+  | { valid: false; errors: string[]; commandInfo: null };
 
 // ========== Helper Functions ==========
 
@@ -124,6 +159,388 @@ function parseCommandFrontmatter(content: string): CommandMetadata {
   }
 
   return result;
+}
+
+/**
+ * Validate a command file for creation
+ * Checks file existence, reads content, parses frontmatter, validates required fields
+ */
+function validateCommandFile(filePath: string): CommandFileValidation {
+  const errors: string[] = [];
+
+  // Check file exists
+  if (!existsSync(filePath)) {
+    return { valid: false, errors: ['Command file does not exist'], commandInfo: null };
+  }
+
+  // Check file extension
+  if (!filePath.endsWith('.md')) {
+    return { valid: false, errors: ['Command file must be a .md file'], commandInfo: null };
+  }
+
+  // Read file content
+  let content: string;
+  try {
+    content = readFileSync(filePath, 'utf8');
+  } catch (err) {
+    return { valid: false, errors: [`Failed to read file: ${(err as Error).message}`], commandInfo: null };
+  }
+
+  // Parse frontmatter
+  const commandInfo = parseCommandFrontmatter(content);
+
+  // Validate required fields
+  if (!commandInfo.name || commandInfo.name.trim() === '') {
+    errors.push('Command name is required in frontmatter');
+  }
+
+  // Check for valid frontmatter structure
+  if (!content.startsWith('---')) {
+    errors.push('Command file must have YAML frontmatter (starting with ---)');
+  } else {
+    const endIndex = content.indexOf('---', 3);
+    if (endIndex < 0) {
+      errors.push('Command file has invalid frontmatter (missing closing ---)');
+    }
+  }
+
+  if (errors.length > 0) {
+    return { valid: false, errors, commandInfo: null };
+  }
+
+  return { valid: true, errors: [], commandInfo };
+}
+
+/**
+ * Upload (copy) a command file to the commands directory
+ * Handles group subdirectory creation and path security validation
+ * @param sourcePath - Source command file path
+ * @param targetGroup - Target group subdirectory (e.g., 'workflow/review')
+ * @param location - 'project' or 'user'
+ * @param projectPath - Project root path
+ * @param customName - Optional custom filename (without .md extension)
+ * @returns CommandCreationResult with success status and command info
+ */
+async function uploadCommand(
+  sourcePath: string,
+  targetGroup: string,
+  location: CommandLocation,
+  projectPath: string,
+  customName?: string
+): Promise<CommandCreationResult> {
+  try {
+    // Validate source file exists and is .md
+    if (!existsSync(sourcePath)) {
+      return { success: false, message: 'Source command file does not exist', status: 404 };
+    }
+
+    if (!sourcePath.endsWith('.md')) {
+      return { success: false, message: 'Source file must be a .md file', status: 400 };
+    }
+
+    // Validate source file content
+    const validation = validateCommandFile(sourcePath);
+    if (!validation.valid) {
+      return { success: false, message: validation.errors.join(', '), status: 400 };
+    }
+
+    // Get target commands directory
+    const commandsDir = getCommandsDir(location, projectPath);
+
+    // Build target path with optional group subdirectory
+    let targetDir = commandsDir;
+    if (targetGroup && targetGroup.trim() !== '') {
+      // Sanitize group path - prevent path traversal
+      const sanitizedGroup = targetGroup
+        .replace(/\.\./g, '')  // Remove path traversal attempts
+        .replace(/[<>:"|?*]/g, '') // Remove invalid characters
+        .replace(/\/+/g, '/') // Collapse multiple slashes
+        .replace(/^\/|\/$/g, ''); // Remove leading/trailing slashes
+
+      if (sanitizedGroup) {
+        targetDir = join(commandsDir, sanitizedGroup);
+      }
+    }
+
+    // Create target directory if needed
+    if (!existsSync(targetDir)) {
+      mkdirSync(targetDir, { recursive: true });
+    }
+
+    // Determine target filename
+    const sourceBasename = basename(sourcePath, '.md');
+    const targetFilename = (customName && customName.trim() !== '')
+      ? `${customName.replace(/\.md$/, '')}.md`
+      : `${sourceBasename}.md`;
+
+    // Sanitize filename - prevent path traversal
+    const sanitizedFilename = targetFilename
+      .replace(/\.\./g, '')
+      .replace(/[<>:"|?*]/g, '')
+      .replace(/\//g, '');
+
+    const targetPath = join(targetDir, sanitizedFilename);
+
+    // Security check: ensure target path is within commands directory
+    const resolvedTarget = targetPath; // Already resolved by join
+    const resolvedCommandsDir = commandsDir;
+
+    if (!resolvedTarget.startsWith(resolvedCommandsDir)) {
+      return { success: false, message: 'Invalid target path - path traversal detected', status: 400 };
+    }
+
+    // Check if target already exists
+    if (existsSync(targetPath)) {
+      return { success: false, message: `Command '${sanitizedFilename}' already exists in target location`, status: 409 };
+    }
+
+    // Copy file to target path
+    copyFileSync(sourcePath, targetPath);
+
+    return {
+      success: true,
+      message: 'Command uploaded successfully',
+      commandName: validation.commandInfo.name,
+      location,
+      commandInfo: {
+        name: validation.commandInfo.name,
+        description: validation.commandInfo.description,
+        group: targetGroup || 'other'
+      }
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: (error as Error).message,
+      status: 500
+    };
+  }
+}
+
+/**
+ * Generation parameters for command generation via CLI
+ */
+interface CommandGenerationParams {
+  commandName: string;
+  description: string;
+  location: CommandLocation;
+  projectPath: string;
+  group?: string;
+  argumentHint?: string;
+  broadcastToClients?: (data: unknown) => void;
+  cliType?: string;
+}
+
+/**
+ * Generate command via CLI tool using command-generator skill
+ * Follows the pattern from skills-routes.ts generateSkillViaCLI
+ * @param params - Generation parameters including name, description, location, etc.
+ * @returns CommandCreationResult with success status and generated command info
+ */
+async function generateCommandViaCLI({
+  commandName,
+  description,
+  location,
+  projectPath,
+  group,
+  argumentHint,
+  broadcastToClients,
+  cliType = 'claude'
+}: CommandGenerationParams): Promise<CommandCreationResult> {
+  // Generate unique execution ID for tracking
+  const executionId = `cmd-gen-${commandName}-${Date.now()}`;
+
+  try {
+    // Validate required inputs
+    if (!commandName || commandName.trim() === '') {
+      return { success: false, message: 'Command name is required', status: 400 };
+    }
+
+    if (!description || description.trim() === '') {
+      return { success: false, message: 'Description is required for command generation', status: 400 };
+    }
+
+    // Sanitize command name - prevent path traversal
+    if (commandName.includes('..') || commandName.includes('/') || commandName.includes('\\')) {
+      return { success: false, message: 'Invalid command name - path characters not allowed', status: 400 };
+    }
+
+    // Get target commands directory
+    const commandsDir = getCommandsDir(location, projectPath);
+
+    // Build target path with optional group subdirectory
+    let targetDir = commandsDir;
+
+    if (group && group.trim() !== '') {
+      const sanitizedGroup = group
+        .replace(/\.\./g, '')
+        .replace(/[<>:"|?*]/g, '')
+        .replace(/\/+/g, '/')
+        .replace(/^\/|\/$/g, '');
+
+      if (sanitizedGroup) {
+        targetDir = join(commandsDir, sanitizedGroup);
+      }
+    }
+
+    const targetPath = join(targetDir, `${commandName}.md`);
+
+    // Check if command already exists
+    if (existsSync(targetPath)) {
+      return {
+        success: false,
+        message: `Command '${commandName}' already exists in ${location} location${group ? ` (group: ${group})` : ''}`,
+        status: 409
+      };
+    }
+
+    // Ensure target directory exists
+    if (!existsSync(targetDir)) {
+      await fsPromises.mkdir(targetDir, { recursive: true });
+    }
+
+    // Build target location display for prompt
+    const targetLocationDisplay = location === 'project'
+      ? '.claude/commands/'
+      : '~/.claude/commands/';
+
+    // Build structured command parameters for /command-generator skill
+    const commandParams = {
+      skillName: commandName,
+      description,
+      location,
+      group: group || '',
+      argumentHint: argumentHint || ''
+    };
+
+    // Prompt that invokes /command-generator skill with structured parameters
+    const prompt = `/command-generator
+
+## Command Parameters (Structured Input)
+
+\`\`\`json
+${JSON.stringify(commandParams, null, 2)}
+\`\`\`
+
+## User Request
+
+Create a new Claude Code command with the following specifications:
+
+- **Command Name**: ${commandName}
+- **Description**: ${description}
+- **Target Location**: ${targetLocationDisplay}${group ? `${group}/` : ''}${commandName}.md
+- **Location Type**: ${location === 'project' ? 'Project-level (.claude/commands/)' : 'User-level (~/.claude/commands/)'}
+${group ? `- **Group**: ${group}` : ''}
+${argumentHint ? `- **Argument Hint**: ${argumentHint}` : ''}
+
+## Instructions
+
+1. Use the command-generator skill to create a command file with proper YAML frontmatter
+2. Include name, description in frontmatter${group ? '\n3. Include group in frontmatter' : ''}${argumentHint ? '\n4. Include argument-hint in frontmatter' : ''}
+3. Generate useful command content and usage examples
+4. Output the file to: ${targetPath}`;
+
+    // Broadcast CLI_EXECUTION_STARTED event
+    if (broadcastToClients) {
+      broadcastToClients({
+        type: 'CLI_EXECUTION_STARTED',
+        payload: {
+          executionId,
+          tool: cliType,
+          mode: 'write',
+          category: 'internal',
+          context: 'command-generation',
+          commandName
+        }
+      });
+    }
+
+    // Create onOutput callback for real-time streaming
+    const onOutput = broadcastToClients
+      ? (unit: import('../../tools/cli-output-converter.js').CliOutputUnit) => {
+          const content = SmartContentFormatter.format(unit.content, unit.type);
+          broadcastToClients({
+            type: 'CLI_OUTPUT',
+            payload: {
+              executionId,
+              chunkType: unit.type,
+              data: content
+            }
+          });
+        }
+      : undefined;
+
+    // Execute CLI tool with write mode
+    const startTime = Date.now();
+    const result = await executeCliTool({
+      tool: cliType,
+      prompt,
+      mode: 'write',
+      cd: projectPath,
+      timeout: 600000, // 10 minutes
+      category: 'internal',
+      id: executionId
+    }, onOutput);
+
+    // Broadcast CLI_EXECUTION_COMPLETED event
+    if (broadcastToClients) {
+      broadcastToClients({
+        type: 'CLI_EXECUTION_COMPLETED',
+        payload: {
+          executionId,
+          success: result.success,
+          status: result.execution?.status || (result.success ? 'success' : 'error'),
+          duration_ms: Date.now() - startTime
+        }
+      });
+    }
+
+    // Check if execution was successful
+    if (!result.success) {
+      return {
+        success: false,
+        message: `CLI generation failed: ${result.stderr || 'Unknown error'}`,
+        status: 500
+      };
+    }
+
+    // Validate the generated command file exists
+    if (!existsSync(targetPath)) {
+      return {
+        success: false,
+        message: 'Generated command file not found at expected location',
+        status: 500
+      };
+    }
+
+    // Validate the generated command file content
+    const validation = validateCommandFile(targetPath);
+    if (!validation.valid) {
+      return {
+        success: false,
+        message: `Generated command is invalid: ${validation.errors.join(', ')}`,
+        status: 500
+      };
+    }
+
+    return {
+      success: true,
+      message: 'Command generated successfully',
+      commandName: validation.commandInfo.name,
+      location,
+      commandInfo: {
+        name: validation.commandInfo.name,
+        description: validation.commandInfo.description,
+        group: validation.commandInfo.group
+      }
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: (error as Error).message,
+      status: 500
+    };
+  }
 }
 
 /**
@@ -612,6 +1029,104 @@ export async function handleCommandsRoutes(ctx: RouteContext): Promise<boolean> 
         console.error(`[Commands] Failed to update groups config: ${message}`);
         return { error: message, status };
       }
+    });
+    return true;
+  }
+
+  // POST /api/commands/create - Create command (upload or generate)
+  if (pathname === '/api/commands/create' && req.method === 'POST') {
+    handlePostRequest(req, res, async (body) => {
+      if (!isRecord(body)) {
+        return { success: false, message: 'Invalid request body', status: 400 };
+      }
+
+      const mode = body.mode;
+      const locationValue = body.location;
+      const sourcePath = typeof body.sourcePath === 'string' ? body.sourcePath : undefined;
+      const skillName = typeof body.skillName === 'string' ? body.skillName : undefined;
+      const description = typeof body.description === 'string' ? body.description : undefined;
+      const group = typeof body.group === 'string' ? body.group : undefined;
+      const argumentHint = typeof body.argumentHint === 'string' ? body.argumentHint : undefined;
+      const projectPathParam = typeof body.projectPath === 'string' ? body.projectPath : undefined;
+      const cliType = typeof body.cliType === 'string' ? body.cliType : 'claude';
+
+      // Validate mode
+      if (mode !== 'upload' && mode !== 'generate') {
+        return { success: false, message: 'Mode is required and must be "upload" or "generate"', status: 400 };
+      }
+
+      // Validate location
+      if (locationValue !== 'project' && locationValue !== 'user') {
+        return { success: false, message: 'Location is required (project or user)', status: 400 };
+      }
+
+      const location: CommandLocation = locationValue;
+      const projectPath = projectPathParam || initialPath;
+
+      // Validate project path for security
+      let validatedProjectPath = projectPath;
+      if (location === 'project') {
+        try {
+          validatedProjectPath = await validateAllowedPath(projectPath, { mustExist: true, allowedDirectories: [initialPath] });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          const status = message.includes('Access denied') ? 403 : 400;
+          console.error(`[Commands] Project path validation failed: ${message}`);
+          return { success: false, message: status === 403 ? 'Access denied' : 'Invalid path', status };
+        }
+      }
+
+      if (mode === 'upload') {
+        // Upload mode: copy existing command file
+        if (!sourcePath) {
+          return { success: false, message: 'Source path is required for upload mode', status: 400 };
+        }
+
+        // Validate source path for security
+        let validatedSourcePath: string;
+        try {
+          validatedSourcePath = await validateAllowedPath(sourcePath, { mustExist: true });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          const status = message.includes('Access denied') ? 403 : 400;
+          console.error(`[Commands] Source path validation failed: ${message}`);
+          return { success: false, message: status === 403 ? 'Access denied' : 'Invalid source path', status };
+        }
+
+        return await uploadCommand(
+          validatedSourcePath,
+          group || '',
+          location,
+          validatedProjectPath
+        );
+      } else if (mode === 'generate') {
+        // Generate mode: use CLI to generate command
+        if (!skillName) {
+          return { success: false, message: 'Skill name is required for generate mode', status: 400 };
+        }
+        if (!description) {
+          return { success: false, message: 'Description is required for generate mode', status: 400 };
+        }
+
+        // Validate skill name for security
+        if (skillName.includes('..') || skillName.includes('/') || skillName.includes('\\')) {
+          return { success: false, message: 'Invalid skill name - path characters not allowed', status: 400 };
+        }
+
+        return await generateCommandViaCLI({
+          commandName: skillName,
+          description,
+          location,
+          projectPath: validatedProjectPath,
+          group,
+          argumentHint,
+          broadcastToClients: ctx.broadcastToClients,
+          cliType
+        });
+      }
+
+      // This should never be reached due to mode validation above
+      return { success: false, message: 'Invalid mode', status: 400 };
     });
     return true;
   }

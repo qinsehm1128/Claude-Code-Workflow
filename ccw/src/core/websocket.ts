@@ -3,9 +3,266 @@ import type { IncomingMessage } from 'http';
 import type { Duplex } from 'stream';
 import { a2uiWebSocketHandler, handleA2UIMessage } from './a2ui/A2UIWebSocketHandler.js';
 import { handleAnswer } from '../tools/ask-question.js';
+import type {
+  QueueWSMessageType,
+  QueueWSMessage,
+  QueueSchedulerStateUpdateMessage,
+  QueueItemAddedMessage,
+  QueueItemUpdatedMessage,
+  QueueItemRemovedMessage,
+  QueueSchedulerConfigUpdatedMessage,
+} from '../types/queue-types.js';
+
+// WebSocket configuration for connection limits and rate limiting
+const WS_MAX_CONNECTIONS = 100;
+const WS_MESSAGE_RATE_LIMIT = 10; // messages per second per client
+const WS_RATE_LIMIT_WINDOW = 1000; // 1 second window
 
 // WebSocket clients for real-time notifications
 export const wsClients = new Set<Duplex>();
+
+// Track message counts per client for rate limiting
+export const wsClientMessageCounts = new Map<Duplex, { count: number; resetTime: number }>();
+
+/**
+ * Universal broadcast throttling system
+ * Reduces WebSocket traffic by deduplicating and rate-limiting broadcast messages
+ */
+
+interface ThrottleEntry {
+  lastSend: number;
+  pendingData: unknown;
+}
+
+type ThrottleCategory = 'state_update' | 'memory_cpu' | 'log_output' | 'immediate';
+
+/** Map of message type to throttle configuration */
+const THROTTLE_CONFIG = new Map<string, { interval: number; category: ThrottleCategory }>(
+  [
+    // State updates - high frequency, low value when duplicated
+    ['LOOP_STATE_UPDATE', { interval: 1000, category: 'state_update' }],
+    ['ORCHESTRATOR_STATE_UPDATE', { interval: 1000, category: 'state_update' }],
+    ['COORDINATOR_STATE_UPDATE', { interval: 1000, category: 'state_update' }],
+    ['QUEUE_SCHEDULER_STATE_UPDATE', { interval: 1000, category: 'state_update' }],
+
+    // Memory/CPU updates - medium frequency
+    ['LOOP_STEP_COMPLETED', { interval: 500, category: 'memory_cpu' }],
+    ['ORCHESTRATOR_NODE_COMPLETED', { interval: 500, category: 'memory_cpu' }],
+    ['COORDINATOR_COMMAND_COMPLETED', { interval: 500, category: 'memory_cpu' }],
+    ['QUEUE_ITEM_UPDATED', { interval: 500, category: 'memory_cpu' }],
+
+    // Log/output - higher frequency allowed for real-time streaming
+    ['LOOP_LOG_ENTRY', { interval: 200, category: 'log_output' }],
+    ['ORCHESTRATOR_LOG', { interval: 200, category: 'log_output' }],
+    ['COORDINATOR_LOG_ENTRY', { interval: 200, category: 'log_output' }],
+
+    // Item added/removed - send immediately
+    ['QUEUE_ITEM_ADDED', { interval: 0, category: 'immediate' }],
+    ['QUEUE_ITEM_REMOVED', { interval: 0, category: 'immediate' }],
+    ['QUEUE_SCHEDULER_CONFIG_UPDATED', { interval: 0, category: 'immediate' }],
+    ['ORCHESTRATOR_NODE_STARTED', { interval: 0, category: 'immediate' }],
+    ['ORCHESTRATOR_NODE_FAILED', { interval: 0, category: 'immediate' }],
+    ['COORDINATOR_COMMAND_STARTED', { interval: 0, category: 'immediate' }],
+    ['COORDINATOR_COMMAND_FAILED', { interval: 0, category: 'immediate' }],
+    ['COORDINATOR_QUESTION_ASKED', { interval: 0, category: 'immediate' }],
+    ['COORDINATOR_ANSWER_RECEIVED', { interval: 0, category: 'immediate' }],
+    ['LOOP_COMPLETED', { interval: 0, category: 'immediate' }],
+  ] as const
+);
+
+/** Per-message-type throttle tracking */
+const throttleState = new Map<string, ThrottleEntry>();
+
+/** Metrics for broadcast optimization */
+export const broadcastMetrics = {
+  sent: 0,
+  throttled: 0,
+  deduped: 0,
+};
+
+/**
+ * Get throttle configuration for a message type
+ */
+function getThrottleConfig(messageType: string): { interval: number; category: ThrottleCategory } {
+  return THROTTLE_CONFIG.get(messageType) || { interval: 0, category: 'immediate' };
+}
+
+/**
+ * Serialize message data for comparison
+ */
+function serializeMessage(data: unknown): string {
+  if (typeof data === 'string') return data;
+  if (typeof data === 'object' && data !== null) {
+    return JSON.stringify(data, Object.keys(data).sort());
+  }
+  return String(data);
+}
+
+/**
+ * Create WebSocket frame
+ */
+export function createWebSocketFrame(data: unknown): Buffer {
+  const payload = Buffer.from(JSON.stringify(data), 'utf8');
+  const length = payload.length;
+
+  let frame;
+  if (length <= 125) {
+    frame = Buffer.alloc(2 + length);
+    frame[0] = 0x81; // Text frame, FIN
+    frame[1] = length;
+    payload.copy(frame, 2);
+  } else if (length <= 65535) {
+    frame = Buffer.alloc(4 + length);
+    frame[0] = 0x81;
+    frame[1] = 126;
+    frame.writeUInt16BE(length, 2);
+    payload.copy(frame, 4);
+  } else {
+    frame = Buffer.alloc(10 + length);
+    frame[0] = 0x81;
+    frame[1] = 127;
+    frame.writeBigUInt64BE(BigInt(length), 2);
+    payload.copy(frame, 10);
+  }
+
+  return frame;
+}
+
+/**
+ * Broadcast message to all connected WebSocket clients with universal throttling
+ * - Deduplicates identical messages within throttle window
+ * - Rate-limits by message type with adaptive intervals
+ * - Preserves message ordering within each type
+ */
+export function broadcastToClients(data: unknown): void {
+  const eventType =
+    typeof data === 'object' && data !== null && 'type' in data ? (data as { type?: unknown }).type : undefined;
+
+  if (!eventType || typeof eventType !== 'string') {
+    // Unknown message type - send immediately
+    const frame = createWebSocketFrame(data);
+    for (const client of wsClients) {
+      try {
+        client.write(frame);
+      } catch (e) {
+        wsClients.delete(client);
+      }
+    }
+    console.log(`[WS] Broadcast to ${wsClients.size} clients: unknown type`);
+    return;
+  }
+
+  const config = getThrottleConfig(eventType);
+  const now = Date.now();
+  const state = throttleState.get(eventType);
+
+  if (config.interval === 0) {
+    // Immediate - send without throttling
+    const frame = createWebSocketFrame(data);
+    for (const client of wsClients) {
+      try {
+        client.write(frame);
+      } catch (e) {
+        wsClients.delete(client);
+      }
+    }
+    broadcastMetrics.sent++;
+    throttleState.set(eventType, { lastSend: now, pendingData: data });
+    console.log(`[WS] Broadcast to ${wsClients.size} clients: ${eventType} (immediate)`);
+    return;
+  }
+
+  // Check if we should throttle
+  const currentDataHash = serializeMessage(data);
+
+  if (state) {
+    const timeSinceLastSend = now - state.lastSend;
+
+    // Check for duplicate data
+    if (timeSinceLastSend < config.interval) {
+      const pendingDataHash = serializeMessage(state.pendingData);
+      if (currentDataHash === pendingDataHash) {
+        // Duplicate message - drop it
+        broadcastMetrics.deduped++;
+        console.log(`[WS] Throttled duplicate ${eventType} (${timeSinceLastSend}ms since last)`);
+        return;
+      }
+      // Different data but within throttle window - update pending
+      throttleState.set(eventType, { lastSend: state.lastSend, pendingData: data });
+      broadcastMetrics.throttled++;
+      console.log(`[WS] Throttled ${eventType} (${timeSinceLastSend}ms since last, pending updated)`);
+      return;
+    }
+  }
+
+  // Send the message
+  const frame = createWebSocketFrame(data);
+  for (const client of wsClients) {
+    try {
+      client.write(frame);
+    } catch (e) {
+      wsClients.delete(client);
+    }
+  }
+
+  broadcastMetrics.sent++;
+  throttleState.set(eventType, { lastSend: now, pendingData: data });
+  console.log(`[WS] Broadcast to ${wsClients.size} clients: ${eventType}`);
+}
+
+/**
+ * Get broadcast throttling metrics
+ */
+export function getBroadcastMetrics(): Readonly<typeof broadcastMetrics> {
+  return { ...broadcastMetrics };
+}
+
+/**
+ * Reset broadcast throttling metrics (for testing/monitoring)
+ */
+export function resetBroadcastMetrics(): void {
+  broadcastMetrics.sent = 0;
+  broadcastMetrics.throttled = 0;
+  broadcastMetrics.deduped = 0;
+}
+
+/**
+ * Check if a new WebSocket connection should be accepted
+ * Returns true if connection allowed, false if limit reached
+ */
+export function canAcceptWebSocketConnection(): boolean {
+  return wsClients.size < WS_MAX_CONNECTIONS;
+}
+
+/**
+ * Check if a client has exceeded their message rate limit
+ * Returns true if rate limit OK, false if exceeded
+ */
+export function checkClientRateLimit(client: Duplex): boolean {
+  const now = Date.now();
+  const tracking = wsClientMessageCounts.get(client);
+
+  if (!tracking || now > tracking.resetTime) {
+    // First message or window expired - reset tracking
+    wsClientMessageCounts.set(client, { count: 1, resetTime: now + WS_RATE_LIMIT_WINDOW });
+    return true;
+  }
+
+  if (tracking.count >= WS_MESSAGE_RATE_LIMIT) {
+    return false; // Rate limit exceeded
+  }
+
+  tracking.count++;
+  return true;
+}
+
+/**
+ * Clean up client tracking when they disconnect
+ */
+export function removeClientTracking(client: Duplex): void {
+  wsClients.delete(client);
+  wsClientMessageCounts.delete(client);
+}
 
 /**
  * WebSocket message types for Loop monitoring
@@ -145,6 +402,24 @@ export function handleWebSocketUpgrade(req: IncomingMessage, socket: Duplex, _he
     socket.end();
     return;
   }
+
+  // Check connection limit
+  if (!canAcceptWebSocketConnection()) {
+    const responseHeaders = [
+      'HTTP/1.1 429 Too Many Requests',
+      'Content-Type: text/plain',
+      'Connection: close',
+      '',
+      'WebSocket connection limit reached. Please try again later.',
+      '',
+      ''
+    ].join('\r\n');
+    socket.write(responseHeaders);
+    socket.end();
+    console.warn(`[WS] Connection rejected: limit reached (${wsClients.size}/${WS_MAX_CONNECTIONS})`);
+    return;
+  }
+
   const acceptKey = createHash('sha1')
     .update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')
     .digest('base64');
@@ -162,6 +437,8 @@ export function handleWebSocketUpgrade(req: IncomingMessage, socket: Duplex, _he
 
   // Add to clients set
   wsClients.add(socket);
+  // Initialize rate limit tracking
+  wsClientMessageCounts.set(socket, { count: 0, resetTime: Date.now() + WS_RATE_LIMIT_WINDOW });
   console.log(`[WS] Client connected (${wsClients.size} total)`);
 
   // Replay any buffered A2UI surfaces to the new client
@@ -185,6 +462,11 @@ export function handleWebSocketUpgrade(req: IncomingMessage, socket: Duplex, _he
         switch (opcode) {
           case 0x1: // Text frame
             if (payload) {
+              // Check rate limit before processing
+              if (!checkClientRateLimit(socket)) {
+                console.warn('[WS] Rate limit exceeded for client');
+                break;
+              }
               console.log('[WS] Received:', payload);
               // Try to handle as A2UI message
               const handledAsA2UI = handleA2UIMessage(payload, a2uiWebSocketHandler, handleAnswer);
@@ -218,12 +500,12 @@ export function handleWebSocketUpgrade(req: IncomingMessage, socket: Duplex, _he
 
   // Handle disconnect
   socket.on('close', () => {
-    wsClients.delete(socket);
+    removeClientTracking(socket);
     console.log(`[WS] Client disconnected (${wsClients.size} remaining)`);
   });
 
   socket.on('error', () => {
-    wsClients.delete(socket);
+    removeClientTracking(socket);
   });
 }
 
@@ -278,55 +560,6 @@ export function parseWebSocketFrame(buffer: Buffer): { opcode: number; payload: 
 }
 
 /**
- * Create WebSocket frame
- */
-export function createWebSocketFrame(data: unknown): Buffer {
-  const payload = Buffer.from(JSON.stringify(data), 'utf8');
-  const length = payload.length;
-
-  let frame;
-  if (length <= 125) {
-    frame = Buffer.alloc(2 + length);
-    frame[0] = 0x81; // Text frame, FIN
-    frame[1] = length;
-    payload.copy(frame, 2);
-  } else if (length <= 65535) {
-    frame = Buffer.alloc(4 + length);
-    frame[0] = 0x81;
-    frame[1] = 126;
-    frame.writeUInt16BE(length, 2);
-    payload.copy(frame, 4);
-  } else {
-    frame = Buffer.alloc(10 + length);
-    frame[0] = 0x81;
-    frame[1] = 127;
-    frame.writeBigUInt64BE(BigInt(length), 2);
-    payload.copy(frame, 10);
-  }
-
-  return frame;
-}
-
-/**
- * Broadcast message to all connected WebSocket clients
- */
-export function broadcastToClients(data: unknown): void {
-  const frame = createWebSocketFrame(data);
-
-  for (const client of wsClients) {
-    try {
-      client.write(frame);
-    } catch (e) {
-      wsClients.delete(client);
-    }
-  }
-
-  const eventType =
-    typeof data === 'object' && data !== null && 'type' in data ? (data as { type?: unknown }).type : undefined;
-  console.log(`[WS] Broadcast to ${wsClients.size} clients:`, eventType);
-}
-
-/**
  * Extract session ID from file path
  */
 export function extractSessionIdFromPath(filePath: string): string | null {
@@ -355,12 +588,9 @@ export function extractSessionIdFromPath(filePath: string): string | null {
 }
 
 /**
- * Loop-specific broadcast with throttling
- * Throttles LOOP_STATE_UPDATE messages to avoid flooding clients
+ * Loop broadcast types (without timestamp - added automatically)
+ * Throttling is handled universally in broadcastToClients
  */
-let lastLoopBroadcast = 0;
-const LOOP_BROADCAST_THROTTLE = 1000; // 1 second
-
 export type LoopMessage =
   | Omit<LoopStateUpdateMessage, 'timestamp'>
   | Omit<LoopStepCompletedMessage, 'timestamp'>
@@ -368,18 +598,10 @@ export type LoopMessage =
   | Omit<LoopLogEntryMessage, 'timestamp'>;
 
 /**
- * Broadcast loop state update with throttling
+ * Broadcast loop update with automatic throttling
+ * Note: Throttling is now handled universally in broadcastToClients
  */
 export function broadcastLoopUpdate(message: LoopMessage): void {
-  const now = Date.now();
-
-  // Throttle LOOP_STATE_UPDATE to reduce WebSocket traffic
-  if (message.type === 'LOOP_STATE_UPDATE' && now - lastLoopBroadcast < LOOP_BROADCAST_THROTTLE) {
-    return;
-  }
-
-  lastLoopBroadcast = now;
-
   broadcastToClients({
     ...message,
     timestamp: new Date().toISOString()
@@ -387,8 +609,8 @@ export function broadcastLoopUpdate(message: LoopMessage): void {
 }
 
 /**
- * Broadcast loop log entry (no throttling)
- * Used for streaming real-time logs to Dashboard
+ * Broadcast loop log entry
+ * Note: Throttling is now handled universally in broadcastToClients
  */
 export function broadcastLoopLog(loop_id: string, step_id: string, line: string): void {
   broadcastToClients({
@@ -402,6 +624,7 @@ export function broadcastLoopLog(loop_id: string, step_id: string, line: string)
 
 /**
  * Union type for Orchestrator messages (without timestamp - added automatically)
+ * Throttling is handled universally in broadcastToClients
  */
 export type OrchestratorMessage =
   | Omit<OrchestratorStateUpdateMessage, 'timestamp'>
@@ -411,29 +634,10 @@ export type OrchestratorMessage =
   | Omit<OrchestratorLogMessage, 'timestamp'>;
 
 /**
- * Orchestrator-specific broadcast with throttling
- * Throttles ORCHESTRATOR_STATE_UPDATE messages to avoid flooding clients
- */
-let lastOrchestratorBroadcast = 0;
-const ORCHESTRATOR_BROADCAST_THROTTLE = 1000; // 1 second
-
-/**
- * Broadcast orchestrator update with throttling
- * STATE_UPDATE messages are throttled to 1 per second
- * Other message types are sent immediately
+ * Broadcast orchestrator update with automatic throttling
+ * Note: Throttling is now handled universally in broadcastToClients
  */
 export function broadcastOrchestratorUpdate(message: OrchestratorMessage): void {
-  const now = Date.now();
-
-  // Throttle ORCHESTRATOR_STATE_UPDATE to reduce WebSocket traffic
-  if (message.type === 'ORCHESTRATOR_STATE_UPDATE' && now - lastOrchestratorBroadcast < ORCHESTRATOR_BROADCAST_THROTTLE) {
-    return;
-  }
-
-  if (message.type === 'ORCHESTRATOR_STATE_UPDATE') {
-    lastOrchestratorBroadcast = now;
-  }
-
   broadcastToClients({
     ...message,
     timestamp: new Date().toISOString()
@@ -441,8 +645,8 @@ export function broadcastOrchestratorUpdate(message: OrchestratorMessage): void 
 }
 
 /**
- * Broadcast orchestrator log entry (no throttling)
- * Used for streaming real-time execution logs to Dashboard
+ * Broadcast orchestrator log entry
+ * Note: Throttling is now handled universally in broadcastToClients
  */
 export function broadcastOrchestratorLog(execId: string, log: Omit<ExecutionLog, 'timestamp'>): void {
   broadcastToClients({
@@ -559,6 +763,7 @@ export interface CoordinatorAnswerReceivedMessage {
 
 /**
  * Union type for Coordinator messages (without timestamp - added automatically)
+ * Throttling is handled universally in broadcastToClients
  */
 export type CoordinatorMessage =
   | Omit<CoordinatorStateUpdateMessage, 'timestamp'>
@@ -570,29 +775,10 @@ export type CoordinatorMessage =
   | Omit<CoordinatorAnswerReceivedMessage, 'timestamp'>;
 
 /**
- * Coordinator-specific broadcast with throttling
- * Throttles COORDINATOR_STATE_UPDATE messages to avoid flooding clients
- */
-let lastCoordinatorBroadcast = 0;
-const COORDINATOR_BROADCAST_THROTTLE = 1000; // 1 second
-
-/**
- * Broadcast coordinator update with throttling
- * STATE_UPDATE messages are throttled to 1 per second
- * Other message types are sent immediately
+ * Broadcast coordinator update with automatic throttling
+ * Note: Throttling is now handled universally in broadcastToClients
  */
 export function broadcastCoordinatorUpdate(message: CoordinatorMessage): void {
-  const now = Date.now();
-
-  // Throttle COORDINATOR_STATE_UPDATE to reduce WebSocket traffic
-  if (message.type === 'COORDINATOR_STATE_UPDATE' && now - lastCoordinatorBroadcast < COORDINATOR_BROADCAST_THROTTLE) {
-    return;
-  }
-
-  if (message.type === 'COORDINATOR_STATE_UPDATE') {
-    lastCoordinatorBroadcast = now;
-  }
-
   broadcastToClients({
     ...message,
     timestamp: new Date().toISOString()
@@ -600,8 +786,8 @@ export function broadcastCoordinatorUpdate(message: CoordinatorMessage): void {
 }
 
 /**
- * Broadcast coordinator log entry (no throttling)
- * Used for streaming real-time coordinator logs to Dashboard
+ * Broadcast coordinator log entry
+ * Note: Throttling is now handled universally in broadcastToClients
  */
 export function broadcastCoordinatorLog(
   executionId: string,
@@ -619,6 +805,38 @@ export function broadcastCoordinatorLog(
       ...log,
       timestamp: new Date().toISOString()
     },
+    timestamp: new Date().toISOString()
+  });
+}
+
+// Re-export Queue WebSocket types from queue-types.ts
+export type {
+  QueueWSMessageType as QueueMessageType,
+  QueueSchedulerStateUpdateMessage,
+  QueueItemAddedMessage,
+  QueueItemUpdatedMessage,
+  QueueItemRemovedMessage,
+  QueueSchedulerConfigUpdatedMessage,
+};
+
+/**
+ * Union type for Queue messages (without timestamp - added automatically)
+ * Throttling is handled universally in broadcastToClients
+ */
+export type QueueMessage =
+  | Omit<QueueSchedulerStateUpdateMessage, 'timestamp'>
+  | Omit<QueueItemAddedMessage, 'timestamp'>
+  | Omit<QueueItemUpdatedMessage, 'timestamp'>
+  | Omit<QueueItemRemovedMessage, 'timestamp'>
+  | Omit<QueueSchedulerConfigUpdatedMessage, 'timestamp'>;
+
+/**
+ * Broadcast queue update with automatic throttling
+ * Note: Throttling is now handled universally in broadcastToClients
+ */
+export function broadcastQueueUpdate(message: QueueMessage): void {
+  broadcastToClients({
+    ...message,
     timestamp: new Date().toISOString()
   });
 }

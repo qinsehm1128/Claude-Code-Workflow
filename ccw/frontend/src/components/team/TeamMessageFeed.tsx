@@ -90,11 +90,11 @@ function MessageRow({ msg }: { msg: TeamMessage }) {
         {/* Summary */}
         <p className="text-xs text-foreground/80">{msg.summary}</p>
 
-        {/* Ref link */}
-        {msg.ref && (
+        {/* Ref link (supports both legacy msg.ref and new data.ref) */}
+        {(msg.ref || (msg.data?.ref as string)) && (
           <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
             <FileText className="w-3 h-3" />
-            <span className="font-mono truncate">{msg.ref}</span>
+            <span className="font-mono truncate">{msg.ref || (msg.data?.ref as string)}</span>
           </div>
         )}
 

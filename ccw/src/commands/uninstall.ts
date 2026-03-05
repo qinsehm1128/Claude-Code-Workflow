@@ -4,7 +4,7 @@ import { homedir, platform } from 'os';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 import { showBanner, createSpinner, success, info, warning, error, summaryBox, divider } from '../utils/ui.js';
-import { getAllManifests, deleteManifest } from '../core/manifest.js';
+import { getAllManifests, deleteManifest, getFileReferenceCounts } from '../core/manifest.js';
 import { removeGitBashFix } from './install.js';
 
 // Global subdirectories that should be protected when Global installation exists
@@ -126,6 +126,7 @@ export async function uninstallCommand(options: UninstallOptions): Promise<void>
   let removedFiles = 0;
   let removedDirs = 0;
   let failedFiles: FileEntry[] = [];
+  let orphanStats = { removed: 0, scanned: 0 };
 
   try {
     // Remove files first (in reverse order to handle nested files)
@@ -202,6 +203,10 @@ export async function uninstallCommand(options: UninstallOptions): Promise<void>
       }
     }
 
+    // Orphan cleanup: Scan for skills/commands not tracked in any manifest
+    // This handles files installed by skill-hub that weren't tracked properly
+    const orphanStats = await cleanupOrphanFiles(selectedManifest.manifest_id);
+
     spinner.succeed('Uninstall complete!');
 
   } catch (err) {
@@ -231,6 +236,10 @@ export async function uninstallCommand(options: UninstallOptions): Promise<void>
 
   if (skippedFiles > 0) {
     summaryLines.push(chalk.white(`Global files preserved: ${chalk.cyan(skippedFiles.toString())}`));
+  }
+
+  if (orphanStats.removed > 0) {
+    summaryLines.push(chalk.white(`Orphan files cleaned: ${chalk.magenta(orphanStats.removed.toString())}`));
   }
 
   if (failedFiles.length > 0) {
@@ -279,6 +288,93 @@ export async function uninstallCommand(options: UninstallOptions): Promise<void>
   }
 
   console.log('');
+}
+
+/**
+ * Clean up orphan files in skills/commands directories that weren't tracked in manifest
+ * This handles files installed by skill-hub that bypassed manifest tracking
+ * @param excludeManifestId - Manifest ID being uninstalled (to exclude from reference check)
+ * @returns Count of removed orphan files and total scanned
+ */
+async function cleanupOrphanFiles(excludeManifestId: string): Promise<{ removed: number; scanned: number }> {
+  let removed = 0;
+  let scanned = 0;
+  const home = homedir();
+
+  // Directories to scan for orphan files
+  const scanDirs = [
+    { base: join(home, '.claude', 'skills'), type: 'skill' },
+    { base: join(home, '.claude', 'commands'), type: 'command' },
+    { base: join(home, '.codex', 'skills'), type: 'skill' },
+    { base: join(home, '.codex', 'commands'), type: 'command' },
+  ];
+
+  // Get file reference counts excluding the manifest being uninstalled
+  const fileRefs = getFileReferenceCounts(excludeManifestId);
+
+  for (const { base } of scanDirs) {
+    if (!existsSync(base)) continue;
+
+    try {
+      // Recursively scan directory for files
+      const files = scanDirectoryForFiles(base);
+
+      for (const filePath of files) {
+        scanned++;
+
+        // Check if file is referenced by any remaining manifest
+        const normalizedPath = filePath.toLowerCase().replace(/\\/g, '/');
+        const refs = fileRefs.get(normalizedPath) || [];
+
+        // If not referenced, it's an orphan - remove it
+        if (refs.length === 0) {
+          try {
+            unlinkSync(filePath);
+            removed++;
+          } catch {
+            // Ignore removal errors (file may be in use)
+          }
+        }
+      }
+
+      // Clean up empty directories after orphan removal
+      await removeEmptyDirs(base);
+    } catch {
+      // Ignore scan errors
+    }
+  }
+
+  return { removed, scanned };
+}
+
+/**
+ * Recursively scan directory for all files
+ * @param dirPath - Directory to scan
+ * @returns Array of file paths
+ */
+function scanDirectoryForFiles(dirPath: string): string[] {
+  const files: string[] = [];
+
+  if (!existsSync(dirPath)) return files;
+
+  try {
+    const entries = readdirSync(dirPath);
+
+    for (const entry of entries) {
+      const fullPath = join(dirPath, entry);
+      const stat = statSync(fullPath);
+
+      if (stat.isDirectory()) {
+        files.push(...scanDirectoryForFiles(fullPath));
+      } else {
+        files.push(fullPath);
+      }
+    }
+  } catch {
+    // Ignore scan errors
+  }
+
+  return files;
 }
 
 /**

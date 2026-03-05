@@ -9,6 +9,7 @@ import {
   crossCliCopy,
   fetchAllProjects,
   fetchOtherProjectsServers,
+  isStdioMcpServer,
   type McpServer,
 } from './api';
 
@@ -64,11 +65,14 @@ describe('MCP API (frontend ↔ backend contract)', () => {
     expect(global1?.scope).toBe('global');
 
     const projOnly = result.project[0];
-    expect(projOnly?.command).toBe('node');
+    expect(isStdioMcpServer(projOnly)).toBe(true);
+    if (isStdioMcpServer(projOnly)) {
+      expect(projOnly.command).toBe('node');
+      expect(projOnly.env).toEqual({ A: '1' });
+      expect(projOnly.args).toEqual(['x']);
+    }
     expect(projOnly?.enabled).toBe(true);
     expect(projOnly?.scope).toBe('project');
-    expect(projOnly?.env).toEqual({ A: '1' });
-    expect(projOnly?.args).toEqual(['x']);
   });
 
   it('toggleMcpServer uses /api/mcp-toggle with { projectPath, serverName, enable }', async () => {
@@ -150,6 +154,7 @@ describe('MCP API (frontend ↔ backend contract)', () => {
 
     const inputServer: McpServer = {
       name: 's1',
+      transport: 'stdio',
       command: 'node',
       args: ['a'],
       env: { K: 'V' },
@@ -290,4 +295,3 @@ describe('MCP API (frontend ↔ backend contract)', () => {
     expect(res.servers['D:/a']?.[0]?.enabled).toBe(false);
   });
 });
-

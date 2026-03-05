@@ -335,6 +335,9 @@ export interface WorkflowState {
 
   // Query invalidation callback (internal)
   _invalidateQueriesCallback?: () => void;
+
+  // Hydration state (internal)
+  _hasHydrated: boolean;
 }
 
 export interface WorkflowActions {
@@ -369,6 +372,7 @@ export interface WorkflowActions {
   removeRecentPath: (path: string) => Promise<void>;
   refreshRecentPaths: () => Promise<void>;
   registerQueryInvalidator: (callback: () => void) => void;
+  setHasHydrated: (state: boolean) => void;
 
   // Filters and sorting
   setFilters: (filters: Partial<WorkflowFilters>) => void;

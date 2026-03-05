@@ -3,7 +3,8 @@
   "description": "查看和管理 CLI 执行历史",
   "tabs": {
     "executions": "执行历史",
-    "observability": "会话审计"
+    "observability": "会话审计",
+    "nativeSessions": "原生会话"
   },
   "searchPlaceholder": "搜索执行记录...",
   "filterAllTools": "全部工具",
@@ -33,5 +34,15 @@
     "message": "运行 CLI 命令后，执行历史将显示在这里。",
     "filtered": "没有匹配结果",
     "filteredMessage": "没有匹配当前筛选条件的执行记录。请尝试调整搜索或筛选条件。"
+  },
+  "nativeSessions": {
+    "count": "{count} 个原生会话",
+    "sessions": "个会话",
+    "loading": "加载中...",
+    "loadMore": "加载更多",
+    "empty": {
+      "title": "无原生会话",
+      "message": "来自 Gemini、Codex、Qwen 等的原生 CLI 会话将显示在这里。"
+    }
   }
 }

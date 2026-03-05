@@ -80,6 +80,14 @@
           "Maps keywords to execution modes using ModeRegistryService",
           "Injects systemMessage on mode activation"
         ]
+      },
+      {
+        "name": "Spec Context Injection",
+        "description": "Loads project specs matching prompt keywords and injects as system context",
+        "enabled": true,
+        "command": "ccw spec load --stdin",
+        "timeout": 5000,
+        "failMode": "silent"
       }
     ],
     "file-modified": [

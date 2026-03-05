@@ -85,13 +85,14 @@ Tools are selected based on **tags** defined in the configuration. Use tags to m
 
 ```bash
 # Explicit tool selection
-ccw cli -p "<PROMPT>" --tool <tool-id> --mode <analysis|write|review>
+ccw cli -p "<PROMPT>" --tool <tool-id> --mode <analysis|write>
 
 # Model override
 ccw cli -p "<PROMPT>" --tool <tool-id> --model <model-id> --mode <analysis|write>
 
-# Code review (codex only)
+# Code review (codex only - review mode and target flags are invalid for other tools)
 ccw cli -p "<PROMPT>" --tool codex --mode review
+ccw cli --tool codex --mode review --commit <hash>
 
 # Tag-based auto-selection (future)
 ccw cli -p "<PROMPT>" --tags <tag1,tag2> --mode <analysis|write>
@@ -292,11 +293,8 @@ ccw cli -p "..." --tool gemini --mode analysis --rule analysis-review-architectu
 - **`review`**
   - Permission: Read-only (code review output)
   - Use For: Git-aware code review of uncommitted changes, branch diffs, specific commits
-  - Specification: **codex only** - uses `codex review` subcommand
-  - Tool Behavior:
-    - `codex`: Executes `codex review` for structured code review
-    - Other tools (gemini/qwen/claude): Accept mode but no operation change (treated as analysis)
-  - **Constraint**: Target flags (`--uncommitted`, `--base`, `--commit`) and prompt are mutually exclusive
+  - Specification: **codex only** - uses `codex review` subcommand. Other tools MUST NOT use this mode
+  - **Constraint**: Target flags (`--uncommitted`, `--base`, `--commit`) are **codex-only** and mutually exclusive with prompt
     - With prompt only: `ccw cli -p "Focus on security" --tool codex --mode review` (reviews uncommitted by default)
     - With target flag only: `ccw cli --tool codex --mode review --commit abc123` (no prompt allowed)
 
@@ -309,7 +307,7 @@ ccw cli -p "..." --tool gemini --mode analysis --rule analysis-review-architectu
 - **`--mode <mode>`**
   - Description: **REQUIRED**: analysis, write, review
   - Default: **NONE** (must specify)
-  - Note: `review` mode triggers `codex review` subcommand for codex tool only
+  - Note: `review` mode is **codex-only**. Using `--mode review` with other tools (gemini/qwen/claude) is invalid and should be rejected
 
 - **`--model <model>`**
   - Description: Model override
@@ -446,7 +444,7 @@ ccw cli --tool codex --mode review --base main
 ccw cli --tool codex --mode review --commit abc123
 ```
 
-> **Note**: `--mode review` only triggers special behavior for `codex` tool. Target flags (`--uncommitted`, `--base`, `--commit`) and prompt are **mutually exclusive** - use one or the other, not both.
+> **Note**: `--mode review` and target flags (`--uncommitted`, `--base`, `--commit`) are **codex-only**. Using them with other tools is invalid. When using codex, target flags and prompt are **mutually exclusive** - use one or the other, not both.
 
 ---
 
@@ -455,9 +453,9 @@ ccw cli --tool codex --mode review --commit abc123
 **Single-Use Authorization**: Each execution requires explicit user instruction. Previous authorization does NOT carry over.
 
 **Mode Hierarchy**:
-- `analysis`: Read-only, safe for auto-execution
-- `write`: Create/Modify/Delete files, full operations - requires explicit `--mode write`
-- `review`: Git-aware code review (codex only), read-only output - requires explicit `--mode review`
+- `analysis`: Read-only, safe for auto-execution. Available for all tools
+- `write`: Create/Modify/Delete files, full operations - requires explicit `--mode write`. Available for all tools
+- `review`: **codex-only**. Git-aware code review, read-only output. Invalid for other tools (gemini/qwen/claude)
 - **Exception**: User provides clear instructions like "modify", "create", "implement"
 
 ---

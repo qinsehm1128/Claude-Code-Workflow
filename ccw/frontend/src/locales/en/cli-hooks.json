@@ -74,7 +74,8 @@
     "categories": {
       "notification": "Notification",
       "indexing": "Indexing",
-      "automation": "Automation"
+      "automation": "Automation",
+      "utility": "Utility"
     },
     "templates": {
       "session-start-notify": {
@@ -116,6 +117,30 @@
       "project-state-inject": {
         "name": "Project State Inject",
         "description": "Inject project guidelines and recent dev history at session start"
+      },
+      "memory-v2-extract": {
+        "name": "Memory V2 Extract",
+        "description": "Trigger Phase 1 extraction when session ends (after idle period)"
+      },
+      "memory-v2-auto-consolidate": {
+        "name": "Memory V2 Auto Consolidate",
+        "description": "Trigger Phase 2 consolidation after extraction jobs complete"
+      },
+      "memory-sync-dashboard": {
+        "name": "Memory Sync Dashboard",
+        "description": "Sync memory V2 status to dashboard on changes"
+      },
+      "memory-auto-compress": {
+        "name": "Auto Memory Compress",
+        "description": "Automatically compress memory when entries exceed threshold"
+      },
+      "memory-preview-extract": {
+        "name": "Memory Preview & Extract",
+        "description": "Preview extraction queue and extract eligible sessions"
+      },
+      "memory-status-check": {
+        "name": "Memory Status Check",
+        "description": "Check memory extraction and consolidation status"
       }
     },
     "actions": {

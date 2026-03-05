@@ -236,13 +236,18 @@ function parseGeminiQwenSession(content: string, tool: string): ParsedSession {
   let model: string | undefined;
 
   for (const msg of session.messages) {
+    // Ensure content is always a string (handle legacy object data like {text: "..."})
+    const contentStr = typeof msg.content === 'string'
+      ? msg.content
+      : JSON.stringify(msg.content);
+
     if (msg.type === 'user') {
       turnNumber++;
       turns.push({
         turnNumber,
         timestamp: msg.timestamp,
         role: 'user',
-        content: msg.content
+        content: contentStr
       });
     } else if (msg.type === 'gemini' || msg.type === 'qwen') {
       // Find the corresponding user turn
@@ -255,7 +260,7 @@ function parseGeminiQwenSession(content: string, tool: string): ParsedSession {
         turnNumber,
         timestamp: msg.timestamp,
         role: 'assistant',
-        content: msg.content,
+        content: contentStr,
         thoughts: thoughts.length > 0 ? thoughts : undefined,
         tokens: msg.tokens ? {
           input: msg.tokens.input,
@@ -428,7 +433,11 @@ function parseCodexSession(content: string): ParsedSession {
           currentTurn++;
           const textContent = item.payload.content
             ?.filter(c => c.type === 'input_text')
-            .map(c => c.text)
+            .map(c => {
+              // Ensure text is a string (handle legacy object data like {text: "..."})
+              const txt = c.text;
+              return typeof txt === 'string' ? txt : JSON.stringify(txt);
+            })
             .join('\n') || '';
 
           turns.push({
@@ -461,7 +470,11 @@ function parseCodexSession(content: string): ParsedSession {
           // Assistant message (final response)
           const textContent = item.payload.content
             ?.filter(c => c.type === 'output_text' || c.type === 'text')
-            .map(c => c.text)
+            .map(c => {
+              // Ensure text is a string (handle legacy object data like {text: "..."})
+              const txt = c.text;
+              return typeof txt === 'string' ? txt : JSON.stringify(txt);
+            })
             .join('\n') || '';
 
           if (textContent) {

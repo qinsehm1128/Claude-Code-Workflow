@@ -7,7 +7,6 @@ import { useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useIntl } from 'react-intl';
 import {
-  Workflow,
   Moon,
   Sun,
   RefreshCw,
@@ -16,10 +15,10 @@ import {
   LogOut,
   Terminal,
   Bell,
-  Clock,
   Monitor,
   SquareTerminal,
 } from 'lucide-react';
+import { CCWLogo } from '@/components/icons/CCWLogo';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -73,11 +72,11 @@ export function Header({
         {/* Logo / Brand */}
         <Link
           to="/"
-          className="flex items-center gap-2 text-lg font-semibold text-primary hover:opacity-80 transition-opacity"
+          className="flex items-center gap-2 text-lg font-semibold hover:opacity-80 transition-opacity"
         >
-          <Workflow className="w-6 h-6" />
-          <span className="hidden sm:inline">{formatMessage({ id: 'navigation.header.brand' })}</span>
-          <span className="sm:hidden">{formatMessage({ id: 'navigation.header.brandShort' })}</span>
+          <CCWLogo size={24} />
+          <span className="hidden sm:inline text-primary">{formatMessage({ id: 'navigation.header.brand' })}</span>
+          <span className="sm:hidden text-primary">{formatMessage({ id: 'navigation.header.brandShort' })}</span>
         </Link>
 
         {/* A2UI Quick Action Button */}
@@ -86,19 +85,6 @@ export function Header({
 
       {/* Right side - Actions */}
       <div className="flex items-center gap-2">
-        {/* History entry */}
-        <Button
-          variant="ghost"
-          size="sm"
-          asChild
-          className="gap-2"
-        >
-          <Link to="/history" className="inline-flex items-center gap-2">
-            <Clock className="h-4 w-4" />
-            <span className="hidden sm:inline">{formatMessage({ id: 'navigation.main.history' })}</span>
-          </Link>
-        </Button>
-
         {/* CLI Monitor button */}
         <Button
           variant="ghost"

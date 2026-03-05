@@ -3,7 +3,8 @@
   "description": "View and manage your CLI execution history",
   "tabs": {
     "executions": "Executions",
-    "observability": "Session Audit"
+    "observability": "Session Audit",
+    "nativeSessions": "Native Sessions"
   },
   "searchPlaceholder": "Search executions...",
   "filterAllTools": "All Tools",
@@ -33,5 +34,15 @@
     "message": "CLI execution history will appear here when you run CLI commands.",
     "filtered": "No Matching Results",
     "filteredMessage": "No executions match your current filter. Try adjusting your search or filter."
+  },
+  "nativeSessions": {
+    "count": "{count} native sessions",
+    "sessions": "sessions",
+    "loading": "Loading...",
+    "loadMore": "Load More",
+    "empty": {
+      "title": "No Native Sessions",
+      "message": "Native CLI sessions from Gemini, Codex, Qwen, etc. will appear here."
+    }
   }
 }

@@ -744,3 +744,142 @@
 [data-reduced-motion="true"] .bg-image-layer {
   transition: none !important;
 }
+
+/* ===========================
+   Markdown Preview Styles
+   =========================== */
+.markdown-preview {
+  padding: 1rem;
+}
+
+.markdown-preview .prose {
+  color: hsl(var(--text));
+  max-width: none;
+}
+
+.markdown-preview .prose h1,
+.markdown-preview .prose h2,
+.markdown-preview .prose h3,
+.markdown-preview .prose h4 {
+  color: hsl(var(--text));
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  font-weight: 600;
+}
+
+.markdown-preview .prose h1 { font-size: 1.5em; }
+.markdown-preview .prose h2 { font-size: 1.25em; }
+.markdown-preview .prose h3 { font-size: 1.125em; }
+.markdown-preview .prose h4 { font-size: 1em; }
+
+.markdown-preview .prose p {
+  margin-top: 0.75em;
+  margin-bottom: 0.75em;
+}
+
+.markdown-preview .prose ul,
+.markdown-preview .prose ol {
+  margin-top: 0.75em;
+  margin-bottom: 0.75em;
+  padding-left: 1.5em;
+}
+
+.markdown-preview .prose li {
+  margin-top: 0.25em;
+  margin-bottom: 0.25em;
+}
+
+.markdown-preview .prose code {
+  background-color: hsl(var(--muted));
+  padding: 0.125em 0.375em;
+  border-radius: 0.25em;
+  font-size: 0.875em;
+}
+
+.markdown-preview .prose pre {
+  background-color: hsl(var(--muted));
+  padding: 1em;
+  border-radius: 0.5em;
+  overflow-x: auto;
+  margin-top: 0.75em;
+  margin-bottom: 0.75em;
+}
+
+.markdown-preview .prose pre code {
+  background-color: transparent;
+  padding: 0;
+  font-size: 0.875em;
+}
+
+.markdown-preview .prose blockquote {
+  border-left: 3px solid hsl(var(--accent));
+  padding-left: 1em;
+  margin-left: 0;
+  color: hsl(var(--text-secondary));
+  font-style: italic;
+}
+
+.markdown-preview .prose a {
+  color: hsl(var(--accent));
+  text-decoration: underline;
+}
+
+.markdown-preview .prose a:hover {
+  opacity: 0.8;
+}
+
+.markdown-preview .prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.75em;
+  margin-bottom: 0.75em;
+}
+
+.markdown-preview .prose th,
+.markdown-preview .prose td {
+  border: 1px solid hsl(var(--border));
+  padding: 0.5em 0.75em;
+  text-align: left;
+}
+
+.markdown-preview .prose th {
+  background-color: hsl(var(--muted));
+  font-weight: 600;
+}
+
+.markdown-preview .prose hr {
+  border: none;
+  border-top: 1px solid hsl(var(--border));
+  margin-top: 1.5em;
+  margin-bottom: 1.5em;
+}
+
+/* Highlight.js overrides for dark theme */
+.markdown-preview .hljs {
+  background: transparent !important;
+}
+
+[data-theme^="dark"] .markdown-preview .prose pre {
+  background-color: hsl(220 25% 12%);
+}
+
+[data-theme^="dark"] .markdown-preview .prose code {
+  background-color: hsl(220 25% 18%);
+}
+
+/* ===========================
+   CCW Logo
+   =========================== */
+.ccw-logo,
+svg.ccw-logo,
+header .ccw-logo {
+  color: hsl(var(--accent)) !important;
+}
+
+/* Ensure dot inherits color */
+.ccw-logo circle,
+svg.ccw-logo circle {
+  fill: currentColor;
+}
+
+/* Theme-specific accent colors are applied automatically via --accent variable */

@@ -589,7 +589,7 @@ Return ONLY valid JSON in this exact format (no markdown, no code blocks, just p
           const storeModule = await import('../../tools/cli-history-store.js');
           const store = storeModule.getHistoryStore(projectPath);
           const insightId = `insight-${Date.now()}`;
-          store.saveInsight({
+          await store.saveInsight({
             id: insightId,
             tool,
             promptCount: prompts.length,

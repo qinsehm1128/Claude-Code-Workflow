@@ -28,6 +28,8 @@ import {
 } from './memory-v2-config.js';
 import { EXTRACTION_SYSTEM_PROMPT, buildExtractionUserPrompt } from './memory-extraction-prompts.js';
 import { redactSecrets } from '../utils/secret-redactor.js';
+import { getNativeSessions, type NativeSession } from '../tools/native-session-discovery.js';
+import { existsSync, readFileSync, statSync } from 'fs';
 
 // -- Types --
 
@@ -58,6 +60,27 @@ export interface BatchExtractionResult {
   errors: Array<{ sessionId: string; error: string }>;
 }
 
+export interface SessionPreviewItem {
+  sessionId: string;
+  source: 'ccw' | 'native';
+  tool: string;
+  timestamp: number;
+  eligible: boolean;
+  extracted: boolean;
+  bytes: number;
+  turns: number;
+}
+
+export interface PreviewResult {
+  sessions: SessionPreviewItem[];
+  summary: {
+    total: number;
+    eligible: number;
+    alreadyExtracted: number;
+    readyForExtraction: number;
+  };
+}
+
 // -- Turn type bitmask constants --
 
 /** All turn types included */
@@ -77,6 +100,15 @@ const TRUNCATION_MARKER = '\n\n[... CONTENT TRUNCATED ...]\n\n';
 
 const JOB_KIND_EXTRACTION = 'phase1_extraction';
 
+// -- Authorization error for session access --
+
+export class SessionAccessDeniedError extends Error {
+  constructor(sessionId: string, projectPath: string) {
+    super(`Session '${sessionId}' does not belong to project '${projectPath}'`);
+    this.name = 'SessionAccessDeniedError';
+  }
+}
+
 // -- Pipeline --
 
 export class MemoryExtractionPipeline {
@@ -90,6 +122,58 @@ export class MemoryExtractionPipeline {
     this.projectPath = projectPath;
     this.tool = options?.tool || 'gemini';
     this.currentSessionId = options?.currentSessionId;
+  }
+
+  // ========================================================================
+  // Authorization
+  // ========================================================================
+
+  /**
+   * Verify that a session belongs to the current project path.
+   *
+   * This is a security-critical authorization check to prevent cross-project
+   * session access. Sessions are scoped to projects, and accessing a session
+   * from another project should be denied.
+   *
+   * @param sessionId - The session ID to verify
+   * @returns true if the session belongs to this project, false otherwise
+   */
+  verifySessionBelongsToProject(sessionId: string): boolean {
+    const historyStore = getHistoryStore(this.projectPath);
+    const session = historyStore.getConversation(sessionId);
+
+    // If session exists in this project's history store, it's authorized
+    if (session) {
+      return true;
+    }
+
+    // Check native sessions - verify the session file is within project directory
+    const nativeTools = ['gemini', 'qwen', 'codex', 'claude', 'opencode'] as const;
+    for (const tool of nativeTools) {
+      try {
+        const nativeSessions = getNativeSessions(tool, { workingDir: this.projectPath });
+        const found = nativeSessions.some(s => s.sessionId === sessionId);
+        if (found) {
+          return true;
+        }
+      } catch {
+        // Skip tools with discovery errors
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Verify session access and throw if unauthorized.
+   *
+   * @param sessionId - The session ID to verify
+   * @throws SessionAccessDeniedError if session doesn't belong to project
+   */
+  private ensureSessionAccess(sessionId: string): void {
+    if (!this.verifySessionBelongsToProject(sessionId)) {
+      throw new SessionAccessDeniedError(sessionId, this.projectPath);
+    }
   }
 
   // ========================================================================
@@ -148,6 +232,122 @@ export class MemoryExtractionPipeline {
     return eligible;
   }
 
+  /**
+   * Preview eligible sessions with detailed information for selective extraction.
+   *
+   * Returns session metadata including byte size, turn count, and extraction status.
+   * Native sessions are returned empty in Phase 1 (Phase 2 will implement native integration).
+   *
+   * @param options - Preview options
+   * @param options.includeNative - Whether to include native sessions (placeholder for Phase 2)
+   * @param options.maxSessions - Maximum number of sessions to return
+   * @returns PreviewResult with sessions and summary counts
+   */
+  previewEligibleSessions(options?: { includeNative?: boolean; maxSessions?: number }): PreviewResult {
+    const store = getCoreMemoryStore(this.projectPath);
+    const maxSessions = options?.maxSessions || MAX_SESSIONS_PER_STARTUP;
+
+    // Scan CCW sessions using existing logic
+    const ccwSessions = this.scanEligibleSessions(maxSessions);
+
+    const sessions: SessionPreviewItem[] = [];
+
+    // Process CCW sessions
+    for (const session of ccwSessions) {
+      const transcript = this.filterTranscript(session);
+      const bytes = Buffer.byteLength(transcript, 'utf-8');
+      const turns = session.turns?.length || 0;
+      const timestamp = new Date(session.created_at).getTime();
+
+      // Check if already extracted
+      const existingOutput = store.getStage1Output(session.id);
+      const extracted = existingOutput !== null;
+
+      sessions.push({
+        sessionId: session.id,
+        source: 'ccw',
+        tool: session.tool || 'unknown',
+        timestamp,
+        eligible: true,
+        extracted,
+        bytes,
+        turns,
+      });
+    }
+
+    // Native sessions integration (Phase 2)
+    if (options?.includeNative) {
+      const nativeTools = ['gemini', 'qwen', 'codex', 'claude', 'opencode'] as const;
+      const now = Date.now();
+      const maxAgeMs = MAX_SESSION_AGE_DAYS * 24 * 60 * 60 * 1000;
+      const minIdleMs = MIN_IDLE_HOURS * 60 * 60 * 1000;
+
+      for (const tool of nativeTools) {
+        try {
+          const nativeSessions = getNativeSessions(tool, { workingDir: this.projectPath });
+
+          for (const session of nativeSessions) {
+            // Age check: created within MAX_SESSION_AGE_DAYS
+            if (now - session.createdAt.getTime() > maxAgeMs) continue;
+
+            // Idle check: last updated at least MIN_IDLE_HOURS ago
+            if (now - session.updatedAt.getTime() < minIdleMs) continue;
+
+            // Skip current session
+            if (this.currentSessionId && session.sessionId === this.currentSessionId) continue;
+
+            // Get file stats for bytes
+            let bytes = 0;
+            let turns = 0;
+            try {
+              if (existsSync(session.filePath)) {
+                const stats = statSync(session.filePath);
+                bytes = stats.size;
+
+                // Parse session file to count turns
+                turns = this.countNativeSessionTurns(session);
+              }
+            } catch {
+              // Skip sessions with file access errors
+              continue;
+            }
+
+            // Check if already extracted
+            const existingOutput = store.getStage1Output(session.sessionId);
+            const extracted = existingOutput !== null;
+
+            sessions.push({
+              sessionId: session.sessionId,
+              source: 'native',
+              tool: session.tool,
+              timestamp: session.updatedAt.getTime(),
+              eligible: true,
+              extracted,
+              bytes,
+              turns,
+            });
+          }
+        } catch {
+          // Skip tools with discovery errors
+        }
+      }
+    }
+
+    // Compute summary
+    const eligible = sessions.filter(s => s.eligible && !s.extracted);
+    const alreadyExtracted = sessions.filter(s => s.extracted);
+
+    return {
+      sessions,
+      summary: {
+        total: sessions.length,
+        eligible: sessions.filter(s => s.eligible).length,
+        alreadyExtracted: alreadyExtracted.length,
+        readyForExtraction: eligible.length,
+      },
+    };
+  }
+
   // ========================================================================
   // Transcript filtering
   // ========================================================================
@@ -200,6 +400,291 @@ export class MemoryExtractionPipeline {
     }
 
     return parts.join('\n\n');
+  }
+
+  // ========================================================================
+  // Native session handling
+  // ========================================================================
+
+  /**
+   * Count the number of turns in a native session file.
+   *
+   * Parses the session file based on tool-specific format:
+   * - Gemini: { messages: [{ type, content }] }
+   * - Qwen: JSONL with { type, message: { parts: [{ text }] } }
+   * - Codex: JSONL with session events
+   * - Claude: JSONL with { type, message } entries
+   * - OpenCode: Message files in message/<session-id>/ directory
+   *
+   * @param session - The native session to count turns for
+   * @returns Number of turns (user/assistant exchanges)
+   */
+  countNativeSessionTurns(session: NativeSession): number {
+    try {
+      const content = readFileSync(session.filePath, 'utf8');
+
+      switch (session.tool) {
+        case 'gemini': {
+          // Gemini format: JSON with messages array
+          const data = JSON.parse(content);
+          if (data.messages && Array.isArray(data.messages)) {
+            // Count user messages as turns
+            return data.messages.filter((m: { type: string }) => m.type === 'user').length;
+          }
+          return 0;
+        }
+
+        case 'qwen': {
+          // Qwen format: JSONL
+          const lines = content.split('\n').filter(l => l.trim());
+          let turnCount = 0;
+          for (const line of lines) {
+            try {
+              const entry = JSON.parse(line);
+              // Count user messages
+              if (entry.type === 'user' || entry.role === 'user') {
+                turnCount++;
+              }
+            } catch {
+              // Skip invalid lines
+            }
+          }
+          return turnCount;
+        }
+
+        case 'codex': {
+          // Codex format: JSONL with session events
+          const lines = content.split('\n').filter(l => l.trim());
+          let turnCount = 0;
+          for (const line of lines) {
+            try {
+              const entry = JSON.parse(line);
+              // Count user_message events
+              if (entry.type === 'event_msg' && entry.payload?.type === 'user_message') {
+                turnCount++;
+              }
+            } catch {
+              // Skip invalid lines
+            }
+          }
+          return turnCount;
+        }
+
+        case 'claude': {
+          // Claude format: JSONL
+          const lines = content.split('\n').filter(l => l.trim());
+          let turnCount = 0;
+          for (const line of lines) {
+            try {
+              const entry = JSON.parse(line);
+              // Count user messages (skip meta and command messages)
+              if (entry.type === 'user' &&
+                  entry.message?.role === 'user' &&
+                  !entry.isMeta) {
+                turnCount++;
+              }
+            } catch {
+              // Skip invalid lines
+            }
+          }
+          return turnCount;
+        }
+
+        case 'opencode': {
+          // OpenCode uses separate message files, count from session data
+          // For now, return a reasonable estimate based on file size
+          // Actual message counting would require reading message files
+          const stats = statSync(session.filePath);
+          // Rough estimate: 1 turn per 2KB of session file
+          return Math.max(1, Math.floor(stats.size / 2048));
+        }
+
+        default:
+          return 0;
+      }
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * Load and format transcript from a native session file.
+   *
+   * Extracts text content from the session file and formats it
+   * consistently with CCW session transcripts.
+   *
+   * @param session - The native session to load
+   * @returns Formatted transcript string
+   */
+  loadNativeSessionTranscript(session: NativeSession): string {
+    try {
+      const content = readFileSync(session.filePath, 'utf8');
+      const parts: string[] = [];
+      let turnNum = 1;
+
+      switch (session.tool) {
+        case 'gemini': {
+          // Gemini format: { messages: [{ type, content }] }
+          const data = JSON.parse(content);
+          if (data.messages && Array.isArray(data.messages)) {
+            for (const msg of data.messages) {
+              if (msg.type === 'user' && msg.content) {
+                parts.push(`--- Turn ${turnNum} ---\n[USER] ${msg.content}`);
+              } else if (msg.type === 'assistant' && msg.content) {
+                parts.push(`[ASSISTANT] ${msg.content}`);
+                turnNum++;
+              }
+            }
+          }
+          break;
+        }
+
+        case 'qwen': {
+          // Qwen format: JSONL with { type, message: { parts: [{ text }] } }
+          const lines = content.split('\n').filter(l => l.trim());
+          for (const line of lines) {
+            try {
+              const entry = JSON.parse(line);
+
+              // User message
+              if (entry.type === 'user' && entry.message?.parts) {
+                const text = entry.message.parts
+                  .filter((p: { text?: string }) => p.text)
+                  .map((p: { text?: string }) => p.text)
+                  .join('\n');
+                if (text) {
+                  parts.push(`--- Turn ${turnNum} ---\n[USER] ${text}`);
+                }
+              }
+              // Assistant response
+              else if (entry.type === 'assistant' && entry.message?.parts) {
+                const text = entry.message.parts
+                  .filter((p: { text?: string }) => p.text)
+                  .map((p: { text?: string }) => p.text)
+                  .join('\n');
+                if (text) {
+                  parts.push(`[ASSISTANT] ${text}`);
+                  turnNum++;
+                }
+              }
+              // Legacy format
+              else if (entry.role === 'user' && entry.content) {
+                parts.push(`--- Turn ${turnNum} ---\n[USER] ${entry.content}`);
+              } else if (entry.role === 'assistant' && entry.content) {
+                parts.push(`[ASSISTANT] ${entry.content}`);
+                turnNum++;
+              }
+            } catch {
+              // Skip invalid lines
+            }
+          }
+          break;
+        }
+
+        case 'codex': {
+          // Codex format: JSONL with { type, payload }
+          const lines = content.split('\n').filter(l => l.trim());
+          for (const line of lines) {
+            try {
+              const entry = JSON.parse(line);
+
+              // User message
+              if (entry.type === 'event_msg' &&
+                  entry.payload?.type === 'user_message' &&
+                  entry.payload.message) {
+                parts.push(`--- Turn ${turnNum} ---\n[USER] ${entry.payload.message}`);
+              }
+              // Assistant response
+              else if (entry.type === 'event_msg' &&
+                       entry.payload?.type === 'assistant_message' &&
+                       entry.payload.message) {
+                parts.push(`[ASSISTANT] ${entry.payload.message}`);
+                turnNum++;
+              }
+            } catch {
+              // Skip invalid lines
+            }
+          }
+          break;
+        }
+
+        case 'claude': {
+          // Claude format: JSONL with { type, message }
+          const lines = content.split('\n').filter(l => l.trim());
+          for (const line of lines) {
+            try {
+              const entry = JSON.parse(line);
+
+              if (entry.type === 'user' && entry.message?.role === 'user' && !entry.isMeta) {
+                const msgContent = entry.message.content;
+
+                // Handle string content
+                if (typeof msgContent === 'string' &&
+                    !msgContent.startsWith('<command-') &&
+                    !msgContent.includes('<local-command')) {
+                  parts.push(`--- Turn ${turnNum} ---\n[USER] ${msgContent}`);
+                }
+                // Handle array content
+                else if (Array.isArray(msgContent)) {
+                  for (const item of msgContent) {
+                    if (item.type === 'text' && item.text) {
+                      parts.push(`--- Turn ${turnNum} ---\n[USER] ${item.text}`);
+                      break;
+                    }
+                  }
+                }
+              }
+              // Assistant response
+              else if (entry.type === 'assistant' && entry.message?.content) {
+                const msgContent = entry.message.content;
+                if (typeof msgContent === 'string') {
+                  parts.push(`[ASSISTANT] ${msgContent}`);
+                  turnNum++;
+                } else if (Array.isArray(msgContent)) {
+                  const textParts = msgContent
+                    .filter((item: { type?: string; text?: string }) => item.type === 'text' && item.text)
+                    .map((item: { text?: string }) => item.text)
+                    .join('\n');
+                  if (textParts) {
+                    parts.push(`[ASSISTANT] ${textParts}`);
+                    turnNum++;
+                  }
+                }
+              }
+            } catch {
+              // Skip invalid lines
+            }
+          }
+          break;
+        }
+
+        case 'opencode': {
+          // OpenCode stores messages in separate files
+          // For transcript extraction, read session metadata and messages
+          // This is a simplified extraction - full implementation would
+          // traverse message/part directories
+          try {
+            const sessionData = JSON.parse(content);
+            if (sessionData.title) {
+              parts.push(`--- Session ---\n[SESSION] ${sessionData.title}`);
+            }
+            if (sessionData.summary) {
+              parts.push(`[SUMMARY] ${sessionData.summary}`);
+            }
+          } catch {
+            // Return empty if parsing fails
+          }
+          break;
+        }
+
+        default:
+          break;
+      }
+
+      return parts.join('\n\n');
+    } catch {
+      return '';
+    }
   }
 
   // ========================================================================
@@ -354,20 +839,55 @@ export class MemoryExtractionPipeline {
   /**
    * Run the full extraction pipeline for a single session.
    *
-   * Pipeline stages: Filter -> Truncate -> LLM Extract -> PostProcess -> Store
+   * Pipeline stages: Authorize -> Filter -> Truncate -> LLM Extract -> PostProcess -> Store
+   *
+   * SECURITY: This method includes authorization verification to ensure the session
+   * belongs to the current project path before processing.
    *
    * @param sessionId - The session to extract from
+   * @param options - Optional configuration
+   * @param options.source - 'ccw' for CCW history or 'native' for native CLI sessions
+   * @param options.nativeSession - Native session data (required when source is 'native')
+   * @param options.skipAuthorization - Internal use only: skip authorization (already validated)
    * @returns The stored Stage1Output, or null if extraction failed
+   * @throws SessionAccessDeniedError if session doesn't belong to the project
    */
-  async runExtractionJob(sessionId: string): Promise<Stage1Output | null> {
-    const historyStore = getHistoryStore(this.projectPath);
-    const record = historyStore.getConversation(sessionId);
-    if (!record) {
-      throw new Error(`Session not found: ${sessionId}`);
+  async runExtractionJob(
+    sessionId: string,
+    options?: {
+      source?: 'ccw' | 'native';
+      nativeSession?: NativeSession;
+      skipAuthorization?: boolean;
+    }
+  ): Promise<Stage1Output | null> {
+    // SECURITY: Authorization check - verify session belongs to this project
+    // Skip only if explicitly requested (for internal batch processing where already validated)
+    if (!options?.skipAuthorization) {
+      this.ensureSessionAccess(sessionId);
     }
 
-    // Stage 1: Filter transcript
-    const transcript = this.filterTranscript(record);
+    const source = options?.source || 'ccw';
+    let transcript: string;
+    let sourceUpdatedAt: number;
+
+    if (source === 'native' && options?.nativeSession) {
+      // Native session extraction
+      const nativeSession = options.nativeSession;
+      transcript = this.loadNativeSessionTranscript(nativeSession);
+      sourceUpdatedAt = Math.floor(nativeSession.updatedAt.getTime() / 1000);
+    } else {
+      // CCW session extraction (default)
+      const historyStore = getHistoryStore(this.projectPath);
+      const record = historyStore.getConversation(sessionId);
+      if (!record) {
+        throw new Error(`Session not found: ${sessionId}`);
+      }
+
+      // Stage 1: Filter transcript
+      transcript = this.filterTranscript(record);
+      sourceUpdatedAt = Math.floor(new Date(record.updated_at).getTime() / 1000);
+    }
+
     if (!transcript.trim()) {
       return null; // Empty transcript, nothing to extract
     }
@@ -385,7 +905,6 @@ export class MemoryExtractionPipeline {
     const extracted = this.postProcess(llmOutput);
 
     // Stage 5: Store result
-    const sourceUpdatedAt = Math.floor(new Date(record.updated_at).getTime() / 1000);
     const generatedAt = Math.floor(Date.now() / 1000);
 
     const output: Stage1Output = {
@@ -492,7 +1011,8 @@ export class MemoryExtractionPipeline {
         const token = claim.ownership_token!;
 
         try {
-          const output = await this.runExtractionJob(session.id);
+          // Batch extraction: sessions already validated by scanEligibleSessions(), skip auth check
+          const output = await this.runExtractionJob(session.id, { skipAuthorization: true });
           if (output) {
             const watermark = output.source_updated_at;
             scheduler.markSucceeded(JOB_KIND_EXTRACTION, session.id, token, watermark);

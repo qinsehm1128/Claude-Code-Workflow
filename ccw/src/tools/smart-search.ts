@@ -2032,38 +2032,46 @@ async function executePriorityFallbackMode(params: Params): Promise<SearchResult
 // Tool schema for MCP
 export const schema: ToolSchema = {
   name: 'smart_search',
-  description: `Unified code search tool with content search, file discovery, and semantic search capabilities.
+  description: `Unified code search tool. Choose an action and provide its required parameters.
 
-**Actions:**
-- search: Search file content (default)
-- find_files: Find files by path/name pattern (glob matching)
-- init: Create FTS index (incremental - skips existing)
-- init_force: Force full rebuild (delete and recreate index)
-- status: Check index status
-- update: Incremental index update (for changed files)
-- watch: Start file watcher for automatic updates
+**Actions & Required Parameters:**
 
-**Content Search (action="search"):**
-  smart_search(query="authentication logic")        # fuzzy mode (default) - FTS + ripgrep fusion
-  smart_search(query="MyClass", mode="fuzzy")       # fuzzy mode - fast hybrid search
-  smart_search(query="how to auth", mode="semantic")  # semantic mode - dense + reranker
+*   **search** (default): Search file content.
+    *   **query** (string, **REQUIRED**): Content to search for.
+    *   *mode* (string): 'fuzzy' (default, FTS+ripgrep) or 'semantic' (dense+reranker).
+    *   *limit* (number): Max results (default: 20).
+    *   *path* (string): Directory to search (default: current).
+    *   *contextLines* (number): Context lines around matches (default: 0).
+    *   *regex* (boolean): Use regex matching (default: true).
+    *   *caseSensitive* (boolean): Case-sensitive search (default: true).
 
-**File Discovery (action="find_files"):**
-  smart_search(action="find_files", pattern="*.ts")           # find all TypeScript files
-  smart_search(action="find_files", pattern="src/**/*.js")    # recursive glob pattern
-  smart_search(action="find_files", pattern="test_*.py")      # find test files
-  smart_search(action="find_files", pattern="*.tsx", offset=20, limit=10)  # pagination
+*   **find_files**: Find files by path/name pattern.
+    *   **pattern** (string, **REQUIRED**): Glob pattern (e.g., "*.ts", "src/**/*.js").
+    *   *limit* (number): Max results (default: 20).
+    *   *offset* (number): Pagination offset (default: 0).
+    *   *includeHidden* (boolean): Include hidden files (default: false).
 
-**Index Maintenance:**
-  smart_search(action="update", path="/project")              # incremental index update
-  smart_search(action="watch", path="/project")               # start file watcher
-  smart_search(action="watch", debounce=2000)                 # custom debounce interval
+*   **init**: Create FTS index (incremental, skips existing).
+    *   *path* (string): Directory to index (default: current).
+    *   *languages* (array): Languages to index (e.g., ["javascript", "typescript"]).
 
-**Pagination:** All actions support offset/limit for paginated results:
-  smart_search(query="auth", limit=10, offset=0)    # first page
-  smart_search(query="auth", limit=10, offset=10)   # second page
+*   **init_force**: Force full rebuild (delete and recreate index).
+    *   *path* (string): Directory to index (default: current).
 
-**Modes:** fuzzy (FTS + ripgrep fusion, default), semantic (dense + reranker)`,
+*   **status**: Check index status. (No required params)
+
+*   **update**: Incremental index update.
+    *   *path* (string): Directory to update (default: current).
+
+*   **watch**: Start file watcher for auto-updates.
+    *   *path* (string): Directory to watch (default: current).
+
+**Examples:**
+  smart_search(query="authentication logic")                    # Content search (default action)
+  smart_search(query="MyClass", mode="semantic")                # Semantic search
+  smart_search(action="find_files", pattern="*.ts")             # Find TypeScript files
+  smart_search(action="init", path="/project")                  # Initialize index
+  smart_search(query="auth", limit=10, offset=0)                # Paginated search`,
   inputSchema: {
     type: 'object',
     properties: {

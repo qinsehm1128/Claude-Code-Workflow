@@ -1,0 +1,333 @@
+{
+  "pageTitle": "Spec Settings",
+  "pageDescription": "Manage specification injection, hooks, and system settings",
+  "tabProjectSpecs": "Project Specs",
+  "tabPersonalSpecs": "Personal",
+  "tabHooks": "Hooks",
+  "tabInjection": "Injection",
+  "tabSettings": "Settings",
+  "searchPlaceholder": "Search specs...",
+  "rebuildIndex": "Rebuild Index",
+  "loading": "Loading...",
+  "noSpecs": "No specs found. Create specs in .ccw/ directory.",
+  "required": "required",
+
+  "dimension": {
+    "specs": "Project Specs",
+    "personal": "Personal",
+    "roadmap": "Roadmap",
+    "changelog": "Changelog"
+  },
+
+  "scope": {
+    "all": "All",
+    "global": "Global",
+    "project": "Project"
+  },
+  "filterByScope": "Filter by scope:",
+  "filterByCategory": "Workflow stage:",
+
+  "category": {
+    "all": "All",
+    "general": "General",
+    "exploration": "Exploration",
+    "planning": "Planning",
+    "execution": "Execution"
+  },
+
+  "recommendedHooks": "Recommended Hooks",
+  "recommendedHooksDesc": "One-click install system-preset spec injection hooks",
+  "installAll": "Install All Recommended Hooks",
+  "installAllHooks": "Install All Hooks",
+  "allHooksInstalled": "All Hooks Installed",
+  "hooksInstalled": "installed",
+  "manageHooks": "Manage Hooks",
+  "hookEvent": "Event",
+  "hookScope": "Scope",
+  "install": "Install",
+  "installed": "Installed",
+  "installing": "Installing...",
+
+  "installedHooks": "Installed Hooks",
+  "installedHooksDesc": "Manage your installed hooks configuration",
+  "searchHooks": "Search hooks...",
+  "noHooks": "No hooks installed. Install recommended hooks above.",
+
+  "actions": {
+    "view": "View Content",
+    "edit": "Edit",
+    "delete": "Delete",
+    "reset": "Reset",
+    "save": "Save",
+    "saving": "Saving..."
+  },
+
+  "status": {
+    "enabled": "Enabled",
+    "disabled": "Disabled"
+  },
+
+  "readMode": {
+    "required": "Required",
+    "optional": "Optional"
+  },
+
+  "priority": {
+    "critical": "Critical",
+    "high": "High",
+    "medium": "Medium",
+    "low": "Low"
+  },
+
+  "spec": {
+    "edit": "Edit Spec",
+    "toggle": "Toggle Status",
+    "delete": "Delete Spec",
+    "deleteConfirm": "Are you sure you want to delete this spec?",
+    "title": "Spec Title",
+    "keywords": "Keywords",
+    "keywordsPlaceholder": "Enter keywords, separated by commas",
+    "readMode": "Read Mode",
+    "priority": "Priority",
+    "file": "File Path"
+  },
+
+  "hook": {
+    "install": "Install",
+    "uninstall": "Uninstall",
+    "edit": "Edit Hook",
+    "toggle": "Toggle Status",
+    "delete": "Delete Hook",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "installed": "Installed",
+    "notInstalled": "Not Installed",
+    "scope": {
+      "global": "Global",
+      "project": "Project"
+    },
+    "event": {
+      "SessionStart": "Session Start",
+      "UserPromptSubmit": "Prompt Submit",
+      "SessionEnd": "Session End"
+    },
+    "name": "Hook Name",
+    "eventLabel": "Trigger Event",
+    "command": "Command",
+    "scopeLabel": "Scope",
+    "timeout": "Timeout (ms)",
+    "failMode": "Fail Mode",
+    "failModeContinue": "Continue",
+    "failModeBlock": "Block",
+    "failModeWarn": "Warn"
+  },
+
+  "hooks": {
+    "dialog": {
+      "createTitle": "Create Hook",
+      "editTitle": "Edit Hook",
+      "description": "Configure hook trigger event, command, and other settings."
+    },
+    "fields": {
+      "name": "Hook Name",
+      "event": "Trigger Event",
+      "scope": "Scope",
+      "command": "Command",
+      "description": "Description",
+      "timeout": "Timeout",
+      "timeoutUnit": "ms",
+      "failMode": "Failure Mode"
+    },
+    "placeholders": {
+      "name": "Enter hook name",
+      "event": "Select event",
+      "command": "Enter command to execute",
+      "description": "Enter description (optional)"
+    },
+    "events": {
+      "sessionStart": "Session Start",
+      "userPromptSubmit": "Prompt Submit",
+      "sessionEnd": "Session End"
+    },
+    "scope": {
+      "global": "Global",
+      "project": "Project"
+    },
+    "failModes": {
+      "continue": "Continue execution",
+      "warn": "Show warning",
+      "block": "Block operation"
+    },
+    "validation": {
+      "nameRequired": "Name is required",
+      "commandRequired": "Command is required",
+      "timeoutMin": "Minimum timeout is 1000ms",
+      "timeoutMax": "Maximum timeout is 300000ms"
+    }
+  },
+
+  "hints": {
+    "hookEvents": "Select when this hook should be triggered",
+    "hookScope": "Global hooks apply to all projects, project hooks only to current project",
+    "hookCommand": "Command to execute, can use environment variables",
+    "hookTimeout": "Timeout for command execution",
+    "hookFailMode": "How to handle command execution failure"
+  },
+
+  "common": {
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "edit": "Edit",
+    "reset": "Reset",
+    "confirm": "Confirm",
+    "close": "Close"
+  },
+
+  "content": {
+    "edit": "Edit",
+    "view": "View",
+    "metadata": "Metadata",
+    "markdownContent": "Markdown Content",
+    "noContent": "No content available",
+    "editHint": "Edit the full markdown content including frontmatter. Changes to frontmatter will be reflected in spec metadata.",
+    "placeholder": "# Spec Title\n\nContent here..."
+  },
+
+  "injection": {
+    "title": "Injection Control",
+    "statusTitle": "Current Injection Status",
+    "settingsTitle": "Injection Control Settings",
+    "settingsDescription": "Configure how spec content is injected into AI context.",
+    "currentLength": "Current Length",
+    "maxLength": "Max Injection Length (characters)",
+    "maxLengthHelp": "Recommended: 4000-10000. Too large may consume too much context; too small may truncate important specs.",
+    "warnThreshold": "Warn Threshold",
+    "warnThresholdLabel": "Warning Threshold (characters)",
+    "warnThresholdHelp": "A warning will be displayed when injection length exceeds this value.",
+    "percentage": "Usage",
+    "truncateOnExceed": "Truncate on Exceed",
+    "truncateHelp": "Automatically truncate content when it exceeds the maximum length.",
+    "overLimit": "Over Limit",
+    "overLimitDescription": "Current injection content exceeds maximum length of {max} characters. Excess content will be truncated.",
+    "warning": "Approaching Limit",
+    "normal": "Normal",
+    "characters": "characters",
+    "lines": "lines",
+    "maxLimit": "Max",
+    "quickPresets": "Quick presets:",
+    "statsInfo": "Statistics",
+    "requiredLength": "Required specs length:",
+    "matchedLength": "Keyword-matched length:",
+    "remaining": "Remaining space:",
+    "loadError": "Failed to load stats",
+    "saveSuccess": "Settings saved successfully",
+    "saveError": "Failed to save settings",
+    "filesList": "Injection Files",
+    "files": "files",
+    "noFiles": "No files match this command",
+    "loadingPreview": "Loading preview...",
+    "commandPreview": "Command Injection Preview",
+    "commandPreviewDesc": "Preview the content that would be injected by different CLI commands",
+    "previewTitle": "Injection Preview"
+  },
+
+  "commandPreview": {
+    "default": {
+      "label": "All Categories",
+      "description": "Load all required specs without category filter"
+    },
+    "exploration": {
+      "label": "Exploration",
+      "description": "Specs for code exploration, analysis, debugging"
+    },
+    "planning": {
+      "label": "Planning",
+      "description": "Specs for task planning, requirements"
+    },
+    "execution": {
+      "label": "Execution",
+      "description": "Specs for implementation, testing, deployment"
+    },
+    "general": {
+      "label": "General",
+      "description": "Specs that apply to all stages"
+    }
+  },
+
+  "settings": {
+    "title": "Global Settings",
+    "description": "Configure personal spec defaults and system settings",
+    "personalSpecDefaults": "Personal Spec Defaults",
+    "personalSpecDefaultsDesc": "These settings will be applied when creating new personal specs",
+    "defaultReadMode": "Default Read Mode",
+    "defaultReadModeHelp": "The default read mode for newly created personal specs",
+    "selectReadMode": "Select read mode",
+    "autoEnable": "Auto Enable New Specs",
+    "autoEnableDescription": "New personal specs are set to required (readMode=required) by default and automatically included in context injection",
+    "specStatistics": "Spec Statistics",
+    "totalSpecs": "Total: {count} spec files",
+    "devProgressInjection": "Development Progress Injection",
+    "devProgressInjectionDesc": "Control how development progress from project-tech.json is injected into AI context",
+    "enableDevProgress": "Enable Injection",
+    "enableDevProgressDesc": "Include development history in AI context",
+    "maxEntries": "Max Entries per Category",
+    "maxEntriesDesc": "Maximum number of entries to include per category (1-50)",
+    "includeCategories": "Include Categories",
+    "categoriesDesc": "Click to toggle category inclusion",
+    "devProgressStats": "{total} entries from {sessions} sessions, last updated: {date}",
+    "devProgressStatsNoDate": "{total} entries from {sessions} sessions"
+  },
+
+  "devCategory": {
+    "feature": "Feature",
+    "enhancement": "Enhancement",
+    "bugfix": "Bug Fix",
+    "refactor": "Refactor",
+    "docs": "Docs"
+  },
+
+  "dialog": {
+    "cancel": "Cancel",
+    "save": "Save",
+    "close": "Close",
+    "editSpec": "Edit Spec",
+    "editHook": "Edit Hook",
+    "confirmDelete": "Confirm Delete",
+    "specTitle": "Spec Title",
+    "keywords": "Keywords",
+    "readMode": "Read Mode",
+    "priority": "Priority",
+    "hookName": "Hook Name",
+    "hookEvent": "Trigger Event",
+    "hookCommand": "Command",
+    "hookScope": "Scope",
+    "hookTimeout": "Timeout (ms)",
+    "hookFailMode": "Fail Mode",
+    "editTitle": "Edit Spec: {title}",
+    "editDescription": "Modify spec metadata and settings."
+  },
+
+  "form": {
+    "readMode": "Read Mode",
+    "priority": "Priority",
+    "keywords": "Keywords",
+    "keywordsPlaceholder": "Enter keywords, press Enter or comma to add",
+    "title": "Title",
+    "titlePlaceholder": "Enter spec title",
+    "addKeyword": "Add Keyword",
+    "keywordsHint": "Keywords help match optional specs to relevant tasks",
+    "fileInfo": "File: {file}",
+    "saving": "Saving..."
+  },
+
+  "validation": {
+    "titleRequired": "Title is required"
+  },
+
+  "hooks": {
+    "installSuccess": "Hook installed successfully",
+    "installError": "Failed to install hook",
+    "installAllSuccess": "All hooks installed successfully"
+  }
+}

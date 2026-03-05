@@ -86,7 +86,7 @@ export function useLoops(options: UseLoopsOptions = {}): UseLoopsReturn {
     return loops;
   })();
 
-  // Group by status for Kanban
+  // Group by status for Kanban (use filteredLoops to respect search filter)
   const loopsByStatus: Record<Loop['status'], Loop[]> = {
     created: [],
     running: [],
@@ -95,7 +95,7 @@ export function useLoops(options: UseLoopsOptions = {}): UseLoopsReturn {
     failed: [],
   };
 
-  for (const loop of allLoops) {
+  for (const loop of filteredLoops) {
     loopsByStatus[loop.status].push(loop);
   }
 

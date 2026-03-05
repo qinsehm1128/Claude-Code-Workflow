@@ -1,0 +1,104 @@
+/* Demo system styles for VitePress */
+
+/* Demo container theme-aware styling */
+.demo-container {
+  /* Theme-aware borders */
+  border: 1px solid var(--vp-c-border);
+
+  /* Rounded corners */
+  border-radius: 8px;
+
+  /* Subtle shadow */
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+
+  /* Dark mode support */
+  background: var(--vp-c-bg);
+}
+
+.demo-preview {
+  /* Consistent padding */
+  padding: 24px;
+
+  /* Min height for visibility */
+  min-height: 100px;
+
+  /* Center content when small */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Dark mode overrides */
+.dark .demo-container {
+  background: var(--vp-c-bg-soft);
+  border-color: var(--vp-c-divider);
+}
+
+/* Responsive design */
+@media (max-width: 767px) {
+  .demo-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .demo-preview {
+    padding: 16px;
+  }
+
+  .demo-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+/* Demo code viewer styles */
+.code-viewer {
+  background: var(--vp-code-bg);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.code-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+  background: var(--vp-code-block-bg);
+  border-bottom: 1px solid var(--vp-c-border);
+}
+
+/* Props table styles */
+.props-table-container {
+  margin: 16px 0;
+  overflow-x: auto;
+  border: 1px solid var(--vp-c-border);
+  border-radius: 8px;
+}
+
+.props-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.props-table thead {
+  background: var(--vp-c-bg-soft);
+  border-bottom: 1px solid var(--vp-c-border);
+}
+
+/* Interactive demo feedback */
+.demo-container:has(.demo-preview:hover) {
+  border-color: var(--vp-c-brand);
+  transition: border-color 0.2s;
+}
+
+/* Code syntax highlighting in demos */
+.demo-preview code {
+  font-family: var(--vp-font-family-mono);
+  font-size: 13px;
+  padding: 2px 6px;
+  background: var(--vp-code-bg);
+  border-radius: 4px;
+  color: var(--vp-code-color);
+}

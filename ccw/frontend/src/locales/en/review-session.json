@@ -96,6 +96,11 @@
     "message": "Try adjusting your filters or search query.",
     "noFixProgress": "No fix progress data available"
   },
+  "notExecuted": {
+    "title": "Review Not Yet Executed",
+    "message": "This review session has been created but the review process has not been started yet. No findings have been generated.",
+    "hint": "💡 Tip: Execute the review workflow to start analyzing code and generate findings."
+  },
   "notFound": {
     "title": "Review Session Not Found",
     "message": "The requested review session could not be found."

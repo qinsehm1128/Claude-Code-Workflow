@@ -93,10 +93,11 @@ rg "password|token|secret|auth" -g "*.{ts,js,py}"
 rg "eval|exec|innerHTML|dangerouslySetInnerHTML" -g "*.{ts,js,tsx}"
 
 # Gemini security analysis
+ccw spec load --category execution
 ccw cli -p "
 PURPOSE: Security audit of completed implementation
 TASK: Review code for security vulnerabilities, insecure patterns, auth/authz issues
-CONTEXT: @.summaries/IMPL-*.md,../.. @../../project-tech.json @../../project-guidelines.json
+CONTEXT: @.summaries/IMPL-*.md,../..
 EXPECTED: Security findings report with severity levels
 RULES: Focus on OWASP Top 10, authentication, authorization, data validation, injection risks
 " --tool gemini --mode write --cd ${sessionPath}
@@ -104,10 +105,11 @@ RULES: Focus on OWASP Top 10, authentication, authorization, data validation, in
 
 **Architecture Review** (`architecture`):
 ```bash
+ccw spec load --category execution
 ccw cli -p "
 PURPOSE: Architecture compliance review
 TASK: Evaluate adherence to architectural patterns, identify technical debt, review design decisions
-CONTEXT: @.summaries/IMPL-*.md,../.. @../../project-tech.json @../../project-guidelines.json
+CONTEXT: @.summaries/IMPL-*.md,../..
 EXPECTED: Architecture assessment with recommendations
 RULES: Check for patterns, separation of concerns, modularity, scalability
 " --tool qwen --mode write --cd ${sessionPath}
@@ -115,10 +117,11 @@ RULES: Check for patterns, separation of concerns, modularity, scalability
 
 **Quality Review** (`quality`):
 ```bash
+ccw spec load --category execution
 ccw cli -p "
 PURPOSE: Code quality and best practices review
 TASK: Assess code readability, maintainability, adherence to best practices
-CONTEXT: @.summaries/IMPL-*.md,../.. @../../project-tech.json @../../project-guidelines.json
+CONTEXT: @.summaries/IMPL-*.md,../..
 EXPECTED: Quality assessment with improvement suggestions
 RULES: Check for code smells, duplication, complexity, naming conventions
 " --tool gemini --mode write --cd ${sessionPath}
@@ -136,10 +139,11 @@ for task_file in ${sessionPath}/.task/*.json; do
 done
 
 # Cross-check implementation against requirements
+ccw spec load --category execution
 ccw cli -p "
 PURPOSE: Verify all requirements and acceptance criteria are met
 TASK: Cross-check implementation summaries against original requirements
-CONTEXT: @.task/IMPL-*.json,.summaries/IMPL-*.md,../.. @../../project-tech.json @../../project-guidelines.json
+CONTEXT: @.task/IMPL-*.json,.summaries/IMPL-*.md,../..
 EXPECTED:
 - Requirements coverage matrix
 - Acceptance criteria verification

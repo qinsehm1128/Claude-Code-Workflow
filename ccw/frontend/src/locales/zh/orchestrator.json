@@ -272,7 +272,7 @@
     "confirmDeleteTemplate": "确定删除模板 \"{name}\"？",
     "placeholders": {
       "nodeLabel": "节点标签",
-      "instruction": "例如: 执行 /workflow:plan 用于登录功能\n或: 分析代码架构\n或: 将 {{analysis}} 保存到 ./output/result.json",
+      "instruction": "例如: 执行 /workflow-plan 用于登录功能\n或: 分析代码架构\n或: 将 {{analysis}} 保存到 ./output/result.json",
       "outputName": "例如: analysis, plan, result",
       "slashCommand": "选择命令...",
       "slashArgs": "输入参数...",

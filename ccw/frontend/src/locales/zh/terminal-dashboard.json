@@ -48,6 +48,11 @@
   "issuePanel": {
     "title": "问题",
     "sendToQueue": "发送到队列",
+    "addToQueue": "入队",
+    "addToQueueHint": "将选中的问题添加到执行队列",
+    "addedToQueue": "已入队!",
+    "addToQueueFailed": "添加到队列失败",
+    "queueModeHint": "队列项的执行模式",
     "noIssues": "暂无问题",
     "noIssuesDesc": "发现问题时将在此显示",
     "error": "加载问题失败"
@@ -59,13 +64,35 @@
     "error": "加载队列失败",
     "order": "#{order}",
     "dependsOn": "依赖: {deps}",
+    "blockedBy": "阻塞于: {deps}",
     "status": {
       "pending": "等待中",
+      "queued": "排队中",
       "ready": "就绪",
+      "blocked": "已阻塞",
       "executing": "执行中",
       "completed": "已完成",
       "failed": "已失败",
-      "blocked": "已阻塞"
+      "cancelled": "已取消",
+      "skipped": "已跳过"
+    },
+    "scheduler": {
+      "start": "启动",
+      "pause": "暂停",
+      "stop": "停止",
+      "status": {
+        "idle": "空闲",
+        "running": "运行中",
+        "paused": "已暂停",
+        "stopping": "停止中",
+        "completed": "已完成",
+        "failed": "已失败"
+      },
+      "progress": "{percent}%",
+      "concurrency": "并发数",
+      "concurrencyLabel": "上限",
+      "stopConfirmTitle": "停止队列？",
+      "stopConfirmMessage": "执行中的任务将继续完成，但不会启动新任务。待处理项将保留在队列中。"
     }
   },
   "toolbar": {
@@ -81,7 +108,13 @@
     "launchCli": "新建会话",
     "launchCliHint": "点击配置并创建新的 CLI 会话",
     "fullscreen": "全屏",
-    "orchestrator": "编排器"
+    "orchestrator": "编排器",
+    "scheduler": "调度器",
+    "executionMonitor": "执行监控"
+  },
+  "schedulerPanel": {
+    "sessionPool": "会话池",
+    "noSessions": "无活跃会话"
   },
   "orchestratorPanel": {
     "noPlans": "没有活跃的编排任务",

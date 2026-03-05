@@ -516,6 +516,36 @@ async function ensureLiteLLMEmbedderReady(): Promise<BootstrapResult> {
   // Fallback: Use pip for installation
   const pipPath = getCodexLensPip();
 
+  // UV-created venvs may not ship with pip.exe. Ensure pip exists before using pip fallback.
+  if (!existsSync(pipPath)) {
+    const venvPython = getCodexLensPython();
+    console.warn(`[CodexLens] pip not found at: ${pipPath}. Attempting to bootstrap pip with ensurepip...`);
+    try {
+      execSync(`\"${venvPython}\" -m ensurepip --upgrade`, {
+        stdio: 'inherit',
+        timeout: EXEC_TIMEOUTS.PACKAGE_INSTALL,
+      });
+    } catch (err) {
+      console.warn(`[CodexLens] ensurepip failed: ${(err as Error).message}`);
+    }
+  }
+
+  if (!existsSync(pipPath)) {
+    return {
+      success: false,
+      error: `pip not found at ${pipPath}. Delete ${getCodexLensVenvDir()} and retry, or reinstall using UV.`,
+      diagnostics: {
+        packagePath: localPath || undefined,
+        venvPath: getCodexLensVenvDir(),
+        installer: 'pip',
+        editable,
+        searchedPaths: !localPath ? discovery.searchedPaths : undefined,
+      },
+      warnings: warnings.length > 0 ? warnings : undefined,
+    };
+  }
+
+
   try {
     if (localPath) {
       const pipFlag = editable ? '-e' : '';
@@ -1011,7 +1041,45 @@ async function bootstrapVenv(): Promise<BootstrapResult> {
     // Install codex-lens
     try {
       console.log('[CodexLens] Installing codex-lens package...');
-    const pipPath = getCodexLensPip();
+      const pipPath = getCodexLensPip();
+
+      // UV-created venvs may not ship with pip.exe. Ensure pip exists before using pip fallback.
+      if (!existsSync(pipPath)) {
+        const venvPython = getCodexLensPython();
+        console.warn(`[CodexLens] pip not found at: ${pipPath}. Attempting to bootstrap pip with ensurepip...`);
+        try {
+          execSync(`\"${venvPython}\" -m ensurepip --upgrade`, {
+            stdio: 'inherit',
+            timeout: EXEC_TIMEOUTS.PACKAGE_INSTALL,
+          });
+        } catch (err) {
+          console.warn(`[CodexLens] ensurepip failed: ${(err as Error).message}`);
+        }
+      }
+
+      // If pip is still missing, recreate the venv using system Python (guarantees pip).
+      if (!existsSync(pipPath)) {
+        console.warn('[CodexLens] pip still missing after ensurepip; recreating venv with system Python...');
+        try {
+          rmSync(venvDir, { recursive: true, force: true });
+          const pythonCmd = getSystemPython();
+          execSync(`${pythonCmd} -m venv \"${venvDir}\"`, { stdio: 'inherit', timeout: EXEC_TIMEOUTS.PROCESS_SPAWN });
+        } catch (err) {
+          return {
+            success: false,
+            error: `Failed to recreate venv for pip fallback: ${(err as Error).message}`,
+            warnings: warnings.length > 0 ? warnings : undefined,
+          };
+        }
+
+        if (!existsSync(pipPath)) {
+          return {
+            success: false,
+            error: `pip not found at ${pipPath} after venv recreation. Ensure your Python installation includes ensurepip/pip.`,
+            warnings: warnings.length > 0 ? warnings : undefined,
+          };
+        }
+      }
 
     // Try local path using unified discovery
     const discovery = findCodexLensPath();
@@ -1571,26 +1639,54 @@ async function cleanIndexes(params: Params): Promise<ExecuteResult> {
 // Tool schema for MCP
 export const schema: ToolSchema = {
   name: 'codex_lens',
-  description: `CodexLens - Code indexing and semantic search.
+  description: `CodexLens - Code indexing and semantic search. Choose an action and provide its required parameters.
 
-Usage:
-  codex_lens(action="init", path=".")           # Index directory (auto-generates embeddings if available)
-  codex_lens(action="search", query="func")     # Search code (auto: hybrid if embeddings exist, else exact)
-  codex_lens(action="search", query="func", mode="hybrid")  # Force hybrid search
-  codex_lens(action="search_files", query="x")  # Search, return paths only
+**Actions & Required Parameters:**
 
-Graph Enrichment:
-  codex_lens(action="search", query="func", enrich=true)  # Enrich results with code relationships
+*   **init**: Index directory (auto-generates embeddings if available).
+    *   *path* (string): Directory to index (default: current).
+    *   *languages* (array): Languages to index (e.g., ["javascript", "typescript", "python"]).
 
-Search Modes:
-  - auto: Auto-detect (hybrid if embeddings exist, exact otherwise) [default]
-  - exact/text: Exact FTS for code identifiers
-  - hybrid: Exact + Fuzzy + Vector fusion (best results, requires embeddings)
-  - fuzzy: Typo-tolerant search
-  - vector: Semantic + keyword
-  - pure-vector/semantic: Pure semantic search
+*   **search**: Search code content.
+    *   **query** (string, **REQUIRED**): Search query text.
+    *   *path* (string): Directory to search (default: current).
+    *   *mode* (string): Search mode (default: "auto").
+        - "auto": Auto-detect (hybrid if embeddings exist, exact otherwise).
+        - "exact"/"text": Exact FTS for code identifiers.
+        - "hybrid": Exact + Fuzzy + Vector fusion (best results, requires embeddings).
+        - "fuzzy": Typo-tolerant search.
+        - "vector": Semantic + keyword.
+        - "semantic"/"pure-vector": Pure semantic search.
+    *   *limit* (number): Max results (default: 20).
+    *   *enrich* (boolean): Enrich with code relationships (default: false).
+    *   *format* (string): Output format - "json" | "text" | "pretty" (default: "json").
 
-Note: For advanced operations (config, status, clean), use CLI directly: codexlens --help`,
+*   **search_files**: Search and return file paths only.
+    *   **query** (string, **REQUIRED**): Search query text.
+    *   *path* (string): Directory to search (default: current).
+    *   *limit* (number): Max results (default: 20).
+
+*   **status**: Check index status.
+    *   *path* (string): Directory to check (default: current).
+
+*   **symbol**: Extract symbols from code.
+    *   *path* (string): Directory to analyze (default: current).
+
+*   **check**: Check if CodexLens is ready.
+    *   *path* (string): Directory to check (default: current).
+
+*   **update**: Incremental index update.
+    *   *path* (string): Directory to update (default: current).
+
+*   **bootstrap**: Setup Python virtual environment.
+
+**Examples:**
+  codex_lens(action="init", path=".")
+  codex_lens(action="search", query="authentication")
+  codex_lens(action="search", query="func", mode="hybrid", enrich=true)
+  codex_lens(action="search_files", query="MyClass")
+
+**Note:** For advanced operations (config, clean), use CLI: codexlens --help`,
   inputSchema: {
     type: 'object',
     properties: {

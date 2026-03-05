@@ -2,7 +2,7 @@ import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { basename, join, resolve, sep } from 'node:path';
 
 import { chromium } from 'playwright';
@@ -150,7 +150,7 @@ function writePrototypeHtml(filePath: string, target: string, style: number, lay
 
 describe('ui_generate_preview visual regression', () => {
   const prototypesDir = mkdtempSync(join(tmpdir(), 'ccw-ui-generate-preview-'));
-  const templatePath = resolve(process.cwd(), '~/.ccw/workflows/_template-compare-matrix.html');
+  const templatePath = resolve(homedir(), '.ccw/workflows/_template-compare-matrix.html');
 
   let server: StaticServer | undefined;
   let browser: import('playwright').Browser | undefined;

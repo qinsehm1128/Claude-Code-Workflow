@@ -128,7 +128,7 @@ export function ensureHistoryDir(baseDir: string): string {
  */
 async function saveConversationAsync(baseDir: string, conversation: ConversationRecord): Promise<void> {
   const store = await getSqliteStore(baseDir);
-  store.saveConversation(conversation);
+  await store.saveConversation(conversation);
 }
 
 /**
@@ -138,7 +138,10 @@ async function saveConversationAsync(baseDir: string, conversation: Conversation
 export function saveConversation(baseDir: string, conversation: ConversationRecord): void {
   try {
     const store = getSqliteStoreSync(baseDir);
-    store.saveConversation(conversation);
+    // Fire and forget - don't block on async save in sync context
+    store.saveConversation(conversation).catch(err => {
+      console.error('[CLI Executor] Failed to save conversation:', err.message);
+    });
   } catch {
     // If sync not available, queue for async save
     saveConversationAsync(baseDir, conversation).catch(err => {
@@ -399,7 +402,7 @@ export function getExecutionDetail(baseDir: string, executionId: string): Execut
  */
 export async function deleteExecutionAsync(baseDir: string, executionId: string): Promise<{ success: boolean; error?: string }> {
   const store = await getSqliteStore(baseDir);
-  return store.deleteConversation(executionId);
+  return await store.deleteConversation(executionId);
 }
 
 /**
@@ -408,7 +411,11 @@ export async function deleteExecutionAsync(baseDir: string, executionId: string)
 export function deleteExecution(baseDir: string, executionId: string): { success: boolean; error?: string } {
   try {
     const store = getSqliteStoreSync(baseDir);
-    return store.deleteConversation(executionId);
+    // Fire and forget - don't block on async delete in sync context
+    store.deleteConversation(executionId).catch(err => {
+      console.error('[CLI Executor] Failed to delete execution:', err.message);
+    });
+    return { success: true }; // Optimistic response
   } catch {
     return { success: false, error: 'SQLite store not initialized' };
   }
@@ -424,7 +431,7 @@ export async function batchDeleteExecutionsAsync(baseDir: string, ids: string[])
   errors?: string[];
 }> {
   const store = await getSqliteStore(baseDir);
-  const result = store.batchDelete(ids);
+  const result = await store.batchDelete(ids);
   return { ...result, total: ids.length };
 }
 

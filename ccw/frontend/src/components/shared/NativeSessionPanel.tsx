@@ -23,30 +23,23 @@ import {
   DialogTitle,
 } from '@/components/ui/Dialog';
 import { useNativeSession } from '@/hooks/useNativeSession';
+import { useNativeSessionByPath } from '@/hooks/useNativeSessionByPath';
 import { SessionTimeline } from './SessionTimeline';
+import { getToolVariant } from '@/lib/cli-tool-theme';
+import type { NativeSessionListItem } from '@/lib/api';
 
 // ========== Types ==========
 
 export interface NativeSessionPanelProps {
-  executionId: string;
+  /** Legacy: CCW execution ID for lookup */
+  executionId?: string;
+  /** New: Session metadata with path for direct file loading */
+  session?: NativeSessionListItem | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
 // ========== Helpers ==========
-
-/**
- * Get badge variant for tool name
- */
-function getToolVariant(tool: string): 'default' | 'secondary' | 'outline' | 'success' | 'warning' | 'info' {
-  const variants: Record<string, 'default' | 'secondary' | 'outline' | 'success' | 'warning' | 'info'> = {
-    gemini: 'info',
-    codex: 'success',
-    qwen: 'warning',
-    opencode: 'secondary',
-  };
-  return variants[tool?.toLowerCase()] || 'secondary';
-}
 
 /**
  * Truncate a string to a max length with ellipsis
@@ -75,14 +68,34 @@ async function copyToClipboard(text: string): Promise<boolean> {
  *
  * Shows session metadata, token summary, and all conversation turns
  * with thoughts and tool calls for Gemini/Codex/Qwen native sessions.
+ *
+ * Supports two modes:
+ * - executionId: Look up session via CCW database
+ * - session: Load session directly from file path
  */
 export function NativeSessionPanel({
   executionId,
+  session,
   open,
   onOpenChange,
 }: NativeSessionPanelProps) {
   const { formatMessage } = useIntl();
-  const { data: session, isLoading, error } = useNativeSession(open ? executionId : null);
+
+  // Use appropriate hook based on what's provided
+  // Priority: session (path-based) > executionId (lookup-based)
+  const pathBasedResult = useNativeSessionByPath(
+    open && session ? session.filePath : null,
+    session?.tool
+  );
+
+  const idBasedResult = useNativeSession(
+    open && !session && executionId ? executionId : null
+  );
+
+  // Determine which result to use
+  const { data, isLoading, error } = session
+    ? pathBasedResult
+    : idBasedResult;
 
   const [copiedField, setCopiedField] = React.useState<string | null>(null);
 
@@ -103,44 +116,46 @@ export function NativeSessionPanel({
               <FileJson className="h-5 w-5" />
               {formatMessage({ id: 'nativeSession.title', defaultMessage: 'Native Session' })}
             </DialogTitle>
-            {session && (
+            {(data || session) && (
               <div className="flex items-center gap-2">
-                <Badge variant={getToolVariant(session.tool)}>
-                  {session.tool.toUpperCase()}
+                <Badge variant={getToolVariant(data?.tool || session?.tool || 'claude')}>
+                  {(data?.tool || session?.tool || 'unknown').toUpperCase()}
                 </Badge>
-                {session.model && (
+                {data?.model && (
                   <Badge variant="secondary" className="text-xs">
-                    {session.model}
+                    {data.model}
                   </Badge>
                 )}
-                <span
-                  className="text-xs text-muted-foreground font-mono"
-                  title={session.sessionId}
-                >
-                  {truncate(session.sessionId, 16)}
-                </span>
+                {(data?.sessionId || session?.sessionId) && (
+                  <span
+                    className="text-xs text-muted-foreground font-mono"
+                    title={data?.sessionId || session?.sessionId}
+                  >
+                    {truncate(data?.sessionId || session?.sessionId || '', 16)}
+                  </span>
+                )}
               </div>
             )}
           </div>
-          {session && (
+          {(data || session) && (
             <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground mt-2">
               <span className="flex items-center gap-1" title={formatMessage({ id: 'nativeSession.meta.startTime', defaultMessage: 'Start time' })}>
                 <Clock className="h-3 w-3" />
-                {new Date(session.startTime).toLocaleString()}
+                {new Date(data?.startTime || session?.createdAt || '').toLocaleString()}
               </span>
-              {session.workingDir && (
+              {(data?.workingDir || session?.projectHash) && (
                 <span className="flex items-center gap-1" title={formatMessage({ id: 'nativeSession.meta.workingDir', defaultMessage: 'Working directory' })}>
                   <FolderOpen className="h-3 w-3" />
-                  <span className="font-mono max-w-48 truncate">{session.workingDir}</span>
+                  <span className="font-mono max-w-48 truncate">{data?.workingDir || session?.projectHash}</span>
                 </span>
               )}
-              {session.projectHash && (
+              {data?.projectHash && (
                 <span className="flex items-center gap-1" title={formatMessage({ id: 'nativeSession.meta.projectHash', defaultMessage: 'Project hash' })}>
                   <Hash className="h-3 w-3" />
-                  <span className="font-mono">{truncate(session.projectHash, 12)}</span>
+                  <span className="font-mono">{truncate(data.projectHash, 12)}</span>
                 </span>
               )}
-              <span>{session.turns.length} {formatMessage({ id: 'nativeSession.meta.turns', defaultMessage: 'turns' })}</span>
+              {data && <span>{data.turns.length} {formatMessage({ id: 'nativeSession.meta.turns', defaultMessage: 'turns' })}</span>}
             </div>
           )}
         </DialogHeader>
@@ -154,15 +169,18 @@ export function NativeSessionPanel({
             </div>
           </div>
         ) : error ? (
-          <div className="flex-1 flex items-center justify-center py-16">
+          <div className="flex-1 flex flex-col items-center justify-center py-16 gap-3">
             <div className="flex items-center gap-2 text-destructive">
               <AlertCircle className="h-5 w-5" />
               <span>{formatMessage({ id: 'nativeSession.error', defaultMessage: 'Failed to load session' })}</span>
             </div>
+            <p className="text-xs text-muted-foreground">
+              {formatMessage({ id: 'nativeSession.errorHint', defaultMessage: 'The session file may have been moved or deleted.' })}
+            </p>
           </div>
-        ) : session ? (
+        ) : data ? (
           <div className="flex-1 overflow-y-auto px-6 py-4">
-            <SessionTimeline session={session} />
+            <SessionTimeline session={data} />
           </div>
         ) : (
           <div className="flex-1 flex items-center justify-center py-16 text-muted-foreground">
@@ -171,12 +189,12 @@ export function NativeSessionPanel({
         )}
 
         {/* Footer Actions */}
-        {session && (
+        {data && (
           <div className="flex items-center gap-2 px-6 py-4 border-t bg-muted/30 shrink-0">
             <Button
               size="sm"
               variant="outline"
-              onClick={() => handleCopy(session.sessionId, 'sessionId')}
+              onClick={() => handleCopy(data.sessionId, 'sessionId')}
               className="h-8"
             >
               <Copy className="h-4 w-4 mr-2" />
@@ -188,7 +206,7 @@ export function NativeSessionPanel({
               size="sm"
               variant="outline"
               onClick={() => {
-                const json = JSON.stringify(session, null, 2);
+                const json = JSON.stringify(data, null, 2);
                 handleCopy(json, 'json');
               }}
               className="h-8"

@@ -77,14 +77,11 @@ if (file_exists(contextPackagePath)) {
 
 **1.1b Project Context Loading** (MANDATORY):
 ```javascript
-// Load project-level context (from workflow:init products)
+// Load project-level context (from spec system)
 // These provide foundational constraints for ALL context gathering
-const projectTech = file_exists('.workflow/project-tech.json')
-  ? JSON.parse(Read('.workflow/project-tech.json'))    // tech_stack, architecture_type, key_components, build_system, test_framework
-  : null;
-const projectGuidelines = file_exists('.workflow/project-guidelines.json')
-  ? JSON.parse(Read('.workflow/project-guidelines.json')) // coding_conventions, naming_rules, forbidden_patterns, quality_gates
-  : null;
+const projectSpecs = Bash('ccw spec load --category "exploration architecture" --stdin');
+const projectTech = projectSpecs?.tech_stack ? projectSpecs : null;
+const projectGuidelines = projectSpecs?.coding_conventions ? projectSpecs : null;
 
 // Usage:
 // - projectTech → Populate project_context fields (tech_stack, architecture_patterns)

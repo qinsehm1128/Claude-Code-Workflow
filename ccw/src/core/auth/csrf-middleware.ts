@@ -51,7 +51,8 @@ function setCsrfCookie(res: ServerResponse, token: string, maxAgeSeconds: number
   const attributes = [
     `XSRF-TOKEN=${encodeURIComponent(token)}`,
     'Path=/',
-    'HttpOnly',
+    // Note: XSRF-TOKEN must be readable by JavaScript for CSRF protection to work
+    // The token is also sent via X-CSRF-Token header, so not having HttpOnly is safe
     'SameSite=Strict',
     `Max-Age=${maxAgeSeconds}`,
   ];

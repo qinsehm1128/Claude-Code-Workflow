@@ -38,7 +38,7 @@ export function useProjectOverview(options: UseProjectOverviewOptions = {}) {
   const queryEnabled = enabled && !!projectPath;
 
   const query = useQuery({
-    queryKey: projectOverviewKeys.detail(),
+    queryKey: projectOverviewKeys.detail(projectPath),
     queryFn: () => fetchProjectOverview(projectPath),
     staleTime,
     enabled: queryEnabled,

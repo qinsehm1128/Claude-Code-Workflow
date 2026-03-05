@@ -64,8 +64,25 @@ export function isBinaryFile(filePath: string): boolean {
 
 /**
  * Convert glob pattern to regex
+ * Supports: *, ?, and brace expansion {a,b,c}
  */
 export function globToRegex(pattern: string): RegExp {
+  // Handle brace expansion: *.{md,json,ts} -> (?:.*\.md|.*\.json|.*\.ts)
+  const braceMatch = pattern.match(/^(.*)\{([^}]+)\}(.*)$/);
+  if (braceMatch) {
+    const [, prefix, options, suffix] = braceMatch;
+    const optionList = options.split(',').map(opt => `${prefix}${opt}${suffix}`);
+    // Create a regex that matches any of the expanded patterns
+    const expandedPatterns = optionList.map(opt => {
+      return opt
+        .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+        .replace(/\*/g, '.*')
+        .replace(/\?/g, '.');
+    });
+    return new RegExp(`^(?:${expandedPatterns.join('|')})$`, 'i');
+  }
+
+  // Standard glob conversion
   const escaped = pattern
     .replace(/[.+^${}()|[\]\\]/g, '\\$&')
     .replace(/\*/g, '.*')

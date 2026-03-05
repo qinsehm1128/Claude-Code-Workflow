@@ -63,6 +63,35 @@
             "type": "array",
             "items": {"type": "string"},
             "description": "Key symbols (functions, classes, types) in this file relevant to the task. Example: ['AuthService', 'login', 'TokenPayload']"
+          },
+          "key_code": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["symbol", "description"],
+              "properties": {
+                "symbol": {
+                  "type": "string",
+                  "description": "Symbol identifier (function, class, method, type). Example: 'AuthService.login()'"
+                },
+                "location": {
+                  "type": "string",
+                  "description": "Line range in file. Example: 'L45-L78'"
+                },
+                "description": {
+                  "type": "string",
+                  "minLength": 10,
+                  "description": "What this code does and why it matters. Example: 'JWT token generation with bcrypt verification, returns {token, refreshToken} pair'"
+                }
+              },
+              "additionalProperties": false
+            },
+            "description": "Key code constructs with descriptions. Richer complement to key_symbols. Populate for files with relevance >= 0.7."
+          },
+          "topic_relation": {
+            "type": "string",
+            "minLength": 15,
+            "description": "How this file relates to the exploration ANGLE/TOPIC. Must reference the angle explicitly. Example: 'Security exploration targets this file because JWT generation lacks token rotation'. Distinct from rationale (WHY selected) - topic_relation explains the CONNECTION to the exploration perspective."
           }
         },
         "additionalProperties": false

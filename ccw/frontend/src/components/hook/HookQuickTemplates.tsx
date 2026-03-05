@@ -1,7 +1,9 @@
 // ========================================
 // Hook Quick Templates Component
 // ========================================
-// Predefined hook templates for quick installation
+// Frontend component for displaying and installing hook templates
+// Templates are defined in backend: ccw/src/core/hooks/hook-templates.ts
+// All templates use `ccw hook template exec <id> --stdin` to avoid Windows quote issues
 
 import { useMemo } from 'react';
 import { useIntl } from 'react-intl';
@@ -19,6 +21,7 @@ import {
   GitBranch,
   Send,
   FileBarChart,
+  Settings,
 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -31,10 +34,10 @@ import type { HookTriggerType } from './HookCard';
 /**
  * Template category type
  */
-export type TemplateCategory = 'notification' | 'indexing' | 'automation';
+export type TemplateCategory = 'notification' | 'indexing' | 'automation' | 'utility' | 'protection';
 
 /**
- * Hook template definition
+ * Hook template definition (frontend view of backend templates)
  */
 export interface HookTemplate {
   id: string;
@@ -42,8 +45,6 @@ export interface HookTemplate {
   description: string;
   category: TemplateCategory;
   trigger: HookTriggerType;
-  command: string;
-  args?: string[];
   matcher?: string;
 }
 
@@ -62,22 +63,22 @@ export interface HookQuickTemplatesProps {
 }
 
 // ========== Hook Templates ==========
+// NOTE: Templates are defined in backend (ccw/src/core/hooks/hook-templates.ts)
+// This is a copy for frontend display purposes.
+// All templates use `ccw hook template exec <id> --stdin` format.
 
 /**
  * Predefined hook templates for quick installation
+ * These mirror the backend templates in ccw/src/core/hooks/hook-templates.ts
  */
 export const HOOK_TEMPLATES: readonly HookTemplate[] = [
+  // ============ Notification ============
   {
     id: 'session-start-notify',
     name: 'Session Start Notify',
     description: 'Notify dashboard when a new workflow session is created',
     category: 'notification',
     trigger: 'SessionStart',
-    command: 'node',
-    args: [
-      '-e',
-      'const cp=require("child_process");const payload=JSON.stringify({type:"SESSION_CREATED",timestamp:Date.now(),project:process.env.CLAUDE_PROJECT_DIR||process.cwd()});cp.spawnSync("curl",["-s","-X","POST","-H","Content-Type: application/json","-d",payload,"http://localhost:3456/api/hook"],{stdio:"inherit",shell:true})'
-    ]
   },
   {
     id: 'session-state-watch',
@@ -86,26 +87,24 @@ export const HOOK_TEMPLATES: readonly HookTemplate[] = [
     category: 'notification',
     trigger: 'PostToolUse',
     matcher: 'Write|Edit',
-    command: 'node',
-    args: [
-      '-e',
-      'const p=JSON.parse(process.env.HOOK_INPUT||"{}");const file=(p.tool_input&&p.tool_input.file_path)||"";if(/workflow-session\\.json$|session-metadata\\.json$/.test(file)){const fs=require("fs");try{const content=fs.readFileSync(file,"utf8");const data=JSON.parse(content);const cp=require("child_process");const payload=JSON.stringify({type:"SESSION_STATE_CHANGED",file:file,sessionId:data.session_id||"",status:data.status||"unknown",project:process.env.CLAUDE_PROJECT_DIR||process.cwd(),timestamp:Date.now()});cp.spawnSync("curl",["-s","-X","POST","-H","Content-Type: application/json","-d",payload,"http://localhost:3456/api/hook"],{stdio:"inherit",shell:true})}catch(e){}}'
-    ]
   },
-  // --- Notification ---
   {
     id: 'stop-notify',
     name: 'Stop Notify',
     description: 'Notify dashboard when Claude finishes responding',
     category: 'notification',
     trigger: 'Stop',
-    command: 'node',
-    args: [
-      '-e',
-      'const cp=require("child_process");const payload=JSON.stringify({type:"TASK_COMPLETED",timestamp:Date.now(),project:process.env.CLAUDE_PROJECT_DIR||process.cwd()});cp.spawnSync("curl",["-s","-X","POST","-H","Content-Type: application/json","-d",payload,"http://localhost:3456/api/hook"],{stdio:"inherit",shell:true})'
-    ]
   },
-  // --- Automation ---
+  {
+    id: 'memory-sync-dashboard',
+    name: 'Memory Sync Dashboard',
+    description: 'Sync memory V2 status to dashboard on changes',
+    category: 'notification',
+    trigger: 'PostToolUse',
+    matcher: 'mcp__ccw-tools__core_memory',
+  },
+
+  // ============ Automation ============
   {
     id: 'auto-format-on-write',
     name: 'Auto Format on Write',
@@ -113,11 +112,6 @@ export const HOOK_TEMPLATES: readonly HookTemplate[] = [
     category: 'automation',
     trigger: 'PostToolUse',
     matcher: 'Write|Edit',
-    command: 'node',
-    args: [
-      '-e',
-      'const p=JSON.parse(process.env.HOOK_INPUT||"{}");const file=(p.tool_input&&p.tool_input.file_path)||"";if(file){const cp=require("child_process");cp.spawnSync("npx",["prettier","--write",file],{stdio:"inherit",shell:true})}'
-    ]
   },
   {
     id: 'auto-lint-on-write',
@@ -126,24 +120,6 @@ export const HOOK_TEMPLATES: readonly HookTemplate[] = [
     category: 'automation',
     trigger: 'PostToolUse',
     matcher: 'Write|Edit',
-    command: 'node',
-    args: [
-      '-e',
-      'const p=JSON.parse(process.env.HOOK_INPUT||"{}");const file=(p.tool_input&&p.tool_input.file_path)||"";if(file){const cp=require("child_process");cp.spawnSync("npx",["eslint","--fix",file],{stdio:"inherit",shell:true})}'
-    ]
-  },
-  {
-    id: 'block-sensitive-files',
-    name: 'Block Sensitive Files',
-    description: 'Block modifications to sensitive files (.env, secrets, credentials)',
-    category: 'automation',
-    trigger: 'PreToolUse',
-    matcher: 'Write|Edit',
-    command: 'node',
-    args: [
-      '-e',
-      'const p=JSON.parse(process.env.HOOK_INPUT||"{}");const file=(p.tool_input&&p.tool_input.file_path)||"";if(/\\.env|secret|credential|\\.key$/.test(file)){process.stderr.write("Blocked: modifying sensitive file "+file);process.exit(2)}'
-    ]
   },
   {
     id: 'git-auto-stage',
@@ -151,13 +127,67 @@ export const HOOK_TEMPLATES: readonly HookTemplate[] = [
     description: 'Auto stage all modified files when Claude finishes responding',
     category: 'automation',
     trigger: 'Stop',
-    command: 'node',
-    args: [
-      '-e',
-      'const cp=require("child_process");cp.spawnSync("git",["add","-u"],{stdio:"inherit",shell:true})'
-    ]
   },
-  // --- Indexing ---
+
+  // ============ Protection ============
+  {
+    id: 'block-sensitive-files',
+    name: 'Block Sensitive Files',
+    description: 'Block modifications to sensitive files (.env, secrets, credentials)',
+    category: 'protection',
+    trigger: 'PreToolUse',
+    matcher: 'Write|Edit',
+  },
+  {
+    id: 'danger-bash-confirm',
+    name: 'Danger Bash Confirm',
+    description: 'Require confirmation for dangerous bash commands',
+    category: 'protection',
+    trigger: 'PreToolUse',
+    matcher: 'Bash',
+  },
+  {
+    id: 'danger-file-protection',
+    name: 'Danger File Protection',
+    description: 'Block modifications to protected files',
+    category: 'protection',
+    trigger: 'PreToolUse',
+    matcher: 'Write|Edit',
+  },
+  {
+    id: 'danger-git-destructive',
+    name: 'Danger Git Destructive',
+    description: 'Require confirmation for destructive git operations',
+    category: 'protection',
+    trigger: 'PreToolUse',
+    matcher: 'Bash',
+  },
+  {
+    id: 'danger-network-confirm',
+    name: 'Danger Network Confirm',
+    description: 'Require confirmation for network operations',
+    category: 'protection',
+    trigger: 'PreToolUse',
+    matcher: 'Bash|WebFetch',
+  },
+  {
+    id: 'danger-system-paths',
+    name: 'Danger System Paths',
+    description: 'Block modifications to system paths',
+    category: 'protection',
+    trigger: 'PreToolUse',
+    matcher: 'Write|Edit|Bash',
+  },
+  {
+    id: 'danger-permission-change',
+    name: 'Danger Permission Change',
+    description: 'Require confirmation for permission changes',
+    category: 'protection',
+    trigger: 'PreToolUse',
+    matcher: 'Bash',
+  },
+
+  // ============ Indexing ============
   {
     id: 'post-edit-index',
     name: 'Post Edit Index',
@@ -165,11 +195,6 @@ export const HOOK_TEMPLATES: readonly HookTemplate[] = [
     category: 'indexing',
     trigger: 'PostToolUse',
     matcher: 'Write|Edit',
-    command: 'node',
-    args: [
-      '-e',
-      'const p=JSON.parse(process.env.HOOK_INPUT||"{}");const file=(p.tool_input&&p.tool_input.file_path)||"";if(file){const cp=require("child_process");const payload=JSON.stringify({type:"FILE_MODIFIED",file:file,project:process.env.CLAUDE_PROJECT_DIR||process.cwd(),timestamp:Date.now()});cp.spawnSync("curl",["-s","-X","POST","-H","Content-Type: application/json","-d",payload,"http://localhost:3456/api/hook"],{stdio:"inherit",shell:true})}'
-    ]
   },
   {
     id: 'session-end-summary',
@@ -177,21 +202,44 @@ export const HOOK_TEMPLATES: readonly HookTemplate[] = [
     description: 'Send session summary to dashboard on session end',
     category: 'indexing',
     trigger: 'Stop',
-    command: 'node',
-    args: [
-      '-e',
-      'const p=JSON.parse(process.env.HOOK_INPUT||"{}");const cp=require("child_process");const payload=JSON.stringify({type:"SESSION_SUMMARY",transcript:p.transcript_path||"",project:process.env.CLAUDE_PROJECT_DIR||process.cwd(),timestamp:Date.now()});cp.spawnSync("curl",["-s","-X","POST","-H","Content-Type: application/json","-d",payload,"http://localhost:3456/api/hook"],{stdio:"inherit",shell:true})'
-    ]
+  },
+
+  // ============ Utility ============
+  {
+    id: 'memory-auto-compress',
+    name: 'Auto Memory Compress',
+    description: 'Automatically compress memory when entries exceed threshold',
+    category: 'utility',
+    trigger: 'Stop',
   },
   {
-    id: 'project-state-inject',
-    name: 'Project State Inject',
-    description: 'Inject project guidelines and recent dev history at session start',
-    category: 'indexing',
+    id: 'memory-preview-extract',
+    name: 'Memory Preview & Extract',
+    description: 'Preview extraction queue and extract eligible sessions',
+    category: 'utility',
     trigger: 'SessionStart',
-    command: 'ccw',
-    args: ['hook', 'project-state', '--stdin']
-  }
+  },
+  {
+    id: 'memory-status-check',
+    name: 'Memory Status Check',
+    description: 'Check memory extraction and consolidation status',
+    category: 'utility',
+    trigger: 'SessionStart',
+  },
+  {
+    id: 'memory-v2-extract',
+    name: 'Memory V2 Extract',
+    description: 'Trigger Phase 1 extraction when session ends',
+    category: 'utility',
+    trigger: 'Stop',
+  },
+  {
+    id: 'memory-v2-auto-consolidate',
+    name: 'Memory V2 Auto Consolidate',
+    description: 'Trigger Phase 2 consolidation after extraction jobs complete',
+    category: 'utility',
+    trigger: 'Stop',
+  },
 ] as const;
 
 // ========== Category Icons ==========
@@ -199,7 +247,9 @@ export const HOOK_TEMPLATES: readonly HookTemplate[] = [
 const CATEGORY_ICONS: Record<TemplateCategory, { icon: typeof Bell; color: string; bg: string }> = {
   notification: { icon: Bell, color: 'text-blue-500', bg: 'bg-blue-500/10' },
   indexing: { icon: Database, color: 'text-purple-500', bg: 'bg-purple-500/10' },
-  automation: { icon: Wrench, color: 'text-orange-500', bg: 'bg-orange-500/10' }
+  automation: { icon: Wrench, color: 'text-orange-500', bg: 'bg-orange-500/10' },
+  utility: { icon: Settings, color: 'text-gray-500', bg: 'bg-gray-500/10' },
+  protection: { icon: Shield, color: 'text-red-500', bg: 'bg-red-500/10' },
 };
 
 // ========== Template Icons ==========
@@ -223,7 +273,9 @@ function getCategoryName(category: TemplateCategory, formatMessage: ReturnType<t
   const names: Record<TemplateCategory, string> = {
     notification: formatMessage({ id: 'cliHooks.templates.categories.notification' }),
     indexing: formatMessage({ id: 'cliHooks.templates.categories.indexing' }),
-    automation: formatMessage({ id: 'cliHooks.templates.categories.automation' })
+    automation: formatMessage({ id: 'cliHooks.templates.categories.automation' }),
+    utility: formatMessage({ id: 'cliHooks.templates.categories.utility' }),
+    protection: formatMessage({ id: 'cliHooks.templates.categories.protection' }),
   };
   return names[category];
 }
@@ -253,7 +305,7 @@ export function HookQuickTemplates({
   }, []);
 
   // Define category order
-  const categoryOrder: TemplateCategory[] = ['notification', 'indexing', 'automation'];
+  const categoryOrder: TemplateCategory[] = ['notification', 'indexing', 'automation', 'protection', 'utility'];
 
   const handleInstall = async (templateId: string) => {
     await onInstallTemplate(templateId);
@@ -317,7 +369,9 @@ export function HookQuickTemplates({
                       </div>
                       <div className="flex-1 min-w-0">
                         <h4 className="text-sm font-medium text-foreground leading-tight">
-                          {formatMessage({ id: `cliHooks.templates.templates.${template.id}.name` })}
+                          {formatMessage(
+                            { id: `cliHooks.templates.templates.${template.id}.name`, defaultMessage: template.name }
+                          )}
                         </h4>
                         <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                           <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
@@ -359,7 +413,9 @@ export function HookQuickTemplates({
 
                     {/* Description */}
                     <p className="text-xs text-muted-foreground leading-relaxed flex-1 pl-11">
-                      {formatMessage({ id: `cliHooks.templates.templates.${template.id}.description` })}
+                      {formatMessage(
+                        { id: `cliHooks.templates.templates.${template.id}.description`, defaultMessage: template.description }
+                      )}
                     </p>
                   </Card>
                 );

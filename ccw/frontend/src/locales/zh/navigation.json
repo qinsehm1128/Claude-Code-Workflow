@@ -23,6 +23,7 @@
     "skills": "技能",
     "commands": "命令",
     "memory": "记忆",
+    "deepwiki": "DeepWiki",
     "prompts": "提示历史",
     "settings": "设置",
     "mcp": "MCP 服务器",
@@ -37,7 +38,9 @@
     "graph": "图浏览器",
     "teams": "团队执行",
     "terminalDashboard": "终端仪表板",
-    "skillHub": "技能中心"
+    "skillHub": "技能中心",
+    "analysis": "分析查看器",
+    "specs": "规范设置"
   },
   "sidebar": {
     "collapse": "收起",

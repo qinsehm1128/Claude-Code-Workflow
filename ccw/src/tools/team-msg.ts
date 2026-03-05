@@ -2,12 +2,14 @@
  * Team Message Bus - JSONL-based persistent message log for Agent Teams
  *
  * Operations:
- * - log:    Append a message, returns auto-incremented ID
- * - read:   Read message(s) by ID
- * - list:   List recent messages with optional filters (from/to/type/last N)
- * - status: Summarize team member activity from message history
- * - delete: Delete a specific message by ID
- * - clear:  Clear all messages for a team
+ * - log:       Append a message (to defaults to "coordinator", summary auto-generated if omitted)
+ * - read:      Read message(s) by ID
+ * - list:      List recent messages with optional filters (from/to/type/last N)
+ * - status:    Summarize team member activity from message history
+ * - delete:    Delete a specific message by ID
+ * - clear:     Clear all messages for a team
+ * - broadcast: Log a message with to="all"
+ * - get_state: Read role state from meta.json
  */
 
 import { z } from 'zod';
@@ -23,8 +25,16 @@ export interface TeamMeta {
   created_at: string;
   updated_at: string;
   archived_at?: string;
+
+  // Pipeline configuration (previously in team-session.json)
   pipeline_mode?: string;
-  session_id?: string;  // Links to .workflow/.team/{session-id}/ artifacts directory
+  pipeline_stages?: string[];
+  team_name?: string;
+  task_description?: string;
+  roles?: string[];
+
+  // Role state snapshot (previously in shared-memory.json)
+  role_state?: Record<string, Record<string, unknown>>;
 }
 
 export function getMetaPath(team: string): string {
@@ -61,13 +71,35 @@ export function inferTeamStatus(team: string): TeamMeta['status'] {
 }
 
 /**
- * Get effective team meta: reads meta.json or infers from messages.
+ * Get effective team meta: reads meta.json, with fallback to shared-memory.json
+ * and team-session.json for backward compatibility with older sessions.
  */
 export function getEffectiveTeamMeta(team: string): TeamMeta {
   const meta = readTeamMeta(team);
-  if (meta) return meta;
+  if (meta) {
+    // Enrich from legacy files if key fields are missing
+    if (!meta.role_state || !meta.pipeline_mode || !meta.roles || !meta.pipeline_stages) {
+      const legacyData = readLegacyFiles(team);
+      if (!meta.pipeline_mode && legacyData.pipeline_mode) {
+        meta.pipeline_mode = legacyData.pipeline_mode;
+      }
+      if (!meta.role_state && legacyData.role_state) {
+        meta.role_state = legacyData.role_state;
+      }
+      if (!meta.pipeline_stages && legacyData.pipeline_stages) {
+        meta.pipeline_stages = legacyData.pipeline_stages;
+      }
+      if (!meta.team_name && legacyData.team_name) {
+        meta.team_name = legacyData.team_name;
+      }
+      if (!meta.roles && legacyData.roles) {
+        meta.roles = legacyData.roles;
+      }
+    }
+    return meta;
+  }
 
-  // Infer from messages and directory stat
+  // No meta.json — build from legacy files + inferred status
   const status = inferTeamStatus(team);
   const dir = getLogDir(team);
   let created_at = new Date().toISOString();
@@ -80,7 +112,64 @@ export function getEffectiveTeamMeta(team: string): TeamMeta {
   const lastMsg = messages[messages.length - 1];
   const updated_at = lastMsg?.ts || created_at;
 
-  return { status, created_at, updated_at };
+  const legacyData = readLegacyFiles(team);
+
+  return {
+    status,
+    created_at,
+    updated_at,
+    ...legacyData,
+  };
+}
+
+/**
+ * Read legacy files (shared-memory.json, team-session.json) for backward compatibility.
+ */
+function readLegacyFiles(team: string): Partial<TeamMeta> {
+  const root = getProjectRoot();
+  const sessionDir = join(root, '.workflow', '.team', team);
+  const result: Partial<TeamMeta> = {};
+
+  // Try shared-memory.json (role state + pipeline_mode)
+  const sharedMemPath = join(sessionDir, 'shared-memory.json');
+  if (existsSync(sharedMemPath)) {
+    try {
+      const sharedMem = JSON.parse(readFileSync(sharedMemPath, 'utf-8'));
+      if (sharedMem.pipeline_mode) result.pipeline_mode = sharedMem.pipeline_mode;
+      if (sharedMem.pipeline_stages) result.pipeline_stages = sharedMem.pipeline_stages;
+      // Extract role state: any key that looks like a role namespace
+      const roleState: Record<string, Record<string, unknown>> = {};
+      for (const [key, value] of Object.entries(sharedMem)) {
+        if (typeof value === 'object' && value !== null && !Array.isArray(value)
+            && !['pipeline_mode', 'pipeline_stages'].includes(key)) {
+          roleState[key] = value as Record<string, unknown>;
+        }
+      }
+      if (Object.keys(roleState).length > 0) result.role_state = roleState;
+    } catch { /* ignore parse errors */ }
+  }
+
+  // Try team-session.json (pipeline config)
+  const sessionPath = join(sessionDir, 'team-session.json');
+  if (existsSync(sessionPath)) {
+    try {
+      const session = JSON.parse(readFileSync(sessionPath, 'utf-8'));
+      if (!result.pipeline_mode && session.pipeline_mode) result.pipeline_mode = session.pipeline_mode;
+      if (!result.pipeline_stages && session.pipeline_stages) result.pipeline_stages = session.pipeline_stages;
+      if (session.team_name) result.team_name = session.team_name;
+      if (session.task_description) result.task_description = session.task_description;
+      // Handle both string[] and { name: string }[] formats
+      if (session.roles && Array.isArray(session.roles)) {
+        if (typeof session.roles[0] === 'string') {
+          result.roles = session.roles;
+        } else if (typeof session.roles[0] === 'object' && session.roles[0] !== null && 'name' in session.roles[0]) {
+          result.roles = session.roles.map((r: { name: string }) => r.name);
+        }
+      }
+    } catch { /* ignore parse errors */ }
+  }
+
+  return result;
 }
 
 // --- Types ---
@@ -92,7 +181,6 @@ export interface TeamMessage {
   to: string;
   type: string;
   summary: string;
-  ref?: string;
   data?: Record<string, unknown>;
 }
 
@@ -106,75 +194,121 @@ export interface StatusEntry {
 // --- Zod Schema ---
 
 const ParamsSchema = z.object({
-  operation: z.enum(['log', 'read', 'list', 'status', 'delete', 'clear']).describe('Operation to perform'),
-  team: z.string().describe('Session ID (new: .workflow/.team/{session-id}/.msg/) or team name (legacy: .workflow/.team-msg/{team}/)'),
+  operation: z.enum(['log', 'read', 'list', 'status', 'delete', 'clear', 'broadcast', 'get_state']).describe('Operation to perform'),
 
-  // log params
-  from: z.string().optional().describe('[log/list] Sender role name'),
-  to: z.string().optional().describe('[log/list] Recipient role name'),
-  type: z.string().optional().describe('[log/list] Message type (plan_ready, impl_complete, test_result, etc.)'),
-  summary: z.string().optional().describe('[log] One-line human-readable summary'),
-  ref: z.string().optional().describe('[log] File path reference for large content'),
-  data: z.record(z.string(), z.unknown()).optional().describe('[log] Optional structured data'),
+  // Session identifier (primary)
+  session_id: z.string().optional().describe('Session ID that determines message storage path (e.g., TLS-my-project-2026-02-27)'),
 
-  // read params
-  id: z.string().optional().describe('[read] Message ID to read (e.g. MSG-003)'),
+  // Legacy params (backward compat)
+  team_session_id: z.string().optional().describe('[deprecated] Use session_id'),
+  team: z.string().optional().describe('[deprecated] Use session_id'),
+
+  // log/broadcast params
+  from: z.string().optional().describe('[log/broadcast/list] Sender role name'),
+  to: z.string().optional().describe('[log/list] Recipient role (defaults to "coordinator")'),
+  type: z.string().optional().describe('[log/broadcast/list] Message type (state_update, plan_ready, shutdown, etc.)'),
+  summary: z.string().optional().describe('[log/broadcast] One-line summary (auto-generated from type+from if omitted)'),
+  data: z.record(z.string(), z.unknown()).optional().describe('[log/broadcast] Structured data payload. Use data.ref for file paths. When type="state_update", auto-synced to meta.json'),
+
+  // read/delete params
+  id: z.string().optional().describe('[read/delete] Message ID (e.g. MSG-003)'),
 
   // list params
   last: z.number().min(1).max(100).optional().describe('[list] Return last N messages (default: 20)'),
 
-  // session_id for artifact discovery
-  session_id: z.string().optional().describe('[log] Session ID for artifact discovery (links team to .workflow/.team/{session-id}/)'),
+  // get_state params
+  role: z.string().optional().describe('[get_state] Role name to query. Omit to get all role states'),
+
+  // Legacy backward compat (accepted but ignored — session_id replaces this)
+  ref: z.string().optional().describe('[deprecated] Use data.ref instead'),
 });
 
 type Params = z.infer<typeof ParamsSchema>;
+
+/** Resolve team session ID from params, supporting legacy 'team_session_id' and 'team' */
+function resolveTeamId(params: Params): string | null {
+  return params.session_id || params.team_session_id || params.team || null;
+}
 
 // --- Tool Schema ---
 
 export const schema: ToolSchema = {
   name: 'team_msg',
-  description: `Team message bus - persistent JSONL log for Agent Team communication.
+  description: `Team message bus - persistent JSONL log for Agent Team communication. Choose an operation and provide its required parameters.
 
-Directory Structure (NEW):
-  .workflow/.team/{session-id}/.msg/messages.jsonl
+**Storage Location:** .workflow/.team/{session-id}/.msg/messages.jsonl
 
-Directory Structure (LEGACY):
-  .workflow/.team-msg/{team-name}/messages.jsonl
+**Operations & Required Parameters:**
 
-Operations:
-  team_msg(operation="log", team="TLS-my-team-2026-02-15", from="planner", to="coordinator", type="plan_ready", summary="Plan ready: 3 tasks", ref=".workflow/.team-plan/my-team/plan.json")
-  team_msg(operation="log", team="TLS-my-team-2026-02-15", from="coordinator", to="implementer", type="task_unblocked", summary="Task ready")
-  team_msg(operation="read", team="TLS-my-team-2026-02-15", id="MSG-003")
-  team_msg(operation="list", team="TLS-my-team-2026-02-15")
-  team_msg(operation="list", team="TLS-my-team-2026-02-15", from="tester", last=5)
-  team_msg(operation="status", team="TLS-my-team-2026-02-15")
-  team_msg(operation="delete", team="TLS-my-team-2026-02-15", id="MSG-003")
-  team_msg(operation="clear", team="TLS-my-team-2026-02-15")
+*   **log**: Append a message to the log.
+    *   **session_id** (string, **REQUIRED**): Session ID (e.g., TLS-my-project-2026-02-27).
+    *   **from** (string, **REQUIRED**): Sender role name (e.g., "planner", "coordinator").
+    *   *to* (string): Recipient role (default: "coordinator").
+    *   *type* (string): Message type (default: "message").
+    *   *summary* (string): One-line summary (auto-generated if omitted).
+    *   *data* (object): Structured data payload. Use data.ref for file paths.
 
-Message types: plan_ready, plan_approved, plan_revision, task_unblocked, impl_complete, impl_progress, test_result, review_result, fix_required, error, shutdown`,
+*   **broadcast**: Send message to all team members.
+    *   **session_id** (string, **REQUIRED**): Session ID.
+    *   **from** (string, **REQUIRED**): Sender role name.
+    *   *type* (string): Message type (e.g., "shutdown").
+    *   *summary* (string): One-line summary.
+    *   *data* (object): Structured data payload.
+
+*   **read**: Read a specific message by ID.
+    *   **session_id** (string, **REQUIRED**): Session ID.
+    *   **id** (string, **REQUIRED**): Message ID (e.g., "MSG-003").
+
+*   **list**: List recent messages.
+    *   **session_id** (string, **REQUIRED**): Session ID.
+    *   *last* (number): Number of messages to show (default: 20, max: 100).
+    *   *from* (string): Filter by sender role.
+    *   *to* (string): Filter by recipient role.
+    *   *type* (string): Filter by message type.
+
+*   **status**: Summarize team member activity.
+    *   **session_id** (string, **REQUIRED**): Session ID.
+
+*   **get_state**: Get state for a specific role.
+    *   **session_id** (string, **REQUIRED**): Session ID.
+    *   *role* (string): Role name to query (omit for all roles).
+
+*   **delete**: Delete a message by ID.
+    *   **session_id** (string, **REQUIRED**): Session ID.
+    *   **id** (string, **REQUIRED**): Message ID to delete.
+
+*   **clear**: Clear all messages for a session.
+    *   **session_id** (string, **REQUIRED**): Session ID.
+
+**Common Message Types:** plan_ready, plan_approved, plan_revision, task_unblocked, impl_complete, impl_progress, test_result, review_result, fix_required, error, shutdown, state_update
+
+**Session ID Format:** TLS-{name}-{date} (e.g., TLS-my-project-2026-02-27)`,
   inputSchema: {
     type: 'object',
     properties: {
       operation: {
         type: 'string',
-        enum: ['log', 'read', 'list', 'status', 'delete', 'clear'],
-        description: 'Operation: log | read | list | status | delete | clear',
+        enum: ['log', 'read', 'list', 'status', 'delete', 'clear', 'broadcast', 'get_state'],
+        description: 'Operation: log | read | list | status | delete | clear | broadcast | get_state',
       },
-      team: {
+      session_id: {
         type: 'string',
-        description: 'Team name',
+        description: 'Session ID (e.g., TLS-my-project-2026-02-27). Maps to .workflow/.team/{session-id}/.msg/',
       },
-      from: { type: 'string', description: '[log/list] Sender role' },
-      to: { type: 'string', description: '[log/list] Recipient role' },
-      type: { type: 'string', description: '[log/list] Message type' },
-      summary: { type: 'string', description: '[log] One-line summary' },
-      ref: { type: 'string', description: '[log] File path for large content' },
-      data: { type: 'object', description: '[log] Optional structured data' },
-      id: { type: 'string', description: '[read] Message ID (e.g. MSG-003)' },
+      from: { type: 'string', description: '[log/broadcast/list] Sender role' },
+      to: { type: 'string', description: '[log/list] Recipient role (defaults to "coordinator")' },
+      type: { type: 'string', description: '[log/broadcast/list] Message type' },
+      summary: { type: 'string', description: '[log/broadcast] One-line summary (auto-generated if omitted)' },
+      data: { type: 'object', description: '[log/broadcast] Structured data. Use data.ref for file paths. When type="state_update", auto-synced to meta.json' },
+      id: { type: 'string', description: '[read/delete] Message ID (e.g. MSG-003)' },
       last: { type: 'number', description: '[list] Last N messages (default 20)', minimum: 1, maximum: 100 },
-      session_id: { type: 'string', description: '[log] Session ID for artifact discovery' },
+      role: { type: 'string', description: '[get_state] Role name to query. Omit for all roles' },
+      // Legacy params (backward compat)
+      team_session_id: { type: 'string', description: '[deprecated] Use session_id' },
+      team: { type: 'string', description: '[deprecated] Use session_id' },
+      ref: { type: 'string', description: '[deprecated] Use data.ref instead' },
     },
-    required: ['operation', 'team'],
+    required: ['operation'],
   },
 };
 
@@ -202,12 +336,12 @@ export function getLogDirWithFallback(sessionId: string): string {
   return join(root, '.workflow', '.team-msg', sessionId);
 }
 
-function getLogPath(team: string): string {
-  return join(getLogDir(team), 'messages.jsonl');
+function getLogPath(teamId: string): string {
+  return join(getLogDir(teamId), 'messages.jsonl');
 }
 
-function ensureLogFile(team: string): string {
-  const logPath = getLogPath(team);
+function ensureLogFile(teamId: string): string {
+  const logPath = getLogPath(teamId);
   const dir = dirname(logPath);
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
@@ -218,8 +352,8 @@ function ensureLogFile(team: string): string {
   return logPath;
 }
 
-export function readAllMessages(team: string): TeamMessage[] {
-  const logPath = getLogPath(team);
+export function readAllMessages(teamId: string): TeamMessage[] {
+  const logPath = getLogPath(teamId);
   if (!existsSync(logPath)) return [];
 
   const content = readFileSync(logPath, 'utf-8').trim();
@@ -248,54 +382,81 @@ function nowISO(): string {
 
 // --- Operations ---
 
-function opLog(params: Params): ToolResult {
+function opLog(params: Params, teamId: string): ToolResult {
   if (!params.from) return { success: false, error: 'log requires "from"' };
-  if (!params.to) return { success: false, error: 'log requires "to"' };
-  if (!params.summary) return { success: false, error: 'log requires "summary"' };
 
-  const logPath = ensureLogFile(params.team);
-  const messages = readAllMessages(params.team);
+  // Default to "coordinator" if to is not specified
+  const to = params.to || 'coordinator';
+
+  // Backward compat: merge legacy ref into data.ref
+  if (params.ref) {
+    if (!params.data) params.data = {};
+    if (!params.data.ref) params.data.ref = params.ref;
+  }
+
+  // Auto-generate summary if not provided
+  const summary = params.summary || `[${params.from}] ${params.type || 'message'} → ${to}`;
+
+  const logPath = ensureLogFile(teamId);
+  const messages = readAllMessages(teamId);
   const id = getNextId(messages);
 
   const msg: TeamMessage = {
     id,
     ts: nowISO(),
     from: params.from,
-    to: params.to,
+    to,
     type: params.type || 'message',
-    summary: params.summary,
+    summary,
   };
-  if (params.ref) msg.ref = params.ref;
   if (params.data) msg.data = params.data;
 
   appendFileSync(logPath, JSON.stringify(msg) + '\n', 'utf-8');
 
-  // Update meta with session_id if provided
-  if (params.session_id) {
-    const meta = getEffectiveTeamMeta(params.team);
-    meta.session_id = params.session_id;
+  // Auto-sync state_update to meta.json
+  if (params.type === 'state_update' && params.data) {
+    const meta = getEffectiveTeamMeta(teamId);
+
+    // Role state: store under role_state namespace
+    if (params.from) {
+      if (!meta.role_state) meta.role_state = {};
+      meta.role_state[params.from] = {
+        ...meta.role_state[params.from],
+        ...params.data,
+        _updated_at: nowISO(),
+      };
+    }
+
+    // Promote top-level keys directly to meta
+    const topLevelKeys = ['pipeline_mode', 'pipeline_stages', 'team_name', 'task_description', 'roles'] as const;
+    for (const key of topLevelKeys) {
+      if (params.data[key] !== undefined) {
+        (meta as any)[key] = params.data[key];
+      }
+    }
+
     meta.updated_at = nowISO();
-    writeTeamMeta(params.team, meta);
+    writeTeamMeta(teamId, meta);
   }
 
   return { success: true, result: { id, message: `Logged ${id}: [${msg.from} → ${msg.to}] ${msg.summary}` } };
 }
 
-function opRead(params: Params): ToolResult {
+function opRead(params: Params, teamId: string): ToolResult {
   if (!params.id) return { success: false, error: 'read requires "id"' };
 
-  const messages = readAllMessages(params.team);
+  const messages = readAllMessages(teamId);
   const msg = messages.find(m => m.id === params.id);
 
   if (!msg) {
-    return { success: false, error: `Message ${params.id} not found in team "${params.team}"` };
+    return { success: false, error: `Message ${params.id} not found in team "${teamId}"` };
   }
 
   return { success: true, result: msg };
 }
 
-function opList(params: Params): ToolResult {
-  let messages = readAllMessages(params.team);
+function opList(params: Params, teamId: string): ToolResult {
+  let messages = readAllMessages(teamId);
 
   // Apply filters
   if (params.from) messages = messages.filter(m => m.from === params.from);
@@ -319,8 +480,8 @@ function opList(params: Params): ToolResult {
   };
 }
 
-function opStatus(params: Params): ToolResult {
-  const messages = readAllMessages(params.team);
+function opStatus(params: Params, teamId: string): ToolResult {
+  const messages = readAllMessages(teamId);
 
   if (messages.length === 0) {
     return { success: true, result: { members: [], summary: 'No messages recorded yet.' } };
@@ -357,35 +518,57 @@ function opStatus(params: Params): ToolResult {
   };
 }
 
-function opDelete(params: Params): ToolResult {
+function opDelete(params: Params, teamId: string): ToolResult {
   if (!params.id) return { success: false, error: 'delete requires "id"' };
 
-  const messages = readAllMessages(params.team);
+  const messages = readAllMessages(teamId);
   const idx = messages.findIndex(m => m.id === params.id);
 
   if (idx === -1) {
-    return { success: false, error: `Message ${params.id} not found in team "${params.team}"` };
+    return { success: false, error: `Message ${params.id} not found in team "${teamId}"` };
   }
 
   const removed = messages.splice(idx, 1)[0];
-  const logPath = ensureLogFile(params.team);
+  const logPath = ensureLogFile(teamId);
   writeFileSync(logPath, messages.map(m => JSON.stringify(m)).join('\n') + (messages.length > 0 ? '\n' : ''), 'utf-8');
 
   return { success: true, result: { deleted: removed.id, message: `Deleted ${removed.id}: [${removed.from} → ${removed.to}] ${removed.summary}` } };
 }
 
-function opClear(params: Params): ToolResult {
-  const logPath = getLogPath(params.team);
-  const dir = getLogDir(params.team);
+function opBroadcast(params: Params, teamId: string): ToolResult {
+  if (!params.from) return { success: false, error: 'broadcast requires "from"' };
 
-  if (!existsSync(logPath)) {
-    return { success: true, result: { message: `Team "${params.team}" has no messages to clear.` } };
+  // Delegate to opLog with to="all"
+  return opLog({ ...params, operation: 'log', to: 'all' }, teamId);
+}
+
+function opGetState(params: Params, teamId: string): ToolResult {
+  const meta = getEffectiveTeamMeta(teamId);
+  const roleState = meta.role_state || {};
+
+  if (params.role) {
+    const state = roleState[params.role];
+    if (!state) {
+      return { success: true, result: { role: params.role, state: null, message: `No state found for role "${params.role}"` } };
+    }
+    return { success: true, result: { role: params.role, state } };
   }
 
-  const count = readAllMessages(params.team).length;
+  return { success: true, result: { role_state: roleState } };
+}
+
+function opClear(params: Params, teamId: string): ToolResult {
+  const logPath = getLogPath(teamId);
+  const dir = getLogDir(teamId);
+
+  if (!existsSync(logPath)) {
+    return { success: true, result: { message: `Team "${teamId}" has no messages to clear.` } };
+  }
+
+  const count = readAllMessages(teamId).length;
   rmSync(dir, { recursive: true, force: true });
 
-  return { success: true, result: { cleared: count, message: `Cleared ${count} messages for team "${params.team}".` } };
+  return { success: true, result: { cleared: count, message: `Cleared ${count} messages for team "${teamId}".` } };
 }
 
 // --- Handler ---
@@ -398,13 +581,21 @@ export async function handler(params: Record<string, unknown>): Promise<ToolResu
 
   const p = parsed.data;
 
+  // Resolve team ID from session_id / team_session_id / team (backward compat)
+  const teamId = resolveTeamId(p);
+  if (!teamId) {
+    return { success: false, error: 'Missing required parameter: session_id (or legacy "team_session_id" / "team")' };
+  }
+
   switch (p.operation) {
-    case 'log': return opLog(p);
-    case 'read': return opRead(p);
-    case 'list': return opList(p);
-    case 'status': return opStatus(p);
-    case 'delete': return opDelete(p);
-    case 'clear': return opClear(p);
+    case 'log': return opLog(p, teamId);
+    case 'read': return opRead(p, teamId);
+    case 'list': return opList(p, teamId);
+    case 'status': return opStatus(p, teamId);
+    case 'delete': return opDelete(p, teamId);
+    case 'clear': return opClear(p, teamId);
+    case 'broadcast': return opBroadcast(p, teamId);
+    case 'get_state': return opGetState(p, teamId);
     default:
       return { success: false, error: `Unknown operation: ${p.operation}` };
   }

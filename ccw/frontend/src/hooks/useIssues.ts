@@ -139,11 +139,14 @@ export function useIssues(options: UseIssuesOptions = {}): UseIssuesReturn {
 
   // Group by status
   const issuesByStatus: Record<Issue['status'], Issue[]> = {
-    open: [],
-    in_progress: [],
-    resolved: [],
-    closed: [],
+    registered: [],
+    planning: [],
+    planned: [],
+    queued: [],
+    executing: [],
     completed: [],
+    failed: [],
+    paused: [],
   };
 
   for (const issue of allIssues) {
@@ -184,7 +187,7 @@ export function useIssues(options: UseIssuesOptions = {}): UseIssuesReturn {
     allIssues,
     issuesByStatus,
     issuesByPriority,
-    openCount: issuesByStatus.open.length + issuesByStatus.in_progress.length,
+    openCount: issuesByStatus.registered.length + issuesByStatus.planning.length + issuesByStatus.planned.length,
     criticalCount: issuesByPriority.critical.length,
     isLoading: issuesQuery.isLoading,
     isFetching: issuesQuery.isFetching || historyQuery.isFetching,

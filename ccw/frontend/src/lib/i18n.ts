@@ -69,8 +69,20 @@ const messages: Record<Locale, Record<string, string>> = {
 };
 
 /**
+ * Load messages for a specific locale only (lazy loading)
+ * This is the optimized init method that loads only the active locale
+ */
+export async function loadMessagesForLocale(locale: Locale): Promise<Record<string, string>> {
+  const localeMessages = await loadMessages(locale);
+  messages[locale] = localeMessages;
+  updateIntl(locale);
+  return localeMessages;
+}
+
+/**
  * Initialize translation messages for all locales
  * Call this during app initialization
+ * NOTE: Use loadMessagesForLocale() for faster single-locale init
  */
 export async function initMessages(): Promise<void> {
   // Load messages for both locales in parallel

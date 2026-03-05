@@ -75,8 +75,7 @@ const contextAgentId = spawn_agent({
 
 ### MANDATORY FIRST STEPS (Agent Execute)
 1. **Read role definition**: ~/.codex/agents/test-context-search-agent.md (MUST read first)
-2. Read: ${projectRoot}/.workflow/project-tech.json
-3. Read: ${projectRoot}/.workflow/project-guidelines.json
+2. Run: `ccw spec load --category planning`
 
 ---
 
@@ -102,8 +101,7 @@ const contextAgentId = spawn_agent({
 
 ### MANDATORY FIRST STEPS (Agent Execute)
 1. **Read role definition**: ~/.codex/agents/context-search-agent.md (MUST read first)
-2. Read: ${projectRoot}/.workflow/project-tech.json
-3. Read: ${projectRoot}/.workflow/project-guidelines.json
+2. Run: `ccw spec load --category planning`
 
 ---
 
@@ -176,8 +174,7 @@ const analysisAgentId = spawn_agent({
 
 ### MANDATORY FIRST STEPS (Agent Execute)
 1. **Read role definition**: ~/.codex/agents/cli-execution-agent.md (MUST read first)
-2. Read: ${projectRoot}/.workflow/project-tech.json
-3. Read: ${projectRoot}/.workflow/project-guidelines.json
+2. Run: `ccw spec load --category planning`
 
 ---
 
@@ -245,8 +242,7 @@ const taskGenAgentId = spawn_agent({
 
 ### MANDATORY FIRST STEPS (Agent Execute)
 1. **Read role definition**: ~/.codex/agents/action-planning-agent.md (MUST read first)
-2. Read: ${projectRoot}/.workflow/project-tech.json
-3. Read: ${projectRoot}/.workflow/project-guidelines.json
+2. Run: `ccw spec load --category planning`
 
 ---
 

@@ -43,7 +43,7 @@ export type StepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipp
  * Defines the type of execution for an orchestration step.
  * - 'frontend-cli': Execute a command directly in the frontend CLI (e.g., via a pseudo-terminal).
  * - 'backend-flow': Execute a sub-flow defined on the backend.
- * - 'slash-command': Execute a predefined slash command (e.g., /workflow:plan).
+ * - 'slash-command': Execute a predefined slash command (e.g., /workflow-plan).
  */
 export type ExecutionType = 'frontend-cli' | 'backend-flow' | 'slash-command';
 

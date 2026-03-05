@@ -74,78 +74,21 @@ interface SkillContextConfig {
   skillConfigs: Array<{ skill: string; keywords: string }>;
 }
 
-// ========== Hook Templates (from old hook-manager.js) ==========
+// ========== Hook Templates ==========
+// Templates are now defined in backend: ccw/src/core/hooks/hook-templates.ts
+// All templates use `ccw hook template exec <id> --stdin` format
+// This avoids Windows Git Bash quote handling issues
 
-interface HookTemplate {
-  event: string;
-  matcher: string;
-  command: string;
-  args: string[];
-  timeout?: number;
-}
-
-const HOOK_TEMPLATES: Record<string, HookTemplate> = {
-  'memory-update-queue': {
-    event: 'Stop',
-    matcher: '',
-    command: 'node',
-    args: ['-e', "require('child_process').spawnSync(process.platform==='win32'?'cmd':'ccw',process.platform==='win32'?['/c','ccw','tool','exec','memory_queue',JSON.stringify({action:'add',path:process.env.CLAUDE_PROJECT_DIR,tool:'gemini'})]:['tool','exec','memory_queue',JSON.stringify({action:'add',path:process.env.CLAUDE_PROJECT_DIR,tool:'gemini'})],{stdio:'inherit'})"],
-  },
-  'skill-context-keyword': {
-    event: 'UserPromptSubmit',
-    matcher: '',
-    command: 'node',
-    args: ['-e', "const p=JSON.parse(process.env.HOOK_INPUT||'{}');require('child_process').spawnSync('ccw',['tool','exec','skill_context_loader',JSON.stringify({prompt:p.user_prompt||''})],{stdio:'inherit'})"],
-  },
-  'skill-context-auto': {
-    event: 'UserPromptSubmit',
-    matcher: '',
-    command: 'node',
-    args: ['-e', "const p=JSON.parse(process.env.HOOK_INPUT||'{}');require('child_process').spawnSync('ccw',['tool','exec','skill_context_loader',JSON.stringify({mode:'auto',prompt:p.user_prompt||''})],{stdio:'inherit'})"],
-  },
-  'danger-bash-confirm': {
-    event: 'PreToolUse',
-    matcher: 'Bash',
-    command: 'bash',
-    args: ['-c', 'INPUT=$(cat); CMD=$(echo "$INPUT" | jq -r ".tool_input.command // empty"); DANGEROUS_PATTERNS="rm -rf|rmdir|del /|format |shutdown|reboot|kill -9|pkill|mkfs|dd if=|chmod 777|chown -R|>/dev/|wget.*\\|.*sh|curl.*\\|.*bash"; if echo "$CMD" | grep -qiE "$DANGEROUS_PATTERNS"; then echo "{\\"hookSpecificOutput\\":{\\"hookEventName\\":\\"PreToolUse\\",\\"permissionDecision\\":\\"ask\\",\\"permissionDecisionReason\\":\\"Potentially dangerous command detected: requires user confirmation\\"}}" && exit 0; fi; exit 0'],
-    timeout: 5000,
-  },
-  'danger-file-protection': {
-    event: 'PreToolUse',
-    matcher: 'Write|Edit',
-    command: 'bash',
-    args: ['-c', 'INPUT=$(cat); FILE=$(echo "$INPUT" | jq -r ".tool_input.file_path // .tool_input.path // empty"); PROTECTED=".env|.git/|package-lock.json|yarn.lock|.credentials|secrets|id_rsa|.pem$|.key$"; if echo "$FILE" | grep -qiE "$PROTECTED"; then echo "{\\"hookSpecificOutput\\":{\\"hookEventName\\":\\"PreToolUse\\",\\"permissionDecision\\":\\"deny\\",\\"permissionDecisionReason\\":\\"Protected file cannot be modified: $FILE\\"}}" && exit 0; fi; exit 0'],
-    timeout: 5000,
-  },
-  'danger-git-destructive': {
-    event: 'PreToolUse',
-    matcher: 'Bash',
-    command: 'bash',
-    args: ['-c', 'INPUT=$(cat); CMD=$(echo "$INPUT" | jq -r ".tool_input.command // empty"); GIT_DANGEROUS="git push.*--force|git push.*-f|git reset --hard|git clean -fd|git checkout.*--force|git branch -D|git rebase.*-f"; if echo "$CMD" | grep -qiE "$GIT_DANGEROUS"; then echo "{\\"hookSpecificOutput\\":{\\"hookEventName\\":\\"PreToolUse\\",\\"permissionDecision\\":\\"ask\\",\\"permissionDecisionReason\\":\\"Destructive git operation detected: $CMD\\"}}" && exit 0; fi; exit 0'],
-    timeout: 5000,
-  },
-  'danger-network-confirm': {
-    event: 'PreToolUse',
-    matcher: 'Bash|WebFetch',
-    command: 'bash',
-    args: ['-c', 'INPUT=$(cat); TOOL=$(echo "$INPUT" | jq -r ".tool_name // empty"); if [ "$TOOL" = "WebFetch" ]; then URL=$(echo "$INPUT" | jq -r ".tool_input.url // empty"); echo "{\\"hookSpecificOutput\\":{\\"hookEventName\\":\\"PreToolUse\\",\\"permissionDecision\\":\\"ask\\",\\"permissionDecisionReason\\":\\"Network request to: $URL\\"}}" && exit 0; fi; CMD=$(echo "$INPUT" | jq -r ".tool_input.command // empty"); NET_CMDS="curl|wget|nc |netcat|ssh |scp |rsync|ftp "; if echo "$CMD" | grep -qiE "^($NET_CMDS)"; then echo "{\\"hookSpecificOutput\\":{\\"hookEventName\\":\\"PreToolUse\\",\\"permissionDecision\\":\\"ask\\",\\"permissionDecisionReason\\":\\"Network command requires confirmation: $CMD\\"}}" && exit 0; fi; exit 0'],
-    timeout: 5000,
-  },
-  'danger-system-paths': {
-    event: 'PreToolUse',
-    matcher: 'Write|Edit|Bash',
-    command: 'bash',
-    args: ['-c', 'INPUT=$(cat); TOOL=$(echo "$INPUT" | jq -r ".tool_name // empty"); if [ "$TOOL" = "Bash" ]; then CMD=$(echo "$INPUT" | jq -r ".tool_input.command // empty"); SYS_PATHS="/etc/|/usr/|/bin/|/sbin/|/boot/|/sys/|/proc/|C:\\\\Windows|C:\\\\Program Files"; if echo "$CMD" | grep -qiE "$SYS_PATHS"; then echo "{\\"hookSpecificOutput\\":{\\"hookEventName\\":\\"PreToolUse\\",\\"permissionDecision\\":\\"ask\\",\\"permissionDecisionReason\\":\\"System path operation requires confirmation\\"}}" && exit 0; fi; else FILE=$(echo "$INPUT" | jq -r ".tool_input.file_path // .tool_input.path // empty"); SYS_PATHS="/etc/|/usr/|/bin/|/sbin/|C:\\\\Windows|C:\\\\Program Files"; if echo "$FILE" | grep -qiE "$SYS_PATHS"; then echo "{\\"hookSpecificOutput\\":{\\"hookEventName\\":\\"PreToolUse\\",\\"permissionDecision\\":\\"deny\\",\\"permissionDecisionReason\\":\\"Cannot modify system file: $FILE\\"}}" && exit 0; fi; fi; exit 0'],
-    timeout: 5000,
-  },
-  'danger-permission-change': {
-    event: 'PreToolUse',
-    matcher: 'Bash',
-    command: 'bash',
-    args: ['-c', 'INPUT=$(cat); CMD=$(echo "$INPUT" | jq -r ".tool_input.command // empty"); PERM_CMDS="chmod|chown|chgrp|setfacl|icacls|takeown|cacls"; if echo "$CMD" | grep -qiE "^($PERM_CMDS)"; then echo "{\\"hookSpecificOutput\\":{\\"hookEventName\\":\\"PreToolUse\\",\\"permissionDecision\\":\\"ask\\",\\"permissionDecisionReason\\":\\"Permission change requires confirmation: $CMD\\"}}" && exit 0; fi; exit 0'],
-    timeout: 5000,
-  },
-};
+// Template IDs that map to backend templates
+const TEMPLATE_IDS = {
+  'memory-update-queue': 'memory-auto-compress',
+  'danger-bash-confirm': 'danger-bash-confirm',
+  'danger-file-protection': 'danger-file-protection',
+  'danger-git-destructive': 'danger-git-destructive',
+  'danger-network-confirm': 'danger-network-confirm',
+  'danger-system-paths': 'danger-system-paths',
+  'danger-permission-change': 'danger-permission-change',
+} as const;
 
 // Danger protection option definitions
 const DANGER_OPTIONS = [
@@ -156,72 +99,6 @@ const DANGER_OPTIONS = [
   { id: 'system-paths', templateId: 'danger-system-paths', labelKey: 'cliHooks.wizards.dangerProtection.options.systemPaths', descKey: 'cliHooks.wizards.dangerProtection.options.systemPathsDesc' },
   { id: 'permission-change', templateId: 'danger-permission-change', labelKey: 'cliHooks.wizards.dangerProtection.options.permissionChange', descKey: 'cliHooks.wizards.dangerProtection.options.permissionChangeDesc' },
 ] as const;
-
-// ========== convertToClaudeCodeFormat (ported from old hook-manager.js) ==========
-
-function convertToClaudeCodeFormat(hookData: {
-  command: string;
-  args: string[];
-  matcher?: string;
-  timeout?: number;
-}): Record<string, unknown> {
-  let commandStr = hookData.command || '';
-
-  if (hookData.args && Array.isArray(hookData.args)) {
-    if (commandStr === 'bash' && hookData.args.length >= 2 && hookData.args[0] === '-c') {
-      const script = hookData.args[1];
-      const escapedScript = script.replace(/'/g, "'\\''");
-      commandStr = `bash -c '${escapedScript}'`;
-      if (hookData.args.length > 2) {
-        const additionalArgs = hookData.args.slice(2).map(arg =>
-          arg.includes(' ') && !arg.startsWith('"') && !arg.startsWith("'")
-            ? `"${arg.replace(/"/g, '\\"')}"`
-            : arg
-        );
-        commandStr += ' ' + additionalArgs.join(' ');
-      }
-    } else if (commandStr === 'node' && hookData.args.length >= 2 && hookData.args[0] === '-e') {
-      const script = hookData.args[1];
-      const isWindows = typeof navigator !== 'undefined' && navigator.userAgent.includes('Win');
-      if (isWindows) {
-        const escapedScript = script.replace(/"/g, '\\"');
-        commandStr = `node -e "${escapedScript}"`;
-      } else {
-        const escapedScript = script.replace(/'/g, "'\\''");
-        commandStr = `node -e '${escapedScript}'`;
-      }
-      if (hookData.args.length > 2) {
-        const additionalArgs = hookData.args.slice(2).map(arg =>
-          arg.includes(' ') && !arg.startsWith('"') && !arg.startsWith("'")
-            ? `"${arg.replace(/"/g, '\\"')}"`
-            : arg
-        );
-        commandStr += ' ' + additionalArgs.join(' ');
-      }
-    } else {
-      const quotedArgs = hookData.args.map(arg =>
-        arg.includes(' ') && !arg.startsWith('"') && !arg.startsWith("'")
-          ? `"${arg.replace(/"/g, '\\"')}"`
-          : arg
-      );
-      commandStr = `${commandStr} ${quotedArgs.join(' ')}`.trim();
-    }
-  }
-
-  const converted: Record<string, unknown> = {
-    hooks: [{
-      type: 'command',
-      command: commandStr,
-      ...(hookData.timeout ? { timeout: Math.ceil(hookData.timeout / 1000) } : {}),
-    }],
-  };
-
-  if (hookData.matcher) {
-    converted.matcher = hookData.matcher;
-  }
-
-  return converted;
-}
 
 // ========== Wizard Definitions ==========
 
@@ -323,59 +200,65 @@ export function HookWizard({
     try {
       switch (wizardType) {
         case 'memory-update': {
-          const selectedTool = memoryConfig.tool;
-          const template = HOOK_TEMPLATES['memory-update-queue'];
-          const hookData = {
-            command: template.command,
-            args: ['-e', `require('child_process').spawnSync(process.platform==='win32'?'cmd':'ccw',process.platform==='win32'?['/c','ccw','tool','exec','memory_queue',JSON.stringify({action:'add',path:process.env.CLAUDE_PROJECT_DIR,tool:'${selectedTool}'})]:['tool','exec','memory_queue',JSON.stringify({action:'add',path:process.env.CLAUDE_PROJECT_DIR,tool:'${selectedTool}'})],{stdio:'inherit'})`],
-          };
-          const converted = convertToClaudeCodeFormat(hookData);
-          await saveHook(scope, template.event, converted);
+          // Use backend template API to install memory template
+          const response = await fetch('/api/hooks/templates/install', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              templateId: 'memory-auto-compress',
+              scope,
+            }),
+          });
+          const result = await response.json();
+          if (!result.success) {
+            throw new Error(result.error || 'Failed to install template');
+          }
           break;
         }
 
         case 'danger-protection': {
+          // Install each selected protection template via backend API
           for (const optionId of dangerConfig.selectedOptions) {
             const option = DANGER_OPTIONS.find(o => o.id === optionId);
             if (!option) continue;
-            const template = HOOK_TEMPLATES[option.templateId];
-            if (!template) continue;
-            const hookData = {
-              command: template.command,
-              args: [...template.args],
-              matcher: template.matcher,
-              timeout: template.timeout,
-            };
-            const converted = convertToClaudeCodeFormat(hookData);
-            await saveHook(scope, template.event, converted);
+            const templateId = TEMPLATE_IDS[option.templateId as keyof typeof TEMPLATE_IDS] || option.templateId;
+
+            const response = await fetch('/api/hooks/templates/install', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                templateId,
+                scope,
+              }),
+            });
+            const result = await response.json();
+            if (!result.success) {
+              console.warn(`Failed to install template ${templateId}:`, result.error);
+            }
           }
           break;
         }
 
         case 'skill-context': {
-          if (skillConfig.mode === 'auto') {
-            const template = HOOK_TEMPLATES['skill-context-auto'];
-            const hookData = {
-              command: template.command,
-              args: [...template.args],
-            };
-            const converted = convertToClaudeCodeFormat(hookData);
-            await saveHook(scope, template.event, converted);
-          } else {
-            const validConfigs = skillConfig.skillConfigs.filter(c => c.skill && c.keywords);
-            if (validConfigs.length === 0) break;
-            const configJson = validConfigs.map(c => ({
-              skill: c.skill,
-              keywords: c.keywords.split(',').map(k => k.trim()).filter(k => k),
-            }));
-            const paramsStr = JSON.stringify({ configs: configJson });
-            const hookData = {
-              command: 'node',
-              args: ['-e', `const p=JSON.parse(process.env.HOOK_INPUT||'{}');require('child_process').spawnSync('ccw',['tool','exec','skill_context_loader',JSON.stringify(Object.assign(${paramsStr},{prompt:p.user_prompt||''}))],{stdio:'inherit'})`],
-            };
-            const converted = convertToClaudeCodeFormat(hookData);
-            await saveHook(scope, 'UserPromptSubmit', converted);
-          }
+          // Use ccw hook command directly for skill context
+          const hookData = skillConfig.mode === 'auto'
+            ? {
+                _templateId: 'skill-context-auto',
+                matcher: '',
+                hooks: [{
+                  type: 'command',
+                  command: 'ccw hook keyword --stdin',
+                }],
+              }
+            : {
+                _templateId: 'skill-context-keyword',
+                matcher: '',
+                hooks: [{
+                  type: 'command',
+                  command: 'ccw hook keyword --stdin',
+                }],
+              };
+          await saveHook(scope, 'UserPromptSubmit', hookData);
           break;
         }
       }
@@ -913,34 +796,22 @@ export function HookWizard({
   const getPreviewCommand = (): string => {
     switch (wizardType) {
       case 'memory-update': {
-        const selectedTool = memoryConfig.tool;
-        return `node -e "require('child_process').spawnSync(process.platform==='win32'?'cmd':'ccw',process.platform==='win32'?['/c','ccw','tool','exec','memory_queue',JSON.stringify({action:'add',path:process.env.CLAUDE_PROJECT_DIR,tool:'${selectedTool}'})]:['tool','exec','memory_queue',JSON.stringify({action:'add',path:process.env.CLAUDE_PROJECT_DIR,tool:'${selectedTool}'})],{stdio:'inherit'})"`;
+        return `ccw hook template exec memory-auto-compress --stdin`;
       }
       case 'danger-protection': {
         const templates = dangerConfig.selectedOptions
           .map(id => DANGER_OPTIONS.find(o => o.id === id))
           .filter(Boolean)
           .map(opt => {
-            const tpl = HOOK_TEMPLATES[opt!.templateId];
-            return tpl ? `[${tpl.event}/${tpl.matcher || '*'}] ${tpl.command} ${tpl.args[0]} ...` : '';
-          })
-          .filter(Boolean);
+            const templateId = TEMPLATE_IDS[opt!.templateId as keyof typeof TEMPLATE_IDS] || opt!.templateId;
+            return `ccw hook template exec ${templateId} --stdin`;
+          });
         return templates.length > 0
           ? templates.join('\n')
           : '# No protections selected';
       }
       case 'skill-context': {
-        if (skillConfig.mode === 'auto') {
-          return `node -e "const p=JSON.parse(process.env.HOOK_INPUT||'{}');require('child_process').spawnSync('ccw',['tool','exec','skill_context_loader',JSON.stringify({mode:'auto',prompt:p.user_prompt||''})],{stdio:'inherit'})"`;
-        }
-        const validConfigs = skillConfig.skillConfigs.filter(c => c.skill && c.keywords);
-        if (validConfigs.length === 0) return '# No SKILL configurations yet';
-        const configJson = validConfigs.map(c => ({
-          skill: c.skill,
-          keywords: c.keywords.split(',').map(k => k.trim()).filter(k => k),
-        }));
-        const paramsStr = JSON.stringify({ configs: configJson });
-        return `node -e "const p=JSON.parse(process.env.HOOK_INPUT||'{}');require('child_process').spawnSync('ccw',['tool','exec','skill_context_loader',JSON.stringify(Object.assign(${paramsStr},{prompt:p.user_prompt||''}))],{stdio:'inherit'})"`;
+        return `ccw hook keyword --stdin`;
       }
       default:
         return '';
@@ -1012,6 +883,13 @@ export function HookWizard({
             {formatMessage({ id: 'cliHooks.wizards.title' })}
           </DialogTitle>
         </DialogHeader>
+
+        <div className="w-full bg-muted h-1 rounded-full my-4">
+          <div
+            className="bg-primary h-1 rounded-full transition-all duration-300"
+            style={{ width: `${(currentStep / 3) * 100}%` }}
+          />
+        </div>
 
         {renderStepIndicator()}
 

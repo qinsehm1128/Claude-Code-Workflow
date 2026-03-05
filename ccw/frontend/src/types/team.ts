@@ -26,6 +26,7 @@ export type TeamMessageType =
   | 'fix_required'
   | 'error'
   | 'shutdown'
+  | 'state_update'
   | 'message';
 
 export interface TeamMember {
@@ -49,8 +50,12 @@ export interface TeamSummaryExtended extends TeamSummary {
   updated_at: string;
   archived_at?: string;
   pipeline_mode?: string;
+  pipeline_stages?: string[];
+  role_state?: Record<string, Record<string, unknown>>;
   memberCount: number;
   members: string[];  // Always provided by backend
+  roles?: string[];       // List of role names from meta
+  team_name?: string;     // Skill name (e.g., "review")
 }
 
 export interface TeamMessagesResponse {
@@ -76,6 +81,22 @@ export interface TeamMessageFilter {
 
 export type PipelineStage = 'plan' | 'impl' | 'test' | 'review';
 export type PipelineStageStatus = 'completed' | 'in_progress' | 'pending' | 'blocked';
+
+export type DynamicStageStatus = 'pending' | 'in_progress' | 'completed' | 'blocked' | 'skipped';
+
+export interface DynamicStage {
+  id: string;          // Stage prefix (e.g., "SCAN", "REV", "FIX")
+  label: string;       // Display label (e.g., "Scanner", "Reviewer")
+  role?: string;       // Associated role name
+  status: DynamicStageStatus;
+}
+
+export interface PhaseInfo {
+  currentPhase: number;
+  totalPhases: number | null;
+  currentStep: string | null;
+  gapIteration: number;
+}
 
 // ========================================
 // Team Artifacts Types

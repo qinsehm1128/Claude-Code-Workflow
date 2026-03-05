@@ -14,6 +14,7 @@ Features:
 from __future__ import annotations
 
 import asyncio
+import importlib.resources as resources
 import json
 import logging
 import os
@@ -117,7 +118,6 @@ class StandaloneLspManager:
         1. Explicit config_file parameter
         2. {workspace_root}/lsp-servers.json
         3. {workspace_root}/.codexlens/lsp-servers.json
-        4. Package default (codexlens/lsp-servers.json)
         """
         search_paths = []
         
@@ -127,7 +127,6 @@ class StandaloneLspManager:
         search_paths.extend([
             self.workspace_root / self.DEFAULT_CONFIG_FILE,
             self.workspace_root / ".codexlens" / self.DEFAULT_CONFIG_FILE,
-            Path(__file__).parent.parent.parent.parent / self.DEFAULT_CONFIG_FILE,  # package root
         ])
         
         for path in search_paths:
@@ -135,21 +134,73 @@ class StandaloneLspManager:
                 return path
         
         return None
+
+    def _load_builtin_config(self) -> Optional[dict[str, Any]]:
+        """Load the built-in default lsp-servers.json shipped with the package."""
+        try:
+            text = (
+                resources.files("codexlens.lsp")
+                .joinpath(self.DEFAULT_CONFIG_FILE)
+                .read_text(encoding="utf-8")
+            )
+        except Exception as exc:
+            logger.error(
+                "Failed to load built-in %s template from package: %s",
+                self.DEFAULT_CONFIG_FILE,
+                exc,
+            )
+            return None
+
+        try:
+            return json.loads(text)
+        except Exception as exc:
+            logger.error(
+                "Built-in %s template shipped with the package is invalid JSON: %s",
+                self.DEFAULT_CONFIG_FILE,
+                exc,
+            )
+            return None
     
     def _load_config(self) -> None:
         """Load language server configuration from JSON file."""
+        self._configs.clear()
+        self._extension_map.clear()
+
         config_path = self._find_config_file()
         
         if not config_path:
-            logger.warning(f"No {self.DEFAULT_CONFIG_FILE} found, using empty config")
-            return
-        
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except Exception as e:
-            logger.error(f"Failed to load config from {config_path}: {e}")
-            return
+            data = self._load_builtin_config()
+            if data is None:
+                logger.warning(
+                    "No %s found and built-in defaults could not be loaded; using empty config",
+                    self.DEFAULT_CONFIG_FILE,
+                )
+                return
+
+            root_config_path = self.workspace_root / self.DEFAULT_CONFIG_FILE
+            codexlens_config_path = (
+                self.workspace_root / ".codexlens" / self.DEFAULT_CONFIG_FILE
+            )
+
+            logger.info(
+                "No %s found at %s or %s; using built-in defaults shipped with codex-lens. "
+                "To customize, copy the template to one of those locations and restart. "
+                "Language servers are spawned on-demand when first needed. "
+                "Ensure the language server commands in the config are installed and on PATH.",
+                self.DEFAULT_CONFIG_FILE,
+                root_config_path,
+                codexlens_config_path,
+            )
+            config_source = "built-in defaults"
+        else:
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception as e:
+                logger.error(f"Failed to load config from {config_path}: {e}")
+                return
+
+            config_source = str(config_path)
         
         # Parse defaults
         defaults = data.get("defaults", {})
@@ -186,7 +237,11 @@ class StandaloneLspManager:
             for ext in config.extensions:
                 self._extension_map[ext.lower()] = language_id
         
-        logger.info(f"Loaded {len(self._configs)} language server configs from {config_path}")
+        logger.info(
+            "Loaded %d language server configs from %s",
+            len(self._configs),
+            config_source,
+        )
     
     def get_language_id(self, file_path: str) -> Optional[str]:
         """Get language ID for a file based on extension.

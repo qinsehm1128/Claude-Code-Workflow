@@ -85,7 +85,7 @@ Step 1: Topic Understanding
 
 Step 2: Exploration (Inline, No Agents)
    ├─ Detect codebase → search relevant modules, patterns
-   │   ├─ Read project-tech.json / project-guidelines.json (if exists)
+   │   ├─ Run `ccw spec load --category exploration` (if spec system available)
    │   └─ Use Grep, Glob, Read, mcp__ace-tool__search_context
    ├─ Multi-perspective analysis (if selected, serial)
    │   ├─ Single: Comprehensive analysis
@@ -297,8 +297,8 @@ const hasCodebase = Bash(`
 
 if (hasCodebase !== 'none') {
   // 1. Read project metadata (if exists)
-  //    - .workflow/project-tech.json (tech stack info)
-  //    - .workflow/project-guidelines.json (project conventions)
+  //    - Run `ccw spec load --category exploration` (load project specs)
+  //    - .workflow/specs/*.md (project conventions)
 
   // 2. Search codebase for relevant content
   //    Use: Grep, Glob, Read, or mcp__ace-tool__search_context
@@ -541,6 +541,21 @@ Update discussion.md with results from each discussion round:
 - Organized by analysis dimension
 - Links between rounds showing understanding evolution
 
+##### Step 3.4: Intent Drift Check (every round ≥ 2)
+
+Re-read "User Intent" / "Analysis Context" from discussion.md header. For each original intent item, check coverage status:
+
+```markdown
+#### Intent Coverage Check
+- ✅ Intent 1: [addressed in Round N]
+- 🔄 Intent 2: [in-progress, current focus]
+- ⚠️ Intent 3: [implicitly absorbed by X — needs explicit confirmation]
+- ❌ Intent 4: [not yet discussed]
+```
+
+- If any item is "implicitly absorbed" (⚠️), note it explicitly in discussion.md — absorbed ≠ addressed
+- If any item is ❌ after 3+ rounds, surface it to the user in the next round's presentation
+
 **Success Criteria**:
 - User feedback processed for each round
 - discussion.md updated with all discussion rounds
@@ -552,6 +567,30 @@ Update discussion.md with results from each discussion round:
 ### Phase 4: Synthesis & Conclusion
 
 **Objective**: Consolidate insights from all discussion rounds, generate conclusions and recommendations.
+
+##### Step 4.0: Intent Coverage Verification (MANDATORY before synthesis)
+
+Re-read all original user intent / analysis context items from discussion.md header. For EACH item, determine coverage status:
+
+- **✅ Addressed**: Explicitly discussed and concluded with clear design/recommendation
+- **🔀 Transformed**: Original intent evolved into a different solution — document the transformation chain
+- **⚠️ Absorbed**: Implicitly covered by a broader solution — flag for explicit confirmation
+- **❌ Missed**: Not discussed — MUST be either addressed now or explicitly listed as out-of-scope with reason
+
+Write "Intent Coverage Matrix" to discussion.md:
+
+```markdown
+### Intent Coverage Matrix
+| # | Original Intent | Status | Where Addressed | Notes |
+|---|----------------|--------|-----------------|-------|
+| 1 | [intent text] | ✅ Addressed | Round N, Conclusion #M | |
+| 2 | [intent text] | 🔀 Transformed | Round N → Round M | Original: X → Final: Y |
+| 3 | [intent text] | ❌ Missed | — | Reason for omission |
+```
+
+**Gate**: If any item is ❌ Missed, MUST either:
+- (a) Add a dedicated discussion round to address it before continuing, OR
+- (b) Explicitly confirm with user that it is intentionally deferred
 
 ##### Step 4.1: Consolidate Insights
 
@@ -579,6 +618,9 @@ const conclusions = {
   ],
   decision_trail: [                  // Consolidated decisions from all phases
     { round: 1, decision: '...', context: '...', options_considered: [...], chosen: '...', reason: '...', impact: '...' }
+  ],
+  intent_coverage: [                 // From Step 4.0
+    { intent: '...', status: 'addressed|transformed|absorbed|missed', where_addressed: '...', notes: '...' }
   ]
 }
 Write(`${sessionFolder}/conclusions.json`, JSON.stringify(conclusions, null, 2))
@@ -676,6 +718,7 @@ if (!autoYes) {
 **Success Criteria**:
 - conclusions.json created with complete synthesis
 - discussion.md finalized with conclusions and decision trail
+- **Intent Coverage Matrix** verified — all original intents accounted for (no ❌ Missed without explicit user deferral)
 - User offered meaningful next step options
 - **Complete decision trail** documented and traceable from initial scoping to final conclusions
 

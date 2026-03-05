@@ -105,8 +105,8 @@ export const schema: ToolSchema = {
   name: 'write_file',
   description: `Write content to file. Auto-creates parent directories.
 
-Usage: write_file(path="file.js", content="code here")
-Options: backup=true (backup before overwrite), createDirectories=false (disable auto-creation), encoding="utf8"`,
+Required: path (string), content (string)
+Options: backup=true, createDirectories=false, encoding="utf8"`,
   inputSchema: {
     type: 'object',
     properties: {

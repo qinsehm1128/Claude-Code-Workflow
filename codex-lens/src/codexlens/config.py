@@ -80,6 +80,7 @@ class Config:
             "go": {"extensions": [".go"], "tree_sitter_language": "go", "category": "code"},
             "zig": {"extensions": [".zig"], "tree_sitter_language": "zig", "category": "code"},
             "objective-c": {"extensions": [".m", ".mm"], "tree_sitter_language": "objc", "category": "code"},
+            "swift": {"extensions": [".swift"], "tree_sitter_language": "swift", "category": "code"},
             "c": {"extensions": [".c", ".h"], "tree_sitter_language": "c", "category": "code"},
             "cpp": {"extensions": [".cc", ".cpp", ".hpp", ".cxx"], "tree_sitter_language": "cpp", "category": "code"},
             "rust": {"extensions": [".rs"], "tree_sitter_language": "rust", "category": "code"},

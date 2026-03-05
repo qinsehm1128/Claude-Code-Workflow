@@ -32,7 +32,8 @@ async function findProcessOnPort(port: number): Promise<string | null> {
 
       if (proto !== 'TCP') continue;
       if (!localAddress.endsWith(`:${port}`)) continue;
-      if (!/^\d+$/.test(pidCandidate)) continue;
+      // Reject PID 0 (System Idle Process) and non-numeric PIDs
+      if (!/^[1-9]\d*$/.test(pidCandidate)) continue;
 
       return pidCandidate; // PID is the last column
     }
@@ -43,7 +44,8 @@ async function findProcessOnPort(port: number): Promise<string | null> {
 }
 
 async function getProcessCommandLine(pid: string): Promise<string | null> {
-  if (!/^\d+$/.test(pid)) return null;
+  // Reject PID 0 (System Idle Process) and non-numeric PIDs
+  if (!/^[1-9]\d*$/.test(pid)) return null;
 
   try {
     const probeCommand =
@@ -78,7 +80,8 @@ function isLikelyViteCommandLine(commandLine: string, port: number): boolean {
  * @returns {Promise<boolean>} Success status
  */
 async function killProcess(pid: string): Promise<boolean> {
-  if (!/^\d+$/.test(pid)) return false;
+  // Reject PID 0 (System Idle Process) and non-numeric PIDs
+  if (!/^[1-9]\d*$/.test(pid)) return false;
 
   try {
     // Prefer taskkill to terminate the entire process tree on Windows (npm/cmd wrappers can orphan children).

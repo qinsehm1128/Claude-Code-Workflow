@@ -155,3 +155,37 @@ def test_cascade_search_invalid_strategy(temp_paths: Path) -> None:
         engine.cascade_search("query", source_path, strategy="invalid_strategy")
         mock_binary.assert_called_once()
 
+
+def test_vector_warmup_uses_embedding_config(monkeypatch: pytest.MonkeyPatch, temp_paths: Path) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_get_embedder(**kwargs: object) -> object:
+        calls.append(dict(kwargs))
+        return object()
+
+    import codexlens.semantic.factory as factory
+
+    monkeypatch.setattr(factory, "get_embedder", fake_get_embedder)
+
+    registry = RegistryStore(db_path=temp_paths / "registry.db")
+    registry.initialize()
+    mapper = PathMapper(index_root=temp_paths / "indexes")
+    config = Config(
+        data_dir=temp_paths / "data",
+        embedding_backend="fastembed",
+        embedding_model="fast",
+        embedding_use_gpu=False,
+    )
+
+    engine = ChainSearchEngine(registry, mapper, config=config)
+    monkeypatch.setattr(engine, "_get_executor", lambda _workers: MagicMock())
+
+    engine._search_parallel([], "query", SearchOptions(enable_vector=True))
+
+    assert calls == [
+        {
+            "backend": "fastembed",
+            "profile": "fast",
+            "use_gpu": False,
+        }
+    ]

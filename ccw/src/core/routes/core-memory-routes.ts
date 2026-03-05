@@ -10,6 +10,54 @@ import { StoragePaths } from '../../config/storage-paths.js';
 import { join } from 'path';
 import { getDefaultTool } from '../../tools/claude-cli-tools.js';
 
+// ========================================
+// Error Handling Utilities
+// ========================================
+
+/**
+ * Sanitize error message for client response
+ * Logs full error server-side, returns user-friendly message to client
+ */
+function sanitizeErrorMessage(error: unknown, context: string): string {
+  const errorMessage = error instanceof Error ? error.message : String(error);
+
+  // Log full error for debugging (server-side only)
+  if (process.env.DEBUG || process.env.NODE_ENV === 'development') {
+    console.error(`[CoreMemoryRoutes] ${context}:`, error);
+  }
+
+  // Map common internal errors to user-friendly messages
+  const lowerMessage = errorMessage.toLowerCase();
+
+  if (lowerMessage.includes('enoent') || lowerMessage.includes('no such file')) {
+    return 'Resource not found';
+  }
+  if (lowerMessage.includes('eacces') || lowerMessage.includes('permission denied')) {
+    return 'Access denied';
+  }
+  if (lowerMessage.includes('sqlite') || lowerMessage.includes('database')) {
+    return 'Database operation failed';
+  }
+  if (lowerMessage.includes('json') || lowerMessage.includes('parse')) {
+    return 'Invalid data format';
+  }
+
+  // Return generic message for unexpected errors (don't expose internals)
+  return 'An unexpected error occurred';
+}
+
+/**
+ * Write error response with sanitized message
+ */
+function writeErrorResponse(
+  res: http.ServerResponse,
+  statusCode: number,
+  message: string
+): void {
+  res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ error: message }));
+}
+
 /**
  * Route context interface
  */
@@ -298,6 +346,190 @@ export async function handleCoreMemoryRoutes(ctx: RouteContext): Promise<boolean
         };
       } catch (error: unknown) {
         return { error: (error as Error).message, status: 500 };
+      }
+    });
+    return true;
+  }
+
+  // API: Preview eligible sessions for selective extraction
+  if (pathname === '/api/core-memory/extract/preview' && req.method === 'GET') {
+    const projectPath = url.searchParams.get('path') || initialPath;
+    const includeNative = url.searchParams.get('includeNative') === 'true';
+    const maxSessionsParam = url.searchParams.get('maxSessions');
+    const maxSessions = maxSessionsParam ? parseInt(maxSessionsParam, 10) : undefined;
+
+    // Validate maxSessions parameter
+    if (maxSessionsParam && (isNaN(maxSessions as number) || (maxSessions as number) < 1)) {
+      writeErrorResponse(res, 400, 'Invalid maxSessions parameter: must be a positive integer');
+      return true;
+    }
+
+    try {
+      const { MemoryExtractionPipeline } = await import('../memory-extraction-pipeline.js');
+      const pipeline = new MemoryExtractionPipeline(projectPath);
+
+      const preview = pipeline.previewEligibleSessions({
+        includeNative,
+        maxSessions,
+      });
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: true,
+        sessions: preview.sessions,
+        summary: preview.summary,
+      }));
+    } catch (error: unknown) {
+      // Log full error server-side, return sanitized message to client
+      writeErrorResponse(res, 500, sanitizeErrorMessage(error, 'extract/preview'));
+    }
+    return true;
+  }
+
+  // API: Selective extraction for specific sessions
+  if (pathname === '/api/core-memory/extract/selected' && req.method === 'POST') {
+    handlePostRequest(req, res, async (body) => {
+      const { sessionIds, includeNative, path: projectPath } = body;
+      const basePath = projectPath || initialPath;
+
+      // Validate sessionIds - return 400 for invalid input
+      if (!Array.isArray(sessionIds)) {
+        return { error: 'sessionIds must be an array', status: 400 };
+      }
+      if (sessionIds.length === 0) {
+        return { error: 'sessionIds cannot be empty', status: 400 };
+      }
+      // Validate each sessionId is a non-empty string
+      for (const id of sessionIds) {
+        if (typeof id !== 'string' || id.trim() === '') {
+          return { error: 'Each sessionId must be a non-empty string', status: 400 };
+        }
+      }
+
+      try {
+        const store = getCoreMemoryStore(basePath);
+        const scheduler = new MemoryJobScheduler(store.getDb());
+
+        const { MemoryExtractionPipeline, SessionAccessDeniedError } = await import('../memory-extraction-pipeline.js');
+        const pipeline = new MemoryExtractionPipeline(basePath);
+
+        // Get preview to validate sessions (project-scoped)
+        const preview = pipeline.previewEligibleSessions({ includeNative });
+        const validSessionIds = new Set(preview.sessions.map(s => s.sessionId));
+
+        // Return 404 if no eligible sessions exist at all
+        if (validSessionIds.size === 0) {
+          return { error: 'No eligible sessions found for extraction', status: 404 };
+        }
+
+        const queued: string[] = [];
+        const skipped: string[] = [];
+        const invalidIds: string[] = [];
+        const unauthorizedIds: string[] = [];
+
+        for (const sessionId of sessionIds) {
+          // SECURITY: Verify session belongs to this project
+          // This double-checks that the sessionId is from the project-scoped preview
+          if (!validSessionIds.has(sessionId)) {
+            // Check if it's unauthorized (exists but not in this project)
+            if (!pipeline.verifySessionBelongsToProject(sessionId)) {
+              unauthorizedIds.push(sessionId);
+            } else {
+              invalidIds.push(sessionId);
+            }
+            continue;
+          }
+
+          // Check if already extracted
+          const existingOutput = store.getStage1Output(sessionId);
+          if (existingOutput) {
+            skipped.push(sessionId);
+            continue;
+          }
+
+          // Get session info for watermark
+          const historyStore = (await import('../../tools/cli-history-store.js')).getHistoryStore(basePath);
+          const session = historyStore.getConversation(sessionId);
+          if (!session) {
+            invalidIds.push(sessionId);
+            continue;
+          }
+
+          // Enqueue job
+          const watermark = Math.floor(new Date(session.updated_at).getTime() / 1000);
+          scheduler.enqueueJob('phase1_extraction', sessionId, watermark);
+          queued.push(sessionId);
+        }
+
+        // Return 409 Conflict if all sessions were already extracted
+        if (queued.length === 0 && skipped.length === sessionIds.length) {
+          return {
+            error: 'All specified sessions have already been extracted',
+            status: 409,
+            skipped
+          };
+        }
+
+        // Return 404 if no valid sessions were found (all were invalid or unauthorized)
+        if (queued.length === 0 && skipped.length === 0) {
+          return { error: 'No valid sessions found among the provided IDs', status: 404 };
+        }
+
+        // Generate batch job ID
+        const jobId = `batch-${Date.now()}`;
+
+        // Broadcast start event
+        broadcastToClients({
+          type: 'MEMORY_EXTRACTION_STARTED',
+          payload: {
+            timestamp: new Date().toISOString(),
+            jobId,
+            queuedCount: queued.length,
+            selective: true,
+          }
+        });
+
+        // Fire-and-forget: process queued sessions
+        // Sessions already validated above, skip auth check for efficiency
+        (async () => {
+          try {
+            for (const sessionId of queued) {
+              try {
+                await pipeline.runExtractionJob(sessionId, { skipAuthorization: true });
+              } catch (err) {
+                if (process.env.DEBUG) {
+                  console.warn(`[SelectiveExtraction] Failed for ${sessionId}:`, (err as Error).message);
+                }
+              }
+            }
+            broadcastToClients({
+              type: 'MEMORY_EXTRACTION_COMPLETED',
+              payload: { timestamp: new Date().toISOString(), jobId }
+            });
+          } catch (err) {
+            broadcastToClients({
+              type: 'MEMORY_EXTRACTION_FAILED',
+              payload: {
+                timestamp: new Date().toISOString(),
+                jobId,
+                error: (err as Error).message,
+              }
+            });
+          }
+        })();
+
+        // Include unauthorizedIds in response for security transparency
+        return {
+          success: true,
+          jobId,
+          queued: queued.length,
+          skipped: skipped.length,
+          invalidIds,
+          ...(unauthorizedIds.length > 0 && { unauthorizedIds }),
+        };
+      } catch (error: unknown) {
+        // Log full error server-side, return sanitized message to client
+        return { error: sanitizeErrorMessage(error, 'extract/selected'), status: 500 };
       }
     });
     return true;

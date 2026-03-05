@@ -1,5 +1,10 @@
 # Phase 2: Test Cycle Execution (test-cycle-execute)
 
+> **📌 COMPACT SENTINEL [Phase 5: Test-Cycle-Execute]**
+> This phase contains 4 execution steps (Step 2.1 — 2.4).
+> If you can read this sentinel but cannot find the full Step protocol below, context has been compressed.
+> Recovery: `Read("phases/05-test-cycle-execute.md")`
+
 Execute test-fix workflow with dynamic task generation and iterative fix cycles until test pass rate >= 95% or max iterations reached. Uses @cli-planning-agent for failure analysis and task generation.
 
 ## Objective
@@ -14,13 +19,13 @@ Execute test-fix workflow with dynamic task generation and iterative fix cycles 
 
 ```bash
 # Execute test-fix workflow (auto-discovers active session)
-/workflow:test-cycle-execute
+/workflow-test-fix
 
 # Resume interrupted session
-/workflow:test-cycle-execute --resume-session="WFS-test-user-auth"
+/workflow-test-fix --resume-session="WFS-test-user-auth"
 
 # Custom iteration limit (default: 10)
-/workflow:test-cycle-execute --max-iterations=15
+/workflow-test-fix --max-iterations=15
 ```
 
 **Quality Gate**: Test pass rate >= 95% (criticality-aware) or 100%
@@ -55,7 +60,7 @@ Load session, tasks, and iteration state.
 
 **For full-pipeline entry (from Phase 1-4)**: Use `testSessionId` passed from Phase 4.
 
-**For direct entry (/workflow:test-cycle-execute)**:
+**For direct entry (/workflow-test-fix)**:
 - `--resume-session="WFS-xxx"` → Use specified session
 - No args → Auto-discover active test session (find `.workflow/active/WFS-test-*`)
 
@@ -244,8 +249,7 @@ Task(
     ${selectedStrategy} - ${strategyDescription}
 
     ## PROJECT CONTEXT (MANDATORY)
-    1. Read: .workflow/project-tech.json (tech stack, test framework, build system)
-    2. Read: .workflow/project-guidelines.json (constraints — apply as HARD CONSTRAINTS on fixes)
+    1. Run: \`ccw spec load --category execution\` (tech stack, test framework, build system, constraints)
 
     ## MANDATORY FIRST STEPS
     1. Read test results: ${session.test_results_path}
@@ -454,7 +458,7 @@ The orchestrator automatically creates git commits at key checkpoints to enable 
 
 #### Post-Completion Expansion
 
-**Auto-sync**: 执行 `/workflow:session:sync -y "{summary}"` 更新 project-guidelines + project-tech。
+**Auto-sync**: 执行 `/workflow:session:sync -y "{summary}"` 更新 specs/*.md + project-tech。
 
 完成后询问用户是否扩展为issue(test/enhance/refactor/doc)，选中项调用 `/issue:new "{summary} - {dimension}"`
 

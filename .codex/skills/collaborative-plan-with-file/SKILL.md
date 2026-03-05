@@ -194,7 +194,7 @@ Use built-in tools directly to understand the task scope and identify sub-domain
 **Analysis Activities**:
 1. **Search for references** — Find related documentation, README files, and architecture guides
    - Use: `mcp__ace-tool__search_context`, Grep, Glob, Read
-   - Read: `.workflow/project-tech.json`, `.workflow/project-guidelines.json` (if exists)
+   - Run: `ccw spec load --category planning` (if spec system available)
 2. **Extract task keywords** — Identify key terms and concepts from the task description
 3. **Identify ambiguities** — List any unclear points or multiple possible interpretations
 4. **Clarify with user** — If ambiguities found, use AskUserQuestion for clarification

@@ -22,6 +22,7 @@ import {
   Minimize2,
   Activity,
   Plus,
+  Gauge,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/Badge';
@@ -36,11 +37,12 @@ import { toast } from '@/stores/notificationStore';
 import { useExecutionMonitorStore, selectActiveExecutionCount } from '@/stores/executionMonitorStore';
 import { useSessionManagerStore } from '@/stores/sessionManagerStore';
 import { useConfigStore } from '@/stores/configStore';
+import { useQueueSchedulerStore, selectQueueSchedulerStatus } from '@/stores/queueSchedulerStore';
 import { CliConfigModal, type CliSessionConfig } from './CliConfigModal';
 
 // ========== Types ==========
 
-export type PanelId = 'issues' | 'queue' | 'inspector' | 'execution';
+export type PanelId = 'issues' | 'queue' | 'inspector' | 'execution' | 'scheduler';
 
 interface DashboardToolbarProps {
   activePanel: PanelId | null;
@@ -94,6 +96,10 @@ export function DashboardToolbar({ activePanel, onTogglePanel, isFileSidebarOpen
 
   // Execution monitor count
   const executionCount = useExecutionMonitorStore(selectActiveExecutionCount);
+
+  // Scheduler status for badge indicator
+  const schedulerStatus = useQueueSchedulerStore(selectQueueSchedulerStatus);
+  const isSchedulerActive = schedulerStatus !== 'idle';
 
   // Feature flags for panel visibility
   const featureFlags = useConfigStore((s) => s.featureFlags);
@@ -244,6 +250,13 @@ export function DashboardToolbar({ activePanel, onTogglePanel, isFileSidebarOpen
             badge={executionCount > 0 ? executionCount : undefined}
           />
         )}
+        <ToolbarButton
+          icon={Gauge}
+          label={formatMessage({ id: 'terminalDashboard.toolbar.scheduler', defaultMessage: 'Scheduler' })}
+          isActive={activePanel === 'scheduler'}
+          onClick={() => onTogglePanel('scheduler')}
+          dot={isSchedulerActive}
+        />
         <ToolbarButton
           icon={FolderOpen}
           label={formatMessage({ id: 'terminalDashboard.toolbar.files', defaultMessage: 'Files' })}

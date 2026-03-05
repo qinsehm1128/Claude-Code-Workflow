@@ -1,27 +1,33 @@
 ---
 name: team-quality-assurance
 description: Unified team skill for quality assurance team. All roles invoke this skill with --role arg for role-specific execution. Triggers on "team quality-assurance", "team qa".
-allowed-tools: TeamCreate(*), TeamDelete(*), SendMessage(*), TaskCreate(*), TaskUpdate(*), TaskList(*), TaskGet(*), Task(*), AskUserQuestion(*), Read(*), Write(*), Edit(*), Bash(*), Glob(*), Grep(*)
+allowed-tools: TeamCreate(*), TeamDelete(*), SendMessage(*), TaskCreate(*), TaskUpdate(*), TaskList(*), TaskGet(*), Agent(*), AskUserQuestion(*), Read(*), Write(*), Edit(*), Bash(*), Glob(*), Grep(*)
 ---
 
 # Team Quality Assurance
 
-质量保障团队技能。融合"问题发现"和"软件测试"两大能力域，形成"发现→策略→测试→分析"闭环。通过 Scout 多视角扫描、Generator-Executor 循环、共享缺陷模式数据库，实现渐进式质量保障。所有成员通过 `--role=xxx` 路由到角色执行逻辑。
+Unified team skill: quality assurance combining issue discovery and software testing into a closed loop of scout -> strategy -> generate -> execute -> analyze. Uses multi-perspective scanning, Generator-Executor pipeline, and shared defect pattern database for progressive quality assurance. All team members invoke with `--role=xxx` to route to role-specific execution.
 
-## Architecture Overview
+## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│  Skill(skill="team-quality-assurance", args="--role=xxx") │
-└────────────────────────┬─────────────────────────────────┘
-                         │ Role Router
-    ┌────────┬───────────┼───────────┬──────────┬──────────┐
-    ↓        ↓           ↓           ↓          ↓          ↓
-┌────────┐┌───────┐┌──────────┐┌─────────┐┌────────┐┌────────┐
-│coordi- ││scout  ││strategist││generator││executor││analyst │
-│nator   ││SCOUT-*││QASTRAT-* ││QAGEN-*  ││QARUN-* ││QAANA-* │
-│ roles/ ││ roles/││ roles/   ││ roles/  ││ roles/ ││ roles/ │
-└────────┘└───────┘└──────────┘└─────────┘└────────┘└────────┘
++---------------------------------------------------+
+|  Skill(skill="team-quality-assurance")             |
+|  args="<task-description>"                         |
++-------------------+-------------------------------+
+                    |
+         Orchestration Mode (auto -> coordinator)
+                    |
+              Coordinator (inline)
+              Phase 0-5 orchestration
+                    |
+    +-----+-----+-----+-----+-----+
+    v     v     v     v     v
+ [tw]  [tw]  [tw]  [tw]  [tw]
+scout  stra-  gene- execu- analy-
+       tegist rator tor    st
+
+(tw) = team-worker agent
 ```
 
 ## Command Architecture
@@ -29,162 +35,183 @@ allowed-tools: TeamCreate(*), TeamDelete(*), SendMessage(*), TaskCreate(*), Task
 ```
 roles/
 ├── coordinator/
-│   ├── role.md              # Pipeline 编排（模式选择、任务分发、监控）
+│   ├── role.md              # Pipeline orchestration (mode selection, task dispatch, monitoring)
 │   └── commands/
-│       ├── dispatch.md      # 任务链创建
-│       └── monitor.md       # 进度监控
+│       ├── dispatch.md      # Task chain creation
+│       └── monitor.md       # Progress monitoring
 ├── scout/
-│   ├── role.md              # 多视角问题扫描
+│   ├── role.md              # Multi-perspective issue scanning
 │   └── commands/
-│       └── scan.md          # 多视角 CLI Fan-out 扫描
+│       └── scan.md          # Multi-perspective CLI fan-out scanning
 ├── strategist/
-│   ├── role.md              # 测试策略制定
+│   ├── role.md              # Test strategy formulation
 │   └── commands/
-│       └── analyze-scope.md # 变更范围分析
+│       └── analyze-scope.md # Change scope analysis
 ├── generator/
-│   ├── role.md              # 测试用例生成
+│   ├── role.md              # Test case generation
 │   └── commands/
-│       └── generate-tests.md # 按层级生成测试代码
+│       └── generate-tests.md # Layer-based test code generation
 ├── executor/
-│   ├── role.md              # 测试执行与修复
+│   ├── role.md              # Test execution and fix cycles
 │   └── commands/
-│       └── run-fix-cycle.md # 迭代测试修复循环
+│       └── run-fix-cycle.md # Iterative test-fix loop
 └── analyst/
-    ├── role.md              # 质量分析报告
+    ├── role.md              # Quality analysis reporting
     └── commands/
-        └── quality-report.md # 缺陷模式 + 覆盖率分析
+        └── quality-report.md # Defect pattern + coverage analysis
 ```
 
-**设计原则**: role.md 保留 Phase 1（Task Discovery）和 Phase 5（Report）内联。Phase 2-4 根据复杂度决定内联或委派到 `commands/*.md`。
+**Design principle**: role.md retains Phase 1 (Task Discovery) and Phase 5 (Report) inline. Phase 2-4 delegate to `commands/*.md` based on complexity.
 
 ## Role Router
 
 ### Input Parsing
 
-Parse `$ARGUMENTS` to extract `--role`:
+Parse `$ARGUMENTS` to extract `--role`. If absent -> Orchestration Mode (auto route to coordinator).
 
-```javascript
-const args = "$ARGUMENTS"
-const roleMatch = args.match(/--role[=\s]+(\w+)/)
+### Role Registry
 
-if (!roleMatch) {
-  throw new Error("Missing --role argument. Available roles: coordinator, scout, strategist, generator, executor, analyst")
-}
+| Role | Spec | Task Prefix | Inner Loop |
+|------|------|-------------|------------|
+| coordinator | [roles/coordinator/role.md](roles/coordinator/role.md) | (none) | - |
+| scout | [role-specs/scout.md](role-specs/scout.md) | SCOUT-* | false |
+| strategist | [role-specs/strategist.md](role-specs/strategist.md) | QASTRAT-* | false |
+| generator | [role-specs/generator.md](role-specs/generator.md) | QAGEN-* | false |
+| executor | [role-specs/executor.md](role-specs/executor.md) | QARUN-* | true |
+| analyst | [role-specs/analyst.md](role-specs/analyst.md) | QAANA-* | false |
 
-const role = roleMatch[1]
-const teamName = args.match(/--team[=\s]+([\w-]+)/)?.[1] || "quality-assurance"
+> **COMPACT PROTECTION**: Role files are execution documents, not reference material. When context compression occurs and role instructions are reduced to summaries, **you MUST immediately `Read` the corresponding role.md to reload before continuing execution**. Do not execute any Phase based on summaries.
+
+### Dispatch
+
+1. Extract `--role` from arguments
+2. If no `--role` -> route to coordinator (Orchestration Mode)
+3. Look up role in registry -> Read the role file -> Execute its phases
+
+### Orchestration Mode
+
+When invoked without `--role`, coordinator auto-starts. User just provides task description.
+
+**Invocation**: `Skill(skill="team-quality-assurance", args="<task-description>")`
+
+**Lifecycle**:
+```
+User provides task description
+  -> coordinator Phase 1-3: Mode detection + requirement clarification -> TeamCreate -> Create task chain
+  -> coordinator Phase 4: spawn first batch workers (background) -> STOP
+  -> Worker executes -> SendMessage callback -> coordinator advances next step
+  -> Loop until pipeline complete -> Phase 5 report
 ```
 
-### Role Dispatch
+**User Commands** (wake paused coordinator):
 
-```javascript
-const VALID_ROLES = {
-  "coordinator": { file: "roles/coordinator/role.md", prefix: null },
-  "scout":       { file: "roles/scout/role.md",       prefix: "SCOUT" },
-  "strategist":  { file: "roles/strategist/role.md",  prefix: "QASTRAT" },
-  "generator":   { file: "roles/generator/role.md",   prefix: "QAGEN" },
-  "executor":    { file: "roles/executor/role.md",     prefix: "QARUN" },
-  "analyst":     { file: "roles/analyst/role.md",      prefix: "QAANA" }
-}
+| Command | Action |
+|---------|--------|
+| `check` / `status` | Output execution status graph, no advancement |
+| `resume` / `continue` | Check worker states, advance next step |
 
-if (!VALID_ROLES[role]) {
-  throw new Error(`Unknown role: ${role}. Available: ${Object.keys(VALID_ROLES).join(', ')}`)
-}
-
-// Read and execute role-specific logic
-Read(VALID_ROLES[role].file)
-// → Execute the 5-phase process defined in that file
-```
-
-### Available Roles
-
-| Role | Task Prefix | Responsibility | Role File |
-|------|-------------|----------------|-----------|
-| `coordinator` | N/A | QA pipeline 编排、模式选择、质量门控 | [roles/coordinator/role.md](roles/coordinator/role.md) |
-| `scout` | SCOUT-* | 多视角问题扫描、主动发现潜在缺陷 | [roles/scout/role.md](roles/scout/role.md) |
-| `strategist` | QASTRAT-* | 变更范围分析、测试层级选择、覆盖率目标 | [roles/strategist/role.md](roles/strategist/role.md) |
-| `generator` | QAGEN-* | 按层级生成测试用例（unit/integration/E2E） | [roles/generator/role.md](roles/generator/role.md) |
-| `executor` | QARUN-* | 执行测试、收集覆盖率、自动修复循环 | [roles/executor/role.md](roles/executor/role.md) |
-| `analyst` | QAANA-* | 缺陷模式分析、覆盖率差距、质量报告 | [roles/analyst/role.md](roles/analyst/role.md) |
+---
 
 ## Shared Infrastructure
 
-### Role Isolation Rules
+The following templates apply to all worker roles. Each role.md only needs to write **Phase 2-4** role-specific logic.
 
-**核心原则**: 每个角色仅能执行自己职责范围内的工作。
+### Worker Phase 1: Task Discovery (shared by all workers)
 
-#### Output Tagging（强制）
+Every worker executes the same task discovery flow on startup:
 
-所有角色的输出必须带 `[role_name]` 标识前缀：
+1. Call `TaskList()` to get all tasks
+2. Filter: subject matches this role's prefix + owner is this role + status is pending + blockedBy is empty
+3. No tasks -> idle wait
+4. Has tasks -> `TaskGet` for details -> `TaskUpdate` mark in_progress
 
-```javascript
-SendMessage({ content: `## [${role}] ...`, summary: `[${role}] ...` })
-mcp__ccw-tools__team_msg({ summary: `[${role}] ...` })
+**Resume Artifact Check** (prevent duplicate output after resume):
+- Check whether this task's output artifact already exists
+- Artifact complete -> skip to Phase 5 report completion
+- Artifact incomplete or missing -> normal Phase 2-4 execution
+
+### Worker Phase 5: Report (shared by all workers)
+
+Standard reporting flow after task completion:
+
+1. **Message Bus**: Call `mcp__ccw-tools__team_msg` to log message
+   - Parameters: operation="log", session_id=<session-id>, from=<role>, type=<message-type>, data={ref: "<artifact-path>"}
+   - `to` and `summary` auto-defaulted -- do NOT specify explicitly
+   - **CLI fallback**: `ccw team log --session-id <session-id> --from <role> --type <type> --json`
+2. **SendMessage**: Send result to coordinator
+3. **TaskUpdate**: Mark task completed
+4. **Loop**: Return to Phase 1 to check next task
+
+### Wisdom Accumulation (all roles)
+
+Cross-task knowledge accumulation. Coordinator creates `wisdom/` directory at session initialization.
+
+**Directory**:
+```
+<session-folder>/wisdom/
+├── learnings.md      # Patterns and insights
+├── decisions.md      # Architecture and design decisions
+├── conventions.md    # Codebase conventions
+└── issues.md         # Known risks and issues
 ```
 
-#### Coordinator 隔离
+**Worker Load** (Phase 2): Extract `Session: <path>` from task description, read wisdom directory files.
+**Worker Contribute** (Phase 4/5): Write this task's discoveries to corresponding wisdom files.
 
-| 允许 | 禁止 |
-|------|------|
-| 需求澄清 (AskUserQuestion) | ❌ 直接编写测试 |
-| 创建任务链 (TaskCreate) | ❌ 直接执行测试或扫描 |
-| 模式选择 + 质量门控 | ❌ 直接分析覆盖率 |
-| 监控进度 (消息总线) | ❌ 绕过 worker 自行完成 |
+### Role Isolation Rules
 
-#### Worker 隔离
+#### Output Tagging
 
-| 允许 | 禁止 |
-|------|------|
-| 处理自己前缀的任务 | ❌ 处理其他角色前缀的任务 |
-| 读写 shared-memory.json (自己的字段) | ❌ 为其他角色创建任务 |
-| SendMessage 给 coordinator | ❌ 直接与其他 worker 通信 |
+All outputs must carry `[role_name]` prefix.
+
+#### Coordinator Isolation
+
+| Allowed | Forbidden |
+|---------|-----------|
+| Requirement clarification (AskUserQuestion) | Direct test writing |
+| Create task chain (TaskCreate) | Direct test execution or scanning |
+| Mode selection + quality gating | Direct coverage analysis |
+| Monitor progress (message bus) | Bypassing workers |
+
+#### Worker Isolation
+
+| Allowed | Forbidden |
+|---------|-----------|
+| Process tasks with own prefix | Process tasks with other role prefixes |
+| Share state via team_msg(type='state_update') | Create tasks for other roles |
+| SendMessage to coordinator | Communicate directly with other workers |
+| Delegate to commands/ files | Modify resources outside own responsibility |
 
 ### Team Configuration
 
-```javascript
-const TEAM_CONFIG = {
-  name: "quality-assurance",
-  sessionDir: ".workflow/.team/QA-{slug}-{date}/",
-  sharedMemory: "shared-memory.json",
-  testLayers: {
-    L1: { name: "Unit Tests", coverage_target: 80 },
-    L2: { name: "Integration Tests", coverage_target: 60 },
-    L3: { name: "E2E Tests", coverage_target: 40 }
-  },
-  scanPerspectives: ["bug", "security", "ux", "test-coverage", "code-quality"]
-}
-```
+| Setting | Value |
+|---------|-------|
+| Team name | quality-assurance |
+| Session directory | `.workflow/.team/QA-<slug>-<date>/` |
+| Test layers | L1: Unit (80%), L2: Integration (60%), L3: E2E (40%) |
+| Scan perspectives | bug, security, ux, test-coverage, code-quality |
 
-### Shared Memory（核心创新）
+### Shared Memory
 
-```javascript
-// 各角色读取共享记忆
-const memoryPath = `${sessionFolder}/shared-memory.json`
-let sharedMemory = {}
-try { sharedMemory = JSON.parse(Read(memoryPath)) } catch {}
+Cross-role accumulated knowledge stored via team_msg(type='state_update'):
 
-// 各角色写入自己负责的字段：
-// scout      → sharedMemory.discovered_issues
-// strategist → sharedMemory.test_strategy
-// generator  → sharedMemory.generated_tests
-// executor   → sharedMemory.execution_results
-// analyst    → sharedMemory.defect_patterns + quality_score + coverage_history
-Write(memoryPath, JSON.stringify(sharedMemory, null, 2))
-```
+| Field | Owner | Content |
+|-------|-------|---------|
+| `discovered_issues` | scout | Multi-perspective scan findings |
+| `test_strategy` | strategist | Layer selection, coverage targets, scope |
+| `generated_tests` | generator | Test file paths and metadata |
+| `execution_results` | executor | Test run results and coverage data |
+| `defect_patterns` | analyst | Recurring defect pattern database |
+| `quality_score` | analyst | Overall quality assessment |
+| `coverage_history` | analyst | Coverage trend over time |
+
+Each role reads in Phase 2, writes own fields in Phase 5.
 
 ### Message Bus (All Roles)
 
-```javascript
-mcp__ccw-tools__team_msg({
-  operation: "log",
-  team: teamName,
-  from: role,
-  to: "coordinator",
-  type: "<type>",
-  summary: `[${role}] <summary>`,
-  ref: "<file_path>"
-})
-```
+Every SendMessage **before**, must call `mcp__ccw-tools__team_msg` to log.
+
+**Message types by role**:
 
 | Role | Types |
 |------|-------|
@@ -195,73 +222,243 @@ mcp__ccw-tools__team_msg({
 | executor | `tests_passed`, `tests_failed`, `coverage_report`, `error` |
 | analyst | `analysis_ready`, `quality_report`, `error` |
 
-### CLI 回退
-
-```javascript
-Bash(`ccw team log --team "${teamName}" --from "${role}" --to "coordinator" --type "<type>" --summary "<摘要>" --json`)
-```
-
-### Task Lifecycle (All Worker Roles)
-
-```javascript
-const tasks = TaskList()
-const myTasks = tasks.filter(t =>
-  t.subject.startsWith(`${VALID_ROLES[role].prefix}-`) &&
-  t.owner === role &&
-  t.status === 'pending' &&
-  t.blockedBy.length === 0
-)
-if (myTasks.length === 0) return
-const task = TaskGet({ taskId: myTasks[0].id })
-TaskUpdate({ taskId: task.id, status: 'in_progress' })
-
-// Phase 2-4: Role-specific
-// Phase 5: Report + Loop
-mcp__ccw-tools__team_msg({ operation: "log", team: teamName, from: role, to: "coordinator", type: "...", summary: `[${role}] ...` })
-SendMessage({ type: "message", recipient: "coordinator", content: `## [${role}] ...`, summary: `[${role}] ...` })
-TaskUpdate({ taskId: task.id, status: 'completed' })
-```
+---
 
 ## Three-Mode Pipeline Architecture
 
-```
-Discovery Mode (问题发现优先):
-  SCOUT-001(多视角扫描) → QASTRAT-001 → QAGEN-001 → QARUN-001 → QAANA-001
-
-Testing Mode (测试优先，跳过 scout):
-  QASTRAT-001(变更分析) → QAGEN-001(L1) → QARUN-001(L1) → QAGEN-002(L2) → QARUN-002(L2) → QAANA-001
-
-Full QA Mode (完整闭环):
-  SCOUT-001(扫描) → QASTRAT-001(策略) → [QAGEN-001(L1) + QAGEN-002(L2)](parallel) → [QARUN-001 + QARUN-002](parallel) → QAANA-001(分析) → SCOUT-002(回归扫描)
-```
-
 ### Mode Auto-Detection
 
-```javascript
-function detectQAMode(args, taskDescription) {
-  if (/--mode[=\s]+(discovery|testing|full)/.test(args)) {
-    return args.match(/--mode[=\s]+(\w+)/)[1]
-  }
-  // 自动检测
-  if (/发现|扫描|scan|discover|issue|问题/.test(taskDescription)) return 'discovery'
-  if (/测试|test|覆盖|coverage|TDD/.test(taskDescription)) return 'testing'
-  return 'full'
-}
-```
+| Condition | Mode |
+|-----------|------|
+| Explicit `--mode=discovery` flag | discovery |
+| Explicit `--mode=testing` flag | testing |
+| Explicit `--mode=full` flag | full |
+| Task description contains: discovery/scan/issue keywords | discovery |
+| Task description contains: test/coverage/TDD keywords | testing |
+| No explicit flag and no keyword match | full (default) |
 
-### Generator-Executor Loop (GC 循环)
+### Pipeline Diagrams
 
 ```
-QAGEN → QARUN → (if coverage < target) → QAGEN-fix → QARUN-2
-                  (if coverage >= target) → next layer or QAANA
+Discovery Mode (issue discovery first):
+  SCOUT-001(multi-perspective scan) -> QASTRAT-001 -> QAGEN-001 -> QARUN-001 -> QAANA-001
+
+Testing Mode (skip scout, test first):
+  QASTRAT-001(change analysis) -> QAGEN-001(L1) -> QARUN-001(L1) -> QAGEN-002(L2) -> QARUN-002(L2) -> QAANA-001
+
+Full QA Mode (complete closed loop):
+  SCOUT-001(scan) -> QASTRAT-001(strategy)
+  -> [QAGEN-001(L1) || QAGEN-002(L2)](parallel) -> [QARUN-001 || QARUN-002](parallel)
+  -> QAANA-001(analysis) -> SCOUT-002(regression scan)
 ```
+
+### Generator-Executor Pipeline (GC Loop)
+
+Generator and executor iterate per test layer until coverage targets are met:
+
+```
+QAGEN -> QARUN -> (if coverage < target) -> QAGEN-fix -> QARUN-2
+                  (if coverage >= target) -> next layer or QAANA
+```
+
+Coordinator monitors GC loop progress. After 3 GC iterations without convergence, accept current coverage with warning.
+
+In Full QA mode, spawn N generator agents in parallel (one per test layer). Each receives a QAGEN-N task with layer assignment. Use `run_in_background: true` for all spawns, then coordinator stops and waits for callbacks. Similarly spawn N executor agents in parallel for QARUN-N tasks.
+
+### Cadence Control
+
+**Beat model**: Event-driven, each beat = coordinator wake -> process -> spawn -> STOP.
+
+```
+Beat Cycle (single beat)
+═══════════════════════════════════════════════════════════
+  Event                   Coordinator              Workers
+───────────────────────────────────────────────────────────
+  callback/resume ──> ┌─ handleCallback ─┐
+                      │  mark completed   │
+                      │  check pipeline   │
+                      ├─ handleSpawnNext ─┤
+                      │  find ready tasks │
+                      │  spawn workers ───┼──> [Worker A] Phase 1-5
+                      │  (parallel OK)  ──┼──> [Worker B] Phase 1-5
+                      └─ STOP (idle) ─────┘         │
+                                                     │
+  callback <─────────────────────────────────────────┘
+  (next beat)              SendMessage + TaskUpdate(completed)
+═══════════════════════════════════════════════════════════
+```
+
+**Pipeline beat view**:
+
+```
+Discovery mode (5 beats, strictly serial)
+──────────────────────────────────────────────────────────
+Beat  1         2         3         4         5
+      │         │         │         │         │
+      SCOUT -> STRAT -> GEN -> RUN -> ANA
+      ▲                                      ▲
+   pipeline                               pipeline
+    start                                  done
+
+S=SCOUT  STRAT=QASTRAT  GEN=QAGEN  RUN=QARUN  ANA=QAANA
+
+Testing mode (6 beats, layer progression)
+──────────────────────────────────────────────────────────
+Beat  1         2         3         4         5         6
+      │         │         │         │         │         │
+      STRAT -> GEN-L1 -> RUN-L1 -> GEN-L2 -> RUN-L2 -> ANA
+      ▲                                                  ▲
+   no scout                                           analysis
+   (test only)
+
+Full QA mode (6 beats, with parallel windows + regression)
+──────────────────────────────────────────────────────────
+Beat  1       2       3              4              5       6
+      │       │  ┌────┴────┐   ┌────┴────┐         │       │
+      SCOUT -> STRAT -> GEN-L1||GEN-L2 -> RUN-1||RUN-2 -> ANA -> SCOUT-2
+                        ▲                                          ▲
+                   parallel gen                              regression
+                                                               scan
+```
+
+**Checkpoints**:
+
+| Trigger | Location | Behavior |
+|---------|----------|----------|
+| GC loop limit | QARUN coverage < target | After 3 iterations, accept current coverage with warning |
+| Pipeline stall | No ready + no running | Check missing tasks, report to user |
+| Regression scan (full mode) | QAANA-001 complete | Trigger SCOUT-002 for regression verification |
+
+**Stall Detection** (coordinator `handleCheck` executes):
+
+| Check | Condition | Resolution |
+|-------|-----------|------------|
+| Worker no response | in_progress task no callback | Report waiting task list, suggest user `resume` |
+| Pipeline deadlock | no ready + no running + has pending | Check blockedBy dependency chain, report blocking point |
+| GC loop exceeded | generator/executor iteration > 3 | Terminate loop, output latest coverage report |
+
+### Task Metadata Registry
+
+| Task ID | Role | Phase | Dependencies | Description |
+|---------|------|-------|-------------|-------------|
+| SCOUT-001 | scout | discovery | (none) | Multi-perspective issue scanning |
+| QASTRAT-001 | strategist | strategy | SCOUT-001 or (none) | Change scope analysis + test strategy |
+| QAGEN-001 | generator | generation | QASTRAT-001 | L1 unit test generation |
+| QAGEN-002 | generator | generation | QASTRAT-001 (full mode) | L2 integration test generation |
+| QARUN-001 | executor | execution | QAGEN-001 | L1 test execution + fix cycles |
+| QARUN-002 | executor | execution | QAGEN-002 (full mode) | L2 test execution + fix cycles |
+| QAANA-001 | analyst | analysis | QARUN-001 (+ QARUN-002) | Defect pattern analysis + quality report |
+| SCOUT-002 | scout | regression | QAANA-001 (full mode) | Regression scan after fixes |
+
+---
+
+## Coordinator Spawn Template
+
+### v5 Worker Spawn (all roles)
+
+When coordinator spawns workers, use `team-worker` agent with role-spec path:
+
+```
+Agent({
+  agent_type: "team-worker",
+  description: "Spawn <role> worker",
+  team_name: "quality-assurance",
+  name: "<role>",
+  run_in_background: true,
+  prompt: `## Role Assignment
+role: <role>
+role_spec: .claude/skills/team-quality-assurance/role-specs/<role>.md
+session: <session-folder>
+session_id: <session-id>
+team_name: quality-assurance
+requirement: <task-description>
+inner_loop: <true|false>
+
+Read role_spec file to load Phase 2-4 domain instructions.
+Execute built-in Phase 1 (task discovery) -> role-spec Phase 2-4 -> built-in Phase 5 (report).`
+})
+```
+
+**Inner Loop roles** (executor): Set `inner_loop: true`.
+
+**Single-task roles** (scout, strategist, generator, analyst): Set `inner_loop: false`.
+
+### Parallel Spawn (N agents for same role)
+
+> When pipeline has parallel tasks assigned to the same role, spawn N distinct team-worker agents with unique names.
+
+**Parallel detection**:
+
+| Condition | Action |
+|-----------|--------|
+| N parallel tasks for same role prefix | Spawn N agents named `<role>-1`, `<role>-2` ... |
+| Single task for role | Standard spawn (single agent) |
+
+**Parallel spawn template**:
+
+```
+Agent({
+  agent_type: "team-worker",
+  description: "Spawn <role>-<N> worker",
+  team_name: "quality-assurance",
+  name: "<role>-<N>",
+  run_in_background: true,
+  prompt: `## Role Assignment
+role: <role>
+role_spec: .claude/skills/team-quality-assurance/role-specs/<role>.md
+session: <session-folder>
+session_id: <session-id>
+team_name: quality-assurance
+requirement: <task-description>
+agent_name: <role>-<N>
+inner_loop: <true|false>
+
+Read role_spec file to load Phase 2-4 domain instructions.
+Execute built-in Phase 1 (task discovery, owner=<role>-<N>) -> role-spec Phase 2-4 -> built-in Phase 5 (report).`
+})
+```
+
+**Dispatch must match agent names**: In dispatch, parallel tasks use instance-specific owner: `<role>-<N>`.
+
+---
+
+## Completion Action
+
+When the pipeline completes (all tasks done, coordinator Phase 5):
+
+```
+AskUserQuestion({
+  questions: [{
+    question: "Quality Assurance pipeline complete. What would you like to do?",
+    header: "Completion",
+    multiSelect: false,
+    options: [
+      { label: "Archive & Clean (Recommended)", description: "Archive session, clean up tasks and team resources" },
+      { label: "Keep Active", description: "Keep session active for follow-up work or inspection" },
+      { label: "Export Results", description: "Export deliverables to a specified location, then clean" }
+    ]
+  }]
+})
+```
+
+| Choice | Action |
+|--------|--------|
+| Archive & Clean | Update session status="completed" -> TeamDelete() -> output final summary |
+| Keep Active | Update session status="paused" -> output resume instructions: `Skill(skill="team-quality-assurance", args="resume")` |
+| Export Results | AskUserQuestion for target path -> copy deliverables -> Archive & Clean |
 
 ## Unified Session Directory
 
 ```
-.workflow/.team/QA-{slug}-{YYYY-MM-DD}/
-├── team-session.json
-├── shared-memory.json          # 发现的问题 / 测试策略 / 缺陷模式 / 覆盖率历史
+.workflow/.team/QA-<slug>-<YYYY-MM-DD>/
+├── .msg/meta.json           # Session state
+├── .msg/messages.jsonl          # Team message bus
+├── .msg/meta.json               # Session metadata
+├── wisdom/                     # Cross-task knowledge
+│   ├── learnings.md
+│   ├── decisions.md
+│   ├── conventions.md
+│   └── issues.md
 ├── scan/                       # Scout output
 │   └── scan-results.json
 ├── strategy/                   # Strategist output
@@ -277,211 +474,13 @@ QAGEN → QARUN → (if coverage < target) → QAGEN-fix → QARUN-2
     └── quality-report.md
 ```
 
-## Coordinator Spawn Template
-
-```javascript
-TeamCreate({ team_name: teamName })
-
-// Scout
-Task({
-  subagent_type: "general-purpose",
-  team_name: teamName,
-  name: "scout",
-  prompt: `你是 team "${teamName}" 的 SCOUT。
-
-当你收到 SCOUT-* 任务时，调用 Skill(skill="team-quality-assurance", args="--role=scout") 执行。
-
-当前需求: ${taskDescription}
-约束: ${constraints}
-
-## 角色准则（强制）
-- 你只能处理 SCOUT-* 前缀的任务，不得执行其他角色的工作
-- 所有输出（SendMessage、team_msg）必须带 [scout] 标识前缀
-- 仅与 coordinator 通信，不得直接联系其他 worker
-- 不得使用 TaskCreate 为其他角色创建任务
-
-## 消息总线（必须）
-每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
-
-工作流程:
-1. TaskList → 找到 SCOUT-* 任务
-2. Skill(skill="team-quality-assurance", args="--role=scout") 执行
-3. team_msg log + SendMessage 结果给 coordinator（带 [scout] 标识）
-4. TaskUpdate completed → 检查下一个任务`
-})
-
-// Strategist
-Task({
-  subagent_type: "general-purpose",
-  team_name: teamName,
-  name: "strategist",
-  prompt: `你是 team "${teamName}" 的 STRATEGIST。
-
-当你收到 QASTRAT-* 任务时，调用 Skill(skill="team-quality-assurance", args="--role=strategist") 执行。
-
-当前需求: ${taskDescription}
-约束: ${constraints}
-
-## 角色准则（强制）
-- 你只能处理 QASTRAT-* 前缀的任务
-- 所有输出必须带 [strategist] 标识前缀
-- 仅与 coordinator 通信
-
-## 消息总线（必须）
-每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
-
-工作流程:
-1. TaskList → 找到 QASTRAT-* 任务
-2. Skill(skill="team-quality-assurance", args="--role=strategist") 执行
-3. team_msg log + SendMessage 结果给 coordinator
-4. TaskUpdate completed → 检查下一个任务`
-})
-
-// Generator — parallel instances for full mode (generator-1, generator-2)
-const isFullMode = qaMode === 'full'
-
-if (isFullMode) {
-  for (let i = 1; i <= 2; i++) {
-    const agentName = `generator-${i}`
-    Task({
-      subagent_type: "general-purpose",
-      team_name: teamName,
-      name: agentName,
-      prompt: `你是 team "${teamName}" 的 GENERATOR (${agentName})。
-你的 agent 名称是 "${agentName}"，任务发现时用此名称匹配 owner。
-
-当你收到 QAGEN-* 任务时，调用 Skill(skill="team-quality-assurance", args="--role=generator --agent-name=${agentName}") 执行。
-
-当前需求: ${taskDescription}
-
-## 角色准则（强制）
-- 你只能处理 owner 为 "${agentName}" 的 QAGEN-* 前缀任务
-- 所有输出必须带 [generator] 标识前缀
-
-## 消息总线（必须）
-每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
-
-工作流程:
-1. TaskList → 找到 owner === "${agentName}" 的 QAGEN-* 任务
-2. Skill(skill="team-quality-assurance", args="--role=generator --agent-name=${agentName}") 执行
-3. team_msg log + SendMessage
-4. TaskUpdate completed → 检查下一个任务`
-    })
-  }
-} else {
-  Task({
-    subagent_type: "general-purpose",
-    team_name: teamName,
-    name: "generator",
-    prompt: `你是 team "${teamName}" 的 GENERATOR。
-
-当你收到 QAGEN-* 任务时，调用 Skill(skill="team-quality-assurance", args="--role=generator") 执行。
-
-当前需求: ${taskDescription}
-
-## 角色准则（强制）
-- 你只能处理 QAGEN-* 前缀的任务
-- 所有输出必须带 [generator] 标识前缀
-
-## 消息总线（必须）
-每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
-
-工作流程:
-1. TaskList → 找到 QAGEN-* 任务
-2. Skill(skill="team-quality-assurance", args="--role=generator") 执行
-3. team_msg log + SendMessage
-4. TaskUpdate completed → 检查下一个任务`
-  })
-}
-
-// Executor — parallel instances for full mode (executor-1, executor-2)
-if (isFullMode) {
-  for (let i = 1; i <= 2; i++) {
-    const agentName = `executor-${i}`
-    Task({
-      subagent_type: "general-purpose",
-      team_name: teamName,
-      name: agentName,
-      prompt: `你是 team "${teamName}" 的 EXECUTOR (${agentName})。
-你的 agent 名称是 "${agentName}"，任务发现时用此名称匹配 owner。
-
-当你收到 QARUN-* 任务时，调用 Skill(skill="team-quality-assurance", args="--role=executor --agent-name=${agentName}") 执行。
-
-当前需求: ${taskDescription}
-
-## 角色准则（强制）
-- 你只能处理 owner 为 "${agentName}" 的 QARUN-* 前缀任务
-- 所有输出必须带 [executor] 标识前缀
-
-## 消息总线（必须）
-每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
-
-工作流程:
-1. TaskList → 找到 owner === "${agentName}" 的 QARUN-* 任务
-2. Skill(skill="team-quality-assurance", args="--role=executor --agent-name=${agentName}") 执行
-3. team_msg log + SendMessage
-4. TaskUpdate completed → 检查下一个任务`
-    })
-  }
-} else {
-  Task({
-    subagent_type: "general-purpose",
-    team_name: teamName,
-    name: "executor",
-    prompt: `你是 team "${teamName}" 的 EXECUTOR。
-
-当你收到 QARUN-* 任务时，调用 Skill(skill="team-quality-assurance", args="--role=executor") 执行。
-
-当前需求: ${taskDescription}
-
-## 角色准则（强制）
-- 你只能处理 QARUN-* 前缀的任务
-- 所有输出必须带 [executor] 标识前缀
-
-## 消息总线（必须）
-每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
-
-工作流程:
-1. TaskList → 找到 QARUN-* 任务
-2. Skill(skill="team-quality-assurance", args="--role=executor") 执行
-3. team_msg log + SendMessage
-4. TaskUpdate completed → 检查下一个任务`
-  })
-}
-
-// Analyst
-Task({
-  subagent_type: "general-purpose",
-  team_name: teamName,
-  name: "analyst",
-  prompt: `你是 team "${teamName}" 的 ANALYST。
-
-当你收到 QAANA-* 任务时，调用 Skill(skill="team-quality-assurance", args="--role=analyst") 执行。
-
-当前需求: ${taskDescription}
-
-## 角色准则（强制）
-- 你只能处理 QAANA-* 前缀的任务
-- 所有输出必须带 [analyst] 标识前缀
-
-## 消息总线（必须）
-每次 SendMessage 前，先调用 mcp__ccw-tools__team_msg 记录。
-
-工作流程:
-1. TaskList → 找到 QAANA-* 任务
-2. Skill(skill="team-quality-assurance", args="--role=analyst") 执行
-3. team_msg log + SendMessage
-4. TaskUpdate completed → 检查下一个任务`
-})
-```
-
 ## Error Handling
 
 | Scenario | Resolution |
 |----------|------------|
 | Unknown --role value | Error with available role list |
-| Missing --role arg | Error with usage hint |
-| Role file not found | Error with expected path (roles/{name}/role.md) |
+| Missing --role arg | Orchestration Mode -> auto route to coordinator |
+| Role file not found | Error with expected path (roles/<name>/role.md) |
 | Task prefix conflict | Log warning, proceed |
 | Coverage never reaches target | After 3 GC loops, accept current with warning |
 | Scout finds no issues | Report clean scan, skip to testing mode |

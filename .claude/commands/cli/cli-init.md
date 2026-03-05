@@ -33,7 +33,7 @@ Creates tool-specific configuration directories:
 - `.gemini/settings.json`:
 ```json
 {
-  "contextfilename": ["CLAUDE.md","GEMINI.md"]
+  "contextfilename": "CLAUDE.md"
 }
 ```
 
@@ -41,7 +41,7 @@ Creates tool-specific configuration directories:
 - `.qwen/settings.json`:
 ```json
 {
-  "contextfilename": ["CLAUDE.md","QWEN.md"]
+  "contextfilename": "CLAUDE.md"
 }
 ```
 
@@ -378,7 +378,7 @@ docker-compose.override.yml
 ## Integration Points
 
 ### Workflow Commands
-- **After `workflow-lite-plan` skill**: Suggest running cli-init for better analysis
+- **After `workflow-lite-planex` skill**: Suggest running cli-init for better analysis
 - **Before analysis**: Recommend updating ignore patterns for cleaner results
 
 ### CLI Tool Integration

@@ -10,7 +10,7 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { useMcpServers } from '@/hooks';
-import { crossCliCopy, fetchCodexMcpServers } from '@/lib/api';
+import { crossCliCopy, fetchCodexMcpServers, isHttpMcpServer, isStdioMcpServer } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useWorkflowStore, selectProjectPath } from '@/stores/workflowStore';
 
@@ -25,7 +25,8 @@ export interface CrossCliSyncPanelProps {
 
 interface ServerCheckboxItem {
   name: string;
-  command: string;
+  /** Display text - command for STDIO, URL for HTTP */
+  displayText: string;
   enabled: boolean;
   selected: boolean;
 }
@@ -64,7 +65,7 @@ export function CrossCliSyncPanel({ onSuccess, className }: CrossCliSyncPanelPro
         setCodexServers(
           (codex.servers ?? []).map((s) => ({
             name: s.name,
-            command: s.command,
+            displayText: isHttpMcpServer(s) ? s.url : (isStdioMcpServer(s) ? s.command : ''),
             enabled: s.enabled,
             selected: false,
           }))
@@ -323,7 +324,9 @@ export function CrossCliSyncPanel({ onSuccess, className }: CrossCliSyncPanelPro
                         )}
                       </div>
                       <p className="text-xs text-muted-foreground font-mono truncate">
-                        {server.command}
+                        {isHttpMcpServer(server)
+                          ? server.url
+                          : (isStdioMcpServer(server) ? server.command : '')}
                       </p>
                     </label>
                   </div>
@@ -421,7 +424,7 @@ export function CrossCliSyncPanel({ onSuccess, className }: CrossCliSyncPanelPro
                         )}
                       </div>
                       <p className="text-xs text-muted-foreground font-mono truncate">
-                        {server.command}
+                        {server.displayText}
                       </p>
                     </label>
                   </div>

@@ -2,11 +2,13 @@
 // AssistantMessage Component
 // ========================================
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useIntl } from 'react-intl';
-import { Bot, ChevronDown, Copy, Check } from 'lucide-react';
+import { Bot, ChevronDown, Copy, Check, FileJson } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
+import { JsonCard } from '../components/JsonCard';
+import { detectJsonInLine } from '../utils/jsonDetector';
 
 // Status indicator component
 interface StatusIndicatorProps {
@@ -94,6 +96,11 @@ export function AssistantMessage({
   const [isExpanded, setIsExpanded] = useState(true);
   const [copied, setCopied] = useState(false);
 
+  // Detect JSON in content
+  const jsonDetection = useMemo(() => {
+    return detectJsonInLine(content);
+  }, [content]);
+
   useEffect(() => {
     if (copied) {
       const timer = setTimeout(() => setCopied(false), 2000);
@@ -126,6 +133,14 @@ export function AssistantMessage({
           {modelName}
         </span>
 
+        {/* JSON indicator badge */}
+        {jsonDetection?.isJson && (
+          <span className="flex items-center gap-0.5 text-[9px] text-violet-500 dark:text-violet-400 bg-violet-200/50 dark:bg-violet-800/50 px-1 rounded">
+            <FileJson className="h-2.5 w-2.5" />
+            JSON
+          </span>
+        )}
+
         <div className="flex items-center gap-1.5 ml-auto">
           <StatusIndicator status={status} duration={duration} />
           <ChevronDown
@@ -141,11 +156,21 @@ export function AssistantMessage({
       {isExpanded && (
         <>
           <div className="px-2.5 py-2 bg-violet-50/40 dark:bg-violet-950/30">
-            <div className="bg-white/60 dark:bg-black/30 rounded border border-violet-200/40 dark:border-violet-800/30 p-2.5">
-              <div className="text-xs text-foreground whitespace-pre-wrap break-words leading-relaxed">
-                {content}
+            {jsonDetection?.isJson && jsonDetection.parsed ? (
+              /* JSON detected - use collapsible JsonCard */
+              <JsonCard
+                data={jsonDetection.parsed}
+                type="stdout"
+                onCopy={handleCopy}
+              />
+            ) : (
+              /* Plain text content */
+              <div className="bg-white/60 dark:bg-black/30 rounded border border-violet-200/40 dark:border-violet-800/30 p-2.5">
+                <div className="text-xs text-foreground whitespace-pre-wrap break-words leading-relaxed">
+                  {content}
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* Metadata Footer - simplified */}

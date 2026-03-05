@@ -2,6 +2,7 @@
 
 > 任务链创建与依赖管理。根据 QA 模式创建 pipeline 任务链并分配给 worker 角色。
 
+
 ## When to Use
 
 - Phase 3 of Coordinator
@@ -112,9 +113,8 @@ const chainValid = chainTasks.length === pipeline.length
 
 if (!chainValid) {
   mcp__ccw-tools__team_msg({
-    operation: "log", team: teamName, from: "coordinator",
+    operation: "log", session_id: teamName, from: "coordinator",
     to: "user", type: "error",
-    summary: `[coordinator] 任务链创建不完整: ${chainTasks.length}/${pipeline.length}`
   })
 }
 ```

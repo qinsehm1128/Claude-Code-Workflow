@@ -454,32 +454,37 @@ function executeLineMode(content: string, params: LineModeParams): LineModeResul
 // Tool schema for MCP
 export const schema: ToolSchema = {
   name: 'edit_file',
-  description: `Edit file using two modes: "update" for text replacement (default) and "line" for line-based operations.
+  description: `Edit file using ONE of two modes. Provide parameters for only ONE mode - mixing modes causes validation error.
 
-**Update Mode** (default):
-- Use oldText/newText for single replacement OR edits for multiple replacements
-- Parameters: oldText, newText, replaceAll, dryRun
-- Cannot use line mode parameters (operation, line, end_line, text)
-- Validation: oldText/newText and edits are mutually exclusive
+**Mode 1: update** (default) - Text replacement
+  **path** (string, **REQUIRED**): File path to edit.
+  **oldText** (string, **REQUIRED** if not using edits): Text to find and replace.
+  **newText** (string, **REQUIRED** if using oldText): Replacement text.
+  * OR use **edits** (array) for multiple replacements: [{oldText:"a", newText:"b"}, ...]
+  *replaceAll* (boolean): Replace all occurrences (default: false).
+  *dryRun* (boolean): Preview diff without modifying (default: false).
 
-**Line Mode**:
-- Use for precise line-based operations
-- Parameters: operation (insert_before/insert_after/replace/delete), line, end_line, text, dryRun
-- Cannot use update mode parameters (oldText, newText, edits, replaceAll)
+  Example:
+    edit_file(path="file.ts", oldText="old", newText="new")
+    edit_file(path="file.ts", edits=[{oldText:"a", newText:"b"}])
+    edit_file(path="file.ts", oldText="x", newText="y", replaceAll=true)
 
-Usage (update mode - single replacement):
-  edit_file(path="f.js", oldText="old", newText="new")
+**Mode 2: line** - Line-based operations
+  **path** (string, **REQUIRED**): File path to edit.
+  **operation** (string, **REQUIRED**): "insert_before" | "insert_after" | "replace" | "delete".
+  **line** (number, **REQUIRED**): 1-based line number.
+  *text* (string): Content for insert/replace operations.
+  *end_line* (number): End line for range operations (replace/delete).
+  *dryRun* (boolean): Preview diff without modifying (default: false).
 
-Usage (update mode - multiple replacements):
-  edit_file(path="f.js", edits=[{oldText:"a",newText:"b"},{oldText:"c",newText:"d"}])
+  Example:
+    edit_file(path="file.ts", mode="line", operation="insert_after", line=10, text="new line")
+    edit_file(path="file.ts", mode="line", operation="delete", line=5, end_line=8)
 
-Usage (line mode):
-  edit_file(path="f.js", mode="line", operation="insert_after", line=10, text="new line")
-  edit_file(path="f.js", mode="line", operation="delete", line=5, end_line=8)
-
-Options: dryRun=true (preview diff), replaceAll=true (update mode only)
-
-**Important**: Each mode only accepts its own parameters. Providing parameters from both modes will cause a validation error.`,
+**⚠️ MUTUAL EXCLUSIVITY:**
+- update mode: Use ONLY oldText/newText OR edits, plus replaceAll, dryRun
+- line mode: Use ONLY operation, line, end_line, text, dryRun
+- DO NOT mix parameters from both modes`,
   inputSchema: {
     type: 'object',
     properties: {

@@ -1,241 +1,243 @@
-# Role: coordinator
+# Coordinator Role
 
-QA 团队协调者。编排 pipeline：需求澄清 → 模式选择 → 团队创建 → 任务分发 → 监控协调 → 质量门控 → 结果汇报。
+Orchestrate the Quality Assurance workflow: requirement clarification, mode selection, team creation, task dispatch, progress monitoring, quality gate control, and result reporting.
 
-## Role Identity
+## Identity
 
-- **Name**: `coordinator`
-- **Task Prefix**: N/A (coordinator creates tasks, doesn't receive them)
-- **Responsibility**: Orchestration
-- **Communication**: SendMessage to all teammates
-- **Output Tag**: `[coordinator]`
+- **Name**: `coordinator` | **Tag**: `[coordinator]`
+- **Responsibility**: Parse requirements -> Create team -> Dispatch tasks -> Monitor progress -> Report results
 
-## Role Boundaries
+## Boundaries
 
 ### MUST
-
-- 所有输出（SendMessage、team_msg、日志）必须带 `[coordinator]` 标识
-- 仅负责需求澄清、模式选择、任务创建/分发、进度监控、质量门控、结果汇报
-- 通过 TaskCreate 创建任务并分配给 worker 角色
-- 通过消息总线监控 worker 进度并路由消息
+- All output (SendMessage, team_msg, logs) must carry `[coordinator]` identifier
+- Only responsible for requirement clarification, mode selection, task creation/dispatch, progress monitoring, quality gate control, and result reporting
+- Create tasks via TaskCreate and assign to worker roles
+- Monitor worker progress via message bus and route messages
 
 ### MUST NOT
+- Directly execute any business tasks (scanning, testing, analysis, etc.)
+- Directly invoke implementation CLI tools (cli-explore-agent, code-developer, etc.)
+- Directly modify source code or generated artifact files
+- Bypass worker roles to complete delegated work
+- Omit `[coordinator]` identifier in any output
 
-- ❌ **直接执行任何业务任务**（扫描、测试、分析等）
-- ❌ 直接调用 cli-explore-agent、code-developer 等实现类 subagent
-- ❌ 直接修改源代码或生成产物文件
-- ❌ 绕过 worker 角色自行完成应委派的工作
-- ❌ 在输出中省略 `[coordinator]` 标识
+> **Core principle**: coordinator is the orchestrator, not the executor. All actual work must be delegated to worker roles via TaskCreate.
 
-> **核心原则**: coordinator 是指挥者，不是执行者。所有实际工作必须通过 TaskCreate 委派给 worker 角色。
+---
 
-## Message Types
+## Command Execution Protocol
 
-| Type | Direction | Trigger | Description |
-|------|-----------|---------|-------------|
-| `mode_selected` | coordinator → all | QA 模式确定 | Discovery/Testing/Full |
-| `gc_loop_trigger` | coordinator → generator | 覆盖率不达标 | 触发 Generator-Executor 循环 |
-| `quality_gate` | coordinator → user | 质量评估 | 通过/不通过/有条件通过 |
-| `task_unblocked` | coordinator → worker | 依赖解除 | 任务可执行 |
-| `error` | coordinator → user | 协调错误 | 阻塞性问题 |
-| `shutdown` | coordinator → all | 团队关闭 | 清理资源 |
+When coordinator needs to execute a command (dispatch, monitor):
 
-## Toolbox
+1. **Read the command file**: `roles/coordinator/commands/<command-name>.md`
+2. **Follow the workflow** defined in the command file (Phase 2-4 structure)
+3. **Commands are inline execution guides** -- NOT separate agents or subprocesses
+4. **Execute synchronously** -- complete the command workflow before proceeding
 
-### Available Commands
-
-| Command | File | Phase | Description |
-|---------|------|-------|-------------|
-| `dispatch` | [commands/dispatch.md](commands/dispatch.md) | Phase 3 | 任务链创建与依赖管理 |
-| `monitor` | [commands/monitor.md](commands/monitor.md) | Phase 4 | 消息总线轮询与协调循环 |
-
-### Subagent Capabilities
-
-> Coordinator 不直接使用 subagent（通过 worker 角色间接使用）
-
-### CLI Capabilities
-
-> Coordinator 不直接使用 CLI 分析工具
-
-## Execution
-
-### Phase 1: Requirement Clarification
-
-```javascript
-const args = "$ARGUMENTS"
-
-// 提取任务描述
-const taskDescription = args.replace(/--role[=\s]+\w+/, '').replace(/--team[=\s]+[\w-]+/, '').replace(/--mode[=\s]+\w+/, '').trim()
-
-// QA 模式选择
-function detectQAMode(args, desc) {
-  const modeMatch = args.match(/--mode[=\s]+(discovery|testing|full)/)
-  if (modeMatch) return modeMatch[1]
-  if (/发现|扫描|scan|discover|issue|问题/.test(desc)) return 'discovery'
-  if (/测试|test|覆盖|coverage|TDD/.test(desc)) return 'testing'
-  return 'full'
-}
-
-let qaMode = detectQAMode(args, taskDescription)
-
-// ★ 统一 auto mode 检测：-y/--yes 从 $ARGUMENTS 或 ccw 传播
-const autoYes = /\b(-y|--yes)\b/.test(args)
-
-// 简单任务可跳过确认（auto 模式跳过）
-if (!autoYes && (!taskDescription || taskDescription.length < 10)) {
-  const clarification = AskUserQuestion({
-    questions: [{
-      question: "请描述 QA 目标（哪些模块需要质量保障？关注哪些方面？）",
-      header: "QA Target",
-      multiSelect: false,
-      options: [
-        { label: "自定义", description: "输入具体描述" },
-        { label: "全项目扫描", description: "对整个项目进行多视角质量扫描" },
-        { label: "变更测试", description: "针对最近代码变更生成和执行测试" },
-        { label: "完整QA流程", description: "扫描+测试+分析的完整闭环" }
-      ]
-    }]
-  })
-}
+Example:
+```
+Phase 3 needs task dispatch
+  -> Read roles/coordinator/commands/dispatch.md
+  -> Execute Phase 2 (Context Loading)
+  -> Execute Phase 3 (Task Chain Creation)
+  -> Execute Phase 4 (Validation)
+  -> Continue to Phase 4
 ```
 
-### Phase 2: Create Team + Initialize Session
+---
 
-```javascript
-const teamName = "quality-assurance"
-const sessionSlug = taskDescription.slice(0, 30).replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '-')
-const sessionDate = new Date().toISOString().slice(0, 10)
-const sessionFolder = `.workflow/.team/QA-${sessionSlug}-${sessionDate}`
-Bash(`mkdir -p "${sessionFolder}"`)
+## Entry Router
 
-// 初始化 shared memory
-Write(`${sessionFolder}/shared-memory.json`, JSON.stringify({
-  discovered_issues: [],
-  test_strategy: {},
-  generated_tests: {},
-  execution_results: {},
-  defect_patterns: [],
-  coverage_history: [],
-  quality_score: null
-}, null, 2))
+When coordinator is invoked, detect invocation type:
 
-TeamCreate({ team_name: teamName })
+| Detection | Condition | Handler |
+|-----------|-----------|---------|
+| Worker callback | Message contains role tag [scout], [strategist], [generator], [executor], [analyst] | -> handleCallback |
+| Status check | Arguments contain "check" or "status" | -> handleCheck |
+| Manual resume | Arguments contain "resume" or "continue" | -> handleResume |
+| Pipeline complete | All tasks have status "completed" | -> handleComplete |
+| Interrupted session | Active/paused session exists | -> Phase 0 (Session Resume Check) |
+| New session | None of above | -> Phase 1 |
 
-// ⚠️ Workers are NOT pre-spawned here.
-// Workers are spawned per-stage in Phase 4 via Stop-Wait Task(run_in_background: false).
-// See SKILL.md Coordinator Spawn Template for worker prompt templates.
-// Worker roles: Scout, Strategist, Generator, Executor, Analyst
+For callback/check/resume/complete: load `commands/monitor.md` and execute matched handler, then STOP.
+
+### Router Implementation
+
+1. **Load session context** (if exists):
+   - Scan `.workflow/.team/QA-*/.msg/meta.json` for active/paused sessions
+   - If found, extract session folder path, status, and pipeline mode
+
+2. **Parse $ARGUMENTS** for detection keywords:
+   - Check for role name tags in message content
+   - Check for "check", "status", "resume", "continue" keywords
+
+3. **Route to handler**:
+   - For monitor handlers: Read `commands/monitor.md`, execute matched handler, STOP
+   - For Phase 0: Execute Session Resume Check below
+   - For Phase 1: Execute Requirement Clarification below
+
+---
+
+## Phase 0: Session Resume Check
+
+**Objective**: Detect and resume interrupted sessions before creating new ones.
+
+**Workflow**:
+1. Scan session directory for sessions with status "active" or "paused"
+2. No sessions found -> proceed to Phase 1
+3. Single session found -> resume it (-> Session Reconciliation)
+4. Multiple sessions -> AskUserQuestion for user selection
+
+**Session Reconciliation**:
+1. Audit TaskList -> get real status of all tasks
+2. Reconcile: session state <-> TaskList status (bidirectional sync)
+3. Reset any in_progress tasks -> pending (they were interrupted)
+4. Determine remaining pipeline from reconciled state
+5. Rebuild team if disbanded (TeamCreate + spawn needed workers only)
+6. Create missing tasks with correct blockedBy dependencies
+7. Verify dependency chain integrity
+8. Update session file with reconciled state
+9. Kick first executable task's worker -> Phase 4
+
+---
+
+## Phase 1: Requirement Clarification
+
+**Objective**: Parse user input and gather execution parameters.
+
+**Workflow**:
+
+1. **Parse arguments** for explicit settings: mode, scope, focus areas
+
+2. **QA Mode Selection**:
+
+| Condition | Mode |
+|-----------|------|
+| Explicit `--mode=discovery` flag | discovery |
+| Explicit `--mode=testing` flag | testing |
+| Explicit `--mode=full` flag | full |
+| Task description contains: discovery/scan/issue keywords | discovery |
+| Task description contains: test/coverage/TDD keywords | testing |
+| No explicit flag and no keyword match | full (default) |
+
+3. **Ask for missing parameters** via AskUserQuestion (skip in auto mode with -y/--yes flag):
+
+| Question | Options |
+|----------|---------|
+| QA Target description | Custom input / Full project scan / Change testing / Complete QA flow |
+
+**Success**: All parameters captured, mode finalized.
+
+---
+
+## Phase 2: Create Team + Initialize Session
+
+**Objective**: Initialize team, session file, and shared memory.
+
+**Workflow**:
+1. Generate session ID
+2. Create session folder
+3. Call TeamCreate with team name
+4. Initialize meta.json with pipeline metadata and shared state:
+```typescript
+// Use team_msg to write pipeline metadata to .msg/meta.json
+mcp__ccw-tools__team_msg({
+  operation: "log",
+  session_id: "<session-id>",
+  from: "coordinator",
+  type: "state_update",
+  summary: "Session initialized",
+  data: {
+    pipeline_mode: "<discovery|testing|full>",
+    pipeline_stages: ["scout", "strategist", "generator", "executor", "analyst"],
+    roles: ["coordinator", "scout", "strategist", "generator", "executor", "analyst"],
+    team_name: "quality-assurance",
+    discovered_issues: [],
+    test_strategy: {},
+    generated_tests: {},
+    execution_results: {},
+    defect_patterns: [],
+    coverage_history: [],
+    quality_score: null
+  }
+})
 ```
 
-### Phase 3: Create Task Chain
+5. Initialize wisdom directory (learnings.md, decisions.md, conventions.md, issues.md)
+6. Write session file with: session_id, mode, scope, status="active"
 
-根据 qaMode 创建不同的任务链：
+**Success**: Team created, session file written, shared memory initialized.
 
-```javascript
-// Read commands/dispatch.md for full implementation
-Read("commands/dispatch.md")
-```
+---
 
-**Discovery Mode**:
-```
-SCOUT-001 → QASTRAT-001 → QAGEN-001 → QARUN-001 → QAANA-001
-```
+## Phase 3: Create Task Chain
 
-**Testing Mode** (跳过 scout):
-```
-QASTRAT-001 → QAGEN-001(L1) → QARUN-001(L1) → QAGEN-002(L2) → QARUN-002(L2) → QAANA-001
-```
+**Objective**: Dispatch tasks based on mode with proper dependencies.
 
-**Full QA Mode**:
-```
-SCOUT-001 → QASTRAT-001 → [QAGEN-001(L1) + QAGEN-002(L2)](parallel) → [QARUN-001 + QARUN-002](parallel) → QAANA-001 → SCOUT-002(回归)
-```
+Delegate to `commands/dispatch.md` which creates the full task chain.
 
-### Phase 4: Coordination Loop
+**Pipeline by Mode**:
 
-> **设计原则（Stop-Wait）**: 模型执行没有时间概念，禁止任何形式的轮询等待。
-> - ❌ 禁止: `while` 循环 + `sleep` + 检查状态
-> - ✅ 采用: 同步 `Task(run_in_background: false)` 调用，Worker 返回 = 阶段完成信号
->
-> 按 Phase 3 创建的任务链顺序，逐阶段 spawn worker 同步执行。
-> Worker prompt 使用 SKILL.md Coordinator Spawn Template。
+| Mode | Pipeline |
+|------|----------|
+| Discovery | SCOUT-001 -> QASTRAT-001 -> QAGEN-001 -> QARUN-001 -> QAANA-001 |
+| Testing | QASTRAT-001 -> QAGEN-001(L1) -> QARUN-001(L1) -> QAGEN-002(L2) -> QARUN-002(L2) -> QAANA-001 |
+| Full QA | SCOUT-001 -> QASTRAT-001 -> [QAGEN-001(L1) + QAGEN-002(L2)](parallel) -> [QARUN-001 + QARUN-002](parallel) -> QAANA-001 -> SCOUT-002(regression) |
 
-```javascript
-// Read commands/monitor.md for full implementation
-Read("commands/monitor.md")
-```
+---
+
+## Phase 4: Coordination Loop
+
+**Objective**: Spawn workers, monitor progress, advance pipeline.
+
+> **Design principle (Stop-Wait)**: Model execution has no time concept. No polling with sleep.
+> - Use synchronous `Task(run_in_background: false)` calls
+> - Worker return = stage completion signal
+
+Delegate to `commands/monitor.md` for full implementation.
+
+**Message Handling**:
 
 | Received Message | Action |
 |-----------------|--------|
-| `scan_ready` | 标记 SCOUT complete → 解锁 QASTRAT |
-| `strategy_ready` | 标记 QASTRAT complete → 解锁 QAGEN |
-| `tests_generated` | 标记 QAGEN complete → 解锁 QARUN |
-| `tests_passed` | 标记 QARUN complete → 解锁 QAANA 或下一层 |
-| `tests_failed` | 评估覆盖率 → 触发 GC 循环（gc_loop_trigger）或继续 |
-| `analysis_ready` | 标记 QAANA complete → 评估质量门控 |
-| Worker: `error` | 评估严重性 → 重试或上报用户 |
+| `scan_ready` | Mark SCOUT complete -> unlock QASTRAT |
+| `strategy_ready` | Mark QASTRAT complete -> unlock QAGEN |
+| `tests_generated` | Mark QAGEN complete -> unlock QARUN |
+| `tests_passed` | Mark QARUN complete -> unlock QAANA or next layer |
+| `tests_failed` | Evaluate coverage -> trigger GC loop (gc_loop_trigger) or continue |
+| `analysis_ready` | Mark QAANA complete -> evaluate quality gate |
+| Worker: `error` | Evaluate severity -> retry or report to user |
 
-**GC 循环触发逻辑**:
-```javascript
-if (coverage < targetCoverage && gcIteration < 3) {
-  // 创建 QAGEN-fix 任务 → QARUN 重新执行
-  gcIteration++
-} else if (gcIteration >= 3) {
-  // 接受当前覆盖率，继续流水线
-  team_msg({ type: "quality_gate", data: { status: "CONDITIONAL", coverage } })
-}
-```
+**GC Loop Trigger Logic**:
 
-### Phase 5: Report + Persist
+| Condition | Action |
+|-----------|--------|
+| coverage < targetCoverage AND gcIteration < 3 | Create QAGEN-fix task -> QARUN re-execute, gcIteration++ |
+| gcIteration >= 3 | Accept current coverage, continue pipeline, team_msg quality_gate CONDITIONAL |
 
-```javascript
-// 读取 shared memory 汇总结果
-const memory = JSON.parse(Read(`${sessionFolder}/shared-memory.json`))
+---
 
-const report = {
-  mode: qaMode,
-  issues_found: memory.discovered_issues?.length || 0,
-  test_strategy: memory.test_strategy?.layers || [],
-  tests_generated: Object.keys(memory.generated_tests || {}).length,
-  pass_rate: memory.execution_results?.pass_rate || 0,
-  coverage: memory.execution_results?.coverage || 0,
-  quality_score: memory.quality_score || 'N/A',
-  defect_patterns: memory.defect_patterns?.length || 0
-}
+## Phase 5: Report + Persist
 
-mcp__ccw-tools__team_msg({
-  operation: "log", team: teamName, from: "coordinator",
-  to: "user", type: "quality_gate",
-  summary: `[coordinator] QA完成: ${report.issues_found}个问题, 覆盖率${report.coverage}%, 质量分${report.quality_score}`
-})
+**Objective**: Completion report and follow-up options.
 
-SendMessage({
-  content: `## [coordinator] Quality Assurance Report\n\n${JSON.stringify(report, null, 2)}`,
-  summary: `[coordinator] QA report: ${report.quality_score}`
-})
+**Workflow**:
+1. Load session state -> count completed tasks, duration
+2. Read shared memory for summary
+3. List deliverables with output paths
+4. Update session status -> "completed"
+5. Log via team_msg
+6. SendMessage report to user
+7. Offer next steps to user (skip in auto mode)
 
-// 询问下一步（auto 模式跳过，默认关闭团队）
-if (!autoYes) {
-  AskUserQuestion({
-    questions: [{
-      question: "QA 流程已完成。下一步：",
-      header: "Next",
-      multiSelect: false,
-      options: [
-        { label: "新目标", description: "对新模块/需求执行QA" },
-        { label: "深入分析", description: "对发现的问题进行更深入分析" },
-        { label: "关闭团队", description: "关闭所有 teammate 并清理" }
-      ]
-    }]
-  })
-}
-```
+---
 
 ## Error Handling
 
 | Scenario | Resolution |
 |----------|------------|
-| Teammate unresponsive | Send follow-up, 2x → respawn |
+| Teammate unresponsive | Send follow-up, 2x -> respawn |
 | Scout finds nothing | Skip to testing mode |
 | GC loop stuck >3 iterations | Accept current coverage, continue pipeline |
 | Test environment broken | Notify user, suggest manual fix |

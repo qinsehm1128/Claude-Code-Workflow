@@ -345,8 +345,7 @@ Execute complete context-search-agent workflow for implementation planning:
 
 ### Phase 1: Initialization & Pre-Analysis
 1. **Project State Loading**:
-   - Read and parse .workflow/project-tech.json. Use its overview section as the foundational project_context.
-   - Read and parse .workflow/project-guidelines.json. Load conventions, constraints, and learnings into a project_guidelines section.
+   - Run: \`ccw spec load --category execution\` to load project context, tech stack, and guidelines.
    - If files don't exist, proceed with fresh analysis.
 2. **Detection**: Check for existing context-package (early exit if valid)
 3. **Foundation**: Initialize CodexLens, get project structure, load docs
@@ -381,7 +380,7 @@ Execute all discovery tracks (WITH USER INTENT INTEGRATION):
    c. Generate dependency_order: Based on dependency graph + user goal sequence
    d. Document sorting_rationale: Explain prioritization logic
 4. **Populate project_context**: Directly use the overview from project-tech.json
-5. **Populate project_guidelines**: Load from project-guidelines.json
+5. **Populate project_guidelines**: Load from specs/*.md
 6. Integrate brainstorm artifacts (if .brainstorming/ exists, read content)
 7. Perform conflict detection with risk assessment
 8. **Inject historical conflicts** from archive analysis into conflict_detection
@@ -403,7 +402,7 @@ Execute all discovery tracks (WITH USER INTENT INTEGRATION):
 Complete context-package.json with:
 - **metadata**: task_description, keywords, complexity, tech_stack, session_id
 - **project_context**: description, technology_stack, architecture, key_components (from project-tech.json)
-- **project_guidelines**: {conventions, constraints, quality_rules, learnings} (from project-guidelines.json)
+- **project_guidelines**: {conventions, constraints, quality_rules, learnings} (from specs/*.md)
 - **assets**: {documentation[], source_code[], config[], tests[]} with relevance scores
 - **dependencies**: {internal[], external[]} with dependency graph
 - **brainstorm_artifacts**: {guidance_specification, role_analyses[], synthesis_output} with content
