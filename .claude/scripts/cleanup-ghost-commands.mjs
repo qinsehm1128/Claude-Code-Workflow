@@ -45,9 +45,9 @@ const COMMAND_TO_SKILL_MAP = {
   // workflow commands → skills
   '/workflow-plan': 'workflow-plan',
   '/workflow-execute': 'workflow-execute',
-  '/workflow-lite-planex': 'workflow-lite-planex',
-  '/workflow:lite-execute': 'workflow-lite-planex',  // lite-execute is part of lite-plan skill
-  '/workflow:lite-fix': 'workflow-lite-planex',       // lite-fix is part of lite-plan skill
+  '/workflow-lite-plan': 'workflow-lite-plan',
+  '/workflow:lite-execute': 'workflow-lite-plan',  // lite-execute is part of lite-plan skill
+  '/workflow:lite-fix': 'workflow-lite-plan',       // lite-fix is part of lite-plan skill
   '/workflow-multi-cli-plan': 'workflow-multi-cli-plan',
   '/workflow-plan-verify': 'workflow-plan',          // plan-verify is a phase of workflow-plan
   '/workflow:replan': 'workflow-plan',               // replan is a phase of workflow-plan
@@ -87,7 +87,7 @@ const COMMAND_TO_SKILL_MAP = {
   // general commands
   '/ccw-debug': null,  // deleted, no replacement
   '/ccw view': null,   // deleted, no replacement
-  '/workflow:lite-lite-lite': 'workflow-lite-planex',
+  '/workflow:lite-lite-lite': 'workflow-lite-plan',
   // ui-design (these still exist as commands)
   '/workflow:ui-design:auto': '/workflow:ui-design:explore-auto',
   '/workflow:ui-design:update': '/workflow:ui-design:generate',
@@ -302,8 +302,8 @@ function fixBrokenReferences() {
       "skill='compact'": "skill='memory-capture'",
       'skill="workflow:brainstorm:role-analysis"': 'skill="brainstorm"',
       "skill='workflow:brainstorm:role-analysis'": "skill='brainstorm'",
-      'skill="workflow:lite-execute"': 'skill="workflow-lite-planex"',
-      "skill='workflow:lite-execute'": "skill='workflow-lite-planex'",
+      'skill="workflow:lite-execute"': 'skill="workflow-lite-plan"',
+      "skill='workflow:lite-execute'": "skill='workflow-lite-plan'",
     };
 
     for (const [oldCall, newCall] of Object.entries(skillCallFixes)) {
@@ -321,8 +321,8 @@ function fixBrokenReferences() {
     const proseRefFixes = {
       '`/workflow-plan`': '`workflow-plan` skill',
       '`/workflow-execute`': '`workflow-execute` skill',
-      '`/workflow:lite-execute`': '`workflow-lite-planex` skill',
-      '`/workflow:lite-fix`': '`workflow-lite-planex` skill',
+      '`/workflow:lite-execute`': '`workflow-lite-plan` skill',
+      '`/workflow:lite-fix`': '`workflow-lite-plan` skill',
       '`/workflow-plan-verify`': '`workflow-plan` skill (plan-verify phase)',
       '`/workflow:replan`': '`workflow-plan` skill (replan phase)',
       '`/workflow-tdd-plan`': '`workflow-tdd-plan` skill',
@@ -347,8 +347,8 @@ function fixBrokenReferences() {
       '`/workflow:ui-design:auto`': '`/workflow:ui-design:explore-auto`',
       '`/workflow:ui-design:update`': '`/workflow:ui-design:generate`',
       '`/workflow-multi-cli-plan`': '`workflow-multi-cli-plan` skill',
-      '`/workflow-lite-planex`': '`workflow-lite-planex` skill',
-      '`/cli:plan`': '`workflow-lite-planex` skill',
+      '`/workflow-lite-plan`': '`workflow-lite-plan` skill',
+      '`/cli:plan`': '`workflow-lite-plan` skill',
       '`/test-cycle-execute`': '`workflow-test-fix` skill',
     };
 

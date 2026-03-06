@@ -7,7 +7,7 @@ This page provides practical examples of CCW workflow artifacts with sensitive i
 ## Example 1: Lite Plan Output
 
 ### plan.json
-This is an output from `workflow-lite-planex` command.
+This is an output from `workflow-lite-plan` command.
 
 ```json
 {

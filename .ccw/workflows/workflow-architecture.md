@@ -783,7 +783,7 @@ All workflows use the same file structure definition regardless of complexity. *
 **Examples**:
 
 *Workflow Commands (lightweight):*
-- `/workflow-lite-planex "feature idea"` (exploratory) → `.scratchpad/lite-plan-feature-idea-20250105-143110.md`
+- `/workflow-lite-plan "feature idea"` (exploratory) → `.scratchpad/lite-plan-feature-idea-20250105-143110.md`
 - `/workflow:lite-fix "bug description"` (bug fixing) → `.scratchpad/lite-fix-bug-20250105-143130.md`
 
 > **Note**: Direct CLI commands (`/cli:analyze`, `/cli:execute`, etc.) have been replaced by semantic invocation and workflow commands.

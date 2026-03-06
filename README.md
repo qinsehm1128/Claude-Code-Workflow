@@ -93,7 +93,7 @@ CCW uses two types of invocations:
 
 | Type | Format | Examples |
 |------|--------|----------|
-| **Skills** | Trigger phrase (no slash) | `workflow-lite-planex`, `brainstorm`, `workflow-plan` |
+| **Skills** | Trigger phrase (no slash) | `workflow-lite-plan`, `brainstorm`, `workflow-plan` |
 | **Commands** | Slash command | `/ccw`, `/workflow/session:start`, `/issue/new` |
 
 ### Choose Your Workflow Skill
@@ -101,7 +101,7 @@ CCW uses two types of invocations:
 <div align="center">
 <table>
 <tr><th>Skill Trigger</th><th>Use Case</th></tr>
-<tr><td><code>workflow-lite-planex</code></td><td>Lightweight planning, single-module features</td></tr>
+<tr><td><code>workflow-lite-plan</code></td><td>Lightweight planning, single-module features (hands off to lite-execute)</td></tr>
 <tr><td><code>workflow-multi-cli-plan</code></td><td>Multi-CLI collaborative analysis</td></tr>
 <tr><td><code>workflow-plan</code></td><td>Full planning with session persistence</td></tr>
 <tr><td><code>workflow-tdd-plan</code></td><td>Test-driven development</td></tr>
@@ -114,7 +114,7 @@ CCW uses two types of invocations:
 
 ```bash
 # Skill triggers (no slash - just describe what you want)
-workflow-lite-planex "Add JWT authentication"
+workflow-lite-plan "Add JWT authentication"
 workflow-plan "Implement payment gateway integration"
 workflow-execute
 
@@ -278,7 +278,7 @@ ccw upgrade -a        # Upgrade all installations
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                     Workflow Skills                              │
-│  📝 workflow-lite-planex / workflow-multi-cli-plan (lightweight)  │
+│  📝 workflow-lite-plan / workflow-multi-cli-plan (lightweight)  │
 │  📊 workflow-plan / workflow-tdd-plan (session-based)           │
 │  🧪 workflow-test-fix / workflow-test-fix         │
 │  🧠 brainstorm (multi-role analysis)                            │
@@ -322,7 +322,7 @@ Claude-Code-Workflow/
 │   │   ├── memory/      # Memory commands (prepare, style-skill-memory)
 │   │   └── workflow/    # Workflow commands (session, ui-design, etc.)
 │   └── skills/          # 37 modular skills
-│       ├── workflow-lite-planex/
+│       ├── workflow-lite-plan/
 │       ├── workflow-plan/
 │       ├── workflow-tdd-plan/
 │       ├── workflow-test-fix/

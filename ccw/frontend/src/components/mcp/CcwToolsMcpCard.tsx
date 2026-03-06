@@ -396,11 +396,14 @@ export function CcwToolsMcpCard({
             </div>
           </div>
 
-          {/* Path Configuration */}
-          <div className="space-y-3 pt-3 border-t border-border">
-            <p className="text-xs font-medium text-muted-foreground uppercase">
-              {formatMessage({ id: 'mcp.ccw.paths.label' })}
-            </p>
+import { FloatingFileBrowser } from '@/components/terminal-dashboard/FloatingFileBrowser';
+//...
+export function CcwToolsMcpCard({
+//...
+  const [isPathPickerOpen, setIsPathPickerOpen] = useState(false);
+  const [pathPickerTarget, setPathPickerTarget] = useState<'projectRoot' | 'allowedDirs' | null>(null);
+
+//...
 
             {/* Project Root */}
             <div className="space-y-1">
@@ -408,13 +411,27 @@ export function CcwToolsMcpCard({
                 <FolderTree className="w-4 h-4" />
                 {formatMessage({ id: 'mcp.ccw.paths.projectRoot' })}
               </label>
-              <Input
-                value={projectRootInput}
-                onChange={(e) => setProjectRootInput(e.target.value)}
-                placeholder={formatMessage({ id: 'mcp.ccw.paths.projectRootPlaceholder' })}
-                disabled={!isInstalled}
-                className="font-mono text-sm"
-              />
+              <div className="flex items-center gap-2">
+                <Input
+                  value={projectRootInput}
+                  onChange={(e) => setProjectRootInput(e.target.value)}
+                  placeholder={formatMessage({ id: 'mcp.ccw.paths.projectRootPlaceholder' })}
+                  disabled={!isInstalled}
+                  className="font-mono text-sm"
+                />
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    setPathPickerTarget('projectRoot');
+                    setIsPathPickerOpen(true);
+                  }}
+                  disabled={!isInstalled}
+                  title="Browse for project root"
+                >
+                  <FolderOpen className="w-4 h-4" />
+                </Button>
+              </div>
             </div>
 
             {/* Allowed Dirs */}
@@ -423,195 +440,50 @@ export function CcwToolsMcpCard({
                 <HardDrive className="w-4 h-4" />
                 {formatMessage({ id: 'mcp.ccw.paths.allowedDirs' })}
               </label>
-              <Input
-                value={allowedDirsInput}
-                onChange={(e) => setAllowedDirsInput(e.target.value)}
-                placeholder={formatMessage({ id: 'mcp.ccw.paths.allowedDirsPlaceholder' })}
-                disabled={!isInstalled}
-                className="font-mono text-sm"
-              />
+              <div className="flex items-center gap-2">
+                <Input
+                  value={allowedDirsInput}
+                  onChange={(e) => setAllowedDirsInput(e.target.value)}
+                  placeholder={formatMessage({ id: 'mcp.ccw.paths.allowedDirsPlaceholder' })}
+                  disabled={!isInstalled}
+                  className="font-mono text-sm"
+                />
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    setPathPickerTarget('allowedDirs');
+                    setIsPathPickerOpen(true);
+                  }}
+                  disabled={!isInstalled}
+                  title="Browse for allowed directories"
+                >
+                  <FolderOpen className="w-4 h-4" />
+                </Button>
+              </div>
               <p className="text-xs text-muted-foreground">
                 {formatMessage({ id: 'mcp.ccw.paths.allowedDirsHint' })}
               </p>
             </div>
-
-            {/* Enable Sandbox */}
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="ccw-enable-sandbox"
-                checked={enableSandboxInput}
-                onChange={(e) => setEnableSandboxInput(e.target.checked)}
-                disabled={!isInstalled}
-                className="w-4 h-4"
-              />
-              <label
-                htmlFor="ccw-enable-sandbox"
-                className="text-sm text-foreground flex items-center gap-1 cursor-pointer"
-              >
-                <Shield className="w-4 h-4" />
-                {formatMessage({ id: 'mcp.ccw.paths.enableSandbox' })}
-              </label>
-            </div>
-
-            {/* Save Config Button */}
-            {isInstalled && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleConfigSave}
-                disabled={isPending}
-                className="w-full"
-              >
-                {isPending
-                  ? formatMessage({ id: 'mcp.ccw.actions.saving' })
-                  : formatMessage({ id: 'mcp.ccw.actions.saveConfig' })
-                }
-              </Button>
-            )}
-          </div>
-
-          {/* Install/Uninstall Button */}
-          <div className="pt-3 border-t border-border space-y-3">
-            {/* Scope Selection - Claude only, only when not installed */}
-            {!isInstalled && !isCodex && (
-              <div className="space-y-2">
-                <p className="text-xs font-medium text-muted-foreground uppercase">
-                  {formatMessage({ id: 'mcp.scope' })}
-                </p>
-                <div className="flex items-center gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="ccw-install-scope"
-                      value="global"
-                      checked={installScope === 'global'}
-                      onChange={() => setInstallScope('global')}
-                      className="w-4 h-4"
-                    />
-                    <Globe className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-sm">{formatMessage({ id: 'mcp.scope.global' })}</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="ccw-install-scope"
-                      value="project"
-                      checked={installScope === 'project'}
-                      onChange={() => setInstallScope('project')}
-                      className="w-4 h-4"
-                    />
-                    <Folder className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-sm">{formatMessage({ id: 'mcp.scope.project' })}</span>
-                  </label>
-                </div>
-              </div>
-            )}
-            {/* Codex note */}
-            {isCodex && !isInstalled && (
-              <p className="text-xs text-muted-foreground">
-                {formatMessage({ id: 'mcp.ccw.codexNote' })}
-              </p>
-            )}
-
-            {/* Dual-scope conflict warning */}
-            {isInstalled && !isCodex && installedScopes.length >= 2 && (
-              <div className="p-3 bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800 rounded-lg space-y-1">
-                <div className="flex items-center gap-2 text-orange-700 dark:text-orange-400">
-                  <AlertTriangle className="w-4 h-4" />
-                  <span className="text-sm font-medium">{formatMessage({ id: 'mcp.conflict.title' })}</span>
-                </div>
-                <p className="text-xs text-orange-600 dark:text-orange-400/80">
-                  {formatMessage({ id: 'mcp.conflict.description' }, { scope: formatMessage({ id: 'mcp.scope.global' }) })}
-                </p>
-              </div>
-            )}
-
-            {!isInstalled ? (
-              <Button
-                onClick={handleInstallClick}
-                disabled={isPending}
-                className="w-full"
-              >
-                {isPending
-                  ? formatMessage({ id: 'mcp.ccw.actions.installing' })
-                  : formatMessage({ id: isCodex ? 'mcp.ccw.actions.installCodex' : 'mcp.ccw.actions.install' })
-                }
-              </Button>
-            ) : isCodex ? (
-              /* Codex: single uninstall button */
-              <Button
-                variant="destructive"
-                onClick={handleUninstallClick}
-                disabled={isPending}
-                className="w-full"
-              >
-                {isPending
-                  ? formatMessage({ id: 'mcp.ccw.actions.uninstalling' })
-                  : formatMessage({ id: 'mcp.ccw.actions.uninstall' })
-                }
-              </Button>
-            ) : (
-              /* Claude: per-scope install/uninstall */
-              <div className="space-y-2">
-                {/* Install to missing scope */}
-                {installedScopes.length === 1 && onInstallToScope && (
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      const missingScope = installedScopes.includes('global') ? 'project' : 'global';
-                      onInstallToScope(missingScope);
-                    }}
-                    disabled={isPending}
-                    className="w-full"
-                  >
-                    {installedScopes.includes('global')
-                      ? formatMessage({ id: 'mcp.ccw.scope.installToProject' })
-                      : formatMessage({ id: 'mcp.ccw.scope.installToGlobal' })
-                    }
-                  </Button>
-                )}
-
-                {/* Per-scope uninstall buttons */}
-                {onUninstallScope && installedScopes.map((s) => (
-                  <Button
-                    key={s}
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => {
-                      if (confirm(formatMessage({ id: 'mcp.ccw.actions.uninstallScopeConfirm' }, { scope: formatMessage({ id: `mcp.ccw.scope.${s}` }) }))) {
-                        onUninstallScope(s);
-                      }
-                    }}
-                    disabled={isPending}
-                    className="w-full"
-                  >
-                    {s === 'global'
-                      ? formatMessage({ id: 'mcp.ccw.scope.uninstallGlobal' })
-                      : formatMessage({ id: 'mcp.ccw.scope.uninstallProject' })
-                    }
-                  </Button>
-                ))}
-
-                {/* Fallback: full uninstall if no scope info */}
-                {(!onUninstallScope || installedScopes.length === 0) && (
-                  <Button
-                    variant="destructive"
-                    onClick={handleUninstallClick}
-                    disabled={isPending}
-                    className="w-full"
-                  >
-                    {isPending
-                      ? formatMessage({ id: 'mcp.ccw.actions.uninstalling' })
-                      : formatMessage({ id: 'mcp.ccw.actions.uninstall' })
-                    }
-                  </Button>
-                )}
-              </div>
-            )}
+//...
           </div>
         </div>
       )}
+
+      <FloatingFileBrowser
+        isOpen={isPathPickerOpen}
+        onClose={() => setIsPathPickerOpen(false)}
+        onSelectPath={(path) => {
+          if (pathPickerTarget === 'projectRoot') {
+            setProjectRootInput(path);
+          } else if (pathPickerTarget === 'allowedDirs') {
+            setAllowedDirsInput((prev) => (prev ? `${prev},${path}` : path));
+          }
+          setIsPathPickerOpen(false);
+        }}
+        basePath={currentProjectPath}
+        showFiles={false}
+      />
     </Card>
   );
 }

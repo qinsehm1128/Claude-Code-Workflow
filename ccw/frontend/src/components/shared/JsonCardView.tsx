@@ -87,12 +87,15 @@ function PrimitiveValue({ value }: { value: unknown }) {
   return <span>{String(value)}</span>;
 }
 
-function ArrayView({ items }: { items: unknown[] }) {
+function ArrayView({ items, displayName = 'items' }: { items: unknown[]; displayName?: string }) {
   const [expanded, setExpanded] = useState(true);
 
   if (items.length === 0) {
     return (
-      <div className="text-muted-foreground italic text-sm">Empty list</div>
+      <div className="text-muted-foreground text-sm flex items-center gap-2 p-3 bg-muted/30 rounded-md">
+        <Database className="w-4 h-4" />
+        <span>No {displayName} entries.</span>
+      </div>
     );
   }
 
@@ -154,7 +157,7 @@ function ObjectView({ data, depth = 0 }: { data: Record<string, unknown>; depth?
       ))}
     </div>
   );
-}
+
 
 function CardItem({ label, value, depth = 0 }: CardItemProps) {
   const formattedLabel = formatLabel(label);
@@ -176,7 +179,7 @@ function CardItem({ label, value, depth = 0 }: CardItemProps) {
     return (
       <div className="space-y-2">
         <div className="font-medium text-sm text-foreground">{formattedLabel}</div>
-        <ArrayView items={value} />
+        <ArrayView items={value} displayName={formattedLabel.toLowerCase()} />
       </div>
     );
   }

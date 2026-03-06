@@ -71,6 +71,11 @@ function getCsrfToken(): string | null {
 
 // ========== File Path Input with Native File Picker ==========
 
+import { useDebounce } from '@/hooks/useDebounce';
+import { Loader2 } from 'lucide-react';
+
+// ...
+
 interface FilePathInputProps {
   value: string;
   onChange: (value: string) => void;
@@ -78,6 +83,33 @@ interface FilePathInputProps {
 }
 
 function FilePathInput({ value, onChange, placeholder }: FilePathInputProps) {
+  const [isValidating, setIsValidating] = useState(false);
+  const [pathError, setPathError] = useState<string | null>(null);
+  const debouncedValue = useDebounce(value, 500);
+
+  useEffect(() => {
+    if (debouncedValue) {
+      setIsValidating(true);
+      setPathError(null);
+      // Simulate async validation
+      const timeoutId = setTimeout(() => {
+        // Simple validation: check if path is not empty.
+        // In a real scenario, this would check for path existence.
+        if (debouncedValue.trim().length > 0) {
+          setPathError(null);
+        } else {
+          setPathError('Path cannot be empty.');
+        }
+        setIsValidating(false);
+      }, 1000);
+
+      return () => clearTimeout(timeoutId);
+    } else {
+      setPathError(null);
+      setIsValidating(false);
+    }
+  }, [debouncedValue]);
+
   const handleBrowse = async () => {
     const { selectFile } = await import('@/lib/nativeDialog');
     const initialDir = value ? value.replace(/[/\\][^/\\]*$/, '') : undefined;
@@ -88,23 +120,38 @@ function FilePathInput({ value, onChange, placeholder }: FilePathInputProps) {
   };
 
   return (
-    <div className="flex gap-2">
-      <Input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="flex-1"
-      />
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="shrink-0 h-9"
-        onClick={handleBrowse}
-        title="Browse"
-      >
-        <FolderOpen className="w-4 h-4" />
-      </Button>
+    <div>
+      <div className="flex gap-2 items-center">
+        <div className="relative flex-1">
+          <Input
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={placeholder}
+            className={cn(
+              "flex-1",
+              pathError && "border-destructive"
+            )}
+          />
+          {isValidating && (
+            <div className="absolute inset-y-0 right-0 flex items-center pr-3">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            </div>
+          )}
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="shrink-0 h-9"
+          onClick={handleBrowse}
+          title="Browse"
+        >
+          <FolderOpen className="w-4 h-4" />
+        </Button>
+      </div>
+      {pathError && (
+        <p className="text-xs text-destructive mt-1">{pathError}</p>
+      )}
     </div>
   );
 }

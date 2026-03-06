@@ -19,14 +19,14 @@
 |-------|----------|---------|
 | `workflow-plan` | Unified planning skill (4-stage workflow) | `/workflow-plan` |
 | `workflow-execute` | Agent-coordinated execution | `/workflow-execute` |
-| `workflow-lite-planex` | Lightweight quick planning | `/workflow-lite-planex` |
+| `workflow-lite-plan` | Lightweight quick planning | `/workflow-lite-plan` |
 | `workflow-multi-cli-plan` | Multi-CLI collaborative planning | `/workflow-multi-cli-plan` |
 | `workflow-tdd-plan` | TDD workflow | `/workflow-tdd-plan` |
 | `workflow-test-fix` | Test-fix workflow | `/workflow-test-fix` |
 | `workflow-skill-designer` | Skill design workflow | `/workflow-skill-designer` |
 | `team-arch-opt` | Architecture optimization | `/team-arch-opt` |
 
-> **New in 7.2.1**: `team-arch-opt` skill added for architecture analysis and optimization. `workflow-lite-planex` renamed from `workflow-lite-plan`.
+> **New in 7.2.1**: `team-arch-opt` skill added for architecture analysis and optimization. `workflow-lite-plan` renamed from `workflow-lite-plan`.
 
 ## Skills Details
 
@@ -185,13 +185,13 @@ Phase 5: Completion
 
 ---
 
-### workflow-lite-planex
+### workflow-lite-plan
 
 **One-Liner**: Lightweight quick planning — Quick planning and execution for super simple tasks
 
 **Trigger**:
 ```shell
-/workflow-lite-planex <simple-task>
+/workflow-lite-plan <simple-task>
 ```
 
 **Features**:
@@ -358,7 +358,7 @@ Wave 2: Issue 6-10 → Parallel planning → Parallel execution
 ## Best Practices
 
 1. **Choose the right workflow**:
-   - Super simple tasks → `workflow-lite-planex`
+   - Super simple tasks → `workflow-lite-plan`
    - Complex features → `workflow-plan` → `workflow-execute`
    - TDD development → `workflow-tdd-plan`
    - Test fixes → `workflow-test-fix`

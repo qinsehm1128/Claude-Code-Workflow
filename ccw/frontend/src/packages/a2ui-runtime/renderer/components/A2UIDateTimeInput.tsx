@@ -3,7 +3,7 @@
 // ========================================
 // Date/time picker with ISO string format support
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import type { ComponentRenderer } from '../../core/A2UIComponentRegistry';
 import { resolveTextContent } from '../A2UIRenderer';
 import type { DateTimeInputComponent } from '../../core/A2UITypes';
@@ -60,15 +60,44 @@ export const A2UIDateTimeInput: ComponentRenderer = ({ component, onAction, reso
   // Update internal value when binding changes
   useEffect(() => {
     setInternalValue(getInitialValue());
-  }, [config.value]);
+  }, [config.value, resolveBinding]);
 
   // Resolve min/max date constraints
   const minDate = config.minDate ? resolveTextContent(config.minDate, resolveBinding) : undefined;
   const maxDate = config.maxDate ? resolveTextContent(config.maxDate, resolveBinding) : undefined;
 
+  const isDateValid = useMemo(() => {
+    if (!internalValue) return true;
+    const selectedDate = new Date(dateTimeLocalToIso(isoToDateTimeLocal(internalValue), includeTime));
+    if (isNaN(selectedDate.getTime())) return false; // Handles invalid date string from input
+
+    if (minDate && selectedDate < new Date(String(minDate))) {
+      return false;
+    }
+    if (maxDate && selectedDate > new Date(String(maxDate))) {
+      return false;
+    }
+    return true;
+  }, [internalValue, minDate, maxDate, includeTime]);
+
+  const validationError = useMemo<string | null>(() => {
+    if (isDateValid) return null;
+    
+    // Provide a specific error message
+    const selectedDate = new Date(dateTimeLocalToIso(isoToDateTimeLocal(internalValue), includeTime));
+    if (minDate && selectedDate < new Date(String(minDate))) {
+      return `Date cannot be earlier than ${new Date(String(minDate)).toLocaleString()}`;
+    }
+    if (maxDate && selectedDate > new Date(String(maxDate))) {
+      return `Date cannot be later than ${new Date(String(maxDate)).toLocaleString()}`;
+    }
+    return 'Invalid date format';
+  }, [isDateValid, internalValue, minDate, maxDate, includeTime]);
+
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value;
-    setInternalValue(newValue);
+    // The value from datetime-local is already in the correct format for the state
+    setInternalValue(isoToDateTimeLocal(newValue));
 
     // Convert to ISO string and trigger action
     const isoValue = dateTimeLocalToIso(newValue, includeTime);
@@ -81,6 +110,7 @@ export const A2UIDateTimeInput: ComponentRenderer = ({ component, onAction, reso
   const inputType = includeTime ? 'datetime-local' : 'date';
   const inputMin = minDate ? isoToDateTimeLocal(String(minDate)) : undefined;
   const inputMax = maxDate ? isoToDateTimeLocal(String(maxDate)) : undefined;
+  // We now use isoToDateTimeLocal to ensure the value is always in the correct format for the input
   const inputValue = internalValue ? isoToDateTimeLocal(String(internalValue)) : '';
 
   return (
@@ -96,9 +126,13 @@ export const A2UIDateTimeInput: ComponentRenderer = ({ component, onAction, reso
           "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm",
           "ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium",
           "placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2",
-          "focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          "focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
+          !isDateValid && "border-destructive focus-visible:ring-destructive"
         )}
       />
+      {validationError && (
+        <p className="text-xs text-destructive mt-1">{validationError}</p>
+      )}
     </div>
   );
 };

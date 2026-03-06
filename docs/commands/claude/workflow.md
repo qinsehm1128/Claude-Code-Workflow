@@ -10,7 +10,7 @@
 
 | Command | Function | Syntax |
 |---------|----------|--------|
-| [`lite-plan`](#lite-plan) | Lightweight interactive planning workflow | `/workflow-lite-planex [-y] [-e] "task"` |
+| [`lite-plan`](#lite-plan) | Lightweight interactive planning workflow | `/workflow-lite-plan [-y] [-e] "task"` |
 
 ### Standard Workflows
 
@@ -70,7 +70,7 @@
 
 **Syntax**:
 ```bash
-/workflow-lite-planex [-y|--yes] [-e|--explore] "task description" | file.md
+/workflow-lite-plan [-y|--yes] [-e|--explore] "task description" | file.md
 ```
 
 **Options**:
@@ -79,10 +79,10 @@
 **Examples**:
 ```bash
 # Basic planning
-/workflow-lite-planex "add user avatar feature"
+/workflow-lite-plan "add user avatar feature"
 
 # With exploration
-/workflow-lite-planex -e "refactor authentication module"
+/workflow-lite-plan -e "refactor authentication module"
 ```
 
 ### plan

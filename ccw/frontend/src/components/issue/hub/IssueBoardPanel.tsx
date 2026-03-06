@@ -178,14 +178,19 @@ function buildIssueAutoPrompt(issue: Issue): string {
   );
   return lines.join('\n');
 }
+import { useNotificationStore } from '@/stores';
+
+// ...
 
 export function IssueBoardPanel() {
   const { formatMessage } = useIntl();
   const projectPath = useWorkflowStore(selectProjectPath);
+  const { addToast } = useNotificationStore();
 
   const { issues, isLoading, error } = useIssues();
   const { updateIssue } = useIssueMutations();
-
+  // ...
+}
   const [order, setOrder] = useState<BoardOrder>({});
   const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
   const [drawerInitialTab, setDrawerInitialTab] = useState<'overview' | 'terminal'>('overview');
@@ -323,17 +328,19 @@ export function IssueBoardPanel() {
                 // Auto-open terminal panel to show execution output
                 useTerminalPanelStore.getState().openTerminal(created.session.sessionKey);
               } catch (e) {
-                setOptimisticError(`Auto-start failed: ${e instanceof Error ? e.message : String(e)}`);
+                const errorMsg = `Auto-start failed: ${e instanceof Error ? e.message : String(e)}`;
+                setOptimisticError(errorMsg);
+                addToast('error', errorMsg);
               }
-            }
-          }
-        } catch (e) {
-          setOptimisticError(e instanceof Error ? e.message : String(e));
-        }
-      }
-    },
-    [autoStart, issues, idsByStatus, projectPath, updateIssue]
-  );
+              }
+              }
+              } catch (e) {
+              setOptimisticError(e instanceof Error ? e.message : String(e));
+              }
+              }
+              },
+              [autoStart, issues, idsByStatus, projectPath, updateIssue, addToast]
+              );
 
   if (error) {
     return (

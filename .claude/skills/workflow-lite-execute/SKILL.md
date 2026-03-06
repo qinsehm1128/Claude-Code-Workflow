@@ -1,16 +1,14 @@
-# Phase 2: Lite Execute
+---
+name: workflow-lite-execute
+description: Lightweight execution engine - multi-mode input, task grouping, batch execution, code review, and project state sync
+allowed-tools: Skill, Agent, AskUserQuestion, TodoWrite, Read, Write, Edit, Bash, Glob, Grep
+---
 
-> **📌 COMPACT SENTINEL [Phase 2: Lite-Execute]**
-> This phase contains 6 execution steps (Step 1 — 6).
-> If you can read this sentinel but cannot find the full Step protocol below, context has been compressed.
-> Recovery: `Read("phases/02-lite-execute.md")`
+# Workflow-Lite-Execute
 
-Complete execution engine supporting multiple input modes: in-memory plan, prompt description, or file content.
+Complete execution engine: multi-mode input, task grouping, batch execution, code review, and development index update.
 
-## Objective
-
-- Execute implementation tasks from in-memory plan, prompt description, or file content
-- Support batch execution with grouped tasks and code review
+---
 
 ## Overview
 
@@ -26,15 +24,25 @@ Flexible task execution command supporting three input modes: in-memory plan (fr
 
 ## Usage
 
-> **Note**: This is an internal phase, not a standalone command. It is called by Phase 1 (multi-cli-plan) after plan approval, or by lite-plan after Phase 4 approval.
+### Input
+```
+<input>                    Task description string, or path to file (required)
+```
+
+### Flags
+| Flag | Description |
+|------|-------------|
+| `--in-memory` | Mode 1: Use executionContext from workflow-lite-plan handoff (via Skill({ skill: "workflow-lite-execute", args: "--in-memory" }) |
+
+Mode 1 (In-Memory) is triggered by `--in-memory` flag or when `executionContext` global variable is available.
 
 ## Input Modes
 
 ### Mode 1: In-Memory Plan
 
-**Trigger**: Called by multi-cli-plan Phase 5 after plan approval, or by lite-plan after Phase 4 approval
+**Trigger**: Called by workflow-lite-plan direct handoff after Phase 4 approval (executionContext available)
 
-**Input Source**: `executionContext` global variable set by lite-plan
+**Input Source**: `executionContext` global variable set by workflow-lite-plan
 
 **Content**: Complete execution context (see Data Structures section)
 
@@ -58,7 +66,6 @@ Flexible task execution command supporting three input modes: in-memory plan (fr
 
 **User Interaction**:
 ```javascript
-// Reference workflowPreferences (set by SKILL.md via AskUserQuestion)
 const autoYes = workflowPreferences.autoYes
 
 let userSelection
@@ -118,7 +125,7 @@ fileContent = Read(filePath)
 try {
   jsonData = JSON.parse(fileContent)
 
-  // Check if plan.json from lite-plan session (two-layer format: task_ids[])
+  // Check if plan.json from workflow-lite-plan session (two-layer format: task_ids[])
   if (jsonData.summary && jsonData.approach && jsonData.task_ids) {
     planObject = jsonData
     originalUserInput = jsonData.summary
@@ -177,7 +184,7 @@ function getTasks(planObject) {
 ```
 Input Parsing:
    └─ Decision (mode detection):
-      ├─ --in-memory flag → Mode 1: Load executionContext → Skip user selection
+      ├─ executionContext exists → Mode 1: Load executionContext → Skip user selection
       ├─ Ends with .md/.json/.txt → Mode 3: Read file → Detect format
       │   ├─ Valid plan.json → Use planObject → User selects method + review
       │   └─ Not plan.json → Treat as prompt → User selects method + review
@@ -207,7 +214,7 @@ Output:
 **Operations**:
 - Initialize result tracking for multi-execution scenarios
 - Set up `previousExecutionResults` array for context continuity
-- **In-Memory Mode**: Echo execution strategy from lite-plan for transparency
+- **In-Memory Mode**: Echo execution strategy from workflow-lite-plan for transparency
 
 ```javascript
 // Initialize result tracking
@@ -357,6 +364,8 @@ TodoWrite({
 
 ### Step 3: Launch Execution
 
+> **⚠️ CHECKPOINT**: Before proceeding, verify Phase 2 execution protocol (Step 3-5) is in active memory. If only a summary remains, re-read `phases/02-lite-execute.md` now.
+
 **Executor Resolution**: `getTaskExecutor()` and `groupTasksByExecutor()` defined in Step 2 (Task Grouping).
 
 **Batch Execution Routing** (根据 batch.executor 字段路由):
@@ -483,7 +492,8 @@ ${(t.test?.success_metrics || []).length > 0 ? `\n**Success metrics**: ${t.test.
     context.push(`### Artifacts\nPlan: ${executionContext.session.artifacts.plan}`)
   }
   // Project guidelines (user-defined constraints from /workflow:session:solidify)
-  context.push(`### Project Guidelines\n@.workflow/specs/*.md`)
+  // Loaded via: ccw spec load --category planning
+  context.push(`### Project Guidelines\n(Loaded via ccw spec load --category planning)`)
   if (context.length > 0) sections.push(`## Context\n${context.join('\n\n')}`)
 
   sections.push(`Complete each task according to its "Done when" checklist.`)
@@ -576,6 +586,8 @@ ccw cli -p "${buildExecutionPrompt(batch)}" --tool gemini --mode analysis --id $
 Progress tracked at batch level (not individual task level). Icons: ⚡ (parallel, concurrent), → (sequential, one-by-one)
 
 ### Step 5: Code Review (Optional)
+
+> **⚠️ CHECKPOINT**: Before proceeding, verify Phase 2 review protocol is in active memory. If only a summary remains, re-read `phases/02-lite-execute.md` now.
 
 **Skip Condition**: Only run if `codeReviewTool ≠ "Skip"`
 
@@ -674,7 +686,7 @@ Summary 取值优先级：`originalUserInput` → `planObject.summary` → git l
 
 ## Best Practices
 
-**Input Modes**: In-memory (lite-plan), prompt (standalone), file (JSON/text)
+**Input Modes**: In-memory (workflow-lite-plan), prompt (standalone), file (JSON/text)
 **Task Grouping**: Based on explicit depends_on only; independent tasks split by executor, each batch runs as separate CLI instance
 **Execution**: Independent task batches launch concurrently via single Claude message with multiple tool calls (one tool call per batch)
 
@@ -682,7 +694,7 @@ Summary 取值优先级：`originalUserInput` → `planObject.summary` → git l
 
 | Error | Cause | Resolution |
 |-------|-------|------------|
-| Missing executionContext | --in-memory without context | Error: "No execution context found. Only available when called by lite-plan." |
+| Missing executionContext | In-memory mode without context | Error: "No execution context found. Only available when called by lite-plan." |
 | File not found | File path doesn't exist | Error: "File not found: {path}. Check file path." |
 | Empty file | File exists but no content | Error: "File is empty: {path}. Provide task description." |
 | Invalid Enhanced Task JSON | JSON missing required fields | Warning: "Missing required fields. Treating as plain text." |

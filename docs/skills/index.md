@@ -56,7 +56,7 @@ Skills are reusable, domain-specific capabilities that CCW can execute. Each ski
 | Skill | Triggers | Description |
 |-------|----------|-------------|
 | [workflow-plan](./core-skills.md#workflow-plan) | `workflow-plan`, `workflow-plan-verify`, `workflow:replan` | 4-phase planning with verification |
-| [workflow-lite-planex](./core-skills.md#workflow-lite-planex) | `workflow-lite-planex` | Lightweight planning |
+| [workflow-lite-plan](./core-skills.md#workflow-lite-plan) | `workflow-lite-plan` | Lightweight planning |
 | [workflow-multi-cli-plan](./core-skills.md#workflow-multi-cli-plan) | `workflow-multi-cli-plan`, `workflow:multi-cli-plan` | Multi-CLI collaborative planning |
 | [workflow-execute](./core-skills.md#workflow-execute) | `workflow-execute` | Task execution coordination |
 | [workflow-tdd-plan](./core-skills.md#workflow-tdd-plan) | `workflow-tdd-plan` | TDD with Red-Green-Refactor |
@@ -79,7 +79,7 @@ Skill(skill="review-cycle")
 
 #### Quick Iteration
 ```bash
-Skill(skill="workflow-lite-planex")
+Skill(skill="workflow-lite-plan")
 Skill(skill="workflow-execute")
 ```
 
@@ -203,7 +203,7 @@ Skill(skill="my-custom-skill", args="input")
 # Step 3: Execute with team lifecycle
 Skill(skill="team-lifecycle-v4", args="Build user dashboard")
 # Or use quick iteration:
-# Skill(skill="workflow-lite-planex")
+# Skill(skill="workflow-lite-plan")
 
 # Step 4: Review and refine
 Skill(skill="review-code")
@@ -267,7 +267,7 @@ ccw review-cycle --max-iterations 3
 
 ### Tips for Best Results
 
-1. **Start Small**: Begin with `workflow-lite-planex` for simple tasks
+1. **Start Small**: Begin with `workflow-lite-plan` for simple tasks
 2. **Use Memory**: Capture insights with `memory:capture` for future reference
 3. **Verify Plans**: Always review generated plans before execution
 4. **Iterate**: Use `review-cycle` for continuous improvement

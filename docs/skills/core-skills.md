@@ -679,11 +679,11 @@ Skill(skill="workflow-plan")
 
 ---
 
-### workflow-lite-planex
+### workflow-lite-plan
 
 **Purpose**: Lightweight planning and execution skill
 
-**Triggers**: `workflow-lite-planex`
+**Triggers**: `workflow-lite-plan`
 
 **Description**: Unified planning and execution skill (Phase 1: plan, Phase 2: execute) with prompt enhancement.
 
@@ -696,7 +696,7 @@ Skill(skill="workflow-plan")
 **Artifacts**: LITE_PLAN.md, execution results
 
 ```bash
-Skill(skill="workflow-lite-planex")
+Skill(skill="workflow-lite-plan")
 ```
 
 ---
@@ -851,7 +851,7 @@ Skill(skill="review-cycle")
 **Use Case**: Quick iterations and rapid prototyping
 
 ```bash
-Skill(skill="workflow-lite-planex")
+Skill(skill="workflow-lite-plan")
 Skill(skill="workflow-execute")
 ```
 
@@ -1039,7 +1039,7 @@ Skill(skill="skill-tuning")
 | Level | Skills |
 |-------|--------|
 | Meta Skills | skill-generator, skill-tuning, workflow-skill-designer |
-| Orchestrators | workflow-plan, workflow-lite-planex, workflow-multi-cli-plan |
+| Orchestrators | workflow-plan, workflow-lite-plan, workflow-multi-cli-plan |
 | Executors | workflow-execute |
 | Team Leads | team-lifecycle (v5) |
 
@@ -1085,7 +1085,7 @@ Quick reference for skill triggers:
 | `manage issue` | issue-manage |
 | `workflow-plan`, `workflow-plan-verify`, `workflow:replan` | workflow-plan |
 | `workflow-execute` | workflow-execute |
-| `workflow-lite-planex` | workflow-lite-planex |
+| `workflow-lite-plan` | workflow-lite-plan |
 | `workflow-multi-cli-plan`, `workflow:multi-cli-plan` | workflow-multi-cli-plan |
 | `workflow-tdd-plan` | workflow-tdd-plan |
 | `workflow-test-fix`, `test fix workflow` | workflow-test-fix |

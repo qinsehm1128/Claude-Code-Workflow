@@ -6,6 +6,9 @@
 import { useMemo, useState, useCallback } from 'react';
 import { useIntl } from 'react-intl';
 import { FileText, Hash, Clock, Sparkles, AlertCircle, Link2, Check } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeSanitize from 'rehype-sanitize';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { cn } from '@/lib/utils';
@@ -22,51 +25,19 @@ export interface DocumentViewerProps {
 }
 
 /**
- * Simple markdown-to-HTML converter for basic formatting
- */
-function markdownToHtml(markdown: string): string {
-  let html = markdown;
-
-  // Code blocks
-  html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre class="code-block"><code class="language-$1">$2</code></pre>');
-
-  // Inline code
-  html = html.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
-
-  // Headers
-  html = html.replace(/^### (.*$)/gm, '<h3 class="doc-h3">$1</h3>');
-  html = html.replace(/^## (.*$)/gm, '<h2 class="doc-h2">$1</h2>');
-  html = html.replace(/^# (.*$)/gm, '<h1 class="doc-h1">$1</h1>');
-
-  // Bold and italic
-  html = html.replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>');
-  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
-
-  // Links
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="doc-link">$1</a>');
-
-  // Line breaks
-  html = html.replace(/\n\n/g, '</p><p class="doc-paragraph">');
-  html = html.replace(/\n/g, '<br />');
-
-  return `<div class="doc-content"><p class="doc-paragraph">${html}</p></div>`;
-}
-
-/**
  * Get symbol type icon
  */
-function getSymbolTypeIcon(type: string): string {
-  const icons: Record<string, string> = {
-    function: 'λ',
-    async_function: 'λ',
-    class: '◇',
-    method: '◈',
-    interface: '△',
-    variable: '•',
-    constant: '⬡',
+function getSymbolTypeIcon(type: string): { symbol: string; label: string } {
+  const icons: Record<string, { symbol: string; label: string }> = {
+    function: { symbol: 'λ', label: 'Function' },
+    async_function: { symbol: 'λ', label: 'Async Function' },
+    class: { symbol: '◇', label: 'Class' },
+    method: { symbol: '◈', label: 'Method' },
+    interface: { symbol: '△', label: 'Interface' },
+    variable: { symbol: '•', label: 'Variable' },
+    constant: { symbol: '⬡', label: 'Constant' },
   };
-  return icons[type] || '•';
+  return icons[type] || { symbol: '•', label: 'Symbol' };
 }
 
 /**
@@ -84,6 +55,79 @@ function getSymbolTypeColor(type: string): string {
   };
   return colors[type] || 'text-gray-500';
 }
+
+/**
+ * Markdown components with custom styling
+ */
+const markdownComponents = {
+  h1: ({ children }: { children?: React.ReactNode }) => (
+    <h1 className="text-xl font-bold mt-6 mb-3 text-foreground">{children}</h1>
+  ),
+  h2: ({ children }: { children?: React.ReactNode }) => (
+    <h2 className="text-lg font-semibold mt-5 mb-2 text-foreground">{children}</h2>
+  ),
+  h3: ({ children }: { children?: React.ReactNode }) => (
+    <h3 className="text-base font-semibold mt-4 mb-2 text-foreground">{children}</h3>
+  ),
+  p: ({ children }: { children?: React.ReactNode }) => (
+    <p className="mb-3 leading-relaxed text-foreground/90">{children}</p>
+  ),
+  a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
+    <a
+      href={href}
+      className="text-primary hover:underline"
+      target={href?.startsWith('http') ? '_blank' : undefined}
+      rel={href?.startsWith('http') ? 'noopener noreferrer' : undefined}
+    >
+      {children}
+    </a>
+  ),
+  code: ({ className, children }: { className?: string; children?: React.ReactNode }) => {
+    const isInline = !className;
+    if (isInline) {
+      return (
+        <code className="bg-muted px-1.5 py-0.5 rounded text-sm font-mono">
+          {children}
+        </code>
+      );
+    }
+    return (
+      <code className={cn('block bg-muted p-3 rounded-md text-sm font-mono overflow-x-auto', className)}>
+        {children}
+      </code>
+    );
+  },
+  pre: ({ children }: { children?: React.ReactNode }) => (
+    <pre className="bg-muted p-4 rounded-lg my-4 overflow-x-auto">
+      {children}
+    </pre>
+  ),
+  ul: ({ children }: { children?: React.ReactNode }) => (
+    <ul className="list-disc list-inside mb-3 space-y-1">{children}</ul>
+  ),
+  ol: ({ children }: { children?: React.ReactNode }) => (
+    <ol className="list-decimal list-inside mb-3 space-y-1">{children}</ol>
+  ),
+  blockquote: ({ children }: { children?: React.ReactNode }) => (
+    <blockquote className="border-l-4 border-primary/50 pl-4 my-4 italic text-muted-foreground">
+      {children}
+    </blockquote>
+  ),
+  table: ({ children }: { children?: React.ReactNode }) => (
+    <div className="overflow-x-auto my-4">
+      <table className="min-w-full border border-border">{children}</table>
+    </div>
+  ),
+  thead: ({ children }: { children?: React.ReactNode }) => (
+    <thead className="bg-muted">{children}</thead>
+  ),
+  th: ({ children }: { children?: React.ReactNode }) => (
+    <th className="border border-border px-3 py-2 text-left font-medium">{children}</th>
+  ),
+  td: ({ children }: { children?: React.ReactNode }) => (
+    <td className="border border-border px-3 py-2">{children}</td>
+  ),
+};
 
 export function DocumentViewer({
   doc,
@@ -222,27 +266,31 @@ export function DocumentViewer({
           {/* Symbols list */}
           {symbols.length > 0 && (
             <div className="mb-6 flex flex-wrap gap-2">
-              {symbols.map(symbol => (
-                <a
-                  key={symbol.name}
-                  href={`#${symbol.anchor.replace('#', '')}`}
-                  className={cn(
-                    'inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium',
-                    'bg-muted/50 hover:bg-muted transition-colors',
-                    getSymbolTypeColor(symbol.type)
-                  )}
-                >
-                  <span>{getSymbolTypeIcon(symbol.type)}</span>
-                  <span>{symbol.name}</span>
-                  <Badge variant="outline" className="text-[10px] px-1">
-                    {symbol.type}
-                  </Badge>
-                </a>
-              ))}
+              {symbols.map(symbol => {
+                const iconInfo = getSymbolTypeIcon(symbol.type);
+                return (
+                  <a
+                    key={symbol.name}
+                    href={`#${symbol.anchor.replace('#', '')}`}
+                    className={cn(
+                      'inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium',
+                      'bg-muted/50 hover:bg-muted transition-colors',
+                      getSymbolTypeColor(symbol.type)
+                    )}
+                    aria-label={`${iconInfo.label}: ${symbol.name}`}
+                  >
+                    <span aria-hidden="true">{iconInfo.symbol}</span>
+                    <span>{symbol.name}</span>
+                    <Badge variant="outline" className="text-[10px] px-1">
+                      {symbol.type}
+                    </Badge>
+                  </a>
+                );
+              })}
             </div>
           )}
 
-          {/* Document sections */}
+          {/* Document sections with safe markdown rendering */}
           <div className="space-y-6">
             {symbolSections.map((section, idx) => (
               <section
@@ -250,18 +298,24 @@ export function DocumentViewer({
                 id={section.name.toLowerCase().replace(/\s+/g, '-')}
                 className="scroll-mt-4"
               >
-                <div
-                  className="prose prose-sm dark:prose-invert max-w-none"
-                  dangerouslySetInnerHTML={{ __html: markdownToHtml(section.content) }}
-                />
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[rehypeSanitize]}
+                  components={markdownComponents}
+                >
+                  {section.content}
+                </ReactMarkdown>
               </section>
             ))}
 
             {symbolSections.length === 0 && content && (
-              <div
-                className="prose prose-sm dark:prose-invert max-w-none"
-                dangerouslySetInnerHTML={{ __html: markdownToHtml(content) }}
-              />
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeSanitize]}
+                components={markdownComponents}
+              >
+                {content}
+              </ReactMarkdown>
             )}
           </div>
         </div>
@@ -273,75 +327,57 @@ export function DocumentViewer({
               <Hash className="w-3 h-3" />
               {formatMessage({ id: 'deepwiki.viewer.toc', defaultMessage: 'Symbols' })}
             </h4>
-            <nav className="space-y-1">
-              {symbols.map(symbol => (
-                <div
-                  key={symbol.name}
-                  className="group flex items-center gap-1"
-                >
-                  <a
-                    href={`#${symbol.anchor.replace('#', '')}`}
-                    className={cn(
-                      'flex-1 text-xs py-1.5 px-2 rounded transition-colors',
-                      'text-muted-foreground hover:text-foreground hover:bg-muted/50',
-                      'font-mono'
-                    )}
+            <nav className="space-y-1" role="list" aria-label="Document symbols">
+              {symbols.map(symbol => {
+                const iconInfo = getSymbolTypeIcon(symbol.type);
+                return (
+                  <div
+                    key={symbol.name}
+                    className="group flex items-center gap-1"
                   >
-                    <span className={cn('mr-1', getSymbolTypeColor(symbol.type))}>
-                      {getSymbolTypeIcon(symbol.type)}
-                    </span>
-                    {symbol.name}
-                  </a>
-                  <button
-                    onClick={() => copyDeepLink(symbol.name, symbol.anchor)}
-                    className={cn(
-                      'opacity-0 group-hover:opacity-100 p-1 rounded transition-all',
-                      'hover:bg-muted/50',
-                      copiedSymbol === symbol.name
-                        ? 'text-green-500'
-                        : 'text-muted-foreground hover:text-foreground'
-                    )}
-                    title={copiedSymbol === symbol.name ? 'Copied!' : 'Copy deep link'}
-                  >
-                    {copiedSymbol === symbol.name ? (
-                      <Check className="w-3 h-3" />
-                    ) : (
-                      <Link2 className="w-3 h-3" />
-                    )}
-                  </button>
-                </div>
-              ))}
+                    <a
+                      href={`#${symbol.anchor.replace('#', '')}`}
+                      className={cn(
+                        'flex-1 text-xs py-1.5 px-2 rounded transition-colors',
+                        'text-muted-foreground hover:text-foreground hover:bg-muted/50',
+                        'font-mono'
+                      )}
+                      role="listitem"
+                      aria-label={`${iconInfo.label}: ${symbol.name}`}
+                    >
+                      <span className={cn('mr-1', getSymbolTypeColor(symbol.type))} aria-hidden="true">
+                        {iconInfo.symbol}
+                      </span>
+                      {symbol.name}
+                    </a>
+                    <button
+                      onClick={() => copyDeepLink(symbol.name, symbol.anchor)}
+                      className={cn(
+                        'opacity-0 group-hover:opacity-100 p-1 rounded transition-all',
+                        'hover:bg-muted/50',
+                        copiedSymbol === symbol.name
+                          ? 'text-green-500'
+                          : 'text-muted-foreground hover:text-foreground'
+                      )}
+                      aria-label={
+                        copiedSymbol === symbol.name
+                          ? formatMessage({ id: 'deepwiki.viewer.linkCopied', defaultMessage: 'Link copied' })
+                          : formatMessage({ id: 'deepwiki.viewer.copyLink', defaultMessage: 'Copy deep link to {name}' }, { name: symbol.name })
+                      }
+                    >
+                      {copiedSymbol === symbol.name ? (
+                        <Check className="w-3 h-3" aria-hidden="true" />
+                      ) : (
+                        <Link2 className="w-3 h-3" aria-hidden="true" />
+                      )}
+                    </button>
+                  </div>
+                );
+              })}
             </nav>
           </div>
         )}
       </div>
-
-      {/* Styles for rendered markdown */}
-      <style>{`
-        .doc-content { line-height: 1.7; }
-        .doc-paragraph { margin-bottom: 1rem; }
-        .doc-h1 { font-size: 1.5rem; font-weight: 700; margin: 1.5rem 0 1rem; color: var(--foreground); }
-        .doc-h2 { font-size: 1.25rem; font-weight: 600; margin: 1.25rem 0 0.75rem; color: var(--foreground); }
-        .doc-h3 { font-size: 1.1rem; font-weight: 600; margin: 1rem 0 0.5rem; color: var(--foreground); }
-        .doc-link { color: var(--primary); text-decoration: underline; }
-        .inline-code {
-          background: var(--muted);
-          padding: 0.125rem 0.375rem;
-          border-radius: 0.25rem;
-          font-size: 0.85em;
-          font-family: ui-monospace, monospace;
-        }
-        .code-block {
-          background: var(--muted);
-          padding: 1rem;
-          border-radius: 0.5rem;
-          overflow-x: auto;
-          margin: 1rem 0;
-          font-family: ui-monospace, monospace;
-          font-size: 0.85rem;
-          line-height: 1.5;
-        }
-      `}</style>
     </Card>
   );
 }

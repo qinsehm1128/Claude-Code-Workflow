@@ -679,11 +679,11 @@ Skill(skill="workflow-plan")
 
 ---
 
-### workflow-lite-planex
+### workflow-lite-plan
 
 **用途**：轻量级规划和执行技能
 
-**触发器**：`workflow-lite-planex`
+**触发器**：`workflow-lite-plan`
 
 **说明**：统一的规划和执行技能（Phase 1: 规划，Phase 2: 执行），带提示增强。
 
@@ -696,7 +696,7 @@ Skill(skill="workflow-plan")
 **产物**：LITE_PLAN.md、执行结果
 
 ```bash
-Skill(skill="workflow-lite-planex")
+Skill(skill="workflow-lite-plan")
 ```
 
 ---
@@ -851,7 +851,7 @@ Skill(skill="review-cycle")
 **使用场景**：快速迭代和快速原型
 
 ```bash
-Skill(skill="workflow-lite-planex")
+Skill(skill="workflow-lite-plan")
 Skill(skill="workflow-execute")
 ```
 
@@ -1039,7 +1039,7 @@ Skill(skill="skill-tuning")
 | 层级 | 技能 |
 |------|------|
 | 元技能 | skill-generator、skill-tuning、workflow-skill-designer |
-| 编排器 | workflow-plan、workflow-lite-planex、workflow-multi-cli-plan |
+| 编排器 | workflow-plan、workflow-lite-plan、workflow-multi-cli-plan |
 | 执行器 | workflow-execute |
 | 团队负责人 | team-lifecycle (v5) |
 
@@ -1085,7 +1085,7 @@ Skill(skill="skill-tuning")
 | `manage issue` | issue-manage |
 | `workflow-plan`、`workflow-plan-verify`、`workflow:replan` | workflow-plan |
 | `workflow-execute` | workflow-execute |
-| `workflow-lite-planex` | workflow-lite-planex |
+| `workflow-lite-plan` | workflow-lite-plan |
 | `workflow-multi-cli-plan`、`workflow:multi-cli-plan` | workflow-multi-cli-plan |
 | `workflow-tdd-plan` | workflow-tdd-plan |
 | `workflow-test-fix`、`test fix workflow` | workflow-test-fix |

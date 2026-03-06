@@ -28,7 +28,7 @@
 | 技能 | 触发器 | 用途 |
 |------|--------|------|
 | **workflow-plan** | `workflow-plan`、`workflow-plan-verify`、`workflow:replan` | 4 阶段规划工作流，带验证和交互式重新规划 |
-| **workflow-lite-planex** | `workflow-lite-planex` | 轻量级规划和执行技能 |
+| **workflow-lite-plan** | `workflow-lite-plan` | 轻量级规划和执行技能 |
 | **workflow-multi-cli-plan** | `workflow-multi-cli-plan`、`workflow:multi-cli-plan` | 多 CLI 协作规划，带 ACE 上下文引擎 |
 | **workflow-execute** | `workflow-execute` | 协调工作流任务的代理执行 |
 | **workflow-tdd-plan** | `workflow-tdd-plan`、`workflow-tdd-verify` | TDD 工作流，带红-绿-重构任务链 |
@@ -103,7 +103,7 @@ team lifecycle
 | `review code`、`code review`、`审查代码` | review-code |
 | `workflow:review-cycle` | review-cycle |
 | `workflow-plan` | workflow-plan |
-| `workflow-lite-planex` | workflow-lite-planex |
+| `workflow-lite-plan` | workflow-lite-plan |
 | `workflow-multi-cli-plan`、`workflow:multi-cli-plan` | workflow-multi-cli-plan |
 | `workflow-execute` | workflow-execute |
 | `workflow-tdd-plan` | workflow-tdd-plan |
@@ -163,7 +163,7 @@ team lifecycle
 | Generator-Critic Loop | team-iterdev |
 | Wave Pipeline | team-planex |
 | Red-Green-Refactor | workflow-tdd-plan |
-| Pure Orchestrator | workflow-plan、workflow-lite-planex |
+| Pure Orchestrator | workflow-plan、workflow-lite-plan |
 | Progressive Phase Loading | workflow-plan、workflow-tdd-plan、team-lifecycle |
 
 ::: info 参见

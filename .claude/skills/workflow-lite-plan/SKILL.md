@@ -1,4 +1,10 @@
-# LP-Phase 1: Lite-Plan
+---
+name: workflow-lite-plan
+description: Lightweight planning skill - task analysis, multi-angle exploration, clarification, adaptive planning, confirmation, and execution handoff
+allowed-tools: Skill, Agent, AskUserQuestion, TodoWrite, Read, Write, Edit, Bash, Glob, Grep
+---
+
+# Workflow-Lite-Plan
 
 Complete planning pipeline: task analysis, multi-angle exploration, clarification, adaptive planning, confirmation, and execution handoff.
 
@@ -6,15 +12,15 @@ Complete planning pipeline: task analysis, multi-angle exploration, clarificatio
 
 ## Overview
 
-Intelligent lightweight planning command with dynamic workflow adaptation based on task complexity. Focuses on planning phases (exploration, clarification, planning, confirmation) and delegates execution to Phase 2 (lite-execute).
+Intelligent lightweight planning command with dynamic workflow adaptation based on task complexity. Focuses on planning phases (exploration, clarification, planning, confirmation) and delegates execution to workflow-lite-execute skill.
 
 **Core capabilities:**
 - Intelligent task analysis with automatic exploration detection
 - Dynamic code exploration (cli-explore-agent) when codebase understanding needed
-- Interactive clarification after exploration to gather missing information
-- Adaptive planning: Low complexity → Direct Claude; Medium/High → cli-lite-planning-agent
-- Two-step confirmation: plan display → multi-dimensional input collection
-- Execution handoff with complete context to lite-execute
+ - Interactive clarification after exploration to gather missing information
+ - Adaptive planning: Low complexity → Direct Claude; Medium/High → cli-lite-planning-agent
+ - Two-step confirmation: plan display → multi-dimensional input collection
+ - Execution handoff with complete context to workflow-lite-execute
 
 ## Context Isolation
 
@@ -29,6 +35,13 @@ Intelligent lightweight planning command with dynamic workflow adaptation based 
 ```
 <task-description>         Task description or path to .md file (required)
 ```
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `-y`, `--yes` | Auto mode: Skip clarification, auto-confirm plan, auto-select execution, skip review |
+| `--force-explore` | Force code exploration even when task has prior analysis |
 
 Workflow preferences (`autoYes`, `forceExplore`) are collected by SKILL.md via AskUserQuestion and passed as `workflowPreferences` context variable.
 
@@ -91,7 +104,7 @@ LP-Phase 4: Confirmation & Selection
 
 LP-Phase 5: Execute
    ├─ Build executionContext (plan + explorations + clarifications + selections)
-   └─ Direct handoff: Read phases/02-lite-execute.md → Execute with executionContext (Mode 1)
+   └─ Direct handoff: Skill("lite-execute") → Execute with executionContext (Mode 1)
 ```
 
 ## Implementation
@@ -761,14 +774,24 @@ executionContext = {
 }
 ```
 
-**Step 5.2: Handoff**
+**Step 5.2: Handoff with Tracking**
 
 ```javascript
-// ⚠️ COMPACT PROTECTION: Phase 2 instructions MUST persist in memory throughout execution.
-// If compact compresses Phase 2 content at any point, re-read this file before continuing.
-// See SKILL.md "Compact Protection" section for full protocol.
-Read("phases/02-lite-execute.md")
-// Execute Phase 2 with executionContext (Mode 1: In-Memory Plan)
+// Update TodoWrite to show handoff to lite-execute
+const taskCount = (plan.task_ids || []).length
+TodoWrite({ todos: [
+  { content: "LP-Phase 1: Exploration", status: "completed", activeForm: "Exploring codebase" },
+  { content: "LP-Phase 2: Clarification", status: "completed", activeForm: "Collecting clarifications" },
+  { content: "LP-Phase 3: Planning", status: "completed", activeForm: "Generating plan" },
+  { content: `LP-Phase 4: Confirmed [${executionLabel}]`, status: "completed", activeForm: "Confirmed" },
+  { content: `LP-Phase 5: Handoff → lite-execute`, status: "completed", activeForm: "Handoff to execution" },
+  { content: `LE-Phase 1: Task Loading [${taskCount} tasks]`, status: "in_progress", activeForm: "Loading tasks" }
+]})
+
+// Invoke lite-execute skill with executionContext
+Skill("lite-execute")
+// executionContext is passed as global variable (Mode 1: In-Memory Plan)
+// lite-execute will continue TodoWrite tracking with LE-Phase prefix
 ```
 
 ## Session Folder Structure
@@ -815,4 +838,4 @@ Read("phases/02-lite-execute.md")
 
 ## Next Phase
 
-After LP-Phase 5 handoff, execution continues in [Phase 2: Lite-Execute](02-lite-execute.md).
+After LP-Phase 5 handoff, execution continues in the workflow-lite-execute skill.

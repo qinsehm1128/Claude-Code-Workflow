@@ -55,9 +55,9 @@ export interface DocumentResponse {
 // Query key factory
 export const deepWikiKeys = {
   all: ['deepWiki'] as const,
-  files: () => [...deepWikiKeys.all, 'files'] as const,
+  files: (projectPath: string) => [...deepWikiKeys.all, 'files', projectPath] as const,
   doc: (path: string) => [...deepWikiKeys.all, 'doc', path] as const,
-  stats: () => [...deepWikiKeys.all, 'stats'] as const,
+  stats: (projectPath: string) => [...deepWikiKeys.all, 'stats', projectPath] as const,
   search: (query: string) => [...deepWikiKeys.all, 'search', query] as const,
 };
 
@@ -134,7 +134,7 @@ export function useDeepWikiFiles(options: UseDeepWikiFilesOptions = {}): UseDeep
   const projectPath = useWorkflowStore(selectProjectPath);
 
   const query = useQuery({
-    queryKey: deepWikiKeys.files(),
+    queryKey: deepWikiKeys.files(projectPath ?? ''),
     queryFn: fetchDeepWikiFiles,
     staleTime,
     enabled: enabled && !!projectPath,
@@ -212,12 +212,13 @@ export interface UseDeepWikiStatsReturn {
  */
 export function useDeepWikiStats(options: UseDeepWikiStatsOptions = {}): UseDeepWikiStatsReturn {
   const { staleTime = STALE_TIME, enabled = true } = options;
+  const projectPath = useWorkflowStore(selectProjectPath);
 
   const query = useQuery({
-    queryKey: deepWikiKeys.stats(),
+    queryKey: deepWikiKeys.stats(projectPath ?? ''),
     queryFn: fetchDeepWikiStats,
     staleTime,
-    enabled,
+    enabled: enabled && !!projectPath,
     retry: 2,
   });
 

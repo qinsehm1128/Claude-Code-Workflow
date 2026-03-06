@@ -225,7 +225,7 @@ invalid yaml content without colons
 
       expect(result).toEqual({
         name: 'lite-plan',
-        command: '/workflow-lite-planex',
+        command: '/workflow-lite-plan',
         description: 'Quick planning for simple features',
         argumentHint: '"feature description"',
         allowedTools: ['Task(*)', 'Read(*)', 'Write(*)', 'Bash(*)'],
@@ -239,7 +239,7 @@ invalid yaml content without colons
       mockReadFileSync.mockReturnValue(sampleLitePlanYaml);
 
       const registry = new CommandRegistry(cmdDir);
-      const result = registry.getCommand('/workflow-lite-planex');
+      const result = registry.getCommand('/workflow-lite-plan');
 
       expect(result?.name).toBe('lite-plan');
     });
@@ -330,7 +330,7 @@ description: Minimal command
       const result = registry.getCommands(['lite-plan', 'execute', 'nonexistent']);
 
       expect(result.size).toBe(2);
-      expect(result.has('/workflow-lite-planex')).toBe(true);
+      expect(result.has('/workflow-lite-plan')).toBe(true);
       expect(result.has('/workflow-execute')).toBe(true);
     });
 
@@ -362,7 +362,7 @@ description: Minimal command
       const result = registry.getAllCommandsSummary();
 
       expect(result.size).toBe(3);
-      expect(result.get('/workflow-lite-planex')).toEqual({
+      expect(result.get('/workflow-lite-plan')).toEqual({
         name: 'lite-plan',
         description: 'Quick planning for simple features'
       });
@@ -483,9 +483,9 @@ allowed-tools: Task(*)
       
       const json = registry.toJSON();
 
-      expect(json['/workflow-lite-planex']).toEqual({
+      expect(json['/workflow-lite-plan']).toEqual({
         name: 'lite-plan',
-        command: '/workflow-lite-planex',
+        command: '/workflow-lite-plan',
         description: 'Quick planning for simple features',
         argumentHint: '"feature description"',
         allowedTools: ['Task(*)', 'Read(*)', 'Write(*)', 'Bash(*)'],
@@ -508,7 +508,7 @@ allowed-tools: Task(*)
       const json = registry.toJSON();
 
       expect(Object.keys(json).length).toBe(1);
-      expect(json['/workflow-lite-planex']).toBeDefined();
+      expect(json['/workflow-lite-plan']).toBeDefined();
       expect(json['/workflow-execute']).toBeUndefined();
     });
   });

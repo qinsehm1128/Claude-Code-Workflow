@@ -9,8 +9,9 @@
 import { useMemo } from 'react';
 import { useIntl } from 'react-intl';
 import { useNavigate } from 'react-router-dom';
-import { ClipboardList } from 'lucide-react';
+import { Inbox } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/utils';
 import { useQueueExecutionStore } from '@/stores/queueExecutionStore';
 import { useTerminalPanelStore } from '@/stores/terminalPanelStore';
@@ -65,17 +66,31 @@ function QueueExecutionItem({
   );
 }
 
+
+
 // ========== Empty State ==========
 
 function QueueEmptyState() {
   const { formatMessage } = useIntl();
+  const navigate = useNavigate();
+
+  const handleCreateQueue = () => {
+    navigate(ROUTES.ORCHESTRATOR);
+  };
 
   return (
     <div className="flex-1 flex items-center justify-center text-muted-foreground">
-      <div className="text-center">
-        <ClipboardList className="h-12 w-12 mx-auto mb-4 opacity-50" />
-        <p className="text-sm">{formatMessage({ id: 'home.terminalPanel.queueView.emptyTitle' })}</p>
-        <p className="text-xs mt-1">{formatMessage({ id: 'home.terminalPanel.queueView.emptyDesc' })}</p>
+      <div className="text-center p-4">
+        <Inbox className="h-12 w-12 mx-auto mb-4 opacity-40" />
+        <p className="text-sm font-medium text-foreground">
+          {formatMessage({ id: 'home.terminalPanel.queueView.emptyTitleV2', defaultMessage: 'Execution queue is empty' })}
+        </p>
+        <p className="text-xs mt-1 mb-4">
+          {formatMessage({ id: 'home.terminalPanel.queueView.emptyDescV2', defaultMessage: 'Create an execution queue to run tasks in sequence.' })}
+        </p>
+        <Button size="sm" onClick={handleCreateQueue}>
+          {formatMessage({ id: 'home.terminalPanel.queueView.createQueue', defaultMessage: 'Create Queue' })}
+        </Button>
       </div>
     </div>
   );

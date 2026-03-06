@@ -6,7 +6,7 @@
 
 | 工作流 | 最佳用途 | 级别 | 自包含 |
 |----------|----------|-------|----------------|
-| workflow-lite-planex | 快速任务、Bug 修复 | 2 (轻量级) | 是 |
+| workflow-lite-plan | 快速任务、Bug 修复 | 2 (轻量级) | 是 |
 | workflow-plan → workflow-execute | 复杂功能 | 3-4 (标准) | 否 (需要 execute) |
 | workflow-tdd-plan → workflow-execute | TDD 开发 | 3 (标准) | 否 (需要 execute) |
 | workflow-test-fix | 测试生成/修复 | 3 (标准) | 是 |
@@ -31,7 +31,7 @@
 | 工作流 | 调用方式 | 流水线 | 用例 | 级别 | 自包含 | 自动链式到 |
 |----------|------------|----------|----------|-------|----------------|----------------|
 | **Plan+Execute 工作流** |
-| workflow-lite-planex | `/ccw "任务"` (低/中复杂度自动选择) | explore → plan → confirm → execute | 快速功能、Bug 修复、简单任务 | 2 (轻量级) | 是 | workflow-test-fix |
+| workflow-lite-plan | `/ccw "任务"` (低/中复杂度自动选择) | explore → plan → confirm → execute | 快速功能、Bug 修复、简单任务 | 2 (轻量级) | 是 | workflow-test-fix |
 | workflow-plan | `/ccw "复杂功能"` (高复杂度) | session → context → convention → gen → verify/replan | 复杂功能规划、正式验证 | 3-4 (标准) | 否 | workflow-execute |
 | workflow-execute | `/workflow-execute` (plan 之后) | session discovery → task processing → commit | 执行预生成的计划 | 3 (标准) | 是 | review-cycle (可选) |
 | workflow-multi-cli-plan | `/ccw "multi-cli plan: ..."` | ACE context → CLI discussion → plan → execute | 多视角规划 | 3 (标准) | 是 | (内部交接) |
@@ -43,7 +43,7 @@
 | brainstorm-with-file | `/ccw "brainstorm: ..."` | brainstorm + documented artifacts | 带会话文档的创意构思 | 4 (完整) | 否 | workflow-plan → execute |
 | collaborative-plan-with-file | `/ccw "collaborative plan: ..."` | understanding → parallel agents → plan-note.md | 多代理协作规划 | 3 (标准) | 否 | unified-execute-with-file |
 | **分析工作流** |
-| analyze-with-file | `/ccw "analyze: ..."` | multi-CLI analysis → discussion.md | 深度理解、架构探索 | 3 (标准) | 否 | workflow-lite-planex |
+| analyze-with-file | `/ccw "analyze: ..."` | multi-CLI analysis → discussion.md | 深度理解、架构探索 | 3 (标准) | 否 | workflow-lite-plan |
 | debug-with-file | `/ccw "debug: ..."` | hypothesis-driven iteration → debug.log | 系统化调试 | 3 (标准) | 是 | (独立) |
 | **审查工作流** |
 | review-cycle | `/ccw "review code"` | discovery → analysis → aggregation → deep-dive → completion | 代码审查、质量门禁 | 3 (标准) | 是 | fix mode (如有发现) |
@@ -67,7 +67,7 @@
 
 | 级别 | 工作流 | 特点 |
 |-------|-----------|-----------------|
-| **2 (轻量级)** | workflow-lite-planex, docs | 快速执行、最少阶段 |
+| **2 (轻量级)** | workflow-lite-plan, docs | 快速执行、最少阶段 |
 | **2.5 (桥接)** | issue pipeline, rapid-to-issue | 桥接到 Issue 工作流 |
 | **3 (标准)** | workflow-plan, workflow-execute, workflow-tdd-plan, workflow-test-fix, review-cycle, debug-with-file, analyze-with-file, workflow-multi-cli-plan | 完整规划/执行、多阶段 |
 | **4 (完整)** | brainstorm, spec-generator, brainstorm-with-file, roadmap-with-file | 完整探索、规格化 |
@@ -80,13 +80,13 @@
 
 | 源工作流 | 自动链式到 | 条件 |
 |-----------------|---------------|-----------|
-| workflow-lite-planex | workflow-test-fix | 默认 (除非 skip-tests) |
+| workflow-lite-plan | workflow-test-fix | 默认 (除非 skip-tests) |
 | workflow-plan | workflow-execute | 计划确认后 |
 | workflow-execute | review-cycle | 用户通过 Phase 6 选择 |
 | workflow-tdd-plan | workflow-execute | TDD 计划验证后 |
 | brainstorm | workflow-plan | 自动链式到正式规划 |
 | brainstorm-with-file | workflow-plan → workflow-execute | 自动 |
-| analyze-with-file | workflow-lite-planex | 自动 |
+| analyze-with-file | workflow-lite-plan | 自动 |
 | debug-with-file | (无) | 独立 |
 | collaborative-plan-with-file | unified-execute-with-file | 自动 |
 | roadmap-with-file | team-planex | 自动 |
@@ -99,7 +99,7 @@
 
 | 工作流 | 自包含 | 说明 |
 |----------|---------------|-------|
-| workflow-lite-planex | 是 | 完整 plan + execute |
+| workflow-lite-plan | 是 | 完整 plan + execute |
 | workflow-plan | 否 | 需要 workflow-execute |
 | workflow-execute | 是 | 完整执行 |
 | workflow-tdd-plan | 否 | 需要 workflow-execute |

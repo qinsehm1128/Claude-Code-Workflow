@@ -30,7 +30,7 @@
 
 | 命令 | 功能 | 难度 |
 | --- | --- | --- |
-| [`/workflow-lite-planex`](./workflow.md#lite-plan) | 轻量级交互式规划工作流 | Intermediate |
+| [`/workflow-lite-plan`](./workflow.md#lite-plan) | 轻量级交互式规划工作流 | Intermediate |
 | [`/workflow-plan`](./workflow.md#plan) | 5 阶段规划工作流 | Intermediate |
 | [`/workflow-execute`](./workflow.md#execute) | 协调代理执行工作流任务 | Intermediate |
 | [`/workflow:replan`](./workflow.md#replan) | 交互式工作流重新规划 | Intermediate |

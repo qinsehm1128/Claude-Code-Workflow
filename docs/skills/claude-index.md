@@ -76,7 +76,7 @@ Claude Code Workflow supports two team architecture models:
 
 | Level | Name | Workflow | Use Case |
 |-------|------|----------|----------|
-| Level 1 | Lite-Lite-Lite | lite-plan | Super simple quick tasks |
+| Level 1 | Lite-Lite-Lite | lite-plan | Skill handoff to lite-execute |
 | Level 2 | Rapid | plan → execute | Bug fixes, simple features |
 | Level 2.5 | Rapid-to-Issue | plan → issue:new | From rapid planning to Issue |
 | Level 3 | Coupled | plan → execute | Complex features (plan+execute+review+test) |
@@ -181,7 +181,7 @@ memory/
 
 ```bash
 # Quick task
-/workflow-lite-planex "Fix login bug"
+/workflow-lite-plan "Fix login bug"
 
 # Full development
 /workflow-plan "Add user notifications"
@@ -234,7 +234,7 @@ memory/
    - Test coverage → `team-testing`
 
 2. **Workflow Selection**:
-   - Super simple → `workflow-lite-planex`
+   - Super simple → `workflow-lite-plan`
    - Complex features → `workflow-plan` → `workflow-execute`
    - TDD → `workflow-tdd-plan`
    - Test fixes → `workflow-test-fix`

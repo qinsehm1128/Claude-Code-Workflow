@@ -30,7 +30,7 @@
 
 | Command | Function | Difficulty |
 |---------|----------|------------|
-| [`/workflow-lite-planex`](./workflow.md#lite-plan) | Lightweight interactive planning workflow | Intermediate |
+| [`/workflow-lite-plan`](./workflow.md#lite-plan) | Lightweight interactive planning workflow | Intermediate |
 | [`/workflow-plan`](./workflow.md#plan) | 5-phase planning workflow | Intermediate |
 | [`/workflow-execute`](./workflow.md#execute) | Coordinate agent execution of workflow tasks | Intermediate |
 | [`/workflow:replan`](./workflow.md#replan) | Interactive workflow replanning | Intermediate |

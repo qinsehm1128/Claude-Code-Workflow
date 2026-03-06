@@ -4,7 +4,7 @@
 // Dropdown for selecting recent workspaces with native folder picker and manual path input
 
 import { useState, useCallback } from 'react';
-import { ChevronDown, X, FolderOpen, Check } from 'lucide-react';
+import { ChevronDown, X, FolderOpen, Check, Loader2 } from 'lucide-react';
 import { useIntl } from 'react-intl';
 import { cn } from '@/lib/utils';
 import { selectFolder } from '@/lib/nativeDialog';
@@ -41,14 +41,11 @@ function truncatePath(path: string, maxChars: number = 40): string {
     return path;
   }
 
-  // For Windows paths: C:\Users\...\folder
-  // For Unix paths: /home/user/.../folder
   const separator = path.includes('\\') ? '\\' : '/';
   const parts = path.split(separator);
 
-  // Start from the end and build up until we hit the limit
   const result: string[] = [];
-  let currentLength = 3; // Start with '...' length
+  let currentLength = 3; 
 
   for (let i = parts.length - 1; i >= 0; i--) {
     const part = parts[i];
@@ -85,17 +82,26 @@ export function WorkspaceSelector({ className }: WorkspaceSelectorProps) {
   const switchWorkspace = useWorkflowStore((state) => state.switchWorkspace);
   const removeRecentPath = useWorkflowStore((state) => state.removeRecentPath);
 
-  // UI state
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isManualOpen, setIsManualOpen] = useState(false);
   const [manualPath, setManualPath] = useState('');
+  const [isSwitching, setIsSwitching] = useState(false);
+
+  const handleSwitchWorkspace = useCallback(async (path: string) => {
+    setIsSwitching(true);
+    setIsDropdownOpen(false);
+    try {
+      await switchWorkspace(path);
+    } finally {
+      setIsSwitching(false);
+    }
+  }, [switchWorkspace]);
 
   const handleSelectPath = useCallback(
     async (path: string) => {
-      await switchWorkspace(path);
-      setIsDropdownOpen(false);
+      await handleSwitchWorkspace(path);
     },
-    [switchWorkspace]
+    [handleSwitchWorkspace]
   );
 
   const handleRemovePath = useCallback(
@@ -107,20 +113,19 @@ export function WorkspaceSelector({ className }: WorkspaceSelectorProps) {
   );
 
   const handleBrowseFolder = useCallback(async () => {
-    setIsDropdownOpen(false);
     const selected = await selectFolder(projectPath || undefined);
     if (selected) {
-      await switchWorkspace(selected);
+      await handleSwitchWorkspace(selected);
     }
-  }, [projectPath, switchWorkspace]);
+  }, [projectPath, handleSwitchWorkspace]);
 
   const handleManualPathSubmit = useCallback(async () => {
     const trimmedPath = manualPath.trim();
     if (!trimmedPath) return;
-    await switchWorkspace(trimmedPath);
     setIsManualOpen(false);
     setManualPath('');
-  }, [manualPath, switchWorkspace]);
+    await handleSwitchWorkspace(trimmedPath);
+  }, [manualPath, handleSwitchWorkspace]);
 
   const handleInputKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -143,10 +148,15 @@ export function WorkspaceSelector({ className }: WorkspaceSelectorProps) {
             size="sm"
             className={cn('gap-2 max-w-[300px]', className)}
             aria-label={formatMessage({ id: 'workspace.selector.ariaLabel' })}
+            disabled={isSwitching}
           >
-            <span className="truncate" title={displayPath}>
-              {truncatedPath}
-            </span>
+            {isSwitching ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <span className="truncate" title={displayPath}>
+                {truncatedPath}
+              </span>
+            )}
             <ChevronDown className="h-4 w-4 flex-shrink-0" />
           </Button>
         </DropdownMenuTrigger>
@@ -171,6 +181,7 @@ export function WorkspaceSelector({ className }: WorkspaceSelectorProps) {
                 <DropdownMenuItem
                   key={path}
                   onClick={() => handleSelectPath(path)}
+                  disabled={isSwitching}
                   className={cn(
                     'flex items-center gap-2 cursor-pointer group/path-item pr-8',
                     isCurrent && 'bg-accent/50'
@@ -184,19 +195,18 @@ export function WorkspaceSelector({ className }: WorkspaceSelectorProps) {
                     {truncatedItemPath}
                   </span>
 
-                  {/* Delete button for non-current paths */}
                   {!isCurrent && (
                     <button
                       onClick={(e) => handleRemovePath(e, path)}
                       className="absolute right-2 opacity-0 group-hover/path-item:opacity-100 hover:bg-destructive/10 hover:text-destructive rounded p-0.5 transition-all"
                       aria-label={formatMessage({ id: 'workspace.selector.removePath' })}
                       title={formatMessage({ id: 'workspace.selector.removePath' })}
+                      disabled={isSwitching}
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>
                   )}
 
-                  {/* Check icon for current workspace */}
                   {isCurrent && (
                     <Check className="h-4 w-4 text-emerald-500 absolute right-2" />
                   )}
@@ -207,9 +217,9 @@ export function WorkspaceSelector({ className }: WorkspaceSelectorProps) {
 
           {recentPaths.length > 0 && <DropdownMenuSeparator />}
 
-          {/* Browse button to open native folder selector */}
           <DropdownMenuItem
             onClick={handleBrowseFolder}
+            disabled={isSwitching}
             className="cursor-pointer gap-2"
           >
             <FolderOpen className="h-4 w-4" />
@@ -223,12 +233,11 @@ export function WorkspaceSelector({ className }: WorkspaceSelectorProps) {
             </div>
           </DropdownMenuItem>
 
-          {/* Manual path input option */}
           <DropdownMenuItem
             onClick={() => {
-              setIsDropdownOpen(false);
               setIsManualOpen(true);
             }}
+            disabled={isSwitching}
             className="cursor-pointer gap-2"
           >
             <span className="flex-1">
@@ -238,7 +247,6 @@ export function WorkspaceSelector({ className }: WorkspaceSelectorProps) {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* Manual path input dialog */}
       <Dialog open={isManualOpen} onOpenChange={setIsManualOpen}>
         <DialogContent>
           <DialogHeader>
@@ -254,6 +262,7 @@ export function WorkspaceSelector({ className }: WorkspaceSelectorProps) {
               onKeyDown={handleInputKeyDown}
               placeholder={formatMessage({ id: 'workspace.selector.dialog.placeholder' })}
               autoFocus
+              disabled={isSwitching}
             />
           </div>
 
@@ -264,13 +273,15 @@ export function WorkspaceSelector({ className }: WorkspaceSelectorProps) {
                 setIsManualOpen(false);
                 setManualPath('');
               }}
+              disabled={isSwitching}
             >
               {formatMessage({ id: 'common.actions.cancel' })}
             </Button>
             <Button
               onClick={handleManualPathSubmit}
-              disabled={!manualPath.trim()}
+              disabled={!manualPath.trim() || isSwitching}
             >
+              {isSwitching && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {formatMessage({ id: 'common.actions.submit' })}
             </Button>
           </DialogFooter>

@@ -3,15 +3,16 @@
 // ========================================
 // List of documented files for DeepWiki
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useIntl } from 'react-intl';
-import { FileText, Search, CheckCircle, Clock, RefreshCw } from 'lucide-react';
+import { FileText, Search, CheckCircle, Clock, RefreshCw, Loader2 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { cn } from '@/lib/utils';
 import type { DeepWikiFile } from '@/hooks/useDeepWiki';
+import { useDebounce } from '@/hooks/useDebounce';
 
 export interface FileListProps {
   files: DeepWikiFile[];
@@ -75,13 +76,23 @@ export function FileList({
 }: FileListProps) {
   const { formatMessage } = useIntl();
   const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
+  const [isSearching, setIsSearching] = useState(false);
 
   // Filter files by search query
   const filteredFiles = useMemo(() => {
-    if (!searchQuery.trim()) return files;
-    const query = searchQuery.toLowerCase();
+    if (!debouncedSearchQuery.trim()) return files;
+    const query = debouncedSearchQuery.toLowerCase();
     return files.filter(f => f.path.toLowerCase().includes(query));
-  }, [files, searchQuery]);
+  }, [files, debouncedSearchQuery]);
+
+  useEffect(() => {
+    if (searchQuery !== debouncedSearchQuery) {
+      setIsSearching(true);
+    } else {
+      setIsSearching(false);
+    }
+  }, [searchQuery, debouncedSearchQuery]);
 
   // Group files by directory
   const groupedFiles = useMemo(() => {
@@ -143,6 +154,9 @@ export function FileList({
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9 h-8 text-sm"
           />
+          {isSearching && (
+            <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
+          )}
         </div>
       </div>
 

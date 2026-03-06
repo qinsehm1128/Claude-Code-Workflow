@@ -88,7 +88,7 @@ Available types: `service`, `api`, `library`, `platform`
 ## Handoff
 
 After Phase 6, choose execution path:
-- `workflow-lite-planex` - Execute per Epic
+- `workflow-lite-plan` - Execute per Epic
 - `workflow:req-plan-with-file` - Roadmap decomposition
 - `workflow-plan` - Full planning
 - `issue:new` - Create issues per Epic

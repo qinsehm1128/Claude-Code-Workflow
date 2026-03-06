@@ -10,6 +10,16 @@ import { checkThemeContrast, generateContrastFix } from '@/lib/accessibility';
 import type { ContrastResult, FixSuggestion } from '@/lib/accessibility';
 import type { ThemeSharePayload } from '@/lib/themeShare';
 import { BackgroundImagePicker } from './BackgroundImagePicker';
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from '@/components/ui/AlertDialog';
 
 /**
  * Theme Selector Component
@@ -69,6 +79,7 @@ export function ThemeSelector() {
   // Slot management state
   const [renamingSlotId, setRenamingSlotId] = useState<ThemeSlotId | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const [pendingDeleteSlot, setPendingDeleteSlot] = useState<ThemeSlotId | null>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const undoToastIdRef = useRef<string | null>(null);
 
@@ -224,11 +235,11 @@ export function ThemeSelector() {
     }
   }, [handleConfirmRename, handleCancelRename]);
 
-  const handleDeleteSlot = useCallback((slotId: ThemeSlotId) => {
-    const slot = themeSlots.find(s => s.id === slotId);
-    if (!slot || slot.isDefault) return;
+  const handleConfirmDelete = useCallback(() => {
+    if (!pendingDeleteSlot) return;
 
-    deleteSlot(slotId);
+    deleteSlot(pendingDeleteSlot);
+    setPendingDeleteSlot(null);
 
     // Remove previous undo toast if exists
     if (undoToastIdRef.current) {
@@ -253,7 +264,11 @@ export function ThemeSelector() {
       }
     );
     undoToastIdRef.current = toastId;
-  }, [themeSlots, deleteSlot, addToast, removeToast, undoDeleteSlot, formatMessage]);
+  }, [pendingDeleteSlot, deleteSlot, addToast, removeToast, undoDeleteSlot, formatMessage]);
+
+  const handleCancelDelete = useCallback(() => {
+    setPendingDeleteSlot(null);
+  }, []);
 
   // ========== Share/Import Handlers ==========
 
@@ -516,7 +531,7 @@ export function ThemeSelector() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleDeleteSlot(slot.id);
+                        setPendingDeleteSlot(slot.id);
                       }}
                       title={formatMessage({ id: 'theme.slot.delete' })}
                       className="
@@ -1136,6 +1151,22 @@ export function ThemeSelector() {
             )}
           </div>
         )}
+
+        {/* Delete Confirmation Dialog */}
+        <AlertDialog open={pendingDeleteSlot !== null} onOpenChange={handleCancelDelete}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Theme Slot?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This action cannot be undone. The theme slot will be permanently deleted.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={handleCancelDelete}>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={handleConfirmDelete}>Delete</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </div>
   );

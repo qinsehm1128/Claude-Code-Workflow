@@ -45,9 +45,9 @@ High-level orchestrators for complex, multi-phase development processes.
   /workflow-plan "Create a simple Express API that returns Hello World"
   ```
 
-### **/workflow-lite-planex** ⚡ NEW
+### **/workflow-lite-plan** ⚡ NEW
 
-- **Syntax**: `/workflow-lite-planex [--tool claude|gemini|qwen|codex] [-e|--explore] "task description"|file.md`
+- **Syntax**: `/workflow-lite-plan [--tool claude|gemini|qwen|codex] [-e|--explore] "task description"|file.md`
 - **Parameters**:
   - `--tool` (Optional, String): Preset CLI tool for execution (claude|gemini|qwen|codex). If not provided, user selects during confirmation.
   - `-e, --explore` (Optional, Flag): Force code exploration phase (overrides auto-detection logic).
@@ -74,13 +74,13 @@ High-level orchestrators for complex, multi-phase development processes.
 - **Example**:
   ```bash
   # Basic usage with auto-detection
-  /workflow-lite-planex "Add JWT authentication to user login"
+  /workflow-lite-plan "Add JWT authentication to user login"
 
   # Force code exploration
-  /workflow-lite-planex -e "Refactor logging module for better performance"
+  /workflow-lite-plan -e "Refactor logging module for better performance"
 
   # Basic usage
-  /workflow-lite-planex "Add unit tests for auth service"
+  /workflow-lite-plan "Add unit tests for auth service"
   ```
 
 ### **/workflow-execute**
@@ -202,7 +202,7 @@ CLI tool configuration commands.
   /cli:cli-init
   ```
 
-> **Note**: For analysis, planning, and bug fixing, use workflow commands (`/workflow-lite-planex`, `/workflow:debug-with-file`) or semantic invocation through natural language. Claude will automatically use appropriate CLI tools (Gemini/Qwen/Codex) with templates as needed.
+> **Note**: For analysis, planning, and bug fixing, use workflow commands (`/workflow-lite-plan`, `/workflow:debug-with-file`) or semantic invocation through natural language. Claude will automatically use appropriate CLI tools (Gemini/Qwen/Codex) with templates as needed.
 
 ---
 

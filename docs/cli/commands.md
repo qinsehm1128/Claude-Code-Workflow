@@ -31,7 +31,7 @@ Complete reference for all **43 CCW commands** organized by category, with **7 w
 - `-y, --yes` - Skip all confirmations
 
 **Mapped Skills**:
-- workflow-lite-planex, workflow-plan, workflow-execute, workflow-tdd-plan
+- workflow-lite-plan, workflow-plan, workflow-execute, workflow-tdd-plan
 - workflow-test-fix, workflow-multi-cli-plan, review-cycle, brainstorm
 - team-planex, team-iterdev, team-lifecycle, team-issue
 - team-testing, team-quality-assurance, team-brainstorm, team-uidesign

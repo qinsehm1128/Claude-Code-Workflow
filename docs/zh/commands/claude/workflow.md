@@ -10,7 +10,7 @@
 
 | 命令 | 功能 | 语法 |
 | --- | --- | --- |
-| [`lite-plan`](#lite-plan) | 轻量级交互式规划工作流 | `/workflow-lite-planex [-y] [-e] "任务"` |
+| [`lite-plan`](#lite-plan) | 轻量级交互式规划工作流 | `/workflow-lite-plan [-y] [-e] "任务"` |
 
 ### 标准工作流
 
@@ -70,7 +70,7 @@
 
 **语法**:
 ```bash
-/workflow-lite-planex [-y|--yes] [-e|--explore] "任务描述" | file.md
+/workflow-lite-plan [-y|--yes] [-e|--explore] "任务描述" | file.md
 ```
 
 **选项**:
@@ -79,10 +79,10 @@
 **示例**:
 ```bash
 # 基础规划
-/workflow-lite-planex "添加用户头像功能"
+/workflow-lite-plan "添加用户头像功能"
 
 # 带探索
-/workflow-lite-planex -e "重构认证模块"
+/workflow-lite-plan -e "重构认证模块"
 ```
 
 ### plan

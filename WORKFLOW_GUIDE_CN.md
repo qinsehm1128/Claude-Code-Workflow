@@ -22,7 +22,7 @@ CCW 使用两种调用方式：
 
 | 类型 | 格式 | 示例 |
 |------|------|------|
-| **Skills** | 触发短语（无斜杠） | `workflow-lite-planex`, `brainstorm`, `workflow-plan` |
+| **Skills** | 触发短语（无斜杠） | `workflow-lite-plan`, `brainstorm`, `workflow-plan` |
 | **Commands** | 斜杠命令 | `/ccw`, `/workflow/session:start`, `/issue/new` |
 
 ---
@@ -33,7 +33,7 @@ CCW 使用两种调用方式：
 
 | Skill 触发词 | 用途 | 阶段 |
 |--------------|------|------|
-| `workflow-lite-planex` | 轻量规划与探索（包含执行） | 5 阶段 |
+| `workflow-lite-plan` | 轻量规划与探索（Skill 交接给 lite-execute） | 5 阶段 |
 
 **5 阶段交互式工作流**：
 ```
@@ -232,7 +232,7 @@ CCW 使用两种调用方式：
 
 | Skill | 触发词 |
 |-------|--------|
-| workflow-lite-planex | `workflow-lite-planex` |
+| workflow-lite-plan | `workflow-lite-plan` |
 | workflow-multi-cli-plan | `workflow-multi-cli-plan` |
 | workflow-plan | `workflow-plan`, `workflow-plan-verify`, `workflow:replan` |
 | workflow-execute | `workflow-execute` |
@@ -293,10 +293,10 @@ CCW 使用两种调用方式：
 开始
   │
   ├─ 是快速修复或配置变更？
-  │    └─> 是：workflow-lite-planex
+  │    └─> 是：workflow-lite-plan
   │
   ├─ 是单模块功能？
-  │    └─> 是：workflow-lite-planex
+  │    └─> 是：workflow-lite-plan
   │
   ├─ 需要多 CLI 分析？
   │    └─> 是：workflow-multi-cli-plan
@@ -348,7 +348,7 @@ CCW 使用两种调用方式：
 
 | Skill | 何时使用 |
 |-------|----------|
-| `workflow-lite-planex` | 快速修复、单功能 |
+| `workflow-lite-plan` | 快速修复、单功能 |
 | `workflow-plan` | 多模块开发 |
 | `brainstorm` | 架构、新功能 |
 | `workflow-execute` | 执行已规划的工作 |

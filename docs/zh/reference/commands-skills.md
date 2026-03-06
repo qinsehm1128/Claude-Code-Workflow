@@ -43,7 +43,7 @@
 
 | 类别 | 技能 | 内部流水线 | 用例 |
 |----------|-------|-------------------|----------|
-| **Workflow** | workflow-lite-planex | explore → plan → confirm → execute | 快速功能、Bug 修复 |
+| **Workflow** | workflow-lite-plan | explore → plan → confirm → execute | 快速功能、Bug 修复 |
 | **Workflow** | workflow-plan | session → context → convention → gen → verify/replan | 复杂功能规划 |
 | **Workflow** | workflow-execute | session discovery → task processing → commit | 执行预生成的计划 |
 | **Workflow** | workflow-tdd-plan | 6阶段 TDD plan → verify | TDD 开发 |
@@ -81,7 +81,7 @@
 
 | 技能 | 内部流水线 |
 |-------|-------------------|
-| workflow-lite-planex | explore → plan → confirm → execute |
+| workflow-lite-plan | explore → plan → confirm → execute |
 | workflow-plan | session → context → convention → gen → verify/replan |
 | workflow-execute | session discovery → task processing → commit |
 | workflow-tdd-plan | 6阶段 TDD plan → verify |
@@ -357,16 +357,16 @@
 
 | 任务类型 | 技能链 |
 |-----------|-------------|
-| bugfix | workflow-lite-planex → workflow-test-fix |
-| bugfix-hotfix | workflow-lite-planex |
-| feature | workflow-lite-planex → workflow-test-fix |
+| bugfix | workflow-lite-plan → workflow-test-fix |
+| bugfix-hotfix | workflow-lite-plan |
+| feature | workflow-lite-plan → workflow-test-fix |
 | feature-complex | workflow-plan → workflow-execute → workflow-test-fix |
 | refactor | workflow:refactor-cycle |
 | tdd | workflow-tdd-plan → workflow-execute |
 | test | workflow-test-fix |
 | test-fix | workflow-test-fix |
 | review | review-cycle |
-| docs | workflow-lite-planex |
+| docs | workflow-lite-plan |
 
 **6阶段执行**:
 1. 加载任务
@@ -606,7 +606,7 @@
 
 | 技能 | 内部流水线 | 描述 |
 |-------|-------------------|-------------|
-| workflow-lite-planex | explore → plan → confirm → execute | 轻量级合并模式规划 |
+| workflow-lite-plan | explore → plan → confirm → execute | 轻量级合并模式规划 |
 | workflow-plan | session → context → convention → gen → verify/replan | 带架构设计的完整规划 |
 | workflow-execute | session discovery → task processing → commit | 从规划会话执行 |
 | workflow-tdd-plan | 6阶段 TDD plan → verify | TDD 工作流规划 |
@@ -716,7 +716,7 @@
 ### 技能调用 (从代码)
 
 ```javascript
-Skill({ skill: "workflow-lite-planex", args: '"任务描述"' })
+Skill({ skill: "workflow-lite-plan", args: '"任务描述"' })
 Skill({ skill: "brainstorm", args: '"主题或问题"' })
 Skill({ skill: "review-cycle", args: '--session="WFS-xxx"' })
 ```

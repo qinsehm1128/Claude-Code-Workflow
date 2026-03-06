@@ -256,6 +256,7 @@ export function DashboardToolbar({ activePanel, onTogglePanel, isFileSidebarOpen
           isActive={activePanel === 'scheduler'}
           onClick={() => onTogglePanel('scheduler')}
           dot={isSchedulerActive}
+          loading={isSchedulerActive}
         />
         <ToolbarButton
           icon={FolderOpen}
@@ -331,6 +332,7 @@ function ToolbarButton({
   onClick,
   badge,
   dot,
+  loading,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
@@ -338,6 +340,7 @@ function ToolbarButton({
   onClick: () => void;
   badge?: number;
   dot?: boolean;
+  loading?: boolean;
 }) {
   return (
     <button
@@ -349,7 +352,11 @@ function ToolbarButton({
           : 'text-muted-foreground hover:text-foreground hover:bg-muted'
       )}
     >
-      <Icon className="w-3.5 h-3.5" />
+      {loading ? (
+        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+      ) : (
+        <Icon className="w-3.5 h-3.5" />
+      )}
       <span>{label}</span>
       {badge !== undefined && badge > 0 && (
         <Badge variant="secondary" className="text-[10px] px-1.5 py-0 ml-0.5">
@@ -357,7 +364,12 @@ function ToolbarButton({
         </Badge>
       )}
       {dot && (
-        <span className="ml-0.5 w-2 h-2 rounded-full bg-primary shrink-0" />
+        <span
+          className={cn(
+            'ml-0.5 w-2 h-2 rounded-full bg-primary shrink-0',
+            loading && 'animate-pulse'
+          )}
+        />
       )}
     </button>
   );

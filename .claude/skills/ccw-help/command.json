@@ -955,14 +955,14 @@
       "source": "../../../skills/workflow-execute/SKILL.md"
     },
     {
-      "name": "workflow-lite-planex",
-      "description": "Lightweight planning and execution skill (Phase 1: plan, Phase 2: execute). Triggers on \"workflow-lite-planex\".",
+      "name": "workflow-lite-plan",
+      "description": "Lightweight planning and execution skill (Phase 1: plan, Phase 2: execute). Triggers on \"workflow-lite-plan\".",
       "category": "workflow",
       "is_team": false,
       "has_phases": true,
       "has_role_specs": false,
       "version": "",
-      "source": "../../../skills/workflow-lite-planex/SKILL.md"
+      "source": "../../../skills/workflow-lite-plan/SKILL.md"
     },
     {
       "name": "workflow-multi-cli-plan",

@@ -31,7 +31,7 @@
 - `-y, --yes` - 跳过所有确认
 
 **映射技能**：
-- workflow-lite-planex, workflow-plan, workflow-execute, workflow-tdd-plan
+- workflow-lite-plan, workflow-plan, workflow-execute, workflow-tdd-plan
 - workflow-test-fix, workflow-multi-cli-plan, review-cycle, brainstorm
 - team-planex, team-iterdev, team-lifecycle, team-issue
 - team-testing, team-quality-assurance, team-brainstorm, team-uidesign

@@ -93,7 +93,7 @@ CCW 使用两种调用方式：
 
 | 类型 | 格式 | 示例 |
 |------|------|------|
-| **Skills** | 触发短语（无斜杠） | `workflow-lite-planex`, `brainstorm`, `workflow-plan` |
+| **Skills** | 触发短语（无斜杠） | `workflow-lite-plan`, `brainstorm`, `workflow-plan` |
 | **Commands** | 斜杠命令 | `/ccw`, `/workflow/session:start`, `/issue/new` |
 
 ### 选择工作流 Skill
@@ -101,7 +101,7 @@ CCW 使用两种调用方式：
 <div align="center">
 <table>
 <tr><th>Skill 触发词</th><th>使用场景</th></tr>
-<tr><td><code>workflow-lite-planex</code></td><td>轻量规划、单模块功能</td></tr>
+<tr><td><code>workflow-lite-plan</code></td><td>轻量规划、单模块功能（Skill 交接给 lite-execute）</td></tr>
 <tr><td><code>workflow-multi-cli-plan</code></td><td>多 CLI 协同分析</td></tr>
 <tr><td><code>workflow-plan</code></td><td>完整规划与会话持久化</td></tr>
 <tr><td><code>workflow-tdd-plan</code></td><td>测试驱动开发</td></tr>
@@ -114,7 +114,7 @@ CCW 使用两种调用方式：
 
 ```bash
 # Skill 触发（无斜杠 - 直接描述你想做什么）
-workflow-lite-planex "添加 JWT 认证"
+workflow-lite-plan "添加 JWT 认证"
 workflow-plan "实现支付网关集成"
 workflow-execute
 
@@ -278,7 +278,7 @@ ccw upgrade -a        # 升级所有安装
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                     工作流 Skills                                │
-│  📝 workflow-lite-planex / workflow-multi-cli-plan (轻量级)       │
+│  📝 workflow-lite-plan / workflow-multi-cli-plan (轻量级)       │
 │  📊 workflow-plan / workflow-tdd-plan (会话式)                  │
 │  🧪 workflow-test-fix / workflow-test-fix         │
 │  🧠 brainstorm (多角色分析)                                      │
@@ -322,7 +322,7 @@ Claude-Code-Workflow/
 │   │   ├── memory/      # 内存命令 (prepare, style-skill-memory)
 │   │   └── workflow/    # 工作流命令 (session, ui-design 等)
 │   └── skills/          # 37 个模块化技能
-│       ├── workflow-lite-planex/
+│       ├── workflow-lite-plan/
 │       ├── workflow-plan/
 │       ├── workflow-tdd-plan/
 │       ├── workflow-test-fix/

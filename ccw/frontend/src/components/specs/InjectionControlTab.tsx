@@ -922,12 +922,14 @@ export function InjectionControlTab({ className }: InjectionControlTabProps) {
                       step={500}
                       value={formData.maxLength}
                       onChange={(e) => handleFieldChange('maxLength', Number(e.target.value))}
+                      className={cn(maxLengthError && 'border-destructive')}
                     />
                   </div>
                   <span className="text-sm text-muted-foreground whitespace-nowrap">
                     (~{Math.ceil(formData.maxLength / 80)} {formatMessage({ id: 'specs.injection.lines', defaultMessage: 'lines' })})
                   </span>
                 </div>
+                {maxLengthError && <p className="text-xs text-destructive mt-1">{maxLengthError}</p>}
                 <p className="text-sm text-muted-foreground">
                   {formatMessage({
                     id: 'specs.injection.maxLengthHelp',
@@ -981,12 +983,14 @@ export function InjectionControlTab({ className }: InjectionControlTabProps) {
                       step={500}
                       value={formData.warnThreshold}
                       onChange={(e) => handleFieldChange('warnThreshold', Number(e.target.value))}
+                      className={cn(warnThresholdError && 'border-destructive')}
                     />
                   </div>
                   <span className="text-sm text-muted-foreground whitespace-nowrap">
                     (~{Math.ceil(formData.warnThreshold / 80)} {formatMessage({ id: 'specs.injection.lines', defaultMessage: 'lines' })})
                   </span>
                 </div>
+                {warnThresholdError && <p className="text-xs text-destructive mt-1">{warnThresholdError}</p>}
                 <p className="text-sm text-muted-foreground">
                   {formatMessage({
                     id: 'specs.injection.warnThresholdHelp',
@@ -1024,7 +1028,7 @@ export function InjectionControlTab({ className }: InjectionControlTabProps) {
                 >
                   {formatMessage({ id: 'common.actions.reset', defaultMessage: 'Reset' })}
                 </Button>
-                <Button onClick={handleSave} disabled={!hasChanges || isSaving}>
+                <Button onClick={handleSave} disabled={!hasChanges || isSaving || !!maxLengthError || !!warnThresholdError}>
                   {isSaving ? (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />

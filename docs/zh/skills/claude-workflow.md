@@ -19,7 +19,7 @@
 | --- | --- | --- |
 | `workflow-plan` | 统一规划技能（4 阶段工作流） | `/workflow-plan` |
 | `workflow-execute` | 代理协调执行 | `/workflow-execute` |
-| `workflow-lite-planex` | 轻量级快速规划 | `/workflow-lite-planex` |
+| `workflow-lite-plan` | 轻量级快速规划 | `/workflow-lite-plan` |
 | `workflow-multi-cli-plan` | 多 CLI 协作规划 | `/workflow-multi-cli-plan` |
 | `workflow-tdd-plan` | TDD 工作流 | `/workflow-tdd-plan` |
 | `workflow-test-fix` | 测试修复工作流 | `/workflow-test-fix` |
@@ -182,13 +182,13 @@ Phase 5: 完成
 
 ---
 
-### workflow-lite-planex
+### workflow-lite-plan
 
 **一句话定位**: 轻量级快速规划 — 超简单任务的快速规划和执行
 
 **触发**:
 ```shell
-/workflow-lite-planex <simple-task>
+/workflow-lite-plan <simple-task>
 ```
 
 **功能**:
@@ -331,7 +331,7 @@ Wave 2: Issue 6-10 → 并行规划 → 并行执行
 ## 最佳实践
 
 1. **选择合适的工作流**:
-   - 超简单任务 → `workflow-lite-planex`
+   - 超简单任务 → `workflow-lite-plan`
    - 复杂功能 → `workflow-plan` → `workflow-execute`
    - TDD 开发 → `workflow-tdd-plan`
    - 测试修复 → `workflow-test-fix`

@@ -17,7 +17,8 @@ Interactive orchestration tool: analyze task → discover commands → recommend
 
 | Skill | 包含操作 |
 |-------|---------|
-| `workflow-lite-planex` | lite-plan (includes execution phase internally) |
+| `workflow-lite-plan` | lite-plan (Skill handoff to lite-execute) |
+| `workflow-lite-execute` | lite-execute (multi-mode execution engine) |
 | `workflow-plan` | plan, plan-verify, replan |
 | `workflow-execute` | execute |
 | `workflow-multi-cli-plan` | multi-cli-plan (includes execution phase internally) |
@@ -547,7 +548,7 @@ Pipeline (管道视图):
 需求 → lite-plan → 代码 → test-cycle-execute → 测试通过
 
 Commands (命令列表):
-1. /workflow-lite-planex
+1. /workflow-lite-plan
 2. /workflow-test-fix
 
 Proceed? [Confirm / Show Details / Adjust / Cancel]
@@ -851,7 +852,7 @@ workflow 操作通过 `Skill()` 调用对应的 Skill。
 
 ```javascript
 // Skill 调用方式
-Skill({ skill: 'workflow-lite-planex', args: '"task description"' });
+Skill({ skill: 'workflow-lite-plan', args: '"task description"' });
 Skill({ skill: 'workflow-execute', args: '--resume-session="WFS-xxx"' });
 Skill({ skill: 'brainstorm', args: '"exploration topic"' });
 Skill({ skill: 'spec-generator', args: '"product specification"' });
@@ -904,7 +905,8 @@ Task: <description>
 
 | Skill | 包含操作 |
 |-------|---------|
-| `workflow-lite-planex` | lite-plan (includes execution phase internally) |
+| `workflow-lite-plan` | lite-plan (Skill handoff to lite-execute) |
+| `workflow-lite-execute` | lite-execute (multi-mode execution engine) |
 | `workflow-plan` | plan, plan-verify, replan |
 | `workflow-execute` | execute |
 | `workflow-multi-cli-plan` | multi-cli-plan (includes execution phase internally) |

@@ -70,7 +70,7 @@
       "workflow:session:list"
     ]
   },
-  "workflow-lite-planex": {
+  "workflow-lite-plan": {
     "calls_internally": [],
     "next_steps": [
       "workflow:session:list"

@@ -176,7 +176,7 @@ memory/
 
 ```bash
 # 快速任务
-/workflow-lite-planex "Fix login bug"
+/workflow-lite-plan "Fix login bug"
 
 # 完整开发
 /workflow-plan "Add user notifications"
@@ -229,7 +229,7 @@ memory/
    - 测试覆盖 → `team-testing`
 
 2. **工作流选择**:
-   - 超简单 → `workflow-lite-planex`
+   - 超简单 → `workflow-lite-plan`
    - 复杂功能 → `workflow-plan` → `workflow-execute`
    - TDD → `workflow-tdd-plan`
    - 测试修复 → `workflow-test-fix`

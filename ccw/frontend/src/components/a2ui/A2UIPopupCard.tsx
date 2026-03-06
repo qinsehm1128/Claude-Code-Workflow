@@ -172,6 +172,8 @@ function MarkdownContent({ content, className }: MarkdownContentProps) {
 function SinglePagePopup({ surface, onClose }: A2UIPopupCardProps) {
   const { formatMessage } = useIntl();
   const sendA2UIAction = useNotificationStore((state) => state.sendA2UIAction);
+  const addToast = useNotificationStore((state) => state.addToast);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Detect question type
   const questionType = useMemo(() => detectQuestionType(surface), [surface]);
@@ -216,16 +218,14 @@ function SinglePagePopup({ surface, onClose }: A2UIPopupCardProps) {
   const message = getTextContent(messageComponent);
   const description = getTextContent(descriptionComponent);
 
-  // Separate body components (interactive elements) from action buttons
+  // Separate body components from action buttons
   const { bodyComponents, actionButtons } = useMemo(() => {
     const body: SurfaceComponent[] = [];
     const actions: SurfaceComponent[] = [];
 
     for (const comp of surface.components) {
-      // Skip title, message, description
       if (['title', 'message', 'description'].includes(comp.id)) continue;
 
-      // Separate action buttons (confirm, cancel, submit)
       if (isActionButton(comp) && ['confirm-btn', 'cancel-btn', 'submit-btn'].includes(comp.id)) {
         actions.push(comp);
       } else {
@@ -236,7 +236,6 @@ function SinglePagePopup({ surface, onClose }: A2UIPopupCardProps) {
     return { bodyComponents: body, actionButtons: actions };
   }, [surface.components]);
 
-  // Create surfaces for body and actions
   const bodySurface: SurfaceUpdate = useMemo(
     () => ({ ...surface, components: bodyComponents }),
     [surface, bodyComponents]
@@ -247,7 +246,6 @@ function SinglePagePopup({ surface, onClose }: A2UIPopupCardProps) {
     [surface, actionButtons]
   );
 
-  // Handle "Other" text change
   const handleOtherTextChange = useCallback(
     (value: string) => {
       setOtherText(value);
@@ -263,7 +261,8 @@ function SinglePagePopup({ surface, onClose }: A2UIPopupCardProps) {
 
   // Handle A2UI actions
   const handleAction = useCallback(
-    (actionId: string, params?: Record<string, unknown>) => {
+    async (actionId: string, params?: Record<string, unknown>) => {
+      setActionError(null);
       // Track "Other" selection state
       if (actionId === 'select' && params?.value === '__other__') {
         setOtherSelected(true);
@@ -274,16 +273,20 @@ function SinglePagePopup({ surface, onClose }: A2UIPopupCardProps) {
         setOtherSelected((prev) => !prev);
       }
 
-      // Send action to backend via WebSocket
-      sendA2UIAction(actionId, surface.surfaceId, params);
+      try {
+        await sendA2UIAction(actionId, surface.surfaceId, params);
 
-      // Check if this action should close the dialog
-      const resolvingActions = ['confirm', 'cancel', 'submit', 'answer'];
-      if (resolvingActions.includes(actionId)) {
-        onClose();
+        const resolvingActions = ['confirm', 'cancel', 'submit', 'answer'];
+        if (resolvingActions.includes(actionId)) {
+          onClose();
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred.';
+        setActionError(errorMessage);
+        addToast('error', 'Action Failed', errorMessage);
       }
     },
-    [sendA2UIAction, surface.surfaceId, onClose]
+    [sendA2UIAction, surface.surfaceId, onClose, addToast]
   );
 
   // Handle dialog close (ESC key or overlay click)
@@ -299,7 +302,6 @@ function SinglePagePopup({ surface, onClose }: A2UIPopupCardProps) {
     [sendA2UIAction, surface.surfaceId, onClose]
   );
 
-  // Determine dialog width based on question type
   const dialogWidth = useMemo(() => {
     switch (questionType) {
       case 'multi-select':
@@ -311,33 +313,27 @@ function SinglePagePopup({ surface, onClose }: A2UIPopupCardProps) {
     }
   }, [questionType]);
 
-  // Check if this question type supports "Other" input
   const hasOtherOption = questionType === 'select' || questionType === 'multi-select';
 
   return (
     <Dialog open onOpenChange={handleOpenChange}>
       <DialogContent
         className={cn(
-          // Base styles
           dialogWidth,
           'max-h-[80vh] overflow-y-auto',
           'bg-card p-6 rounded-xl shadow-lg border border-border/50',
-          // Animation classes
           'data-[state=open]:animate-in data-[state=closed]:animate-out',
           'data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0',
           'data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95',
           'data-[state=open]:duration-300 data-[state=closed]:duration-200'
         )}
         onInteractOutside={(e) => {
-          // Prevent closing when clicking outside - only cancel button can close
           e.preventDefault();
         }}
         onEscapeKeyDown={(e) => {
-          // Prevent closing with ESC key - only cancel button can close
           e.preventDefault();
         }}
       >
-        {/* Header */}
         <DialogHeader className="space-y-2 pb-4">
           <DialogTitle className="text-lg font-semibold leading-tight">{title}</DialogTitle>
           {message && (
@@ -352,15 +348,18 @@ function SinglePagePopup({ surface, onClose }: A2UIPopupCardProps) {
           )}
         </DialogHeader>
 
-        {/* Body - Interactive elements */}
+        {actionError && (
+          <div className="bg-destructive/10 border border-destructive/20 text-destructive-foreground text-sm rounded-md p-3 my-2">
+            {actionError}
+          </div>
+        )}
+
         {bodyComponents.length > 0 && (
           <div className={cn(
             'py-3',
-            // Add specific styling for multi-select (checkbox list)
             questionType === 'multi-select' && 'space-y-2 max-h-[300px] overflow-y-auto px-1'
           )}>
             {questionType === 'multi-select' ? (
-              // Render each checkbox individually for better control
               bodyComponents.map((comp) => (
                 <div key={comp.id} className="py-1">
                   <A2UIRenderer
@@ -372,7 +371,6 @@ function SinglePagePopup({ surface, onClose }: A2UIPopupCardProps) {
             ) : (
               <A2UIRenderer surface={bodySurface} onAction={handleAction} />
             )}
-            {/* "Other" text input — shown when Other is selected */}
             {hasOtherOption && (
               <OtherInput
                 visible={otherSelected}
@@ -383,7 +381,6 @@ function SinglePagePopup({ surface, onClose }: A2UIPopupCardProps) {
           </div>
         )}
 
-        {/* Countdown for auto-selection */}
         {remaining !== null && defaultLabel && (
           <div className="text-xs text-muted-foreground text-center pt-2">
             {remaining > 0
@@ -392,7 +389,6 @@ function SinglePagePopup({ surface, onClose }: A2UIPopupCardProps) {
           </div>
         )}
 
-        {/* Footer - Action buttons */}
         {actionButtons.length > 0 && (
           <DialogFooter className="pt-4">
             <div className="flex flex-row justify-end gap-3">

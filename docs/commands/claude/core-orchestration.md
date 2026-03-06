@@ -143,7 +143,7 @@ Both commands support the `--yes` flag for auto mode:
 
 | Skill | Function |
 |-------|----------|
-| `workflow-lite-planex` | Lightweight planning workflow |
+| `workflow-lite-plan` | Lightweight planning workflow |
 | `workflow-plan` | Full planning workflow |
 | `workflow-execute` | Execution workflow |
 | `workflow-tdd-plan` | TDD workflow |

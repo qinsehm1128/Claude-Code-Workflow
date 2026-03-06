@@ -7,12 +7,15 @@ import { Button } from '@/components/ui/Button';
 import type { ComponentRenderer } from '../../core/A2UIComponentRegistry';
 import type { ButtonComponent } from '../../core/A2UITypes';
 import { resolveLiteralOrBinding } from '../A2UIRenderer';
+import { useState } from 'react';
+import { Loader2 } from 'lucide-react';
 
 /**
  * A2UI Button Component Renderer
  * Maps A2UI variants (primary/secondary/destructive) to shadcn/ui variants (default/secondary/destructive/ghost)
  */
 export const A2UIButton: ComponentRenderer = ({ component, onAction, resolveBinding }) => {
+  const [isLoading, setIsLoading] = useState(false);
   const buttonComp = component as ButtonComponent;
   const { Button: buttonConfig } = buttonComp;
 
@@ -51,12 +54,18 @@ export const A2UIButton: ComponentRenderer = ({ component, onAction, resolveBind
     }
   }
 
-  const handleClick = () => {
-    onAction(buttonConfig.onClick.actionId, buttonConfig.onClick.parameters || {});
+  const handleClick = async () => {
+    setIsLoading(true);
+    try {
+      await onAction(buttonConfig.onClick.actionId, buttonConfig.onClick.parameters || {});
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
-    <Button variant={variant} disabled={disabled} onClick={handleClick}>
+    <Button variant={variant} disabled={disabled || isLoading} onClick={handleClick}>
+      {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
       <ContentComponent />
     </Button>
   );
