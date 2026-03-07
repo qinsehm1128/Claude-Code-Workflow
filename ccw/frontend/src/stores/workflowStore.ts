@@ -4,7 +4,6 @@
 // Manages workflow sessions, tasks, and related data
 
 import { create } from 'zustand';
-import { devtools, persist } from 'zustand/middleware';
 import type {
   WorkflowStore,
   WorkflowState,
@@ -15,6 +14,35 @@ import type {
   WorkflowSorting,
 } from '../types/store';
 import { switchWorkspace as apiSwitchWorkspace, fetchRecentPaths, removeRecentPath as apiRemoveRecentPath } from '../lib/api';
+
+// LocalStorage key for persisting projectPath
+const STORAGE_KEY = 'ccw-workflow-store';
+
+// Helper to load persisted projectPath from localStorage
+const loadPersistedPath = (): string => {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      const data = JSON.parse(stored);
+      return data?.state?.projectPath || '';
+    }
+  } catch {
+    // Ignore parse errors
+  }
+  return '';
+};
+
+// Helper to persist projectPath to localStorage
+const persistPath = (projectPath: string): void => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      state: { projectPath },
+      version: 1,
+    }));
+  } catch {
+    // Ignore storage errors
+  }
+};
 
 // Helper to generate session key from ID
 const sessionKey = (sessionId: string): string => {
@@ -34,14 +62,14 @@ const defaultSorting: WorkflowSorting = {
   direction: 'desc',
 };
 
-// Initial state
+// Initial state - load persisted projectPath from localStorage
 const initialState: WorkflowState = {
   // Core data
   workflowData: {
     activeSessions: [],
     archivedSessions: [],
   },
-  projectPath: '',
+  projectPath: loadPersistedPath(),
   recentPaths: [],
   serverPlatform: 'win32',
 
@@ -57,14 +85,11 @@ const initialState: WorkflowState = {
   filters: defaultFilters,
   sorting: defaultSorting,
 
-  // Hydration state (internal)
-  _hasHydrated: false,
 };
 
 export const useWorkflowStore = create<WorkflowStore>()(
-  devtools(
-    persist(
-      (set, get) => ({
+  persist(
+    (set, get) => ({
         ...initialState,
 
       // ========== Session Actions ==========
@@ -396,6 +421,9 @@ export const useWorkflowStore = create<WorkflowStore>()(
           'switchWorkspace'
         );
 
+        // Persist projectPath to localStorage manually
+        persistPath(response.projectPath);
+
         // Trigger query invalidation callback
         const callback = get()._invalidateQueriesCallback;
         if (callback) {
@@ -415,10 +443,6 @@ export const useWorkflowStore = create<WorkflowStore>()(
 
       registerQueryInvalidator: (callback: () => void) => {
         set({ _invalidateQueriesCallback: callback }, false, 'registerQueryInvalidator');
-      },
-
-      setHasHydrated: (state: boolean) => {
-        set({ _hasHydrated: state }, false, 'setHasHydrated');
       },
 
       // ========== Filters and Sorting ==========
@@ -521,46 +545,15 @@ export const useWorkflowStore = create<WorkflowStore>()(
       }),
       {
         name: 'ccw-workflow-store',
-        version: 1, // State version for migration support
+        // Only persist projectPath - minimal state for workspace switching
         partialize: (state) => ({
           projectPath: state.projectPath,
         }),
-        migrate: (persistedState, version) => {
-          // Migration logic for future state shape changes
-          if (version < 1) {
-            // No migrations needed for initial version
-            // Example: if (version === 0) { persistedState.newField = defaultValue; }
-          }
-          return persistedState as typeof persistedState;
-        },
-        onRehydrateStorage: () => {
-          // Only log in development to avoid noise in production
-          if (process.env.NODE_ENV === 'development') {
-            // eslint-disable-next-line no-console
-            console.log('[WorkflowStore] Hydrating from localStorage...');
-          }
-          return (state, error) => {
-            if (error) {
-              // eslint-disable-next-line no-console
-              console.error('[WorkflowStore] Rehydration error:', error);
-              return;
-            }
-            // Mark hydration as complete
-            useWorkflowStore.getState().setHasHydrated(true);
-            if (state?.projectPath) {
-              if (process.env.NODE_ENV === 'development') {
-                // eslint-disable-next-line no-console
-                console.log('[WorkflowStore] Rehydrated with persisted projectPath:', state.projectPath);
-              }
-              // The initialization logic is now handled by AppShell.tsx
-              // to correctly prioritize URL parameters over localStorage.
-            }
-          };
-        },
+        // Skip automatic hydration to avoid TDZ error during module initialization
+        // Hydration will be triggered manually in AppShell after mount
+        skipHydration: true,
       }
-    ),
-    { name: 'WorkflowStore' }
-  )
+    )
 );
 
 // Selectors for common access patterns

@@ -1,276 +1,184 @@
-# Command: Monitor
+# Monitor Pipeline
 
-Handle all coordinator monitoring events for the review pipeline using the async Spawn-and-Stop pattern. One operation per invocation, then STOP and wait for the next callback.
+Event-driven pipeline coordination. Beat model: coordinator wake -> process -> spawn -> STOP.
 
 ## Constants
 
-| Key | Value | Description |
-|-----|-------|-------------|
-| SPAWN_MODE | background | All workers spawned via `Task(run_in_background: true)` |
-| ONE_STEP_PER_INVOCATION | true | Coordinator does one operation then STOPS |
-| WORKER_AGENT | team-worker | All workers spawned as team-worker agents |
+- SPAWN_MODE: background
+- ONE_STEP_PER_INVOCATION: true
+- FAST_ADVANCE_AWARE: true
+- WORKER_AGENT: team-worker
 
-### Role-Worker Map
+## Handler Router
+
+| Source | Handler |
+|--------|---------|
+| Message contains [scanner], [reviewer], [fixer] | handleCallback |
+| "capability_gap" | handleAdapt |
+| "check" or "status" | handleCheck |
+| "resume" or "continue" | handleResume |
+| All tasks completed | handleComplete |
+| Default | handleSpawnNext |
+
+## Role-Worker Map
 
 | Prefix | Role | Role Spec | inner_loop |
 |--------|------|-----------|------------|
-| SCAN | scanner | `.claude/skills/team-review/role-specs/scanner.md` | false |
-| REV | reviewer | `.claude/skills/team-review/role-specs/reviewer.md` | false |
-| FIX | fixer | `.claude/skills/team-review/role-specs/fixer.md` | false |
+| SCAN-* | scanner | `.claude/skills/team-review/roles/scanner/role.md` | false |
+| REV-* | reviewer | `.claude/skills/team-review/roles/reviewer/role.md` | false |
+| FIX-* | fixer | `.claude/skills/team-review/roles/fixer/role.md` | true |
 
-### Pipeline Modes
+## handleCallback
 
-| Mode | Stages |
-|------|--------|
-| scan-only | SCAN-001 |
-| default | SCAN-001 -> REV-001 |
-| full | SCAN-001 -> REV-001 -> FIX-001 |
-| fix-only | FIX-001 |
+Worker completed. Verify completion, check pipeline conditions, advance.
 
-## Phase 2: Context Loading
+1. Parse message to identify role and task ID:
 
-| Input | Source | Required |
-|-------|--------|----------|
-| Session file | `<session-folder>/.msg/meta.json` | Yes |
-| Task list | `TaskList()` | Yes |
-| Active workers | session.active_workers[] | Yes |
-| Pipeline mode | session.pipeline_mode | Yes |
+| Message Pattern | Role Detection |
+|----------------|---------------|
+| `[scanner]` or task ID `SCAN-*` | scanner |
+| `[reviewer]` or task ID `REV-*` | reviewer |
+| `[fixer]` or task ID `FIX-*` | fixer |
 
-```
-Load session state:
-  1. Read <session-folder>/.msg/meta.json -> session
-  2. TaskList() -> allTasks
-  3. Extract pipeline_mode from session
-  4. Extract active_workers[] from session (default: [])
-  5. Parse $ARGUMENTS to determine trigger event
-  6. autoYes = /\b(-y|--yes)\b/.test(args)
-```
+2. Check if progress update (inner loop) or final completion
+3. Progress -> update session state, STOP
+4. Completion -> mark task done via TaskUpdate(status="completed"), remove from active_workers
+5. Check for checkpoints:
+   - scanner completes -> read meta.json for findings_count:
+     - findings_count === 0 -> delete remaining REV-*/FIX-* tasks -> handleComplete
+     - findings_count > 0 -> proceed to handleSpawnNext
+   - reviewer completes AND pipeline_mode === 'full':
+     - autoYes flag set -> write fix-manifest.json, set fix_scope='all' -> handleSpawnNext
+     - NO autoYes -> AskUserQuestion:
+       ```
+       question: "<N> findings reviewed. Proceed with fix?"
+       options:
+         - "Fix all": set fix_scope='all'
+         - "Fix critical/high only": set fix_scope='critical,high'
+         - "Skip fix": delete FIX-* tasks -> handleComplete
+       ```
+       Write fix_scope to meta.json, write fix-manifest.json, -> handleSpawnNext
+   - fixer completes -> handleSpawnNext (checks for completion naturally)
 
-## Phase 3: Event Handlers
+6. -> handleSpawnNext
 
-### Wake-up Source Detection
+## handleCheck
 
-Parse `$ARGUMENTS` to determine handler:
+Read-only status report, then STOP.
 
-| Priority | Condition | Handler |
-|----------|-----------|---------|
-| 1 | Message contains `[scanner]`, `[reviewer]`, or `[fixer]` | handleCallback |
-| 2 | Contains "check" or "status" | handleCheck |
-| 3 | Contains "resume", "continue", or "next" | handleResume |
-| 4 | Pipeline detected as complete (no pending, no in_progress) | handleComplete |
-| 5 | None of the above (initial spawn after dispatch) | handleSpawnNext |
-
----
-
-### Handler: handleCallback
-
-Worker completed a task. Verify completion, check pipeline conditions, advance.
-
-```
-Receive callback from [<role>]
-  +- Find matching active worker by role tag
-  +- Task status = completed?
-  |   +- YES -> remove from active_workers -> update session
-  |   |   +- role = scanner?
-  |   |   |   +- Read session.findings_count from meta.json
-  |   |   |   +- findings_count === 0?
-  |   |   |   |   +- YES -> Skip remaining stages:
-  |   |   |   |   |   Delete all REV-* and FIX-* tasks (TaskUpdate status='deleted')
-  |   |   |   |   |   Log: "0 findings, skipping review/fix stages"
-  |   |   |   |   |   -> handleComplete
-  |   |   |   |   +- NO -> normal advance
-  |   |   |   +- -> handleSpawnNext
-  |   |   +- role = reviewer?
-  |   |   |   +- pipeline_mode === 'full'?
-  |   |   |   |   +- YES -> Need fix confirmation gate
-  |   |   |   |   |   +- autoYes?
-  |   |   |   |   |   |   +- YES -> Set fix_scope='all' in meta.json
-  |   |   |   |   |   |   +- Write fix-manifest.json
-  |   |   |   |   |   |   +- -> handleSpawnNext
-  |   |   |   |   |   +- NO -> AskUserQuestion:
-  |   |   |   |   |       question: "<N> findings reviewed. Proceed with fix?"
-  |   |   |   |   |       header: "Fix Confirmation"
-  |   |   |   |   |       options:
-  |   |   |   |   |         - "Fix all": Set fix_scope='all'
-  |   |   |   |   |         - "Fix critical/high only": Set fix_scope='critical,high'
-  |   |   |   |   |         - "Skip fix": Delete FIX-* tasks -> handleComplete
-  |   |   |   |   |       +- Write fix_scope to meta.json
-  |   |   |   |   |       +- Write fix-manifest.json:
-  |   |   |   |   |           { source: "<session>/review/review-report.json",
-  |   |   |   |   |             scope: fix_scope, session: sessionFolder }
-  |   |   |   |   |       +- -> handleSpawnNext
-  |   |   |   |   +- NO -> normal advance -> handleSpawnNext
-  |   |   +- role = fixer?
-  |   |       +- -> handleSpawnNext (checks for completion naturally)
-  |   +- NO -> progress message, do not advance -> STOP
-  +- No matching worker found
-      +- Scan all active workers for completed tasks
-      +- Found completed -> process each -> handleSpawnNext
-      +- None completed -> STOP
-```
-
----
-
-### Handler: handleSpawnNext
-
-Find all ready tasks, spawn one team-worker agent in background, update session, STOP.
-
-```
-Collect task states from TaskList()
-  +- completedSubjects: status = completed
-  +- inProgressSubjects: status = in_progress
-  +- deletedSubjects: status = deleted
-  +- readySubjects: status = pending
-      AND (no blockedBy OR all blockedBy in completedSubjects)
-
-Ready tasks found?
-  +- NONE + work in progress -> report waiting -> STOP
-  +- NONE + nothing in progress -> PIPELINE_COMPLETE -> handleComplete
-  +- HAS ready tasks -> take first ready task:
-      +- Determine role from prefix:
-      |   SCAN-* -> scanner
-      |   REV-*  -> reviewer
-      |   FIX-*  -> fixer
-      +- TaskUpdate -> in_progress
-      +- team_msg log -> task_unblocked (team_session_id=<session-id>)
-      +- Spawn team-worker (see spawn call below)
-      +- Add to session.active_workers
-      +- Update session file
-      +- Output: "[coordinator] Spawned <role> for <subject>"
-      +- STOP
-```
-
-**Spawn worker tool call**:
-
-```
-Agent({
-  agent_type: "team-worker",
-  description: "Spawn <role> worker for <subject>",
-  team_name: "review",
-  name: "<role>",
-  run_in_background: true,
-  prompt: `## Role Assignment
-role: <role>
-role_spec: .claude/skills/team-review/role-specs/<role>.md
-session: <session-folder>
-session_id: <session-id>
-team_name: review
-requirement: <task-description>
-inner_loop: false
-
-## Current Task
-- Task ID: <task-id>
-- Task: <subject>
-
-Read role_spec file to load Phase 2-4 domain instructions.
-Execute built-in Phase 1 -> role-spec Phase 2-4 -> built-in Phase 5.`
-})
-```
-
----
-
-### Handler: handleCheck
-
-Read-only status report. No pipeline advancement.
-
-**Output format**:
-
+Output:
 ```
 [coordinator] Review Pipeline Status
 [coordinator] Mode: <pipeline_mode>
 [coordinator] Progress: <completed>/<total> (<percent>%)
 
 [coordinator] Pipeline Graph:
-  SCAN-001: <status-icon> <summary>
-  REV-001:  <status-icon> <summary>
-  FIX-001:  <status-icon> <summary>
+  SCAN-001: <done|run|wait|deleted> <summary>
+  REV-001:  <done|run|wait|deleted> <summary>
+  FIX-001:  <done|run|wait|deleted> <summary>
 
-  done=completed  >>>=running  o=pending  x=deleted  .=not created
+  done=completed  >>>=running  o=pending  x=deleted
 
-[coordinator] Active Workers:
-  > <subject> (<role>) - running
-
+[coordinator] Active Workers: <list with elapsed time>
 [coordinator] Ready to spawn: <subjects>
 [coordinator] Commands: 'resume' to advance | 'check' to refresh
 ```
 
 Then STOP.
 
----
+## handleResume
 
-### Handler: handleResume
+1. No active workers -> handleSpawnNext
+2. Has active -> check each status
+   - completed -> mark done via TaskUpdate
+   - in_progress -> still running
+   - other -> worker failure -> reset to pending
+3. Some completed -> handleSpawnNext
+4. All running -> report status, STOP
 
-Check active worker completion, process results, advance pipeline.
+## handleSpawnNext
+
+Find ready tasks, spawn workers, STOP.
+
+1. Collect from TaskList():
+   - completedSubjects: status = completed
+   - inProgressSubjects: status = in_progress
+   - deletedSubjects: status = deleted
+   - readySubjects: status = pending AND all blockedBy in completedSubjects
+
+2. No ready + work in progress -> report waiting, STOP
+3. No ready + nothing in progress -> handleComplete
+4. Has ready -> take first ready task:
+   a. Determine role from prefix (use Role-Worker Map)
+   b. TaskUpdate -> in_progress
+   c. team_msg log -> task_unblocked
+   d. Spawn team-worker:
 
 ```
-Load active_workers from session
-  +- No active workers -> handleSpawnNext
-  +- Has active workers -> check each:
-      +- status = completed -> mark done, remove from active_workers, log
-      +- status = in_progress -> still running, log
-      +- other status -> worker failure -> reset to pending
-      After processing:
-        +- Some completed -> handleSpawnNext
-        +- All still running -> report status -> STOP
-        +- All failed -> handleSpawnNext (retry)
+Agent({
+  subagent_type: "team-worker",
+  description: "Spawn <role> worker for <subject>",
+  team_name: "review",
+  name: "<role>",
+  run_in_background: true,
+  prompt: `## Role Assignment
+role: <role>
+role_spec: .claude/skills/team-review/roles/<role>/role.md
+session: <session-folder>
+session_id: <session-id>
+team_name: review
+requirement: <task-description>
+inner_loop: <true|false>
+
+## Current Task
+- Task ID: <task-id>
+- Task: <subject>
+
+Read role_spec file to load Phase 2-4 domain instructions.
+Execute built-in Phase 1 (task discovery) -> role Phase 2-4 -> built-in Phase 5 (report).`
+})
 ```
 
----
+   e. Add to active_workers
+5. Update session meta.json, output summary, STOP
 
-### Handler: handleComplete
+## handleComplete
 
-Pipeline complete. Generate summary and finalize session.
+Pipeline done. Generate report and completion action.
 
-```
-All tasks completed or deleted (no pending, no in_progress)
-  +- Read final session state from meta.json
-  +- Generate pipeline summary:
-  |   - Pipeline mode
-  |   - Findings count
-  |   - Stages completed
-  |   - Fix results (if applicable)
-  |   - Deliverable paths
-  |
-  +- Update session:
-  |   session.pipeline_status = 'complete'
-  |   session.completed_at = <timestamp>
-  |   Write meta.json
-  |
-  +- team_msg log -> pipeline_complete
-  +- Output summary to user
-  +- STOP
-```
+1. All tasks completed or deleted (no pending, no in_progress)
+2. Read final session state from meta.json
+3. Generate pipeline summary: mode, target, findings_count, stages_completed, fix results (if applicable), deliverable paths
+4. Update session: pipeline_status='complete', completed_at=<timestamp>
+5. Read session.completion_action:
+   - interactive -> AskUserQuestion (Archive/Keep/Export)
+   - auto_archive -> Archive & Clean (status=completed, TeamDelete)
+   - auto_keep -> Keep Active (status=paused)
 
----
+## handleAdapt
 
-### Worker Failure Handling
+Capability gap reported mid-pipeline.
 
-When a worker has unexpected status (not completed, not in_progress):
+1. Parse gap description
+2. Check if existing role covers it -> redirect
+3. Role count < 4 -> generate dynamic role-spec in <session>/role-specs/
+4. Create new task, spawn worker
+5. Role count >= 4 -> merge or pause
 
-1. Reset task -> pending via TaskUpdate
-2. Remove from active_workers
-3. Log via team_msg (type: error)
-4. Report to user: task reset, will retry on next resume
+## Fast-Advance Reconciliation
+
+On every coordinator wake:
+1. Read team_msg entries with type="fast_advance"
+2. Sync active_workers with spawned successors
+3. No duplicate spawns
 
 ## Phase 4: State Persistence
 
-After every handler action, before STOP:
-
-| Check | Action |
-|-------|--------|
-| Session state consistent | active_workers matches TaskList in_progress tasks |
-| No orphaned tasks | Every in_progress task has an active_worker entry |
-| Meta.json updated | Write updated session state |
-| Completion detection | readySubjects=0 + inProgressSubjects=0 -> handleComplete |
-
-```
-Persist:
-  1. Reconcile active_workers with actual TaskList states
-  2. Remove entries for completed/deleted tasks
-  3. Write updated meta.json
-  4. Verify consistency
-  5. STOP (wait for next callback)
-```
+After every handler execution:
+1. Reconcile active_workers with actual TaskList states
+2. Remove entries for completed/deleted tasks
+3. Write updated meta.json
+4. STOP (wait for next callback)
 
 ## Error Handling
 
@@ -278,7 +186,7 @@ Persist:
 |----------|------------|
 | Session file not found | Error, suggest re-initialization |
 | Worker callback from unknown role | Log info, scan for other completions |
-| All workers still running on resume | Report status, suggest check later |
-| Pipeline stall (no ready, no running, has pending) | Check blockedBy chains, report to user |
 | 0 findings after scan | Delete remaining stages, complete pipeline |
-| User declines fix | Delete FIX tasks, complete with review-only results |
+| User declines fix | Delete FIX-* tasks, complete with review-only results |
+| Pipeline stall | Check blockedBy chains, report to user |
+| Worker failure | Reset task to pending, respawn on next resume |

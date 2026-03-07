@@ -67,11 +67,29 @@ const STALE_TIME = 5 * 60 * 1000;
 // Default garbage collection time: 10 minutes
 const GC_TIME = 10 * 60 * 1000;
 
+// Request timeout: 10 seconds
+const REQUEST_TIMEOUT = 10 * 1000;
+
+/**
+ * Fetch with timeout wrapper
+ */
+async function fetchWithTimeout(url: string, timeout: number = REQUEST_TIMEOUT): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    return response;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 /**
  * Fetch list of documented files
  */
 async function fetchDeepWikiFiles(): Promise<DeepWikiFile[]> {
-  const response = await fetch('/api/deepwiki/files');
+  const response = await fetchWithTimeout('/api/deepwiki/files');
   if (!response.ok) {
     throw new Error(`Failed to fetch files: ${response.statusText}`);
   }
@@ -82,7 +100,7 @@ async function fetchDeepWikiFiles(): Promise<DeepWikiFile[]> {
  * Fetch document by source file path
  */
 async function fetchDeepWikiDoc(filePath: string): Promise<DocumentResponse> {
-  const response = await fetch(`/api/deepwiki/doc?path=${encodeURIComponent(filePath)}`);
+  const response = await fetchWithTimeout(`/api/deepwiki/doc?path=${encodeURIComponent(filePath)}`);
   if (!response.ok) {
     if (response.status === 404) {
       return { doc: null, content: '', symbols: [] };
@@ -96,7 +114,7 @@ async function fetchDeepWikiDoc(filePath: string): Promise<DocumentResponse> {
  * Fetch DeepWiki statistics
  */
 async function fetchDeepWikiStats(): Promise<DeepWikiStats> {
-  const response = await fetch('/api/deepwiki/stats');
+  const response = await fetchWithTimeout('/api/deepwiki/stats');
   if (!response.ok) {
     throw new Error(`Failed to fetch stats: ${response.statusText}`);
   }
@@ -107,7 +125,7 @@ async function fetchDeepWikiStats(): Promise<DeepWikiStats> {
  * Search symbols by query
  */
 async function searchDeepWikiSymbols(query: string, limit = 50): Promise<DeepWikiSymbol[]> {
-  const response = await fetch(`/api/deepwiki/search?q=${encodeURIComponent(query)}&limit=${limit}`);
+  const response = await fetchWithTimeout(`/api/deepwiki/search?q=${encodeURIComponent(query)}&limit=${limit}`);
   if (!response.ok) {
     throw new Error(`Failed to search symbols: ${response.statusText}`);
   }

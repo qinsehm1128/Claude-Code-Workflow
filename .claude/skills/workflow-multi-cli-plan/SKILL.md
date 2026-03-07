@@ -10,45 +10,11 @@ allowed-tools: Skill, Agent, AskUserQuestion, TodoWrite, Read, Write, Edit, Bash
 
 When `workflowPreferences.autoYes` is true: Auto-approve plan, use recommended solution and execution method (Agent, Skip review).
 
-## Quick Start
-
-```bash
-# Basic usage
-/workflow-multi-cli-plan "Implement user authentication"
-
-# With options
-/workflow-multi-cli-plan "Add dark mode support" --max-rounds=3
-/workflow-multi-cli-plan "Refactor payment module" --tools=gemini,codex,claude
-/workflow-multi-cli-plan "Fix memory leak" --mode=serial
-```
-
 **Context Source**: ACE semantic search + Multi-CLI analysis
 **Output Directory**: `.workflow/.multi-cli-plan/{session-id}/`
 **Default Max Rounds**: 3 (convergence may complete earlier)
 **CLI Tools**: @cli-discuss-agent (analysis), @cli-lite-planning-agent (plan generation)
 **Execution**: Auto-hands off to workflow-lite-execute after plan approval
-
-## What & Why
-
-### Core Concept
-
-Multi-CLI collaborative planning with **three-phase architecture**: ACE context gathering → Iterative multi-CLI discussion → Plan generation. Orchestrator delegates analysis to agents, only handles user decisions and session management.
-
-**Process**:
-- **Phase 1**: ACE semantic search gathers codebase context
-- **Phase 2**: cli-discuss-agent orchestrates Gemini/Codex/Claude for cross-verified analysis
-- **Phase 3-5**: User decision → Plan generation → Execution handoff
-
-**vs Single-CLI Planning**:
-- **Single**: One model perspective, potential blind spots
-- **Multi-CLI**: Cross-verification catches inconsistencies, builds consensus on solutions
-
-### Value Proposition
-
-1. **Multi-Perspective Analysis**: Gemini + Codex + Claude analyze from different angles
-2. **Cross-Verification**: Identify agreements/disagreements, build confidence
-3. **User-Driven Decisions**: Every round ends with user decision point
-4. **Iterative Convergence**: Progressive refinement until consensus reached
 
 ### Orchestrator Boundary (CRITICAL)
 
@@ -123,14 +89,7 @@ const aceQueries = [
 
 ### Phase 2: Agent Delegation
 
-**Core Principle**: Orchestrator only delegates and reads output - NO direct CLI execution.
-
-**⚠️ CRITICAL - CLI EXECUTION REQUIREMENT**:
-- **MUST** execute CLI calls via `Bash` with `run_in_background: true`
-- **MUST** wait for hook callback to receive complete results
-- **MUST NOT** proceed with next phase until CLI execution fully completes
-- Do NOT use `TaskOutput` polling during CLI execution - wait passively for results
-- Minimize scope: Proceed only when 100% result available
+**Core Principle**: Orchestrator only delegates and reads output — NO direct CLI execution. CLI calls MUST use `Bash` with `run_in_background: true`, wait for hook callback, do NOT use `TaskOutput` polling.
 
 **Agent Invocation**:
 ```javascript
@@ -143,7 +102,7 @@ Agent({
 - task_description: ${taskDescription}
 - round_number: ${currentRound}
 - session: { id: "${sessionId}", folder: "${sessionFolder}" }
-- ace_context: ${JSON.stringify(contextPackageage)}
+- ace_context: ${JSON.stringify(contextPackage)}
 - previous_rounds: ${JSON.stringify(analysisResults)}
 - user_feedback: ${userFeedback || 'None'}
 - cli_config: { tools: ["gemini", "codex"], mode: "parallel", fallback_chain: ["gemini", "codex", "claude"] }
@@ -191,31 +150,10 @@ if (synthesis.convergence.recommendation === 'converged') {
 
 ### Phase 3: Present Options
 
-**Display from Agent Output** (no processing):
-```javascript
-console.log(`
-## Solution Options
-
-${synthesis.solutions.map((s, i) => `
-**Option ${i+1}: ${s.name}**
-Source: ${s.source_cli.join(' + ')}
-Effort: ${s.effort} | Risk: ${s.risk}
-
-Pros: ${s.pros.join(', ')}
-Cons: ${s.cons.join(', ')}
-
-Files: ${s.affected_files.slice(0,3).map(f => `${f.file}:${f.line}`).join(', ')}
-`).join('\n')}
-
-## Cross-Verification
-Agreements: ${synthesis.cross_verification.agreements.length}
-Disagreements: ${synthesis.cross_verification.disagreements.length}
-`)
-```
+Display solutions from `synthesis.solutions[]` showing: name, source CLIs, effort/risk, pros/cons, affected files (`file:line`). Also show cross-verification agreements/disagreements count.
 
 ### Phase 4: User Decision
 
-**Decision Options**:
 ```javascript
 AskUserQuestion({
   questions: [
@@ -277,9 +215,7 @@ TodoWrite({ todos: [
 
 **Step 1: Build Context-Package** (Orchestrator responsibility):
 ```javascript
-// Extract key information from user decision and synthesis
 const contextPackage = {
-  // Core solution details
   solution: {
     name: selectedSolution.name,
     source_cli: selectedSolution.source_cli,
@@ -288,25 +224,17 @@ const contextPackage = {
     risk: selectedSolution.risk,
     summary: selectedSolution.summary
   },
-  // Implementation plan (tasks, flow, milestones)
   implementation_plan: selectedSolution.implementation_plan,
-  // Dependencies
   dependencies: selectedSolution.dependencies || { internal: [], external: [] },
-  // Technical concerns
   technical_concerns: selectedSolution.technical_concerns || [],
-  // Consensus from cross-verification
   consensus: {
     agreements: synthesis.cross_verification.agreements,
     resolved_conflicts: synthesis.cross_verification.resolution
   },
-  // User constraints (from Phase 4 feedback)
   constraints: userConstraints || [],
-  // Task context
   task_description: taskDescription,
   session_id: sessionId
 }
-
-// Write context-package for traceability
 Write(`${sessionFolder}/context-package.json`, JSON.stringify(contextPackage, null, 2))
 ```
 
@@ -367,32 +295,26 @@ ${JSON.stringify(contextPackage, null, 2)}
 
 **Step 3: Build executionContext**:
 ```javascript
-// After plan.json is generated by cli-lite-planning-agent
 const plan = JSON.parse(Read(`${sessionFolder}/plan.json`))
-
-// Load task files from .task/ directory (two-layer format)
 const taskFiles = plan.task_ids.map(id => `${sessionFolder}/.task/${id}.json`)
 
 // Build executionContext (same structure as lite-plan)
 executionContext = {
   planObject: plan,
-  taskFiles: taskFiles,  // Paths to .task/*.json files (two-layer format)
-  explorationsContext: null,  // Multi-CLI doesn't use exploration files
-  explorationAngles: [],      // No exploration angles
-  explorationManifest: null,  // No manifest
-  clarificationContext: null,  // Store user feedback from Phase 2 if exists
-  executionMethod: userSelection.execution_method,  // From Phase 4
-  codeReviewTool: userSelection.code_review_tool,   // From Phase 4
+  taskFiles: taskFiles,                              // Paths to .task/*.json files (two-layer format)
+  explorationsContext: null,                          // Multi-CLI doesn't use exploration files
+  explorationAngles: [],
+  explorationManifest: null,
+  clarificationContext: null,                         // Store user feedback from Phase 2 if exists
+  executionMethod: userSelection.execution_method,    // From Phase 4
+  codeReviewTool: userSelection.code_review_tool,     // From Phase 4
   originalUserInput: taskDescription,
-
-  // Optional: Task-level executor assignments
-  executorAssignments: null,  // Could be enhanced in future
-
+  executorAssignments: null,
   session: {
     id: sessionId,
     folder: sessionFolder,
     artifacts: {
-      explorations: [],  // No explorations in multi-CLI workflow
+      explorations: [],                              // No explorations in multi-CLI workflow
       explorations_manifest: null,
       plan: `${sessionFolder}/plan.json`,
       task_dir: plan.task_ids ? `${sessionFolder}/.task/` : null,
@@ -407,29 +329,11 @@ executionContext = {
 
 **Step 4: Hand off to Execution**:
 ```javascript
-// Skill handoff: Invoke workflow-lite-execute with in-memory context
 Skill({
   skill: "workflow-lite-execute",
   args: "--in-memory"
 })
 // executionContext is passed via global variable to workflow-lite-execute (Mode 1: In-Memory Plan)
-```
-
-## Output File Structure
-
-```
-.workflow/.multi-cli-plan/{MCP-task-slug-YYYY-MM-DD}/
-├── session-state.json          # Session tracking (orchestrator)
-├── rounds/
-│   ├── 1/synthesis.json        # Round 1 analysis (cli-discuss-agent)
-│   ├── 2/synthesis.json        # Round 2 analysis (cli-discuss-agent)
-│   └── .../
-├── context-package.json        # Extracted context for planning (orchestrator)
-├── plan.json                   # Plan overview with task_ids[] (NO embedded tasks[])
-└── .task/                      # Independent task files
-    ├── TASK-001.json            # Task file following task-schema.json
-    ├── TASK-002.json
-    └── ...
 ```
 
 ## synthesis.json Schema
@@ -469,9 +373,9 @@ Skill({
 }
 ```
 
-## TodoWrite Structure
+## TodoWrite Pattern
 
-**Initialization**:
+**Initialization** (Phase 1 start):
 ```javascript
 TodoWrite({ todos: [
   { content: "Phase 1: Context Gathering", status: "in_progress", activeForm: "Gathering context" },
@@ -480,6 +384,23 @@ TodoWrite({ todos: [
   { content: "Phase 4: User Decision", status: "pending", activeForm: "Awaiting decision" },
   { content: "Phase 5: Plan Generation", status: "pending", activeForm: "Generating plan" }
 ]})
+```
+
+## Output File Structure
+
+```
+.workflow/.multi-cli-plan/{MCP-task-slug-YYYY-MM-DD}/
+├── session-state.json          # Session tracking (orchestrator)
+├── rounds/
+│   ├── 1/synthesis.json        # Round 1 analysis (cli-discuss-agent)
+│   ├── 2/synthesis.json        # Round 2 analysis (cli-discuss-agent)
+│   └── .../
+├── context-package.json        # Extracted context for planning (orchestrator)
+├── plan.json                   # Plan overview with task_ids[] (NO embedded tasks[])
+└── .task/                      # Independent task files
+    ├── TASK-001.json            # Task file following task-schema.json
+    ├── TASK-002.json
+    └── ...
 ```
 
 ## Error Handling
@@ -501,22 +422,3 @@ TodoWrite({ todos: [
 | `--tools` | gemini,codex | CLI tools for analysis |
 | `--mode` | parallel | Execution mode: parallel or serial |
 | `--auto-execute` | false | Auto-execute after approval |
-
-## Related Commands
-
-```bash
-# Simpler single-round planning
-/workflow-lite-plan "task description"
-
-# Issue-driven discovery
-/issue:discover-by-prompt "find issues"
-
-# View session files
-cat .workflow/.multi-cli-plan/{session-id}/plan.json
-cat .workflow/.multi-cli-plan/{session-id}/rounds/1/synthesis.json
-cat .workflow/.multi-cli-plan/{session-id}/context-package.json
-```
-
-## Next Phase
-
-Auto-continue via `Skill({ skill: "workflow-lite-execute", args: "--in-memory" })` with executionContext.

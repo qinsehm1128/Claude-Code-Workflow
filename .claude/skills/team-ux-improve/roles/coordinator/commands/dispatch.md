@@ -47,8 +47,7 @@ CONSTRAINTS: <scope limits, focus areas>
 ---
 InnerLoop: <true|false>
 <additional-metadata-fields>",
-  blockedBy: [<dependency-list>],
-  status: "pending"
+  blockedBy: [<dependency-list>]
 })
 ```
 

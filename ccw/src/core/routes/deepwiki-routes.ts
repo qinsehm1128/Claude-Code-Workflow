@@ -11,13 +11,22 @@
 
 import type { RouteContext } from './types.js';
 import { getDeepWikiService } from '../../services/deepwiki-service.js';
+import { handleDeepWikiRoutes as handleDeepWikiPostRoutes } from '../../services/deepwiki-service.js';
 
 /**
  * Handle DeepWiki routes
  * @returns true if route was handled, false otherwise
  */
 export async function handleDeepWikiRoutes(ctx: RouteContext): Promise<boolean> {
-  const { pathname, url, res } = ctx;
+  const { pathname, url, res, req } = ctx;
+
+  // POST endpoints implemented in the DeepWiki service module.
+  if (
+    (pathname === '/api/deepwiki/symbols-for-paths' || pathname === '/api/deepwiki/stale-files') &&
+    req.method === 'POST'
+  ) {
+    return handleDeepWikiPostRoutes({ pathname, req, res });
+  }
 
   // GET /api/deepwiki/files - List all documented files
   if (pathname === '/api/deepwiki/files') {

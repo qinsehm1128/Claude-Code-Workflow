@@ -9,8 +9,9 @@ Requires-Python: >=3.10
 Description-Content-Type: text/markdown
 License-File: LICENSE
 Requires-Dist: typer~=0.9.0
+Requires-Dist: click<9,>=8.0.0
 Requires-Dist: rich~=13.0.0
-Requires-Dist: pydantic~=2.0.0
+Requires-Dist: pydantic>=2.5.0
 Requires-Dist: tree-sitter~=0.20.0
 Requires-Dist: tree-sitter-python~=0.25.0
 Requires-Dist: tree-sitter-javascript~=0.25.0
@@ -20,16 +21,16 @@ Requires-Dist: watchdog~=3.0.0
 Requires-Dist: ast-grep-py~=0.40.0
 Provides-Extra: semantic
 Requires-Dist: numpy~=1.26.0; extra == "semantic"
-Requires-Dist: fastembed~=0.2.0; extra == "semantic"
+Requires-Dist: fastembed~=0.2.1; extra == "semantic"
 Requires-Dist: hnswlib~=0.8.0; extra == "semantic"
 Provides-Extra: semantic-gpu
 Requires-Dist: numpy~=1.26.0; extra == "semantic-gpu"
-Requires-Dist: fastembed~=0.2.0; extra == "semantic-gpu"
+Requires-Dist: fastembed~=0.2.1; extra == "semantic-gpu"
 Requires-Dist: hnswlib~=0.8.0; extra == "semantic-gpu"
 Requires-Dist: onnxruntime-gpu~=1.15.0; extra == "semantic-gpu"
 Provides-Extra: semantic-directml
 Requires-Dist: numpy~=1.26.0; extra == "semantic-directml"
-Requires-Dist: fastembed~=0.2.0; extra == "semantic-directml"
+Requires-Dist: fastembed~=0.2.1; extra == "semantic-directml"
 Requires-Dist: hnswlib~=0.8.0; extra == "semantic-directml"
 Requires-Dist: onnxruntime-directml~=1.15.0; extra == "semantic-directml"
 Provides-Extra: reranker-onnx

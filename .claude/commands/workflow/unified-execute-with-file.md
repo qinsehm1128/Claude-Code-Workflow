@@ -658,9 +658,15 @@ ${recommendations.map(r => \`- ${r}\`).join('\\n')}
    - "优化执行" → Analyze execution improvements
    - "完成" → No further action
 
+5. **Sync Session State** (automatic, unless `--dry-run`)
+   - Execute: `/workflow:session:sync -y "Execution complete: ${completedCount}/${totalCount} tasks succeeded"`
+   - Updates specs/*.md with any learnings from execution
+   - Updates project-tech.json with development index entry
+
 **Success Criteria**:
 - [ ] Statistics collected and displayed
 - [ ] execution.md updated with final status
+- [ ] Session state synced via /workflow:session:sync
 - [ ] User informed of completion
 
 ---

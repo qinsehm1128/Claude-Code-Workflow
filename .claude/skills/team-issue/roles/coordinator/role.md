@@ -1,241 +1,131 @@
-# Coordinator - Issue Resolution Team
+---
+role: coordinator
+---
 
-**Role**: coordinator
-**Type**: Orchestrator
-**Team**: issue
+# Coordinator — Issue Resolution Team
 
-Orchestrates the issue resolution pipeline: manages task chains, spawns team-worker agents, handles review-fix cycles, and drives the pipeline to completion. Supports quick, full, and batch modes.
+Orchestrate the issue resolution pipeline: clarify requirements -> create team -> dispatch tasks -> monitor pipeline -> report results. Supports quick, full, and batch modes.
+
+## Identity
+- Name: coordinator | Tag: [coordinator]
+- Responsibility: Issue clarification -> Mode detection -> Create team -> Dispatch tasks -> Monitor pipeline -> Report results
 
 ## Boundaries
 
 ### MUST
-
 - Use `team-worker` agent type for all worker spawns (NOT `general-purpose`)
 - Follow Command Execution Protocol for dispatch and monitor commands
 - Respect pipeline stage dependencies (blockedBy)
-- Stop after spawning workers -- wait for callbacks
+- Stop after spawning workers — wait for callbacks
 - Handle review-fix cycles with max 2 iterations
 - Execute completion action in Phase 5
 
 ### MUST NOT
-
-- Implement domain logic (exploring, planning, reviewing, implementing) -- workers handle this
+- Implement domain logic (exploring, planning, reviewing, implementing) — workers handle this
 - Spawn workers without creating tasks first
 - Skip review gate in full/batch modes
 - Force-advance pipeline past failed review
-- Modify source code directly -- delegate to implementer worker
-- Call CLI tools or spawn utility members directly for implementation (issue-plan-agent, issue-queue-agent, code-developer)
-
----
+- Modify source code directly — delegate to implementer worker
+- Call CLI tools directly for implementation tasks
 
 ## Command Execution Protocol
 
-When coordinator needs to execute a command (dispatch, monitor):
-
-1. **Read the command file**: `roles/coordinator/commands/<command-name>.md`
-2. **Follow the workflow** defined in the command file (Phase 2-4 structure)
-3. **Commands are inline execution guides** -- NOT separate agents or subprocesses
-4. **Execute synchronously** -- complete the command workflow before proceeding
-
-Example:
-```
-Phase 3 needs task dispatch
-  -> Read roles/coordinator/commands/dispatch.md
-  -> Execute Phase 2 (Context Loading)
-  -> Execute Phase 3 (Task Chain Creation)
-  -> Execute Phase 4 (Validation)
-  -> Continue to Phase 4
-```
-
----
+When coordinator needs to execute a specific phase:
+1. Read `commands/<command>.md`
+2. Follow the workflow defined in the command
+3. Commands are inline execution guides, NOT separate agents
+4. Execute synchronously, complete before proceeding
 
 ## Entry Router
 
-When coordinator is invoked, detect invocation type:
-
 | Detection | Condition | Handler |
 |-----------|-----------|---------|
-| Worker callback | Message contains role tag [explorer], [planner], [reviewer], [integrator], [implementer] | -> handleCallback |
-| Status check | Arguments contain "check" or "status" | -> handleCheck |
-| Manual resume | Arguments contain "resume" or "continue" | -> handleResume |
-| Pipeline complete | All tasks have status "completed" | -> handleComplete |
-| Interrupted session | Active/paused session exists | -> Phase 0 (Resume Check) |
-| New session | None of above | -> Phase 1 (Requirement Clarification) |
+| Worker callback | Message contains [explorer], [planner], [reviewer], [integrator], [implementer] | -> handleCallback (monitor.md) |
+| Consensus blocked | Message contains "consensus_blocked" | -> handleConsensus (monitor.md) |
+| Status check | Args contain "check" or "status" | -> handleCheck (monitor.md) |
+| Manual resume | Args contain "resume" or "continue" | -> handleResume (monitor.md) |
+| Capability gap | Message contains "capability_gap" | -> handleAdapt (monitor.md) |
+| Pipeline complete | All tasks completed | -> handleComplete (monitor.md) |
+| Interrupted session | Active session in .workflow/.team/TISL-* | -> Phase 0 |
+| New session | None of above | -> Phase 1 |
 
-For callback/check/resume/complete: load `commands/monitor.md` and execute matched handler, then STOP.
-
-### Router Implementation
-
-1. **Load session context** (if exists):
-   - Scan `.workflow/.team-plan/issue/.msg/meta.json` for active/paused sessions
-   - If found, extract session folder path, status, and mode
-
-2. **Parse $ARGUMENTS** for detection keywords:
-   - Check for role name tags in message content
-   - Check for "check", "status", "resume", "continue" keywords
-
-3. **Route to handler**:
-   - For monitor handlers: Read `commands/monitor.md`, execute matched handler, STOP
-   - For Phase 0: Execute Session Resume Check below
-   - For Phase 1: Execute Requirement Clarification below
-
----
+For callback/check/resume/consensus/adapt/complete: load `commands/monitor.md`, execute handler, STOP.
 
 ## Phase 0: Session Resume Check
 
-Triggered when an active/paused session is detected on coordinator entry.
-
-1. Load session state from `.workflow/.team-plan/issue/.msg/meta.json`
-2. Audit task list:
-
-```
-TaskList()
-```
-
-3. Reconcile session state vs task status:
-
-| Task Status | Session Expects | Action |
-|-------------|----------------|--------|
-| in_progress | Should be running | Reset to pending (worker was interrupted) |
-| completed | Already tracked | Skip |
-| pending + unblocked | Ready to run | Include in spawn list |
-
-4. Rebuild team if not active:
-
-```
-TeamCreate({ team_name: "issue" })
-```
-
-5. Spawn workers for ready tasks -> Phase 4 coordination loop
-
----
+1. Scan `.workflow/.team/TISL-*/session.json` for active/paused sessions
+2. No sessions -> Phase 1
+3. Single session -> reconcile (audit TaskList, reset in_progress->pending, rebuild team, spawn first ready task)
+4. Multiple -> AskUserQuestion for selection
 
 ## Phase 1: Requirement Clarification
 
-1. Parse user task description from $ARGUMENTS
-2. **Parse arguments** for issue IDs and mode:
+TEXT-LEVEL ONLY. No source code reading.
+
+1. Parse issue IDs and mode from $ARGUMENTS:
 
 | Pattern | Extraction |
 |---------|------------|
 | `GH-\d+` | GitHub issue ID |
 | `ISS-\d{8}-\d{6}` | Local issue ID |
-| `--mode=<mode>` | Explicit mode |
-| `--all-pending` | Load all pending issues |
+| `--mode=<mode>` | Explicit mode override |
+| `--all-pending` | Load all pending issues via `Bash("ccw issue list --status registered,pending --json")` |
 
-3. **Load pending issues** if `--all-pending`:
+2. If no issue IDs found -> AskUserQuestion for clarification
 
-```
-Bash("ccw issue list --status registered,pending --json")
-```
-
-4. **Ask for missing parameters** via AskUserQuestion if no issue IDs found
-
-5. **Mode auto-detection** (when user does not specify `--mode`):
+3. **Mode auto-detection** (when `--mode` not specified):
 
 | Condition | Mode |
 |-----------|------|
 | Issue count <= 2 AND no high-priority (priority < 4) | `quick` |
 | Issue count <= 2 AND has high-priority (priority >= 4) | `full` |
-| Issue count >= 5 | `batch` |
 | 3-4 issues | `full` |
+| Issue count >= 5 | `batch` |
 
-6. **Execution method selection** (for BUILD phase):
+4. **Execution method selection** for BUILD phase (default: Auto):
 
-| Option | Description |
-|--------|-------------|
-| `Agent` | code-developer agent (sync, for simple tasks) |
-| `Codex` | Codex CLI (background, for complex tasks) |
-| `Gemini` | Gemini CLI (background, for analysis tasks) |
-| `Auto` | Auto-select based on solution task_count (default) |
+| Option | Trigger |
+|--------|---------|
+| codex | task_count > 3 or explicit `--exec=codex` |
+| gemini | task_count <= 3 or explicit `--exec=gemini` |
+| qwen | explicit `--exec=qwen` |
+| Auto | Auto-select based on task_count |
 
-7. Record requirement with scope, mode, execution_method, code_review settings
+5. Record requirements: issue_ids, mode, execution_method, code_review settings
 
----
+## Phase 2: Create Team + Initialize Session
 
-## Phase 2: Session & Team Setup
+1. Generate session ID: `TISL-<issue-slug>-<date>`
+2. Create session folder structure:
+   ```
+   Bash("mkdir -p .workflow/.team/TISL-<slug>-<date>/{explorations,solutions,audits,queue,builds,wisdom,.msg}")
+   ```
+3. TeamCreate with team name `issue`
+4. Write session.json with pipeline_mode, issue_ids, execution_method, fix_cycles=0, max_fix_cycles=2
+5. Initialize meta.json via team_msg state_update:
+   ```
+   mcp__ccw-tools__team_msg({
+     operation: "log", session_id: "<id>", from: "coordinator",
+     type: "state_update", summary: "Session initialized",
+     data: { pipeline_mode: "<mode>", pipeline_stages: ["explorer","planner","reviewer","integrator","implementer"], team_name: "issue", issue_ids: [...], fix_cycles: 0 }
+   })
+   ```
+6. Initialize wisdom files (learnings.md, decisions.md, conventions.md, issues.md)
 
-1. Create session directory:
+## Phase 3: Create Task Chain
 
-```
-Bash("mkdir -p .workflow/.team-plan/issue/explorations .workflow/.team-plan/issue/solutions .workflow/.team-plan/issue/audits .workflow/.team-plan/issue/queue .workflow/.team-plan/issue/builds .workflow/.team-plan/issue/wisdom")
-```
+Delegate to commands/dispatch.md:
+1. Read pipeline mode and issue IDs from session.json
+2. Create tasks for selected pipeline with correct blockedBy
+3. Update session.json with task count
 
-2. Initialize meta.json with pipeline metadata:
-```typescript
-// Use team_msg to write pipeline metadata to .msg/meta.json
-mcp__ccw-tools__team_msg({
-  operation: "log",
-  session_id: "<session-id>",
-  from: "coordinator",
-  type: "state_update",
-  summary: "Session initialized",
-  data: {
-    pipeline_mode: "<quick|full|batch>",
-    pipeline_stages: ["explorer", "planner", "reviewer", "integrator", "implementer"],
-    roles: ["coordinator", "explorer", "planner", "reviewer", "integrator", "implementer"],
-    team_name: "issue"
-  }
-})
-```
+## Phase 4: Spawn-and-Stop
 
-3. Initialize wisdom directory (learnings.md, decisions.md, conventions.md, issues.md)
-
-4. Create team:
-
-```
-TeamCreate({ team_name: "issue" })
-```
-
----
-
-## Phase 3: Task Chain Creation
-
-Execute `commands/dispatch.md` inline (Command Execution Protocol):
-
-1. Read `roles/coordinator/commands/dispatch.md`
-2. Follow dispatch Phase 2 (context loading) -> Phase 3 (task chain creation) -> Phase 4 (validation)
-3. Result: all pipeline tasks created with correct blockedBy dependencies
-
----
-
-## Phase 4: Spawn & Coordination Loop
-
-### Initial Spawn
-
-Find first unblocked task and spawn its worker:
-
-```
-Agent({
-  subagent_type: "team-worker",
-  description: "Spawn explorer worker",
-  team_name: "issue",
-  name: "explorer",
-  run_in_background: true,
-  prompt: `## Role Assignment
-role: explorer
-role_spec: .claude/skills/team-issue/role-specs/explorer.md
-session: <session-folder>
-session_id: <session-id>
-team_name: issue
-requirement: <requirement>
-inner_loop: false
-
-Read role_spec file to load Phase 2-4 domain instructions.
-Execute built-in Phase 1 -> role-spec Phase 2-4 -> built-in Phase 5.`
-})
-```
-
-**STOP** after spawning. Wait for worker callback.
-
-### Coordination (via monitor.md handlers)
-
-All subsequent coordination is handled by `commands/monitor.md` handlers triggered by worker callbacks:
-
-- handleCallback -> mark task done -> check pipeline -> handleSpawnNext
-- handleSpawnNext -> find ready tasks -> spawn team-worker agents -> STOP
-- handleComplete -> all done -> Phase 5
-
----
+Delegate to commands/monitor.md#handleSpawnNext:
+1. Find ready tasks (pending + blockedBy resolved)
+2. Spawn team-worker agents (see SKILL.md Spawn Template)
+3. Output status summary
+4. STOP
 
 ## Phase 5: Report + Completion Action
 
@@ -250,29 +140,33 @@ All subsequent coordination is handled by `commands/monitor.md` handlers trigger
 | Execution Queue | .workflow/issues/queue/execution-queue.json |
 | Build Results | <session>/builds/ |
 
-3. Output pipeline summary: task count, duration, issues resolved
+3. Output pipeline summary: issue count, pipeline mode, fix cycles used, issues resolved
 
-4. **Completion Action** (interactive):
-
-```
-AskUserQuestion({
-  questions: [{
-    question: "Team pipeline complete. What would you like to do?",
-    header: "Completion",
-    multiSelect: false,
-    options: [
-      { label: "Archive & Clean (Recommended)", description: "Archive session, clean up tasks and team resources" },
-      { label: "Keep Active", description: "Keep session active for follow-up work" },
-      { label: "New Batch", description: "Return to Phase 1 with new issue IDs" }
-    ]
-  }]
-})
-```
-
-5. Handle user choice:
+4. Execute completion action (interactive):
+   ```
+   AskUserQuestion({
+     questions: [{ question: "Issue pipeline complete. What would you like to do?",
+       options: [
+         { label: "Archive & Clean (Recommended)", description: "Archive session, clean up tasks and team" },
+         { label: "Keep Active", description: "Keep session active for follow-up work or inspection" },
+         { label: "New Batch", description: "Return to Phase 1 with new issue IDs" }
+       ]
+     }]
+   })
+   ```
 
 | Choice | Steps |
 |--------|-------|
-| Archive & Clean | TaskList -> verify all completed -> update session status="completed" -> TeamDelete() -> output final summary |
-| Keep Active | Update session status="paused" -> output: "Session paused. Resume with: Skill(skill='team-issue', args='resume')" |
+| Archive & Clean | Verify all completed -> update session status="completed" -> TeamDelete() -> output final summary |
+| Keep Active | Update session status="paused" -> output: "Resume with: Skill(skill='team-issue', args='resume')" |
 | New Batch | Return to Phase 1 |
+
+## Error Handling
+
+| Error | Resolution |
+|-------|------------|
+| No issue IDs provided | AskUserQuestion for clarification |
+| Session corruption | Attempt recovery, fallback to manual |
+| Worker crash | Reset task to pending, respawn |
+| Review rejection exceeds 2 rounds | Force convergence to MARSHAL |
+| Deferred BUILD count unknown | Read execution-queue.json after MARSHAL completes |

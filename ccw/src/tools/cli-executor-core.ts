@@ -35,49 +35,68 @@ import {
   saveConversation
 } from './cli-executor-state.js';
 
-// Track current running child process for cleanup on interruption
-let currentChildProcess: ChildProcess | null = null;
-let killTimeout: NodeJS.Timeout | null = null;
-let killTimeoutProcess: ChildProcess | null = null;
+// Debug logging for history save investigation (Iteration 4)
+const DEBUG_SESSION_ID = 'DBG-parallel-ccw-cli-test-2026-03-07';
+const DEBUG_LOG_PATH = path.join(process.cwd(), '.workflow', '.debug', DEBUG_SESSION_ID, 'debug-save.log');
+
+// Ensure debug log directory exists
+try {
+  const debugDir = path.dirname(DEBUG_LOG_PATH);
+  if (!fs.existsSync(debugDir)) {
+    fs.mkdirSync(debugDir, { recursive: true });
+  }
+} catch (err) {
+  // Ignore directory creation errors
+}
+
+function writeDebugLog(event: string, data: Record<string, any>): void {
+  try {
+    const logEntry = JSON.stringify({ event, ...data, timestamp: new Date().toISOString() }) + '\n';
+    fs.appendFileSync(DEBUG_LOG_PATH, logEntry, 'utf8');
+  } catch (err) {
+    // Silently ignore logging errors
+  }
+}
+
+// Track all running child processes for cleanup on interruption (multi-process support)
+const runningChildProcesses = new Set<ChildProcess>();
 
 /**
- * Kill the current running CLI child process
+ * Kill all running CLI child processes
  * Called when parent process receives SIGINT/SIGTERM
  */
-export function killCurrentCliProcess(): boolean {
-  const child = currentChildProcess;
-  if (!child || child.killed) return false;
+export function killAllCliProcesses(): boolean {
+  if (runningChildProcesses.size === 0) return false;
 
-  debugLog('KILL', 'Killing current child process', { pid: child.pid });
+  const processesToKill = Array.from(runningChildProcesses);
+  debugLog('KILL', `Killing ${processesToKill.length} child process(es)`, { pids: processesToKill.map(p => p.pid) });
 
-  try {
-    child.kill('SIGTERM');
-  } catch {
-    // Ignore kill errors (process may already be gone)
+  // 1. SIGTERM for graceful shutdown
+  for (const child of processesToKill) {
+    if (!child.killed) {
+      try { child.kill('SIGTERM'); } catch { /* ignore */ }
+    }
   }
 
-  if (killTimeout) {
-    clearTimeout(killTimeout);
-    killTimeout = null;
-    killTimeoutProcess = null;
-  }
-
-  // Force kill after 2 seconds if still running.
-  killTimeoutProcess = child;
-  killTimeout = setTimeout(() => {
-    const target = killTimeoutProcess;
-    if (!target || target !== currentChildProcess) return;
-    if (target.killed) return;
-
-    try {
-      target.kill('SIGKILL');
-    } catch {
-      // Ignore kill errors (process may already be gone)
+  // 2. SIGKILL after 2s timeout
+  const killTimeout = setTimeout(() => {
+    for (const child of processesToKill) {
+      if (!child.killed) {
+        try { child.kill('SIGKILL'); } catch { /* ignore */ }
+      }
     }
   }, 2000);
+  killTimeout.unref();
 
+  runningChildProcesses.clear();
   return true;
 }
+
+/**
+ * Backward compatibility alias
+ * @deprecated Use killAllCliProcesses() instead
+ */
+export const killCurrentCliProcess = killAllCliProcesses;
 
 // LiteLLM integration
 import { executeLiteLLMEndpoint } from './litellm-executor.js';
@@ -242,8 +261,8 @@ async function executeClaudeWithSettings(params: ClaudeWithSettingsParams): Prom
       stdio: ['ignore', 'pipe', 'pipe']
     });
 
-    // Track current child process for cleanup
-    currentChildProcess = child;
+    // Track child process for cleanup (multi-process support)
+    runningChildProcesses.add(child);
 
     let stdout = '';
     let stderr = '';
@@ -282,7 +301,7 @@ async function executeClaudeWithSettings(params: ClaudeWithSettingsParams): Prom
     });
 
     child.on('close', (code) => {
-      currentChildProcess = null;
+      runningChildProcesses.delete(child);
 
       const endTime = Date.now();
       const duration = endTime - startTime;
@@ -338,7 +357,7 @@ async function executeClaudeWithSettings(params: ClaudeWithSettingsParams): Prom
     });
 
     child.on('error', (error) => {
-      currentChildProcess = null;
+      runningChildProcesses.delete(child);
       reject(new Error(`Failed to spawn claude: ${error.message}`));
     });
   });
@@ -372,6 +391,30 @@ type BuiltinCliTool = typeof BUILTIN_CLI_TOOLS[number];
  * Format: ccw-tx-${conversationId}-${timestamp}
  */
 export type TransactionId = string;
+
+/**
+ * Generate a readable execution ID for CLI executions
+ * Format: {prefix}-{HHmmss}-{rand4} → e.g. gem-143022-x7k2
+ * @param tool - CLI tool name (gemini, qwen, codex, claude, opencode, litellm, etc.)
+ * @returns Short, human-readable execution ID
+ */
+export function generateExecutionId(tool: string): string {
+  const prefixMap: Record<string, string> = {
+    gemini: 'gem',
+    qwen: 'qwn',
+    codex: 'cdx',
+    claude: 'cld',
+    opencode: 'opc',
+    litellm: 'llm',
+  };
+  const prefix = prefixMap[tool] || tool.slice(0, 3);
+  const now = new Date();
+  const time = [now.getHours(), now.getMinutes(), now.getSeconds()]
+    .map(n => String(n).padStart(2, '0'))
+    .join('');
+  const rand = Math.random().toString(36).slice(2, 6);
+  return `${prefix}-${time}-${rand}`;
+}
 
 /**
  * Generate a unique transaction ID for the current execution
@@ -508,7 +551,7 @@ async function executeCliTool(
       const duration = endTime - startTime;
 
       const execution: ExecutionRecord = {
-        id: customId || `${Date.now()}-litellm`,
+        id: customId || generateExecutionId('litellm'),
         timestamp: new Date(startTime).toISOString(),
         tool: 'litellm',
         model: result.model,
@@ -658,7 +701,7 @@ async function executeCliTool(
         const duration = endTime - startTime;
 
         const execution: ExecutionRecord = {
-          id: customId || `${Date.now()}-litellm`,
+          id: customId || generateExecutionId('litellm'),
           timestamp: new Date(startTime).toISOString(),
           tool: toolName,
           model: result.model, // Use effective model from result (reflects any override)
@@ -771,11 +814,11 @@ async function executeCliTool(
       existingConversation = loadConversation(workingDir, conversationId);
     } else {
       // No previous conversation, create new
-      conversationId = `${Date.now()}-${tool}`;
+      conversationId = generateExecutionId(tool);
     }
   } else {
     // New conversation with auto-generated ID
-    conversationId = `${Date.now()}-${tool}`;
+    conversationId = generateExecutionId(tool);
   }
 
   // Generate transaction ID for concurrent session disambiguation
@@ -999,8 +1042,8 @@ async function executeCliTool(
       env: spawnEnv
     });
 
-    // Track current child process for cleanup on interruption
-    currentChildProcess = child;
+    // Track child process for cleanup on interruption (multi-process support)
+    runningChildProcesses.add(child);
 
     debugLog('SPAWN', `Process spawned`, { pid: child.pid });
 
@@ -1050,14 +1093,8 @@ async function executeCliTool(
 
     // Handle completion
     child.on('close', async (code) => {
-      if (killTimeout && killTimeoutProcess === child) {
-        clearTimeout(killTimeout);
-        killTimeout = null;
-        killTimeoutProcess = null;
-      }
-
-      // Clear current child process reference
-      currentChildProcess = null;
+      // Remove from running processes
+      runningChildProcesses.delete(child);
 
       // Flush remaining buffer from parser
       const remainingUnits = parser.flush();
@@ -1259,8 +1296,11 @@ async function executeCliTool(
             };
         // Try to save conversation to history
         try {
+          writeDebugLog('BEFORE_SAVE_CONV', { conversationId: conversation.id, workingDir, tool });
           saveConversation(workingDir, conversation);
+          writeDebugLog('AFTER_SAVE_CONV', { conversationId: conversation.id, workingDir, tool });
         } catch (err) {
+          writeDebugLog('SAVE_CONV_OUTER_ERROR', { conversationId: conversation.id, workingDir, tool, error: (err as Error).message, stack: (err as Error).stack });
           // Non-fatal: continue even if history save fails
           console.error('[CLI Executor] Failed to save history:', (err as Error).message);
         }
@@ -1319,6 +1359,9 @@ async function executeCliTool(
 
     // Handle errors
     child.on('error', (error) => {
+      // Remove from running processes
+      runningChildProcesses.delete(child);
+
       errorLog('SPAWN', `Failed to spawn process`, error, {
         tool,
         command,

@@ -93,7 +93,7 @@ async function selectCommandCategory() {
         { label: "Brainstorm", description: "brainstorm-with-file, brainstorm (unified skill)" },
         { label: "Analysis", description: "analyze-with-file" },
         { label: "Issue", description: "discover, plan, queue, execute, from-brainstorm, convert-to-plan" },
-        { label: "Utility", description: "clean, init, replan, status" }
+        { label: "Utility", description: "clean, spec:setup, spec:add, replan, status" }
       ],
       multiSelect: false
     }]
@@ -153,7 +153,7 @@ async function selectCommand(category) {
     ],
     'Utility': [
       { label: "/workflow:clean", description: "Intelligent code cleanup" },
-      { label: "/workflow:init", description: "Initialize project-level state" },
+      { label: "/workflow:spec:setup", description: "Initialize project-level state" },
       { label: "/workflow:replan", description: "Interactive workflow replanning" },
       { label: "/workflow:status", description: "Generate workflow status views" }
     ]

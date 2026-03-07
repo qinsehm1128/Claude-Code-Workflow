@@ -578,6 +578,11 @@ export async function startServer(options: ServerOptions = {}): Promise<http.Ser
         if (await handleMcpRoutes(routeContext)) return;
       }
 
+      // DeepWiki routes (/api/deepwiki/*)
+      if (pathname.startsWith('/api/deepwiki')) {
+        if (await handleDeepWikiRoutes(routeContext)) return;
+      }
+
       // Hooks routes (/api/hooks, /api/hook)
       if (pathname.startsWith('/api/hook')) {
         if (await handleHooksRoutes(routeContext)) return;

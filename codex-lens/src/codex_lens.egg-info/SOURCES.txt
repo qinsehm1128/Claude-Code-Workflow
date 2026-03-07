@@ -36,6 +36,7 @@ src/codexlens/indexing/symbol_extractor.py
 src/codexlens/lsp/__init__.py
 src/codexlens/lsp/handlers.py
 src/codexlens/lsp/keepalive_bridge.py
+src/codexlens/lsp/lsp-servers.json
 src/codexlens/lsp/lsp_bridge.py
 src/codexlens/lsp/lsp_graph_builder.py
 src/codexlens/lsp/providers.py
@@ -97,6 +98,8 @@ src/codexlens/semantic/reranker/legacy.py
 src/codexlens/semantic/reranker/litellm_reranker.py
 src/codexlens/semantic/reranker/onnx_reranker.py
 src/codexlens/storage/__init__.py
+src/codexlens/storage/deepwiki_models.py
+src/codexlens/storage/deepwiki_store.py
 src/codexlens/storage/dir_index.py
 src/codexlens/storage/file_cache.py
 src/codexlens/storage/global_index.py
@@ -117,6 +120,8 @@ src/codexlens/storage/migrations/migration_006_enhance_relationships.py
 src/codexlens/storage/migrations/migration_007_add_graph_neighbors.py
 src/codexlens/storage/migrations/migration_008_add_merkle_hashes.py
 src/codexlens/storage/migrations/migration_010_add_multi_vector_chunks.py
+src/codexlens/tools/__init__.py
+src/codexlens/tools/deepwiki_generator.py
 src/codexlens/watcher/__init__.py
 src/codexlens/watcher/events.py
 src/codexlens/watcher/file_watcher.py
@@ -129,6 +134,7 @@ tests/test_astgrep_binding.py
 tests/test_binary_searcher.py
 tests/test_cascade_strategies.py
 tests/test_chain_search.py
+tests/test_cli_help.py
 tests/test_cli_hybrid_search.py
 tests/test_cli_output.py
 tests/test_clustering_strategies.py
@@ -136,6 +142,8 @@ tests/test_code_extractor.py
 tests/test_config.py
 tests/test_config_cascade.py
 tests/test_config_staged_env_overrides.py
+tests/test_deepwiki_store.py
+tests/test_deepwiki_types.py
 tests/test_dual_fts.py
 tests/test_embedder.py
 tests/test_embedding_backend_availability.py

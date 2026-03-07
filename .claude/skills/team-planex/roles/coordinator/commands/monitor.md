@@ -118,14 +118,14 @@ Collect task states from TaskList()
       |   +- EXEC-* -> executor
       +- Spawn team-worker:
          Agent({
-           agent_type: "team-worker",
+           subagent_type: "team-worker",
            description: "Spawn <role> worker for <subject>",
            team_name: <team-name>,
            name: "<role>",
            run_in_background: true,
            prompt: `## Role Assignment
 role: <role>
-role_spec: .claude/skills/team-planex/role-specs/<role>.md
+role_spec: .claude/skills/team-planex/roles/<role>/role.md
 session: <session-folder>
 session_id: <session-id>
 team_name: <team-name>

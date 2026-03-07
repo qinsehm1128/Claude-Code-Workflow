@@ -4,12 +4,35 @@
  */
 
 import Database from 'better-sqlite3';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, rmdirSync } from 'fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, rmdirSync, appendFileSync } from 'fs';
 import { join, dirname, resolve } from 'path';
 import { parseSessionFile, formatConversation, extractConversationPairs, type ParsedSession, type ParsedTurn } from './session-content-parser.js';
 import { getDiscoverer, getNativeSessions } from './native-session-discovery.js';
 import { StoragePaths, ensureStorageDir, getProjectId, getCCWHome } from '../config/storage-paths.js';
 import type { CliOutputUnit } from './cli-output-converter.js';
+
+// Debug logging for history save investigation (Iteration 4)
+const DEBUG_SESSION_ID = 'DBG-parallel-ccw-cli-test-2026-03-07';
+const DEBUG_LOG_PATH = join(process.cwd(), '.workflow', '.debug', DEBUG_SESSION_ID, 'debug-save.log');
+
+// Ensure debug log directory exists
+try {
+  const debugDir = dirname(DEBUG_LOG_PATH);
+  if (!existsSync(debugDir)) {
+    mkdirSync(debugDir, { recursive: true });
+  }
+} catch (err) {
+  // Ignore directory creation errors
+}
+
+function writeDebugLog(event: string, data: Record<string, any>): void {
+  try {
+    const logEntry = JSON.stringify({ event, ...data, timestamp: new Date().toISOString() }) + '\n';
+    appendFileSync(DEBUG_LOG_PATH, logEntry, 'utf8');
+  } catch (err) {
+    // Silently ignore logging errors
+  }
+}
 
 // Types
 export interface ConversationTurn {
@@ -110,22 +133,29 @@ export class CliHistoryStore {
   private projectPath: string;
 
   constructor(baseDir: string) {
+    writeDebugLog('STORE_CONSTRUCT_START', { baseDir });
     this.projectPath = baseDir;
 
     // Use centralized storage path
     const paths = StoragePaths.project(baseDir);
     const historyDir = paths.cliHistory;
+    writeDebugLog('STORAGE_PATHS', { baseDir, historyDir, historyDb: paths.historyDb });
     ensureStorageDir(historyDir);
 
     this.dbPath = paths.historyDb;
+    writeDebugLog('DB_INSTANCE_CREATE', { dbPath: this.dbPath });
     this.db = new Database(this.dbPath);
+    writeDebugLog('DB_INSTANCE_CREATED', { dbPath: this.dbPath });
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('synchronous = NORMAL');
     this.db.pragma('busy_timeout = 10000');  // Wait up to 10 seconds for locks (increased for write-heavy scenarios)
     this.db.pragma('wal_autocheckpoint = 1000');  // Optimize WAL checkpointing
 
+    writeDebugLog('INIT_SCHEMA_START', { dbPath: this.dbPath });
     this.initSchema();
+    writeDebugLog('INIT_SCHEMA_COMPLETE', { dbPath: this.dbPath });
     this.migrateFromJson(historyDir);
+    writeDebugLog('STORE_CONSTRUCT_COMPLETE', { baseDir, dbPath: this.dbPath });
   }
 
   /**
@@ -936,11 +966,7 @@ export class CliHistoryStore {
     const stmt = this.db.prepare(`
       INSERT INTO native_session_mapping (ccw_id, tool, native_session_id, native_session_path, project_hash, transaction_id, created_at)
       VALUES (@ccw_id, @tool, @native_session_id, @native_session_path, @project_hash, @transaction_id, @created_at)
-      ON CONFLICT(ccw_id) DO UPDATE SET
-        native_session_id = @native_session_id,
-        native_session_path = @native_session_path,
-        project_hash = @project_hash,
-        transaction_id = @transaction_id
+      ON CONFLICT(tool, native_session_id) DO NOTHING
     `);
 
     await this.withRetry(() => stmt.run({

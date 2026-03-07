@@ -10,6 +10,7 @@ import type { CliOutputUnit } from '../tools/cli-output-converter.js';
 import { SmartContentFormatter } from '../tools/cli-output-converter.js';
 import {
   cliExecutorTool,
+  generateExecutionId,
   getCliToolsStatus,
   getExecutionHistory,
   getExecutionHistoryAsync,
@@ -180,7 +181,8 @@ interface OutputViewOptions {
   outputType?: 'stdout' | 'stderr' | 'both';
   turn?: string;
   raw?: boolean;
-  final?: boolean; // Only output final result with usage hint
+  final?: boolean; // Explicit --final (same as default, kept for compatibility)
+  verbose?: boolean; // Show full metadata + raw stdout/stderr
   project?: string; // Optional project path for lookup
 }
 
@@ -427,60 +429,52 @@ async function outputAction(conversationId: string | undefined, options: OutputV
   }
 
   if (options.raw) {
-    // Raw output only (for piping)
+    // Raw output only (for piping) — unprocessed stdout
     if (result.stdout) console.log(result.stdout.content);
     return;
   }
 
-  if (options.final) {
-    // Final result only with usage hint
-    // Prefer finalOutput (agent_message only) > parsedOutput (filtered) > raw stdout
-    const outputContent = result.finalOutput?.content || result.parsedOutput?.content || result.stdout?.content;
-    if (outputContent) {
-      console.log(outputContent);
-    }
+  if (options.verbose) {
+    // Verbose: full metadata + raw stdout/stderr (for debugging)
+    console.log(chalk.bold.cyan('Execution Output\n'));
+    console.log(`  ${chalk.gray('ID:')}        ${result.conversationId}`);
+    console.log(`  ${chalk.gray('Turn:')}      ${result.turnNumber}`);
+    console.log(`  ${chalk.gray('Cached:')}    ${result.cached ? chalk.green('Yes') : chalk.yellow('No')}`);
+    console.log(`  ${chalk.gray('Status:')}    ${result.status}`);
+    console.log(`  ${chalk.gray('Time:')}      ${result.timestamp}`);
+    console.log(`  ${chalk.gray('Project:')}   ${chalk.cyan(projectPath)}`);
     console.log();
-    console.log(chalk.gray('─'.repeat(60)));
-    console.log(chalk.dim(`Usage: ccw cli output ${conversationId} [options]`));
-    console.log(chalk.dim('  --raw           Raw output (no formatting)'));
-    console.log(chalk.dim('  --offset <n>    Start from byte offset'));
-    console.log(chalk.dim('  --limit <n>     Limit output bytes'));
-    console.log(chalk.dim('  --project <p>   Specify project path explicitly'));
-    console.log(chalk.dim(`  --resume        ccw cli -p "..." --resume ${conversationId}`));
+
+    if (result.stdout) {
+      console.log(`  ${chalk.gray('Stdout:')} (${result.stdout.totalBytes} bytes, offset ${result.stdout.offset})`);
+      console.log(chalk.gray('  ' + '-'.repeat(60)));
+      console.log(result.stdout.content);
+      console.log(chalk.gray('  ' + '-'.repeat(60)));
+      if (result.stdout.hasMore) {
+        console.log(chalk.yellow(`  ... ${result.stdout.totalBytes - result.stdout.offset - result.stdout.content.length} more bytes available`));
+        console.log(chalk.gray(`  Use --offset ${result.stdout.offset + result.stdout.content.length} to continue`));
+      }
+      console.log();
+    }
+
+    if (result.stderr && result.stderr.content) {
+      console.log(`  ${chalk.gray('Stderr:')} (${result.stderr.totalBytes} bytes, offset ${result.stderr.offset})`);
+      console.log(chalk.gray('  ' + '-'.repeat(60)));
+      console.log(result.stderr.content);
+      console.log(chalk.gray('  ' + '-'.repeat(60)));
+      if (result.stderr.hasMore) {
+        console.log(chalk.yellow(`  ... ${result.stderr.totalBytes - result.stderr.offset - result.stderr.content.length} more bytes available`));
+      }
+      console.log();
+    }
     return;
   }
 
-  // Formatted output
-  console.log(chalk.bold.cyan('Execution Output\n'));
-  console.log(`  ${chalk.gray('ID:')}        ${result.conversationId}`);
-  console.log(`  ${chalk.gray('Turn:')}      ${result.turnNumber}`);
-  console.log(`  ${chalk.gray('Cached:')}    ${result.cached ? chalk.green('Yes') : chalk.yellow('No')}`);
-  console.log(`  ${chalk.gray('Status:')}    ${result.status}`);
-  console.log(`  ${chalk.gray('Time:')}      ${result.timestamp}`);
-  console.log(`  ${chalk.gray('Project:')}   ${chalk.cyan(projectPath)}`);
-  console.log();
-
-  if (result.stdout) {
-    console.log(`  ${chalk.gray('Stdout:')} (${result.stdout.totalBytes} bytes, offset ${result.stdout.offset})`);
-    console.log(chalk.gray('  ' + '-'.repeat(60)));
-    console.log(result.stdout.content);
-    console.log(chalk.gray('  ' + '-'.repeat(60)));
-    if (result.stdout.hasMore) {
-      console.log(chalk.yellow(`  ... ${result.stdout.totalBytes - result.stdout.offset - result.stdout.content.length} more bytes available`));
-      console.log(chalk.gray(`  Use --offset ${result.stdout.offset + result.stdout.content.length} to continue`));
-    }
-    console.log();
-  }
-
-  if (result.stderr && result.stderr.content) {
-    console.log(`  ${chalk.gray('Stderr:')} (${result.stderr.totalBytes} bytes, offset ${result.stderr.offset})`);
-    console.log(chalk.gray('  ' + '-'.repeat(60)));
-    console.log(result.stderr.content);
-    console.log(chalk.gray('  ' + '-'.repeat(60)));
-    if (result.stderr.hasMore) {
-      console.log(chalk.yellow(`  ... ${result.stderr.totalBytes - result.stderr.offset - result.stderr.content.length} more bytes available`));
-    }
-    console.log();
+  // Default (and --final): output final result only
+  // Prefer finalOutput (agent_message only) > parsedOutput (filtered) > raw stdout
+  const outputContent = result.finalOutput?.content || result.parsedOutput?.content || result.stdout?.content;
+  if (outputContent) {
+    console.log(outputContent);
   }
 }
 
@@ -935,8 +929,11 @@ async function execAction(positionalPrompt: string | undefined, options: CliExec
     console.log();
   }
 
-  // Generate execution ID for streaming (use custom ID or timestamp-based)
-  const executionId = id || `${Date.now()}-${tool}`;
+  // Generate execution ID for streaming (use custom ID or auto-generated readable ID)
+  if (!id) {
+    console.error(chalk.yellow('[WARN] --id not provided. Use --id <id> for reliable tracking. Auto-generating ID.'));
+  }
+  const executionId = id || generateExecutionId(tool);
   const startTime = Date.now();
   const modelInfo = model ? ` @${model}` : '';
   const spinnerBaseText = `Executing ${tool}${modelInfo} (${mode} mode${resumeInfo}${nativeMode})${idInfo}...`;
@@ -1002,9 +999,9 @@ async function execAction(positionalPrompt: string | undefined, options: CliExec
     mode
   });
 
-  if (process.env.DEBUG) {
-    console.error(`[CLI] Generated executionId: ${executionId}`);
-  }
+  // Always output execution ID to stderr for programmatic capture
+  // Callers can: ccw cli -p "..." 2>&1 | grep CCW_EXEC_ID
+  console.error(`[CCW_EXEC_ID=${executionId}]`);
 
   // Buffer to accumulate output when both --stream and --to-file are specified
   let streamBuffer = '';
@@ -1195,7 +1192,7 @@ async function execAction(positionalPrompt: string | undefined, options: CliExec
         }
         console.log(chalk.dim(`  Continue: ccw cli -p "..." --resume ${result.execution.id}`));
         if (!effectiveStream) {
-          console.log(chalk.dim(`  Output (optional): ccw cli output ${result.execution.id}`));
+          console.log(chalk.dim(`  Output: ccw cli output ${result.execution.id}`));
         }
         if (toFile) {
           const { resolve } = await import('path');
@@ -1345,6 +1342,214 @@ async function execAction(positionalPrompt: string | undefined, options: CliExec
 }
 
 /**
+ * Show all executions — active (running) + recent completed
+ * Combines live dashboard state with SQLite history
+ */
+async function showAction(options: { all?: boolean }): Promise<void> {
+  console.log(chalk.bold.cyan('\n  CLI Executions\n'));
+
+  // 1. Try to fetch active executions from dashboard
+  let activeExecs: Array<{
+    id: string; tool: string; mode: string; status: string;
+    prompt: string; startTime: number; isComplete?: boolean;
+  }> = [];
+
+  try {
+    const data = await new Promise<string>((resolve, reject) => {
+      const req = http.request({
+        hostname: 'localhost',
+        port: Number(DASHBOARD_PORT),
+        path: '/api/cli/active',
+        method: 'GET',
+        timeout: 2000,
+        agent: false,
+        headers: { 'Connection': 'close' }
+      }, (res) => {
+        let body = '';
+        res.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+        res.on('end', () => resolve(body));
+      });
+      req.on('error', reject);
+      req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+      req.end();
+    });
+    const parsed = JSON.parse(data);
+    activeExecs = Array.isArray(parsed) ? parsed : (parsed.executions || []);
+  } catch {
+    // Dashboard not available — show only history
+  }
+
+  // 2. Get recent history from SQLite
+  const historyLimit = options.all ? 100 : 20;
+  const history = await getExecutionHistoryAsync(process.cwd(), { limit: historyLimit, recursive: true });
+
+  // 3. Build unified list: active first, then history (de-duped)
+  const seenIds = new Set<string>();
+  const rows: Array<{
+    id: string; tool: string; mode: string; status: string;
+    prompt: string; time: string; duration: string;
+  }> = [];
+
+  // Active executions (running)
+  for (const exec of activeExecs) {
+    if (exec.status === 'running') {
+      seenIds.add(exec.id);
+      const elapsed = Math.floor((Date.now() - exec.startTime) / 1000);
+      rows.push({
+        id: exec.id,
+        tool: exec.tool,
+        mode: exec.mode,
+        status: 'running',
+        prompt: (exec.prompt || '').replace(/\n/g, ' ').substring(0, 50),
+        time: `${elapsed}s ago`,
+        duration: `${elapsed}s...`,
+      });
+    }
+  }
+
+  // History executions
+  for (const exec of history.executions) {
+    if (seenIds.has(exec.id)) continue;
+    seenIds.add(exec.id);
+    const duration = exec.duration_ms >= 1000
+      ? `${(exec.duration_ms / 1000).toFixed(1)}s`
+      : `${exec.duration_ms}ms`;
+    const timeAgo = getTimeAgo(new Date(exec.updated_at || exec.timestamp));
+    rows.push({
+      id: exec.id,
+      tool: exec.tool,
+      mode: '-',
+      status: exec.status,
+      prompt: exec.prompt_preview.replace(/\n/g, ' ').substring(0, 50),
+      time: timeAgo,
+      duration,
+    });
+  }
+
+  if (rows.length === 0) {
+    console.log(chalk.gray('  No executions found.\n'));
+    return;
+  }
+
+  // 4. Render table
+  console.log(chalk.gray('  Status  Tool      Mode       Duration   Time         ID'));
+  console.log(chalk.gray('  ' + '\u2500'.repeat(80)));
+
+  for (const row of rows) {
+    const statusIcon = row.status === 'running' ? chalk.blue('\u25CF') :
+                       row.status === 'success' || row.status === 'completed' ? chalk.green('\u25CF') :
+                       row.status === 'timeout' ? chalk.yellow('\u25CF') : chalk.red('\u25CF');
+    console.log(`  ${statusIcon}     ${chalk.bold.white(row.tool.padEnd(8))}  ${chalk.gray(row.mode.padEnd(9))}  ${chalk.gray(row.duration.padEnd(9))}  ${chalk.gray(row.time.padEnd(11))}  ${chalk.dim(row.id)}`);
+    if (row.prompt) {
+      console.log(chalk.gray(`        ${row.prompt}${row.prompt.length >= 50 ? '...' : ''}`));
+    }
+  }
+
+  console.log();
+  console.log(chalk.gray('  ' + '\u2500'.repeat(80)));
+  console.log(chalk.dim('  Output: ccw cli output <id>'));
+  console.log(chalk.dim('  Watch:  ccw cli watch <id>'));
+  console.log(chalk.dim('  Detail: ccw cli detail <id>'));
+  console.log();
+}
+
+/**
+ * Watch a running execution — stream output to stderr until completion
+ * Exits with code 0 (success), 1 (error), or 2 (timeout)
+ */
+async function watchAction(watchId: string | undefined, options: { timeout?: string }): Promise<void> {
+  if (!watchId) {
+    console.error(chalk.red('Error: Execution ID is required'));
+    console.error(chalk.gray('Usage: ccw cli watch <id> [--timeout 120]'));
+    process.exit(1);
+  }
+
+  const timeoutMs = options.timeout ? parseInt(options.timeout, 10) * 1000 : 0;
+  const startTime = Date.now();
+
+  process.stderr.write(chalk.cyan(`Watching execution: ${watchId}\n`));
+
+  // Track output position for incremental display
+  let lastOutputLen = 0;
+
+  const poll = async (): Promise<number> => {
+    // Check timeout
+    if (timeoutMs > 0 && (Date.now() - startTime) > timeoutMs) {
+      process.stderr.write(chalk.yellow('\nWatch timed out.\n'));
+      return 2;
+    }
+
+    try {
+      // Fetch active execution state from dashboard
+      const data = await new Promise<string>((resolve, reject) => {
+        const req = http.request({
+          hostname: 'localhost',
+          port: Number(DASHBOARD_PORT),
+          path: '/api/cli/active',
+          method: 'GET',
+          timeout: 3000,
+          agent: false,
+          headers: { 'Connection': 'close' }
+        }, (res) => {
+          let body = '';
+          res.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+          res.on('end', () => resolve(body));
+        });
+        req.on('error', reject);
+        req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+        req.end();
+      });
+
+      const parsed = JSON.parse(data);
+      const executions = Array.isArray(parsed) ? parsed : (parsed.executions || []);
+      const exec = executions.find((e: { id: string }) => e.id === watchId);
+
+      if (exec) {
+        // Show incremental output
+        const fullOutput = exec.output || '';
+        if (fullOutput.length > lastOutputLen) {
+          process.stderr.write(fullOutput.slice(lastOutputLen));
+          lastOutputLen = fullOutput.length;
+        }
+
+        if (exec.status === 'running') {
+          // Still running — wait and poll again
+          await new Promise(r => setTimeout(r, 1000));
+          return poll();
+        }
+
+        // Completed
+        process.stderr.write(chalk.green(`\nExecution ${exec.status === 'completed' || exec.status === 'success' ? 'completed' : 'failed'}.\n`));
+        return (exec.status === 'completed' || exec.status === 'success') ? 0 : 1;
+      }
+    } catch {
+      // Dashboard not available
+    }
+
+    // Not found in active — check SQLite history
+    const store = getHistoryStore(process.cwd());
+    const result = store.getCachedOutput(watchId);
+    if (result) {
+      process.stderr.write(chalk.gray(`\nExecution already completed (status: ${result.status}).\n`));
+      process.stderr.write(chalk.dim(`Use: ccw cli output ${watchId}\n`));
+      return result.status === 'success' ? 0 : 1;
+    }
+
+    // Not found anywhere — may still be starting, wait and retry a few times
+    if ((Date.now() - startTime) < 10000) {
+      await new Promise(r => setTimeout(r, 1000));
+      return poll();
+    }
+
+    process.stderr.write(chalk.red(`\nExecution not found: ${watchId}\n`));
+    return 1;
+  };
+
+  const exitCode = await poll();
+  process.exit(exitCode);
+}
+
+/**
  * Show execution history
  * @param {Object} options - CLI options
  */
@@ -1394,7 +1599,7 @@ async function historyAction(options: HistoryOptions): Promise<void> {
   console.log();
   console.log(chalk.gray('  ' + '─'.repeat(70)));
   console.log(chalk.dim('  Filter: ccw cli history --tool <gemini|codex|qwen> --limit <n>'));
-  console.log(chalk.dim('  Output: ccw cli output <id> --final'));
+  console.log(chalk.dim('  Output: ccw cli output <id>'));
   console.log();
 }
 
@@ -1493,6 +1698,14 @@ export async function cliCommand(
       await historyAction(options as HistoryOptions);
       break;
 
+    case 'show':
+      await showAction(options as unknown as { all?: boolean });
+      break;
+
+    case 'watch':
+      await watchAction(argsArray[0], options as unknown as { timeout?: string });
+      break;
+
     case 'detail':
       await detailAction(argsArray[0]);
       break;
@@ -1544,11 +1757,13 @@ export async function cliCommand(
         console.log(chalk.gray('    echo "prompt" | ccw cli --tool <tool>   Execute from stdin (pipe)'));
         console.log();
         console.log('  Subcommands:');
+        console.log(chalk.gray('    show                List all executions (active + recent)'));
+        console.log(chalk.gray('    watch <id>          Stream execution output (stderr, exits on completion)'));
+        console.log(chalk.gray('    output <id>         Get final execution result'));
         console.log(chalk.gray('    status              Check CLI tools availability'));
         console.log(chalk.gray('    storage [cmd]       Manage CCW storage (info/clean/config)'));
         console.log(chalk.gray('    history             Show execution history'));
-        console.log(chalk.gray('    detail <id>         Show execution detail'));
-        console.log(chalk.gray('    output <id>         Show execution output with pagination'));
+        console.log(chalk.gray('    detail <id>         Show execution detail (legacy, use show/output)'));
         console.log(chalk.gray('    test-parse [args]   Debug CLI argument parsing'));
         console.log();
         console.log('  Options:');
@@ -1561,7 +1776,7 @@ export async function cliCommand(
         console.log(chalk.gray('    --effort <level>    Effort level for claude (low, medium, high)'));
         console.log(chalk.gray('    --cd <path>         Working directory'));
         console.log(chalk.gray('    --includeDirs <dirs>  Additional directories'));
-        // --timeout removed - controlled by external caller (bash timeout)
+        console.log(chalk.gray('    --id <id>           Execution ID (recommended, auto-generated if omitted)'));
         console.log(chalk.gray('    --resume [id]       Resume previous session'));
         console.log(chalk.gray('    --cache <items>     Cache: comma-separated @patterns and text'));
         console.log(chalk.gray('    --inject-mode <m>   Inject mode: none, full, progressive'));
@@ -1585,7 +1800,7 @@ export async function cliCommand(
         console.log(chalk.gray('    ccw cli --resume --tool gemini'));
         console.log(chalk.gray('    ccw cli -p "..." --cache "@src/**/*.ts" --tool codex'));
         console.log(chalk.gray('    ccw cli -p "..." --cache "@src/**/*" --inject-mode progressive --tool gemini'));
-        console.log(chalk.gray('    ccw cli output <id> --final      # View result with usage hint'));
+        console.log(chalk.gray('    ccw cli output <id>              # View final result (default)'));
         console.log();
         console.log('  Cache format:');
         console.log(chalk.gray('    --cache "@src/**/*.ts,@CLAUDE.md"     # @patterns to pack'));
@@ -1598,8 +1813,9 @@ export async function cliCommand(
         console.log(chalk.gray('    progressive: inject first 64KB with MCP continuation hint'));
         console.log();
         console.log('  Output options (ccw cli output <id>):');
-        console.log(chalk.gray('    --final      Final result only with usage hint'));
-        console.log(chalk.gray('    --raw        Raw output only (no formatting, for piping)'));
+        console.log(chalk.gray('    (default)    Final result only (agent response text)'));
+        console.log(chalk.gray('    --verbose    Full metadata + raw stdout/stderr'));
+        console.log(chalk.gray('    --raw        Raw stdout only (no formatting, for piping)'));
         console.log(chalk.gray('    --offset <n> Start from byte offset'));
         console.log(chalk.gray('    --limit <n>  Limit output bytes'));
         console.log();

@@ -157,38 +157,6 @@ AskUserQuestion({
 
 ---
 
-## Cadence Control
-
-**Beat model**: Event-driven, each beat = executor wake -> process -> spawn -> STOP.
-
-```
-Beat Cycle (single beat)
-======================================================================
-  Event                   Executor                 Workers
-----------------------------------------------------------------------
-  callback/resume --> +- handleCallback -+
-                      |  mark completed   |
-                      |  check pipeline   |
-                      +- handleSpawnNext -+
-                      |  find ready tasks |
-                      |  spawn workers ---+--> [team-worker A] Phase 1-5
-                      |  (parallel OK)  --+--> [team-worker B] Phase 1-5
-                      +- STOP (idle) -----+         |
-                                                     |
-  callback <-----------------------------------------+
-  (next beat)              SendMessage + TaskUpdate(completed)
-======================================================================
-
-  Fast-Advance (skips executor for simple linear successors)
-======================================================================
-  [Worker A] Phase 5 complete
-    +- 1 ready task? simple successor? --> spawn team-worker B directly
-    +- complex case? --> SendMessage to executor
-======================================================================
-```
-
----
-
 ## Integration with team-coordinate
 
 | Scenario | Skill |

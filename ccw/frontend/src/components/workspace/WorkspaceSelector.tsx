@@ -8,6 +8,7 @@ import { ChevronDown, X, FolderOpen, Check, Loader2 } from 'lucide-react';
 import { useIntl } from 'react-intl';
 import { cn } from '@/lib/utils';
 import { selectFolder } from '@/lib/nativeDialog';
+import { useNotifications } from '@/hooks/useNotifications';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import {
@@ -81,6 +82,7 @@ export function WorkspaceSelector({ className }: WorkspaceSelectorProps) {
   const recentPaths = useWorkflowStore((state) => state.recentPaths);
   const switchWorkspace = useWorkflowStore((state) => state.switchWorkspace);
   const removeRecentPath = useWorkflowStore((state) => state.removeRecentPath);
+  const { error: showError } = useNotifications();
 
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isManualOpen, setIsManualOpen] = useState(false);
@@ -113,11 +115,27 @@ export function WorkspaceSelector({ className }: WorkspaceSelectorProps) {
   );
 
   const handleBrowseFolder = useCallback(async () => {
-    const selected = await selectFolder(projectPath || undefined);
-    if (selected) {
-      await handleSwitchWorkspace(selected);
+    const result = await selectFolder(projectPath || undefined);
+
+    // User cancelled the dialog - no action needed
+    if (result.cancelled) {
+      return;
     }
-  }, [projectPath, handleSwitchWorkspace]);
+
+    // Error occurred - show error notification
+    if (result.error) {
+      showError(
+        formatMessage({ id: 'workspace.selector.browseError' }),
+        result.error
+      );
+      return;
+    }
+
+    // Successfully selected a folder
+    if (result.path) {
+      await handleSwitchWorkspace(result.path);
+    }
+  }, [projectPath, handleSwitchWorkspace, showError, formatMessage]);
 
   const handleManualPathSubmit = useCallback(async () => {
     const trimmedPath = manualPath.trim();

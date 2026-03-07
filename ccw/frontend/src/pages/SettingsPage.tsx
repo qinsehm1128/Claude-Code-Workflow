@@ -113,9 +113,9 @@ function FilePathInput({ value, onChange, placeholder }: FilePathInputProps) {
   const handleBrowse = async () => {
     const { selectFile } = await import('@/lib/nativeDialog');
     const initialDir = value ? value.replace(/[/\\][^/\\]*$/, '') : undefined;
-    const selected = await selectFile(initialDir);
-    if (selected) {
-      onChange(selected);
+    const result = await selectFile(initialDir);
+    if (result.path && !result.cancelled && !result.error) {
+      onChange(result.path);
     }
   };
 

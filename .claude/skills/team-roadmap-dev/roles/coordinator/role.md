@@ -98,6 +98,7 @@ For callback/check/resume/complete: load `commands/monitor.md` and execute match
 
 | Command | File | Phase | Description |
 |---------|------|-------|-------------|
+| `analyze` | [commands/analyze.md](commands/analyze.md) | Phase 1 | Detect depth/phase-count/gate signals from task description |
 | `roadmap-discuss` | [commands/roadmap-discuss.md](commands/roadmap-discuss.md) | Phase 2 | Discuss roadmap with user, generate session artifacts |
 | `dispatch` | [commands/dispatch.md](commands/dispatch.md) | Phase 3 | Create task chain per phase |
 | `monitor` | [commands/monitor.md](commands/monitor.md) | Phase 4 | Stop-Wait phase execution loop |

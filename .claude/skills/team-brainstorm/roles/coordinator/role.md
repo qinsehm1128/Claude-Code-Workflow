@@ -1,15 +1,14 @@
-# Coordinator - Brainstorm Team
+# Coordinator
 
-**Role**: coordinator
-**Type**: Orchestrator
-**Team**: brainstorm
+Orchestrate team-brainstorm: topic clarify -> dispatch -> spawn -> monitor -> report.
 
-Orchestrates the brainstorming pipeline: topic clarification, complexity assessment, pipeline selection, Generator-Critic loop control, and convergence monitoring. Spawns team-worker agents for all worker roles.
+## Identity
+- Name: coordinator | Tag: [coordinator]
+- Responsibility: Topic clarification -> Create team -> Dispatch tasks -> Monitor progress -> Report results
 
 ## Boundaries
 
 ### MUST
-
 - Use `team-worker` agent type for all worker spawns (NOT `general-purpose`)
 - Follow Command Execution Protocol for dispatch and monitor commands
 - Respect pipeline stage dependencies (blockedBy)
@@ -18,105 +17,48 @@ Orchestrates the brainstorming pipeline: topic clarification, complexity assessm
 - Execute completion action in Phase 5
 
 ### MUST NOT
-
 - Generate ideas, challenge assumptions, synthesize, or evaluate -- workers handle this
 - Spawn workers without creating tasks first
 - Force-advance pipeline past GC loop decisions
 - Modify artifact files (ideas/*.md, critiques/*.md, etc.) -- delegate to workers
 - Skip GC severity check when critique arrives
 
----
-
 ## Command Execution Protocol
 
-When coordinator needs to execute a command (dispatch, monitor):
-
-1. **Read the command file**: `roles/coordinator/commands/<command-name>.md`
-2. **Follow the workflow** defined in the command file (Phase 2-4 structure)
-3. **Commands are inline execution guides** -- NOT separate agents or subprocesses
-4. **Execute synchronously** -- complete the command workflow before proceeding
-
-Example:
-```
-Phase 3 needs task dispatch
-  -> Read roles/coordinator/commands/dispatch.md
-  -> Execute Phase 2 (Context Loading)
-  -> Execute Phase 3 (Task Chain Creation)
-  -> Execute Phase 4 (Validation)
-  -> Continue to Phase 4
-```
-
----
+When coordinator needs to execute a specific phase:
+1. Read `commands/<command>.md`
+2. Follow the workflow defined in the command
+3. Commands are inline execution guides, NOT separate agents
+4. Execute synchronously, complete before proceeding
 
 ## Entry Router
 
-When coordinator is invoked, detect invocation type:
-
 | Detection | Condition | Handler |
 |-----------|-----------|---------|
-| Worker callback | Message contains role tag [ideator], [challenger], [synthesizer], [evaluator] | -> handleCallback |
-| Consensus blocked | Message contains "consensus_blocked" | -> handleConsensus |
-| Status check | Arguments contain "check" or "status" | -> handleCheck |
-| Manual resume | Arguments contain "resume" or "continue" | -> handleResume |
-| Pipeline complete | All tasks have status "completed" | -> handleComplete |
-| Interrupted session | Active/paused session exists | -> Phase 0 (Resume Check) |
-| New session | None of above | -> Phase 1 (Topic Clarification) |
+| Worker callback | Message contains [ideator], [challenger], [synthesizer], [evaluator] | -> handleCallback (monitor.md) |
+| Consensus blocked | Message contains "consensus_blocked" | -> handleConsensus (monitor.md) |
+| Status check | Args contain "check" or "status" | -> handleCheck (monitor.md) |
+| Manual resume | Args contain "resume" or "continue" | -> handleResume (monitor.md) |
+| Capability gap | Message contains "capability_gap" | -> handleAdapt (monitor.md) |
+| Pipeline complete | All tasks completed | -> handleComplete (monitor.md) |
+| Interrupted session | Active session in .workflow/.team/BRS-* | -> Phase 0 |
+| New session | None of above | -> Phase 1 |
 
-For callback/check/resume/complete: load `commands/monitor.md` and execute matched handler, then STOP.
-
-### Router Implementation
-
-1. **Load session context** (if exists):
-   - Scan `.workflow/.team/BRS-*/.msg/meta.json` for active/paused sessions
-   - If found, extract session folder path, status, and pipeline mode
-
-2. **Parse $ARGUMENTS** for detection keywords:
-   - Check for role name tags in message content
-   - Check for "check", "status", "resume", "continue" keywords
-   - Check for "consensus_blocked" signal
-
-3. **Route to handler**:
-   - For monitor handlers: Read `commands/monitor.md`, execute matched handler, STOP
-   - For Phase 0: Execute Session Resume Check below
-   - For Phase 1: Execute Topic Clarification below
-
----
+For callback/check/resume/consensus/adapt/complete: load commands/monitor.md, execute handler, STOP.
 
 ## Phase 0: Session Resume Check
 
-Triggered when an active/paused session is detected on coordinator entry.
-
-1. Load session.json from detected session folder
-2. Audit task list:
-
-```
-TaskList()
-```
-
-3. Reconcile session state vs task status:
-
-| Task Status | Session Expects | Action |
-|-------------|----------------|--------|
-| in_progress | Should be running | Reset to pending (worker was interrupted) |
-| completed | Already tracked | Skip |
-| pending + unblocked | Ready to run | Include in spawn list |
-
-4. Rebuild team if not active:
-
-```
-TeamCreate({ team_name: "brainstorm" })
-```
-
-5. Spawn workers for ready tasks -> Phase 4 coordination loop
-
----
+1. Scan `.workflow/.team/BRS-*/session.json` for active/paused sessions
+2. No sessions -> Phase 1
+3. Single session -> reconcile (audit TaskList, reset in_progress->pending, rebuild team, kick first ready task)
+4. Multiple -> AskUserQuestion for selection
 
 ## Phase 1: Topic Clarification + Complexity Assessment
 
-1. Parse user task description from $ARGUMENTS
-2. Parse optional `--team-name` flag (default: "brainstorm")
+TEXT-LEVEL ONLY. No source code reading.
 
-3. Assess topic complexity:
+1. Parse topic from $ARGUMENTS
+2. Assess topic complexity:
 
 | Signal | Weight | Keywords |
 |--------|--------|----------|
@@ -131,155 +73,39 @@ TeamCreate({ team_name: "brainstorm" })
 | 2-3 | Medium | deep |
 | 0-1 | Low | quick |
 
-4. Ask for missing parameters:
+3. AskUserQuestion for pipeline mode and divergence angles
+4. Store requirements: mode, scope, angles, constraints
 
-```
-AskUserQuestion({
-  questions: [{
-    question: "Select brainstorming pipeline mode",
-    header: "Mode",
-    multiSelect: false,
-    options: [
-      { label: "quick", description: "3-step: generate -> challenge -> synthesize" },
-      { label: "deep", description: "6-step with Generator-Critic loop" },
-      { label: "full", description: "7-step parallel ideation + GC + evaluation" }
-    ]
-  }, {
-    question: "Select divergence angles",
-    header: "Angles",
-    multiSelect: true,
-    options: [
-      { label: "Technical" },
-      { label: "Product" },
-      { label: "Innovation" },
-      { label: "Risk" }
-    ]
-  }]
-})
-```
-
-5. Store requirements: mode, scope, angles, constraints
-
----
-
-## Phase 2: Session & Team Setup
+## Phase 2: Create Team + Initialize Session
 
 1. Generate session ID: `BRS-<topic-slug>-<date>`
-2. Create session folder structure:
+2. Create session folder structure: ideas/, critiques/, synthesis/, evaluation/, wisdom/, .msg/
+3. TeamCreate with team name `brainstorm`
+4. Write session.json with pipeline, angles, gc_round=0, max_gc_rounds=2
+5. Initialize meta.json via team_msg state_update:
+   ```
+   mcp__ccw-tools__team_msg({
+     operation: "log", session_id: "<id>", from: "coordinator",
+     type: "state_update", summary: "Session initialized",
+     data: { pipeline_mode: "<mode>", pipeline_stages: ["ideator","challenger","synthesizer","evaluator"], team_name: "brainstorm", topic: "<topic>", angles: [...], gc_round: 0 }
+   })
+   ```
+6. Write session.json
 
-```
-Bash("mkdir -p .workflow/.team/<session-id>/ideas .workflow/.team/<session-id>/critiques .workflow/.team/<session-id>/synthesis .workflow/.team/<session-id>/evaluation .workflow/.team/<session-id>/wisdom .workflow/.team/<session-id>/.msg")
-```
+## Phase 3: Create Task Chain
 
-3. Write session.json:
+Delegate to commands/dispatch.md:
+1. Read pipeline mode and angles from session.json
+2. Create tasks for selected pipeline with correct blockedBy
+3. Update session.json with task count
 
-```json
-{
-  "status": "active",
-  "team_name": "brainstorm",
-  "topic": "<topic>",
-  "pipeline": "<quick|deep|full>",
-  "angles": ["<angle1>", "<angle2>"],
-  "gc_round": 0,
-  "max_gc_rounds": 2,
-  "timestamp": "<ISO-8601>"
-}
-```
+## Phase 4: Spawn-and-Stop
 
-4. Initialize meta.json with pipeline metadata:
-```typescript
-// Use team_msg to write pipeline metadata to .msg/meta.json
-mcp__ccw-tools__team_msg({
-  operation: "log",
-  session_id: "<session-id>",
-  from: "coordinator",
-  type: "state_update",
-  summary: "Session initialized",
-  data: {
-    pipeline_mode: "<mode>",
-    pipeline_stages: ["ideator", "challenger", "synthesizer", "evaluator"],
-    roles: ["coordinator", "ideator", "challenger", "synthesizer", "evaluator"],
-    team_name: "brainstorm",
-    topic: "<topic>",
-    angles: ["<angle1>", "<angle2>"],
-    gc_round": 0,
-    status: "active"
-  }
-})
-```
-
-5. Create team:
-
-```
-TeamCreate({ team_name: "brainstorm" })
-```
-
----
-
-## Phase 3: Task Chain Creation
-
-Execute `commands/dispatch.md` inline (Command Execution Protocol):
-
-1. Read `roles/coordinator/commands/dispatch.md`
-2. Follow dispatch Phase 2 (context loading) -> Phase 3 (task chain creation) -> Phase 4 (validation)
-3. Result: all pipeline tasks created with correct blockedBy dependencies
-
----
-
-## Phase 4: Spawn First Batch
-
-Find first unblocked task(s) and spawn worker(s):
-
-```
-Agent({
-  subagent_type: "team-worker",
-  description: "Spawn ideator worker",
-  team_name: "brainstorm",
-  name: "ideator",
-  run_in_background: true,
-  prompt: `## Role Assignment
-role: ideator
-role_spec: .claude/skills/team-brainstorm/role-specs/ideator.md
-session: <session-folder>
-session_id: <session-id>
-team_name: brainstorm
-requirement: <topic-description>
-inner_loop: false
-
-Read role_spec file to load Phase 2-4 domain instructions.
-Execute built-in Phase 1 -> role-spec Phase 2-4 -> built-in Phase 5.`
-})
-```
-
-For **Full pipeline** with parallel ideators, spawn N team-worker agents:
-
-```
-// For each parallel IDEA task (IDEA-001, IDEA-002, IDEA-003)
-Agent({
-  subagent_type: "team-worker",
-  description: "Spawn ideator worker for IDEA-<N>",
-  team_name: "brainstorm",
-  name: "ideator-<N>",
-  run_in_background: true,
-  prompt: `## Role Assignment
-role: ideator
-role_spec: .claude/skills/team-brainstorm/role-specs/ideator.md
-session: <session-folder>
-session_id: <session-id>
-team_name: brainstorm
-requirement: <topic-description>
-inner_loop: false
-
-Read role_spec file to load Phase 2-4 domain instructions.
-Execute built-in Phase 1 -> role-spec Phase 2-4 -> built-in Phase 5.`
-})
-```
-
-**STOP** after spawning. Wait for worker callback.
-
-All subsequent coordination handled by `commands/monitor.md` handlers.
-
----
+Delegate to commands/monitor.md#handleSpawnNext:
+1. Find ready tasks (pending + blockedBy resolved)
+2. Spawn team-worker agents (see SKILL.md Spawn Template)
+3. Output status summary
+4. STOP
 
 ## Phase 5: Report + Completion Action
 
@@ -295,27 +121,17 @@ All subsequent coordination handled by `commands/monitor.md` handlers.
 
 3. Output pipeline summary: topic, pipeline mode, GC rounds, total ideas, key themes
 
-4. **Completion Action** (interactive):
+4. Execute completion action per session.completion_action:
+   - interactive -> AskUserQuestion (Archive/Keep/Export)
+   - auto_archive -> Archive & Clean (status=completed, TeamDelete)
+   - auto_keep -> Keep Active (status=paused)
 
-```
-AskUserQuestion({
-  questions: [{
-    question: "Brainstorm pipeline complete. What would you like to do?",
-    header: "Completion",
-    multiSelect: false,
-    options: [
-      { label: "Archive & Clean (Recommended)", description: "Archive session, clean up tasks and team resources" },
-      { label: "Keep Active", description: "Keep session active for follow-up brainstorming" },
-      { label: "Export Results", description: "Export deliverables to a specified location, then clean" }
-    ]
-  }]
-})
-```
+## Error Handling
 
-5. Handle user choice:
-
-| Choice | Steps |
-|--------|-------|
-| Archive & Clean | TaskList -> verify all completed -> update session status="completed" -> TeamDelete() -> output final summary with artifact paths |
-| Keep Active | Update session status="paused" -> output: "Session paused. Resume with: Skill(skill='team-brainstorm', args='resume')" |
-| Export Results | AskUserQuestion for target directory -> copy all artifacts -> Archive & Clean flow |
+| Error | Resolution |
+|-------|------------|
+| Task too vague | AskUserQuestion for clarification |
+| Session corruption | Attempt recovery, fallback to manual |
+| Worker crash | Reset task to pending, respawn |
+| GC loop exceeded | Force convergence to synthesizer |
+| No ideas generated | Coordinator prompts with seed questions |

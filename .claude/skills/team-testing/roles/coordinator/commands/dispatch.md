@@ -1,33 +1,26 @@
-# Command: Dispatch
+# Dispatch Tasks
 
-Create the testing task chain with correct dependencies and structured task descriptions. Supports targeted, standard, and comprehensive pipelines.
+Create testing task chains with correct dependencies. Supports targeted, standard, and comprehensive pipelines.
 
-## Phase 2: Context Loading
+## Workflow
 
-| Input | Source | Required |
-|-------|--------|----------|
-| User requirement | From coordinator Phase 1 | Yes |
-| Session folder | From coordinator Phase 2 | Yes |
-| Pipeline mode | From session.json `pipeline` | Yes |
-| Coverage targets | From session.json `coverage_targets` | Yes |
+1. Read task-analysis.json -> extract pipeline_mode and dependency_graph
+2. Read specs/pipelines.md -> get task registry for selected pipeline
+3. Topological sort tasks (respect blockedBy)
+4. Validate all owners exist in role registry (SKILL.md)
+5. For each task (in order):
+   - TaskCreate with structured description (see template below)
+   - TaskUpdate with blockedBy + owner assignment
+6. Update session.json with pipeline.tasks_total
+7. Validate chain (no orphans, no cycles, all refs valid)
 
-1. Load user requirement and scope from session.json
-2. Load pipeline definition from SKILL.md Pipeline Definitions
-3. Read `pipeline` mode and `coverage_targets` from session.json
-
-## Phase 3: Task Chain Creation (Mode-Branched)
-
-### Task Description Template
-
-Every task description uses structured format:
+## Task Description Template
 
 ```
-TaskCreate({
-  subject: "<TASK-ID>",
-  description: "PURPOSE: <what this task achieves> | Success: <measurable criteria>
+PURPOSE: <goal> | Success: <criteria>
 TASK:
-  - <step 1: specific action>
-  - <step 2: specific action>
+  - <step 1>
+  - <step 2>
 CONTEXT:
   - Session: <session-folder>
   - Scope: <scope>
@@ -37,108 +30,72 @@ CONTEXT:
 EXPECTED: <deliverable path> + <quality criteria>
 CONSTRAINTS: <scope limits, focus areas>
 ---
-InnerLoop: <true|false>"
-})
-TaskUpdate({ taskId: "<TASK-ID>", addBlockedBy: [<dependency-list>], owner: "<role>" })
+InnerLoop: <true|false>
+RoleSpec: .claude/skills/team-testing/roles/<role>/role.md
 ```
 
-### Mode Router
-
-| Mode | Action |
-|------|--------|
-| `targeted` | Create 3 tasks: STRATEGY -> TESTGEN(L1) -> TESTRUN(L1) |
-| `standard` | Create 6 tasks: STRATEGY -> TESTGEN(L1) -> TESTRUN(L1) -> TESTGEN(L2) -> TESTRUN(L2) -> TESTANA |
-| `comprehensive` | Create 8 tasks with parallel groups |
-
----
+## Pipeline Task Registry
 
 ### Targeted Pipeline
-
-**STRATEGY-001** (strategist):
 ```
-TaskCreate({
-  subject: "STRATEGY-001",
-  description: "PURPOSE: Analyze change scope, define test strategy | Success: Strategy doc with layer recommendations
-TASK:
-  - Analyze git diff for changed files and modules
-  - Detect test framework and existing patterns
-  - Define L1 unit test scope and coverage targets
-CONTEXT:
-  - Session: <session-folder>
-  - Scope: <scope>
-EXPECTED: <session>/strategy/test-strategy.md
-CONSTRAINTS: Read-only analysis
----
-InnerLoop: false"
-})
-TaskUpdate({ taskId: "STRATEGY-001", owner: "strategist" })
-```
-
-**TESTGEN-001** (generator, L1):
-```
-TaskCreate({
-  subject: "TESTGEN-001",
-  description: "PURPOSE: Generate L1 unit tests | Success: Executable test files covering priority files
-TASK:
-  - Read test strategy for priority files and patterns
-  - Generate unit tests: happy path, edge cases, error handling
-  - Validate syntax
-CONTEXT:
-  - Session: <session-folder>
-  - Layer: L1-unit
-  - Upstream artifacts: strategy/test-strategy.md
-EXPECTED: <session>/tests/L1-unit/
-CONSTRAINTS: Only generate test code, do not modify source
----
-InnerLoop: true"
-})
-TaskUpdate({ taskId: "TESTGEN-001", addBlockedBy: ["STRATEGY-001"], owner: "generator" })
-```
-
-**TESTRUN-001** (executor, L1):
-```
-TaskCreate({
-  subject: "TESTRUN-001",
-  description: "PURPOSE: Execute L1 unit tests, collect coverage | Success: pass_rate >= 0.95 AND coverage >= target
-TASK:
-  - Run tests with coverage collection
-  - Parse pass rate and coverage metrics
-  - Auto-fix failures (max 3 iterations)
-CONTEXT:
-  - Session: <session-folder>
-  - Input: tests/L1-unit
-  - Coverage target: <L1-target>%
-EXPECTED: <session>/results/run-001.json
-CONSTRAINTS: Only fix test files, not source code
----
-InnerLoop: true"
-})
-TaskUpdate({ taskId: "TESTRUN-001", addBlockedBy: ["TESTGEN-001"], owner: "executor" })
+STRATEGY-001 (strategist): Analyze change scope, define test strategy
+  blockedBy: []
+TESTGEN-001 (generator): Generate L1 unit tests
+  blockedBy: [STRATEGY-001], meta: layer=L1-unit
+TESTRUN-001 (executor): Execute L1 tests, collect coverage
+  blockedBy: [TESTGEN-001], inner_loop: true, meta: layer=L1-unit, coverage_target=80%
 ```
 
 ### Standard Pipeline
-
-Adds to targeted:
-
-**TESTGEN-002** (generator, L2): blockedBy ["TESTRUN-001"], Layer: L2-integration
-**TESTRUN-002** (executor, L2): blockedBy ["TESTGEN-002"], Input: tests/L2-integration
-**TESTANA-001** (analyst): blockedBy ["TESTRUN-002"]
+```
+STRATEGY-001 (strategist): Analyze change scope, define test strategy
+  blockedBy: []
+TESTGEN-001 (generator): Generate L1 unit tests
+  blockedBy: [STRATEGY-001], meta: layer=L1-unit
+TESTRUN-001 (executor): Execute L1 tests, collect coverage
+  blockedBy: [TESTGEN-001], inner_loop: true, meta: layer=L1-unit, coverage_target=80%
+TESTGEN-002 (generator): Generate L2 integration tests
+  blockedBy: [TESTRUN-001], meta: layer=L2-integration
+TESTRUN-002 (executor): Execute L2 tests, collect coverage
+  blockedBy: [TESTGEN-002], inner_loop: true, meta: layer=L2-integration, coverage_target=60%
+TESTANA-001 (analyst): Defect pattern analysis, quality report
+  blockedBy: [TESTRUN-002]
+```
 
 ### Comprehensive Pipeline
+```
+STRATEGY-001 (strategist): Analyze change scope, define test strategy
+  blockedBy: []
+TESTGEN-001 (generator-1): Generate L1 unit tests
+  blockedBy: [STRATEGY-001], meta: layer=L1-unit
+TESTGEN-002 (generator-2): Generate L2 integration tests
+  blockedBy: [STRATEGY-001], meta: layer=L2-integration
+TESTRUN-001 (executor-1): Execute L1 tests, collect coverage
+  blockedBy: [TESTGEN-001], inner_loop: true, meta: layer=L1-unit, coverage_target=80%
+TESTRUN-002 (executor-2): Execute L2 tests, collect coverage
+  blockedBy: [TESTGEN-002], inner_loop: true, meta: layer=L2-integration, coverage_target=60%
+TESTGEN-003 (generator): Generate L3 E2E tests
+  blockedBy: [TESTRUN-001, TESTRUN-002], meta: layer=L3-e2e
+TESTRUN-003 (executor): Execute L3 tests, collect coverage
+  blockedBy: [TESTGEN-003], inner_loop: true, meta: layer=L3-e2e, coverage_target=40%
+TESTANA-001 (analyst): Defect pattern analysis, quality report
+  blockedBy: [TESTRUN-003]
+```
 
-**Parallel groups**:
-- TESTGEN-001 + TESTGEN-002 both blockedBy ["STRATEGY-001"] (parallel generation)
-- TESTRUN-001 blockedBy ["TESTGEN-001"], TESTRUN-002 blockedBy ["TESTGEN-002"] (parallel execution)
-- TESTGEN-003 blockedBy ["TESTRUN-001", "TESTRUN-002"], Layer: L3-e2e
-- TESTRUN-003 blockedBy ["TESTGEN-003"]
-- TESTANA-001 blockedBy ["TESTRUN-003"]
+## InnerLoop Flag Rules
 
-## Phase 4: Validation
+- true: generator, executor roles (GC loop iterations)
+- false: strategist, analyst roles
 
-1. Verify all tasks created with correct subjects and dependencies
-2. Check no circular dependencies
-3. Verify blockedBy references exist
-4. Log task chain to team_msg:
+## Dependency Validation
+
+- No orphan tasks (all tasks have valid owner)
+- No circular dependencies
+- All blockedBy references exist
+- Session reference in every task description
+- RoleSpec reference in every task description
+
+## Log After Creation
 
 ```
 mcp__ccw-tools__team_msg({

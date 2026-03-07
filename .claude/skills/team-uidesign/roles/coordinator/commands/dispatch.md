@@ -12,7 +12,7 @@ Create the UI design task chain with correct dependencies and structured task de
 | Industry config | From session.json `industry` | Yes |
 
 1. Load user requirement and design scope from session.json
-2. Load pipeline stage definitions from SKILL.md Task Metadata Registry
+2. Load pipeline stage definitions from specs/pipelines.md
 3. Read `pipeline` and `industry` from session.json
 
 ## Phase 3: Task Chain Creation (Mode-Branched)

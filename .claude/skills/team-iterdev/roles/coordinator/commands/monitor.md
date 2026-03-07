@@ -1,15 +1,25 @@
 # Command: Monitor
 
-Handle all coordinator monitoring events: worker callbacks, status checks, pipeline advancement, Generator-Critic loop control (developer<->reviewer), and completion.
+Event-driven pipeline coordination. Beat model: coordinator wake -> process -> spawn -> STOP.
 
 ## Constants
 
-| Key | Value |
-|-----|-------|
-| SPAWN_MODE | background |
-| ONE_STEP_PER_INVOCATION | true |
-| WORKER_AGENT | team-worker |
-| MAX_GC_ROUNDS | 3 |
+- SPAWN_MODE: background
+- ONE_STEP_PER_INVOCATION: true
+- FAST_ADVANCE_AWARE: true
+- WORKER_AGENT: team-worker
+- MAX_GC_ROUNDS: 3
+
+## Handler Router
+
+| Source | Handler |
+|--------|---------|
+| Message contains [architect], [developer], [tester], [reviewer] | handleCallback |
+| "capability_gap" | handleAdapt |
+| "check" or "status" | handleCheck |
+| "resume" or "continue" | handleResume |
+| All tasks completed | handleComplete |
+| Default | handleSpawnNext |
 
 ## Phase 2: Context Loading
 
@@ -91,7 +101,7 @@ Agent({
   run_in_background: true,
   prompt: `## Role Assignment
 role: <role>
-role_spec: .claude/skills/team-iterdev/role-specs/<role>.md
+role_spec: .claude/skills/team-iterdev/roles/<role>/role.md
 session: <session-folder>
 session_id: <session-id>
 team_name: iterdev

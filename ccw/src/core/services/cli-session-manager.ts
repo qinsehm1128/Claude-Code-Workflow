@@ -17,6 +17,7 @@ import { getLaunchConfig } from './cli-launch-registry.js';
 import { assembleInstruction, type InstructionType } from './cli-instruction-assembler.js';
 import { loadEndpointSettings } from '../../config/cli-settings-manager.js';
 import { getToolConfig } from '../../tools/claude-cli-tools.js';
+import { generateExecutionId } from '../../tools/cli-executor.js';
 
 export interface CliSession {
   sessionKey: string;
@@ -532,7 +533,7 @@ export class CliSessionManager {
 
     const executionId = resumeKey
       ? `${resumeKey}-${Date.now()}`
-      : `exec-${Date.now()}-${randomBytes(3).toString('hex')}`;
+      : generateExecutionId(options.tool);
 
     let command: string;
 

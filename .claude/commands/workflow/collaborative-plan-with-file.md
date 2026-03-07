@@ -587,7 +587,11 @@ Schema (tasks): ~/.ccw/workflows/cli-templates/schemas/task-schema.json
    - Execution command
    - Conflict status
 
-6. **Update Todo**
+6. **Sync Session State**
+   - Execute: `/workflow:session:sync -y "Plan complete: ${subDomains.length} domains, ${allTasks.length} tasks"`
+   - Updates specs/*.md with planning insights and project-tech.json with planning session entry
+
+7. **Update Todo**
    - Set Phase 4 status to `completed`
 
 **plan.md Structure**:

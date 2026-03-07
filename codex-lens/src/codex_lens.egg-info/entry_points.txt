@@ -1,2 +1,2 @@
 [console_scripts]
-codexlens-lsp = codexlens.lsp:main
+codexlens-lsp = codexlens.lsp.server:main

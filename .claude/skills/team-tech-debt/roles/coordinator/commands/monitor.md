@@ -1,163 +1,118 @@
-# Command: Monitor
+# Monitor Pipeline
 
-Handle all coordinator monitoring events: worker callbacks, status checks, pipeline advancement, fix-verify loops, and completion.
+Event-driven pipeline coordination. Beat model: coordinator wake -> process -> spawn -> STOP.
 
 ## Constants
 
-| Key | Value |
-|-----|-------|
-| SPAWN_MODE | background |
-| ONE_STEP_PER_INVOCATION | true |
-| WORKER_AGENT | team-worker |
-| MAX_GC_ROUNDS | 3 |
+- SPAWN_MODE: background
+- ONE_STEP_PER_INVOCATION: true
+- FAST_ADVANCE_AWARE: true
+- WORKER_AGENT: team-worker
+- MAX_GC_ROUNDS: 3
 
-## Phase 2: Context Loading
+## Handler Router
 
-| Input | Source | Required |
-|-------|--------|----------|
-| Session state | <session>/session.json | Yes |
-| Task list | TaskList() | Yes |
-| Trigger event | From Entry Router detection | Yes |
-| Meta state | <session>/.msg/meta.json | Yes |
-| Pipeline definition | From SKILL.md | Yes |
+| Source | Handler |
+|--------|---------|
+| Message contains [scanner], [assessor], [planner], [executor], [validator] | handleCallback |
+| "capability_gap" | handleAdapt |
+| "check" or "status" | handleCheck |
+| "resume" or "continue" | handleResume |
+| All tasks completed | handleComplete |
+| Default | handleSpawnNext |
 
-1. Load session.json for current state, `pipeline_mode`, `gc_rounds`
-2. Run TaskList() to get current task statuses
-3. Identify trigger event type from Entry Router
+## handleCallback
 
-### Role Detection Table
+Worker completed. Process and advance.
 
-| Message Pattern | Role Detection |
-|----------------|---------------|
-| `[scanner]` or task ID `TDSCAN-*` | scanner |
-| `[assessor]` or task ID `TDEVAL-*` | assessor |
-| `[planner]` or task ID `TDPLAN-*` | planner |
-| `[executor]` or task ID `TDFIX-*` | executor |
-| `[validator]` or task ID `TDVAL-*` | validator |
+1. Find matching worker by role tag in message
+2. Check if progress update (inner loop) or final completion
+3. Progress update -> update session state, STOP
+4. Completion -> mark task done:
+   ```
+   TaskUpdate({ taskId: "<task-id>", status: "completed" })
+   ```
+5. Remove from active_workers, record completion in session
 
-### Pipeline Stage Order
+6. Check for checkpoints:
+   - **TDPLAN-001 completes** -> Plan Approval Gate:
+     ```
+     AskUserQuestion({
+       questions: [{ question: "Remediation plan generated. Review and decide:",
+         header: "Plan Review", multiSelect: false,
+         options: [
+           { label: "Approve", description: "Proceed with fix execution" },
+           { label: "Revise", description: "Re-run planner with feedback" },
+           { label: "Abort", description: "Stop pipeline" }
+         ]
+       }]
+     })
+     ```
+     - Approve -> Worktree Creation -> handleSpawnNext
+     - Revise -> Create TDPLAN-revised task -> handleSpawnNext
+     - Abort -> Log shutdown -> handleComplete
 
-```
-TDSCAN -> TDEVAL -> TDPLAN -> TDFIX -> TDVAL
-```
+   - **Worktree Creation** (before TDFIX):
+     ```
+     Bash("git worktree add .worktrees/TD-<slug>-<date> -b tech-debt/TD-<slug>-<date>")
+     ```
+     Update .msg/meta.json with worktree info.
 
-## Phase 3: Event Handlers
+   - **TDVAL-* completes** -> GC Loop Check:
+     Read validation results from .msg/meta.json
 
-### handleCallback
+     | Condition | Action |
+     |-----------|--------|
+     | No regressions | -> handleSpawnNext (pipeline complete) |
+     | Regressions AND gc_rounds < 3 | Create fix-verify tasks, increment gc_rounds |
+     | Regressions AND gc_rounds >= 3 | Accept current state -> handleComplete |
 
-Triggered when a worker sends completion message.
+     Fix-Verify Task Creation:
+     ```
+     TaskCreate({ subject: "TDFIX-fix-<round>", description: "PURPOSE: Fix regressions | Session: <session>" })
+     TaskCreate({ subject: "TDVAL-recheck-<round>", description: "...", blockedBy: ["TDFIX-fix-<round>"] })
+     ```
 
-1. Parse message to identify role and task ID using Role Detection Table
+7. -> handleSpawnNext
 
-2. Mark task as completed:
+## handleCheck
 
-```
-TaskUpdate({ taskId: "<task-id>", status: "completed" })
-```
-
-3. Record completion in session state
-
-4. **Plan Approval Gate** (when planner TDPLAN completes):
-
-Before advancing to TDFIX, present the remediation plan to the user for approval.
-
-```
-// Read the generated plan
-planContent = Read(<session>/plan/remediation-plan.md)
-  || Read(<session>/plan/remediation-plan.json)
-
-AskUserQuestion({
-  questions: [{
-    question: "Remediation plan generated. Review and decide:",
-    header: "Plan Review",
-    multiSelect: false,
-    options: [
-      { label: "Approve", description: "Proceed with fix execution" },
-      { label: "Revise", description: "Re-run planner with feedback" },
-      { label: "Abort", description: "Stop pipeline, no fixes applied" }
-    ]
-  }]
-})
-```
-
-| Decision | Action |
-|----------|--------|
-| Approve | Proceed to handleSpawnNext (TDFIX becomes ready) |
-| Revise | Create TDPLAN-revised task, proceed to handleSpawnNext |
-| Abort | Log shutdown, transition to handleComplete |
-
-5. **GC Loop Check** (when validator TDVAL completes):
-
-Read `<session>/.msg/meta.json` for validation results.
-
-| Condition | Action |
-|-----------|--------|
-| No regressions found | Proceed to handleSpawnNext (pipeline complete) |
-| Regressions found AND gc_rounds < 3 | Create fix-verify tasks, increment gc_rounds |
-| Regressions found AND gc_rounds >= 3 | Accept current state, proceed to handleComplete |
-
-**Fix-Verify Task Creation** (when regressions detected):
+Read-only status report, then STOP.
 
 ```
-TaskCreate({
-  subject: "TDFIX-fix-<round>",
-  description: "PURPOSE: Fix regressions found by validator | Success: All regressions resolved
-TASK:
-  - Load validation report with regression details
-  - Apply targeted fixes for each regression
-  - Re-validate fixes locally before completion
-CONTEXT:
-  - Session: <session-folder>
-  - Upstream artifacts: <session>/.msg/meta.json
-EXPECTED: Fixed source files | Regressions resolved
-CONSTRAINTS: Targeted fixes only | Do not introduce new regressions",
-  blockedBy: [],
-  status: "pending"
-})
+Pipeline Status (<mode>):
+  [DONE]  TDSCAN-001  (scanner)   -> scan complete
+  [DONE]  TDEVAL-001  (assessor)  -> assessment ready
+  [RUN]   TDPLAN-001  (planner)   -> planning...
+  [WAIT]  TDFIX-001   (executor)  -> blocked by TDPLAN-001
+  [WAIT]  TDVAL-001   (validator) -> blocked by TDFIX-001
 
-TaskCreate({
-  subject: "TDVAL-recheck-<round>",
-  description: "PURPOSE: Re-validate after regression fixes | Success: Zero regressions
-TASK:
-  - Run full validation suite on fixed code
-  - Compare debt scores before and after
-  - Report regression status
-CONTEXT:
-  - Session: <session-folder>
-EXPECTED: Validation results with regression count
-CONSTRAINTS: Read-only validation",
-  blockedBy: ["TDFIX-fix-<round>"],
-  status: "pending"
-})
+GC Rounds: 0/3
+Session: <session-id>
+Commands: 'resume' to advance | 'check' to refresh
 ```
 
-6. Proceed to handleSpawnNext
+Output status -- do NOT advance pipeline.
 
-### handleSpawnNext
+## handleResume
 
-Find and spawn the next ready tasks.
+1. Audit task list:
+   - Tasks stuck in "in_progress" -> reset to "pending"
+   - Tasks with completed blockers but still "pending" -> include in spawn list
+2. -> handleSpawnNext
 
-1. Scan task list for tasks where:
-   - Status is "pending"
-   - All blockedBy tasks have status "completed"
+## handleSpawnNext
 
-2. If no ready tasks and all tasks completed, proceed to handleComplete
+Find ready tasks, spawn workers, STOP.
 
-3. If no ready tasks but some still in_progress, STOP and wait
-
-4. For each ready task, determine role from task subject prefix:
-
-```javascript
-const STAGE_WORKER_MAP = {
-  'TDSCAN': { role: 'scanner' },
-  'TDEVAL': { role: 'assessor' },
-  'TDPLAN': { role: 'planner' },
-  'TDFIX':  { role: 'executor' },
-  'TDVAL':  { role: 'validator' }
-}
-```
-
-5. Spawn team-worker (one at a time for sequential pipeline):
+1. Collect: completedSubjects, inProgressSubjects, readySubjects (pending + all blockedBy completed)
+2. No ready + work in progress -> report waiting, STOP
+3. No ready + nothing in progress -> handleComplete
+4. Has ready -> for each:
+   a. Check inner loop role with active worker -> skip (worker picks up)
+   b. TaskUpdate -> in_progress
+   c. team_msg log -> task_unblocked
+   d. Spawn team-worker:
 
 ```
 Agent({
@@ -168,67 +123,54 @@ Agent({
   run_in_background: true,
   prompt: `## Role Assignment
 role: <role>
-role_spec: .claude/skills/team-tech-debt/role-specs/<role>.md
+role_spec: .claude/skills/team-tech-debt/roles/<role>/role.md
 session: <session-folder>
 session_id: <session-id>
 team_name: tech-debt
 requirement: <task-description>
-inner_loop: false
-
-## Current Task
-- Task ID: <task-id>
-- Task: <task-subject>
+inner_loop: <true|false>
 
 Read role_spec file to load Phase 2-4 domain instructions.
-Execute built-in Phase 1 -> role-spec Phase 2-4 -> built-in Phase 5.`
+Execute built-in Phase 1 (task discovery) -> role Phase 2-4 -> built-in Phase 5 (report).`
 })
 ```
 
-6. STOP after spawning -- wait for next callback
+Stage-to-role mapping:
+| Task Prefix | Role |
+|-------------|------|
+| TDSCAN | scanner |
+| TDEVAL | assessor |
+| TDPLAN | planner |
+| TDFIX | executor |
+| TDVAL | validator |
 
-### handleCheck
+5. Add to active_workers, update session, output summary, STOP
 
-Output current pipeline status.
+## handleComplete
 
-```
-Pipeline Status:
-  [DONE]  TDSCAN-001  (scanner)    -> scan complete
-  [DONE]  TDEVAL-001  (assessor)   -> assessment ready
-  [DONE]  TDPLAN-001  (planner)    -> plan approved
-  [RUN]   TDFIX-001   (executor)   -> fixing...
-  [WAIT]  TDVAL-001   (validator)  -> blocked by TDFIX-001
+Pipeline done. Generate report and completion action.
 
-GC Rounds: 0/3
-Session: <session-id>
-```
-
-Output status -- do NOT advance pipeline.
-
-### handleResume
-
-Resume pipeline after user pause or interruption.
-
-1. Audit task list for inconsistencies:
-   - Tasks stuck in "in_progress" -> reset to "pending"
-   - Tasks with completed blockers but still "pending" -> include in spawn list
-2. Proceed to handleSpawnNext
-
-### handleComplete
-
-Triggered when all pipeline tasks are completed.
-
-1. Verify all tasks (including any fix-verify tasks) have status "completed"
-2. If any tasks not completed, return to handleSpawnNext
+1. Verify all tasks (including fix-verify tasks) have status "completed"
+2. If any not completed -> handleSpawnNext
 3. If all completed:
-   - Read final state from `<session>/.msg/meta.json`
+   - Read final state from .msg/meta.json
+   - If worktree exists and validation passed: commit, push, gh pr create, cleanup worktree
    - Compile summary: total tasks, completed, gc_rounds, debt_score_before, debt_score_after
-   - If worktree exists and validation passed: commit changes, create PR, cleanup worktree
    - Transition to coordinator Phase 5
 
-## Phase 4: State Persistence
+## handleAdapt
 
-After every handler execution:
+Capability gap reported mid-pipeline.
 
-1. Update session.json with current state (active tasks, gc_rounds, last event)
-2. Verify task list consistency
-3. STOP and wait for next event
+1. Parse gap description
+2. Check if existing role covers it -> redirect
+3. Role count < 5 -> generate dynamic role spec in <session>/role-specs/
+4. Create new task, spawn worker
+5. Role count >= 5 -> merge or pause
+
+## Fast-Advance Reconciliation
+
+On every coordinator wake:
+1. Read team_msg entries with type="fast_advance"
+2. Sync active_workers with spawned successors
+3. No duplicate spawns

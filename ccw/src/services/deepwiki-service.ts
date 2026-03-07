@@ -7,7 +7,7 @@
 
 import { homedir } from 'os';
 import { join } from 'path';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import Database from 'better-sqlite3';
 
 // Default database path (same as Python DeepWikiStore)
@@ -27,6 +27,7 @@ export interface DeepWikiSymbol {
   end_line: number;
   created_at: number | null;
   updated_at: number | null;
+  staleness_score: number;
 }
 
 /**
@@ -252,38 +253,178 @@ export class DeepWikiService {
   }
 
   /**
-   * Get DeepWiki storage statistics
+   * Get all symbols for multiple source file paths (batch query)
+   * @param paths - Array of source file paths
+   * @returns Map of normalized path to array of symbol info
    */
-  public getStats(): { files: number; symbols: number; docs: number } {
+  public getSymbolsForPaths(paths: string[]): Map<string, Array<{
+    name: string;
+    type: string;
+    doc_file: string;
+    anchor: string;
+    start_line: number;
+    end_line: number;
+    staleness_score: number;
+  }>> {
     const db = this.getConnection();
     if (!db) {
-      return { files: 0, symbols: 0, docs: 0 };
+      return new Map();
     }
 
     try {
-      const filesRow = db.prepare(`
-        SELECT COUNT(DISTINCT source_file) as count
-        FROM deepwiki_symbols
-      `).get() as { count: number } | undefined;
+      const result = new Map<string, Array<{
+        name: string;
+        type: string;
+        doc_file: string;
+        anchor: string;
+        start_line: number;
+        end_line: number;
+        staleness_score: number;
+      }>>();
 
-      const symbolsRow = db.prepare(`
-        SELECT COUNT(*) as count
-        FROM deepwiki_symbols
-      `).get() as { count: number } | undefined;
+      if (paths.length === 0) {
+        return result;
+      }
 
-      const docsRow = db.prepare(`
-        SELECT COUNT(*) as count
-        FROM deepwiki_docs
-      `).get() as { count: number } | undefined;
+      const normalizedPaths = paths.map(p => p.replace(/\\/g, '/'));
+      const placeholders = normalizedPaths.map(() => '?').join(',');
+      const rows = db.prepare(`
+        SELECT source_file, name, type, doc_file, anchor, start_line, end_line, staleness_score
+        FROM deepwiki_symbols
+        WHERE source_file IN (${placeholders})
+        ORDER BY source_file, start_line
+      `).all(...normalizedPaths) as Array<{
+        source_file: string;
+        name: string;
+        type: string;
+        doc_file: string;
+        anchor: string;
+        start_line: number;
+        end_line: number;
+        staleness_score: number;
+      }>;
+
+      for (const row of rows) {
+        const existing = result.get(row.source_file) || [];
+        existing.push({
+          name: row.name,
+          type: row.type,
+          doc_file: row.doc_file,
+          anchor: row.anchor,
+          start_line: row.start_line,
+          end_line: row.end_line,
+          staleness_score: row.staleness_score,
+        });
+        result.set(row.source_file, existing);
+      }
+
+      return result;
+    } catch (error) {
+      console.error('[DeepWiki] Error getting symbols for paths:', error);
+      return new Map();
+    }
+  }
+
+  /**
+   * Check which files have stale documentation by comparing content hashes
+   * @param files - Array of {path, hash} to check
+   * @returns Array of file paths where stored hash differs from provided hash
+   */
+  public getStaleFiles(files: Array<{ path: string; hash: string }>): Array<{
+    path: string;
+    stored_hash: string | null;
+    current_hash: string;
+  }> {
+    const db = this.getConnection();
+    if (!db) {
+      return [];
+    }
+
+    try {
+      const stale: Array<{ path: string; stored_hash: string | null; current_hash: string }> = [];
+      if (files.length === 0) {
+        return stale;
+      }
+
+      // Build lookup: normalizedPath -> original file
+      const lookup = new Map<string, { path: string; hash: string }>();
+      const normalizedPaths: string[] = [];
+      for (const file of files) {
+        const np = file.path.replace(/\\/g, '/');
+        lookup.set(np, file);
+        normalizedPaths.push(np);
+      }
+
+      const placeholders = normalizedPaths.map(() => '?').join(',');
+      const rows = db.prepare(
+        `SELECT path, content_hash FROM deepwiki_files WHERE path IN (${placeholders})`
+      ).all(...normalizedPaths) as Array<{ path: string; content_hash: string }>;
+
+      const stored = new Map<string, string>();
+      for (const row of rows) {
+        stored.set(row.path, row.content_hash);
+      }
+
+      for (const [np, file] of lookup) {
+        const storedHash = stored.get(np);
+        if (storedHash === undefined) {
+          stale.push({ path: file.path, stored_hash: null, current_hash: file.hash });
+        } else if (storedHash !== file.hash) {
+          stale.push({ path: file.path, stored_hash: storedHash, current_hash: file.hash });
+        }
+      }
+
+      return stale;
+    } catch (error) {
+      console.error('[DeepWiki] Error checking stale files:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Read symbol documentation file content
+   * @param docFile - Path to the documentation file (relative to .deepwiki/)
+   * @returns Documentation content string or null
+   */
+  public getSymbolDocContent(docFile: string): string | null {
+    try {
+      const fullPath = join(homedir(), '.codexlens', 'deepwiki', docFile);
+      if (!existsSync(fullPath)) {
+        return null;
+      }
+      return readFileSync(fullPath, 'utf-8');
+    } catch (error) {
+      console.error('[DeepWiki] Error reading doc content:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get storage statistics
+   * @returns Statistics object with counts
+   */
+  public getStats(): { files: number; symbols: number; docs: number; filesNeedingDocs: number; dbPath: string } {
+    const db = this.getConnection();
+    if (!db) {
+      return { files: 0, symbols: 0, docs: 0, filesNeedingDocs: 0, dbPath: this.dbPath };
+    }
+
+    try {
+      const files = db.prepare('SELECT COUNT(*) as count FROM deepwiki_files').get() as { count: number };
+      const symbols = db.prepare('SELECT COUNT(*) as count FROM deepwiki_symbols').get() as { count: number };
+      const docs = db.prepare('SELECT COUNT(*) as count FROM deepwiki_docs').get() as { count: number };
+      const filesNeedingDocs = db.prepare('SELECT COUNT(*) as count FROM deepwiki_files WHERE docs_generated = 0').get() as { count: number };
 
       return {
-        files: filesRow?.count ?? 0,
-        symbols: symbolsRow?.count ?? 0,
-        docs: docsRow?.count ?? 0,
+        files: files?.count || 0,
+        symbols: symbols?.count || 0,
+        docs: docs?.count || 0,
+        filesNeedingDocs: filesNeedingDocs?.count || 0,
+        dbPath: this.dbPath
       };
     } catch (error) {
       console.error('[DeepWiki] Error getting stats:', error);
-      return { files: 0, symbols: 0, docs: 0 };
+      return { files: 0, symbols: 0, docs: 0, filesNeedingDocs: 0, dbPath: this.dbPath };
     }
   }
 }
@@ -299,4 +440,59 @@ export function getDeepWikiService(): DeepWikiService {
     deepWikiService = new DeepWikiService();
   }
   return deepWikiService;
+}
+
+/**
+ * Handle DeepWiki API routes
+ * @returns true if route was handled, false otherwise
+ */
+export async function handleDeepWikiRoutes(ctx: {
+  pathname: string;
+  req: any;
+  res: any;
+}): Promise<boolean> {
+  const { pathname, req, res } = ctx;
+  const service = getDeepWikiService();
+
+  if (pathname === '/api/deepwiki/symbols-for-paths' && req.method === 'POST') {
+    const body = await readJsonBody(req);
+    const paths: string[] = body?.paths || [];
+    const result = service.getSymbolsForPaths(paths);
+    // Convert Map to plain object for JSON serialization
+    const obj: Record<string, any> = {};
+    for (const [key, value] of result) {
+      obj[key] = value;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(obj));
+    return true;
+  }
+
+  if (pathname === '/api/deepwiki/stale-files' && req.method === 'POST') {
+    const body = await readJsonBody(req);
+    const files: Array<{ path: string; hash: string }> = body?.files || [];
+    const result = service.getStaleFiles(files);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(result));
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Read JSON body from request
+ */
+function readJsonBody(req: any): Promise<any> {
+  return new Promise((resolve) => {
+    let body = '';
+    req.on('data', (chunk: string) => { body += chunk; });
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(body));
+      } catch {
+        resolve(null);
+      }
+    });
+  });
 }

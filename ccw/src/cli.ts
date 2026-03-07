@@ -201,7 +201,7 @@ export function run(argv: string[]): void {
     .option('--status <status>', 'Filter by status')
     .option('--category <category>', 'Execution category: user, internal, insight', 'user')
     .option('--resume [id]', 'Resume previous session (empty=last, or execution ID, or comma-separated IDs for merge)')
-    .option('--id <id>', 'Custom execution ID (e.g., IMPL-001-step1)')
+    .option('--id <id>', 'Execution ID (recommended, auto-generated if omitted)')
     .option('--no-native', 'Force prompt concatenation instead of native resume')
     .option('--cache [items]', 'Cache: comma-separated @patterns and text content')
     .option('--inject-mode <mode>', 'Inject mode: none, full, progressive (default: codex=full, others=none)')
@@ -226,7 +226,10 @@ export function run(argv: string[]): void {
     .option('--output-type <type>', 'Output type: stdout, stderr, both', 'both')
     .option('--turn <n>', 'Turn number for cache (default: latest)')
     .option('--raw', 'Raw output only (no formatting)')
-    .option('--final', 'Output final result only with usage hint')
+    .option('--final', 'Output final result only (agent_message content, now default)')
+    .option('--verbose', 'Show full metadata + raw output')
+    .option('--timeout <seconds>', 'Timeout for watch command')
+    .option('--all', 'Show all executions in show command')
     .option('--to-file <path>', 'Save output to file')
     .action((subcommand, args, options) => cliCommand(subcommand, args, options));
 

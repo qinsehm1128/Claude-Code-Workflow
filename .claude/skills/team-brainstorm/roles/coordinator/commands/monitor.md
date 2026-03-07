@@ -1,34 +1,30 @@
-# Command: Monitor
+# Monitor Pipeline
 
-Handle all coordinator monitoring events: worker callbacks, status checks, pipeline advancement, Generator-Critic loop control, and completion.
+Event-driven pipeline coordination. Beat model: coordinator wake -> process -> spawn -> STOP.
 
 ## Constants
 
-| Key | Value |
-|-----|-------|
-| SPAWN_MODE | background |
-| ONE_STEP_PER_INVOCATION | true |
-| WORKER_AGENT | team-worker |
-| MAX_GC_ROUNDS | 2 |
+- SPAWN_MODE: background
+- ONE_STEP_PER_INVOCATION: true
+- FAST_ADVANCE_AWARE: true
+- WORKER_AGENT: team-worker
+- MAX_GC_ROUNDS: 2
 
-## Phase 2: Context Loading
+## Handler Router
 
-| Input | Source | Required |
-|-------|--------|----------|
-| Session state | <session>/session.json | Yes |
-| Task list | TaskList() | Yes |
-| Trigger event | From Entry Router detection | Yes |
-| Meta state | <session>/.msg/meta.json | Yes |
+| Source | Handler |
+|--------|---------|
+| Message contains [ideator], [challenger], [synthesizer], [evaluator] | handleCallback |
+| "consensus_blocked" | handleConsensus |
+| "capability_gap" | handleAdapt |
+| "check" or "status" | handleCheck |
+| "resume" or "continue" | handleResume |
+| All tasks completed | handleComplete |
+| Default | handleSpawnNext |
 
-1. Load session.json for current state, pipeline mode, gc_round
-2. Run TaskList() to get current task statuses
-3. Identify trigger event type from Entry Router
+## handleCallback
 
-## Phase 3: Event Handlers
-
-### handleCallback
-
-Triggered when a worker sends completion message.
+Worker completed. Process and advance.
 
 1. Parse message to identify role and task ID:
 
@@ -39,14 +35,8 @@ Triggered when a worker sends completion message.
 | `[synthesizer]` or task ID `SYNTH-*` | synthesizer |
 | `[evaluator]` or task ID `EVAL-*` | evaluator |
 
-2. Mark task as completed:
-
-```
-TaskUpdate({ taskId: "<task-id>", status: "completed" })
-```
-
+2. Mark task as completed: `TaskUpdate({ taskId: "<task-id>", status: "completed" })`
 3. Record completion in session state
-
 4. **Generator-Critic check** (when challenger completes):
    - If completed task is CHALLENGE-* AND pipeline is deep or full:
    - Read critique file for GC signal
@@ -63,38 +53,57 @@ TaskUpdate({ taskId: "<task-id>", status: "completed" })
 
 5. Proceed to handleSpawnNext
 
-### handleSpawnNext
+## handleCheck
 
-Find and spawn the next ready tasks.
-
-1. Scan task list for tasks where:
-   - Status is "pending"
-   - All blockedBy tasks have status "completed"
-
-2. For each ready task, spawn team-worker:
+Read-only status report, then STOP.
 
 ```
-Agent({
-  subagent_type: "team-worker",
-  description: "Spawn <role> worker for <task-id>",
-  team_name: "brainstorm",
-  name: "<role>",
-  run_in_background: true,
-  prompt: `## Role Assignment
-role: <role>
-role_spec: .claude/skills/team-brainstorm/role-specs/<role>.md
-session: <session-folder>
-session_id: <session-id>
-team_name: brainstorm
-requirement: <task-description>
-inner_loop: false
-
-Read role_spec file to load Phase 2-4 domain instructions.
-Execute built-in Phase 1 -> role-spec Phase 2-4 -> built-in Phase 5.`
-})
+[coordinator] Pipeline Status (<pipeline-mode>)
+[coordinator] Progress: <done>/<total> (<pct>%)
+[coordinator] Active: <workers with elapsed time>
+[coordinator] Ready: <pending tasks with resolved deps>
+[coordinator] GC Rounds: <gc_round>/<max_gc_rounds>
+[coordinator] Commands: 'resume' to advance | 'check' to refresh
 ```
 
-3. **Parallel spawn rules**:
+## handleResume
+
+1. Audit task list: Tasks stuck in "in_progress" -> reset to "pending"
+2. Proceed to handleSpawnNext
+
+## handleSpawnNext
+
+Find ready tasks, spawn workers, STOP.
+
+1. Collect: completedSubjects, inProgressSubjects, readySubjects
+2. No ready + work in progress -> report waiting, STOP
+3. No ready + nothing in progress -> handleComplete
+4. Has ready -> for each:
+   a. TaskUpdate -> in_progress
+   b. team_msg log -> task_unblocked
+   c. Spawn team-worker (see SKILL.md Spawn Template):
+      ```
+      Agent({
+        subagent_type: "team-worker",
+        description: "Spawn <role> worker for <task-id>",
+        team_name: "brainstorm",
+        name: "<role>",
+        run_in_background: true,
+        prompt: `## Role Assignment
+      role: <role>
+      role_spec: .claude/skills/team-brainstorm/roles/<role>/role.md
+      session: <session-folder>
+      session_id: <session-id>
+      team_name: brainstorm
+      requirement: <task-description>
+      inner_loop: false
+
+      Read role_spec file to load Phase 2-4 domain instructions.
+      Execute built-in Phase 1 (task discovery) -> role Phase 2-4 -> built-in Phase 5 (report).`
+      })
+      ```
+   d. Add to active_workers
+5. Parallel spawn rules:
 
 | Pipeline | Scenario | Spawn Behavior |
 |----------|----------|---------------|
@@ -103,33 +112,34 @@ Execute built-in Phase 1 -> role-spec Phase 2-4 -> built-in Phase 5.`
 | Full | IDEA-001/002/003 unblocked | Spawn ALL 3 ideator workers in parallel |
 | Full | Other stages | One worker at a time |
 
-4. STOP after spawning -- wait for next callback
-
-### handleCheck
-
-Output current pipeline status. Do NOT advance pipeline.
-
+**Parallel ideator spawn** (Full pipeline):
 ```
-Pipeline Status (<pipeline-mode>):
-  [DONE]  IDEA-001      (ideator)      -> ideas/idea-001.md
-  [DONE]  CHALLENGE-001 (challenger)   -> critiques/critique-001.md
-  [RUN]   SYNTH-001     (synthesizer)  -> synthesizing...
-  [WAIT]  EVAL-001      (evaluator)    -> blocked by SYNTH-001
-
-GC Rounds: <gc_round>/<max_gc_rounds>
-Session: <session-id>
+Agent({
+  subagent_type: "team-worker",
+  name: "ideator-<N>",
+  ...
+  prompt: `...agent_name: ideator-<N>...`
+})
 ```
 
-### handleResume
+6. Update session, output summary, STOP
 
-Resume pipeline after user pause or interruption.
+## handleComplete
 
-1. Audit task list for inconsistencies:
-   - Tasks stuck in "in_progress" -> reset to "pending"
-   - Tasks with completed blockers but still "pending" -> include in spawn list
-2. Proceed to handleSpawnNext
+Pipeline done. Generate report and completion action.
 
-### handleConsensus
+Completion check by mode:
+| Mode | Completion Condition |
+|------|---------------------|
+| quick | All 3 tasks completed |
+| deep | All 6 tasks (+ any skipped GC tasks) completed |
+| full | All 7 tasks (+ any skipped GC tasks) completed |
+
+1. Verify all tasks completed via TaskList()
+2. If any tasks not completed, return to handleSpawnNext
+3. If all completed -> transition to coordinator Phase 5
+
+## handleConsensus
 
 Handle consensus_blocked signals.
 
@@ -139,27 +149,19 @@ Handle consensus_blocked signals.
 | MEDIUM | Log finding, attempt to continue |
 | LOW | Log finding, continue pipeline |
 
-### handleComplete
+## handleAdapt
 
-Triggered when all pipeline tasks are completed.
+Capability gap reported mid-pipeline.
 
-**Completion check by mode**:
+1. Parse gap description
+2. Check if existing role covers it -> redirect
+3. Role count < 5 -> generate dynamic role-spec in <session>/role-specs/
+4. Create new task, spawn worker
+5. Role count >= 5 -> merge or pause
 
-| Mode | Completion Condition |
-|------|---------------------|
-| quick | All 3 tasks completed |
-| deep | All 6 tasks (+ any skipped GC tasks) completed |
-| full | All 7 tasks (+ any skipped GC tasks) completed |
+## Fast-Advance Reconciliation
 
-1. Verify all tasks completed via TaskList()
-2. If any tasks not completed, return to handleSpawnNext
-3. If all completed, transition to coordinator Phase 5 (Report + Completion Action)
-
-## Phase 4: State Persistence
-
-After every handler execution:
-
-1. Update session.json with current state (gc_round, last event, active tasks)
-2. Update .msg/meta.json gc_round if changed
-3. Verify task list consistency
-4. STOP and wait for next event
+On every coordinator wake:
+1. Read team_msg entries with type="fast_advance"
+2. Sync active_workers with spawned successors
+3. No duplicate spawns

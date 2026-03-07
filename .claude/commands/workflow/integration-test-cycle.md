@@ -806,6 +806,10 @@ AskUserQuestion({
 })
 ```
 
+4. **Sync Session State** (automatic)
+   - Execute: `/workflow:session:sync -y "Integration test cycle complete: ${passRate}% pass rate, ${iterations} iterations"`
+   - Updates specs/*.md with test learnings and project-tech.json with development index entry
+
 ---
 
 ## Completion Conditions

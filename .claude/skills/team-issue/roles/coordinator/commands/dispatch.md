@@ -1,8 +1,8 @@
-# Command: Dispatch
+# Dispatch
 
 Create the issue resolution task chain with correct dependencies and structured task descriptions based on selected pipeline mode.
 
-## Phase 2: Context Loading
+## Context Loading
 
 | Input | Source | Required |
 |-------|--------|----------|
@@ -16,9 +16,7 @@ Create the issue resolution task chain with correct dependencies and structured 
 1. Load requirement, pipeline mode, issue IDs, and execution method from session.json
 2. Determine task chain from pipeline mode
 
-## Phase 3: Task Chain Creation
-
-### Task Description Template
+## Task Description Template
 
 Every task description uses structured format:
 
@@ -44,13 +42,13 @@ code_review: <setting>"
 TaskUpdate({ taskId: "<TASK-ID>", addBlockedBy: [<dependency-list>], owner: "<role>" })
 ```
 
-### Pipeline Router
+## Pipeline Router
 
 | Mode | Action |
 |------|--------|
-| quick | Create 4 tasks (EXPLORE -> SOLVE -> MARSHAL -> BUILD) |
-| full | Create 5 tasks (EXPLORE -> SOLVE -> AUDIT -> MARSHAL -> BUILD) |
-| batch | Create N+N+1+1+M tasks (EXPLORE-001..N -> SOLVE-001..N -> AUDIT-001 -> MARSHAL-001 -> BUILD-001..M) |
+| quick | Create 4 tasks (EXPLORE → SOLVE → MARSHAL → BUILD) |
+| full | Create 5 tasks (EXPLORE → SOLVE → AUDIT → MARSHAL → BUILD) |
+| batch | Create N+N+1+1+M tasks (EXPLORE-001..N → SOLVE-001..N → AUDIT-001 → MARSHAL-001 → BUILD-001..M) |
 
 ---
 
@@ -83,7 +81,7 @@ TaskCreate({
   description: "PURPOSE: Design solution and decompose into implementation tasks | Success: Bound solution with task decomposition
 TASK:
   - Load explorer context report
-  - Generate solution plan via issue-plan-agent
+  - Generate solution plan via CLI
   - Bind solution to issue
 CONTEXT:
   - Session: <session-folder>
@@ -125,7 +123,7 @@ TaskCreate({
   description: "PURPOSE: Implement solution plan and verify with tests | Success: Code changes committed, tests pass
 TASK:
   - Load bound solution and explorer context
-  - Route to execution backend (Agent/Codex/Gemini)
+  - Route to execution backend (Auto/Codex/Gemini)
   - Run tests and verify implementation
   - Commit changes
 CONTEXT:
@@ -142,17 +140,17 @@ code_review: <code_review>"
 TaskUpdate({ taskId: "BUILD-001", addBlockedBy: ["MARSHAL-001"], owner: "implementer" })
 ```
 
+---
+
 ### Full Pipeline
 
-Creates 5 tasks. First 2 same as Quick, then AUDIT gate before MARSHAL and BUILD.
-
-**EXPLORE-001** and **SOLVE-001**: Same as Quick pipeline.
+Creates 5 tasks. EXPLORE-001 and SOLVE-001 same as Quick, then AUDIT gate before MARSHAL and BUILD.
 
 **AUDIT-001** (reviewer):
 ```
 TaskCreate({
   subject: "AUDIT-001",
-  description: "PURPOSE: Review solution for technical feasibility, risk, and completeness | Success: Clear verdict (approved/rejected/concerns) with scores
+  description: "PURPOSE: Review solution for technical feasibility, risk, and completeness | Success: Clear verdict (approved/concerns/rejected) with scores
 TASK:
   - Load explorer context and bound solution
   - Score across 3 dimensions: technical feasibility (40%), risk (30%), completeness (30%)
@@ -169,9 +167,11 @@ InnerLoop: false"
 TaskUpdate({ taskId: "AUDIT-001", addBlockedBy: ["SOLVE-001"], owner: "reviewer" })
 ```
 
-**MARSHAL-001** (integrator): Same as Quick, but `blockedBy: ["AUDIT-001"]`.
+**MARSHAL-001**: Same as Quick, but `addBlockedBy: ["AUDIT-001"]`.
 
-**BUILD-001** (implementer): Same as Quick, `blockedBy: ["MARSHAL-001"]`.
+**BUILD-001**: Same as Quick, `addBlockedBy: ["MARSHAL-001"]`.
+
+---
 
 ### Batch Pipeline
 
@@ -179,7 +179,7 @@ Creates tasks in parallel batches. Issue count = N, BUILD tasks = M (from queue 
 
 **EXPLORE-001..N** (explorer, parallel):
 
-For each issue in issue_ids, create an EXPLORE task. When N > 1, assign distinct owners for parallel spawn:
+For each issue in issue_ids (up to 5), create an EXPLORE task with distinct owner:
 
 | Issue Count | Owner Assignment |
 |-------------|-----------------|
@@ -206,8 +206,6 @@ TaskUpdate({ taskId: "EXPLORE-<NNN>", owner: "explorer-<N>" })
 ```
 
 **SOLVE-001..N** (planner, sequential after all EXPLORE):
-
-For each issue, create a SOLVE task blocked by all EXPLORE tasks
 
 ```
 TaskCreate({
@@ -250,11 +248,13 @@ InnerLoop: false"
 TaskUpdate({ taskId: "AUDIT-001", addBlockedBy: ["SOLVE-001", ..., "SOLVE-<N>"], owner: "reviewer" })
 ```
 
-**MARSHAL-001** (integrator): `blockedBy: ["AUDIT-001"]`.
+**MARSHAL-001** (integrator): `addBlockedBy: ["AUDIT-001"]`.
 
 **BUILD-001..M** (implementer, DAG parallel):
 
-After MARSHAL produces execution queue, create M BUILD tasks based on parallel groups. When M > 2, assign distinct owners:
+> Note: In Batch mode, BUILD task count M is not known at dispatch time (depends on MARSHAL queue output). Defer BUILD task creation to handleCallback when MARSHAL completes. Coordinator creates BUILD tasks dynamically after reading execution-queue.json.
+
+When M is known (deferred creation after MARSHAL), assign distinct owners:
 
 | Build Count | Owner Assignment |
 |-------------|-----------------|
@@ -283,11 +283,11 @@ code_review: <code_review>"
 TaskUpdate({ taskId: "BUILD-<NNN>", addBlockedBy: ["MARSHAL-001"], owner: "implementer-<M>" })
 ```
 
-> **Note**: In Batch mode, BUILD task count M may not be known at dispatch time (depends on MARSHAL queue output). Create BUILD tasks with placeholder count, or defer BUILD task creation to handleCallback when MARSHAL completes. Coordinator should check for deferred BUILD task creation in monitor.md handleCallback for integrator.
+---
 
 ### Review-Fix Cycle (Full/Batch modes)
 
-When AUDIT rejects a solution, coordinator creates fix tasks dynamically (NOT at dispatch time):
+When AUDIT rejects a solution, coordinator creates fix tasks dynamically in handleCallback — NOT at dispatch time.
 
 **SOLVE-fix-001** (planner, revision):
 ```
@@ -332,9 +332,7 @@ InnerLoop: false"
 TaskUpdate({ taskId: "AUDIT-002", addBlockedBy: ["SOLVE-fix-001"], owner: "reviewer" })
 ```
 
-These fix tasks are created dynamically by handleCallback in monitor.md when reviewer reports rejection, NOT during initial dispatch.
-
-## Phase 4: Validation
+## Validation
 
 1. Verify all tasks created with `TaskList()`
 2. Check dependency chain integrity:
@@ -348,4 +346,4 @@ These fix tasks are created dynamically by handleCallback in monitor.md when rev
 |------|-----------|
 | quick | Exactly 4 tasks, no AUDIT |
 | full | Exactly 5 tasks, includes AUDIT |
-| batch | N EXPLORE + N SOLVE + 1 AUDIT + 1 MARSHAL + M BUILD |
+| batch | N EXPLORE + N SOLVE + 1 AUDIT + 1 MARSHAL + deferred BUILD |

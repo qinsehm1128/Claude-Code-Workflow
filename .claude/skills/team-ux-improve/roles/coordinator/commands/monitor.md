@@ -1,131 +1,154 @@
-# Monitor Command
+# Monitor Pipeline
 
-## Purpose
+Event-driven pipeline coordination. Beat model: coordinator wake -> process -> spawn -> STOP.
 
-Handle worker callbacks, status checks, pipeline advancement, and completion detection.
+## Constants
 
----
+- SPAWN_MODE: background
+- ONE_STEP_PER_INVOCATION: true
+- FAST_ADVANCE_AWARE: true
+- WORKER_AGENT: team-worker
+- MAX_TEST_ITERATIONS: 5
 
-## Handlers
+## Handler Router
 
-### handleCallback
+| Source | Handler |
+|--------|---------|
+| Message contains [scanner], [diagnoser], [designer], [implementer], [tester] | handleCallback |
+| "capability_gap" | handleAdapt |
+| "check" or "status" | handleCheck |
+| "resume" or "continue" | handleResume |
+| All tasks completed | handleComplete |
+| Default | handleSpawnNext |
 
-**Trigger**: Worker SendMessage with `[scanner]`, `[diagnoser]`, `[designer]`, `[implementer]`, or `[tester]` tag.
+## handleCallback
 
-1. Parse worker role from message tag
-2. Mark corresponding task as completed: `TaskUpdate({ taskId: <task-id>, status: "completed" })`
-3. Log completion to message bus:
+Worker completed. Process and advance.
+
+1. Parse message to identify role and task ID:
+
+| Message Pattern | Role |
+|----------------|------|
+| `[scanner]` or `SCAN-*` | scanner |
+| `[diagnoser]` or `DIAG-*` | diagnoser |
+| `[designer]` or `DESIGN-*` | designer |
+| `[implementer]` or `IMPL-*` | implementer |
+| `[tester]` or `TEST-*` | tester |
+
+2. Check if progress update (inner loop) or final completion
+3. Progress update -> update session state, STOP
+4. Completion -> mark task done:
    ```
-   team_msg(operation="log", session_id=<session-id>, from="coordinator",
-            type="task_complete", data={ role: <role>, task_id: <task-id> })
+   TaskUpdate({ taskId: "<task-id>", status: "completed" })
    ```
-4. Check if all tasks completed -> handleComplete
-5. Otherwise -> handleSpawnNext
+5. Remove from active_workers, record completion in session
 
-### handleCheck
+6. Check for checkpoints:
+   - **TEST-001 completes** -> Validation Gate:
+     Read test results from `.msg/meta.json`
 
-**Trigger**: User "check" or "status" command.
+     | Condition | Action |
+     |-----------|--------|
+     | pass_rate >= 95% | -> handleSpawnNext (pipeline likely complete) |
+     | pass_rate < 95% AND iterations < max | Log warning, still -> handleSpawnNext |
+     | pass_rate < 95% AND iterations >= max | Accept current state -> handleComplete |
 
-1. Load TaskList
-2. Build status graph:
-   ```
-   Pipeline Status:
-   ✅ SCAN-001 (scanner) - completed
-   ✅ DIAG-001 (diagnoser) - completed
-   🔄 DESIGN-001 (designer) - in_progress
-   ⏳ IMPL-001 (implementer) - pending [blocked by DESIGN-001]
-   ⏳ TEST-001 (tester) - pending [blocked by IMPL-001]
-   ```
-3. Output status graph, do NOT advance pipeline
-4. STOP
+7. -> handleSpawnNext
 
-### handleResume
+## handleCheck
 
-**Trigger**: User "resume" or "continue" command.
+Read-only status report, then STOP.
 
-1. Load TaskList
-2. Check for fast-advance orphans:
-   - Tasks with status "in_progress" but no active worker
-   - Reset orphans to "pending"
-3. -> handleSpawnNext
+```
+Pipeline Status (standard):
+  [DONE]  SCAN-001    (scanner)     -> artifacts/scan-report.md
+  [DONE]  DIAG-001    (diagnoser)   -> artifacts/diagnosis.md
+  [RUN]   DESIGN-001  (designer)    -> designing solutions...
+  [WAIT]  IMPL-001    (implementer) -> blocked by DESIGN-001
+  [WAIT]  TEST-001    (tester)      -> blocked by IMPL-001
 
-### handleSpawnNext
+Session: <session-id>
+Commands: 'resume' to advance | 'check' to refresh
+```
 
-**Trigger**: After handleCallback or handleResume.
+Output status -- do NOT advance pipeline.
 
-1. Load TaskList
-2. Find ready tasks:
-   - status = "pending"
-   - All blockedBy tasks have status "completed"
-3. For each ready task:
-   - Extract role from task owner
-   - Extract inner_loop from task description metadata
-   - Spawn team-worker agent:
-     ```
-     Agent({
-       subagent_type: "team-worker",
-       description: "Spawn <role> worker",
-       team_name: "ux-improve",
-       name: "<role>",
-       run_in_background: true,
-       prompt: `## Role Assignment
-     role: <role>
-     role_spec: .claude/skills/team-ux-improve/role-specs/<role>.md
-     session: <session-folder>
-     session_id: <session-id>
-     team_name: ux-improve
-     requirement: <task-description>
-     inner_loop: <inner-loop-value>
+## handleResume
 
-     Read role_spec file to load Phase 2-4 domain instructions.
-     Execute built-in Phase 1 -> role-spec Phase 2-4 -> built-in Phase 5.`
-     })
-     ```
-4. STOP (wait for next callback)
+1. Audit task list for inconsistencies:
+   - Tasks stuck in "in_progress" -> reset to "pending"
+   - Tasks with completed blockers but still "pending" -> include in spawn list
+2. -> handleSpawnNext
 
-### handleConsensus
+## handleSpawnNext
 
-**Trigger**: consensus_blocked message from worker.
+Find ready tasks, spawn workers, STOP.
 
-Route by severity:
+1. Collect: completedSubjects, inProgressSubjects, readySubjects (pending + all blockedBy completed)
+2. No ready + work in progress -> report waiting, STOP
+3. No ready + nothing in progress -> handleComplete
+4. Has ready -> for each:
+   a. Check inner loop role with active worker -> skip (worker picks up)
+   b. TaskUpdate -> in_progress
+   c. team_msg log -> task_unblocked
+   d. Spawn team-worker:
 
-| Severity | Action |
-|----------|--------|
-| HIGH | Pause pipeline, AskUserQuestion for resolution |
-| MEDIUM | Log warning, continue pipeline |
-| LOW | Log info, continue pipeline |
+```
+Agent({
+  subagent_type: "team-worker",
+  description: "Spawn <role> worker for <task-id>",
+  team_name: "ux-improve",
+  name: "<role>",
+  run_in_background: true,
+  prompt: `## Role Assignment
+role: <role>
+role_spec: .claude/skills/team-ux-improve/roles/<role>/role.md
+session: <session-folder>
+session_id: <session-id>
+team_name: ux-improve
+requirement: <task-description>
+inner_loop: <true|false>
 
-### handleComplete
+Read role_spec file to load Phase 2-4 domain instructions.
+Execute built-in Phase 1 (task discovery) -> role Phase 2-4 -> built-in Phase 5 (report).`
+})
+```
 
-**Trigger**: All tasks have status "completed".
+Stage-to-role mapping:
+| Task Prefix | Role |
+|-------------|------|
+| SCAN | scanner |
+| DIAG | diagnoser |
+| DESIGN | designer |
+| IMPL | implementer |
+| TEST | tester |
 
-1. Verify all tasks completed via TaskList
-2. Generate pipeline summary:
-   - Total tasks: 5
-   - Duration: <calculated>
-   - Deliverables: list artifact paths
-3. Execute completion action (see coordinator Phase 5)
+Inner loop roles: implementer (inner_loop: true)
+Single-task roles: scanner, diagnoser, designer, tester (inner_loop: false)
 
----
+5. Add to active_workers, update session, output summary, STOP
 
-## Fast-Advance Detection
+## handleComplete
 
-When handleCallback detects a completed task:
+Pipeline done. Generate report and completion action.
 
-| Condition | Action |
-|-----------|--------|
-| Exactly 1 ready successor, simple linear | Worker already fast-advanced, log sync |
-| Multiple ready successors | Coordinator spawns all |
-| No ready successors, all done | -> handleComplete |
-| No ready successors, some pending | Wait (blocked tasks) |
+1. Verify all tasks (including any fix-verify iterations) have status "completed"
+2. If any tasks not completed -> handleSpawnNext
+3. If all completed -> transition to coordinator Phase 5
 
----
+## handleAdapt
 
-## Error Handling
+Capability gap reported mid-pipeline.
 
-| Scenario | Resolution |
-|----------|------------|
-| Worker callback with unknown role | Log warning, ignore |
-| Task not found for callback | Log error, check TaskList |
-| Spawn fails | Mark task as failed, log error, try next ready task |
-| All tasks failed | Report failure, execute completion action |
+1. Parse gap description
+2. Check if existing role covers it -> redirect
+3. Role count < 5 -> generate dynamic role spec
+4. Create new task, spawn worker
+5. Role count >= 5 -> merge or pause
+
+## Fast-Advance Reconciliation
+
+On every coordinator wake:
+1. Read team_msg entries with type="fast_advance"
+2. Sync active_workers with spawned successors
+3. No duplicate spawns

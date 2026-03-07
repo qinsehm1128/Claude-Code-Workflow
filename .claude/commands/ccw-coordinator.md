@@ -923,8 +923,9 @@ Task: <description>
 **Cycle Workflows**: workflow:integration-test-cycle, workflow:refactor-cycle
 **Execution**: workflow:unified-execute-with-file
 **Design**: workflow:ui-design:*
-**Session Management**: workflow:session:start, workflow:session:resume, workflow:session:complete, workflow:session:solidify, workflow:session:list, workflow:session:sync
-**Utility**: workflow:clean, workflow:init, workflow:init-guidelines, workflow:status
+**Session Management**: workflow:session:start, workflow:session:resume, workflow:session:complete, workflow:session:list, workflow:session:sync
+**Utility**: workflow:clean, workflow:spec:setup, workflow:status
+**Spec Management**: workflow:spec:setup, workflow:spec:add
 **Issue Workflow**: issue:discover, issue:discover-by-prompt, issue:plan, issue:queue, issue:execute, issue:convert-to-plan, issue:from-brainstorm, issue:new
 
 ### Testing Commands Distinction

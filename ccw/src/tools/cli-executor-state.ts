@@ -6,6 +6,31 @@
 import type { HistoryIndexEntry } from './cli-history-store.js';
 import { StoragePaths, ensureStorageDir } from '../config/storage-paths.js';
 import type { CliOutputUnit } from './cli-output-converter.js';
+import * as fs from 'fs';
+import * as path from 'path';
+
+// Debug logging for history save investigation (Iteration 4)
+const DEBUG_SESSION_ID = 'DBG-parallel-ccw-cli-test-2026-03-07';
+const DEBUG_LOG_PATH = path.join(process.cwd(), '.workflow', '.debug', DEBUG_SESSION_ID, 'debug-save.log');
+
+// Ensure debug log directory exists
+try {
+  const debugDir = path.dirname(DEBUG_LOG_PATH);
+  if (!fs.existsSync(debugDir)) {
+    fs.mkdirSync(debugDir, { recursive: true });
+  }
+} catch (err) {
+  // Ignore directory creation errors
+}
+
+function writeDebugLog(event: string, data: Record<string, any>): void {
+  try {
+    const logEntry = JSON.stringify({ event, ...data, timestamp: new Date().toISOString() }) + '\n';
+    fs.appendFileSync(DEBUG_LOG_PATH, logEntry, 'utf8');
+  } catch (err) {
+    // Silently ignore logging errors
+  }
+}
 
 // Lazy-loaded SQLite store module
 let sqliteStoreModule: typeof import('./cli-history-store.js') | null = null;
@@ -14,8 +39,10 @@ let sqliteStoreModule: typeof import('./cli-history-store.js') | null = null;
  * Get or initialize SQLite store (async)
  */
 export async function getSqliteStore(baseDir: string) {
+  writeDebugLog('GET_STORE', { baseDir, baseDirType: typeof baseDir, moduleInitialized: sqliteStoreModule !== null });
   if (!sqliteStoreModule) {
     sqliteStoreModule = await import('./cli-history-store.js');
+    writeDebugLog('MODULE_LOADED', { baseDir });
   }
   return sqliteStoreModule.getHistoryStore(baseDir);
 }
@@ -136,15 +163,20 @@ async function saveConversationAsync(baseDir: string, conversation: Conversation
  * @param baseDir - Project base directory (NOT historyDir)
  */
 export function saveConversation(baseDir: string, conversation: ConversationRecord): void {
+  writeDebugLog('SAVE_CONV_START', { baseDir, conversationId: conversation.id, moduleInitialized: sqliteStoreModule !== null });
   try {
     const store = getSqliteStoreSync(baseDir);
+    writeDebugLog('SAVE_CONV_SYNC', { baseDir, conversationId: conversation.id });
     // Fire and forget - don't block on async save in sync context
     store.saveConversation(conversation).catch(err => {
+      writeDebugLog('SAVE_CONV_ERROR', { baseDir, conversationId: conversation.id, error: err.message, stack: err.stack });
       console.error('[CLI Executor] Failed to save conversation:', err.message);
     });
-  } catch {
+  } catch (err) {
+    writeDebugLog('SAVE_CONV_FALLBACK_ASYNC', { baseDir, conversationId: conversation.id, error: (err as Error).message });
     // If sync not available, queue for async save
     saveConversationAsync(baseDir, conversation).catch(err => {
+      writeDebugLog('SAVE_CONV_ASYNC_ERROR', { baseDir, conversationId: conversation.id, error: err.message, stack: err.stack });
       console.error('[CLI Executor] Failed to save conversation:', err.message);
     });
   }

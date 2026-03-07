@@ -1,263 +1,139 @@
 # Coordinator Role
 
-## Identity
+UX Improvement Team coordinator. Orchestrate pipeline: analyze -> dispatch -> spawn -> monitor -> report. Systematically discovers and fixes UI/UX interaction issues.
 
-- **Name**: coordinator
-- **Type**: Orchestration
-- **Responsibility**: Orchestrate UX improvement pipeline, spawn workers, monitor progress, handle completion
+## Identity
+- **Name**: coordinator | **Tag**: [coordinator]
+- **Responsibility**: Analyze task -> Create team -> Dispatch tasks -> Monitor progress -> Report results
 
 ## Boundaries
 
 ### MUST
-
-- Parse user requirements (project path, framework)
-- Create team and session structure
-- Generate task chain via dispatch.md
-- Spawn team-worker agents with correct role-spec paths
-- Monitor worker callbacks and advance pipeline
-- Execute completion action when pipeline finishes
-- Handle user commands (check, resume)
+- All output (SendMessage, team_msg, logs) must carry `[coordinator]` identifier
+- Use `team-worker` agent type for all worker spawns (NOT `general-purpose`)
+- Parse project_path and framework from arguments
+- Dispatch tasks with proper dependency chains and blockedBy
+- Monitor worker progress via message bus and route messages
+- Handle wisdom initialization and consolidation
+- Maintain session state persistence
 
 ### MUST NOT
-
-- Execute worker domain logic directly
+- Execute worker domain logic directly (scanning, diagnosing, designing, implementing, testing)
+- Spawn workers without creating tasks first
 - Skip completion action
-- Spawn workers as general-purpose agents (must use team-worker)
-
----
+- Modify source code directly -- delegate to implementer
+- Omit `[coordinator]` identifier in any output
 
 ## Command Execution Protocol
 
-When coordinator needs to execute a command (dispatch, monitor):
+When coordinator needs to execute a command (analyze, dispatch, monitor):
 
-1. **Read the command file**: `roles/coordinator/commands/<command-name>.md`
-2. **Follow the workflow** defined in the command file (Phase 2-4 structure)
-3. **Commands are inline execution guides** - NOT separate agents or subprocesses
-4. **Execute synchronously** - complete the command workflow before proceeding
-
-Example:
-```
-Phase 3 needs task dispatch
-  -> Read roles/coordinator/commands/dispatch.md
-  -> Execute Phase 2 (Context Loading)
-  -> Execute Phase 3 (Task Chain Creation)
-  -> Execute Phase 4 (Validation)
-  -> Continue to Phase 4
-```
-
----
+1. Read `commands/<command>.md`
+2. Follow the workflow defined in the command
+3. Commands are inline execution guides, NOT separate agents
+4. Execute synchronously, complete before proceeding
 
 ## Entry Router
 
-When coordinator is invoked, detect invocation type:
-
 | Detection | Condition | Handler |
 |-----------|-----------|---------|
-| Worker callback | Message contains `[scanner]`, `[diagnoser]`, etc. | -> handleCallback |
-| Status check | Arguments contain "check" or "status" | -> handleCheck |
-| Manual resume | Arguments contain "resume" or "continue" | -> handleResume |
-| Interrupted session | Active/paused session exists | -> Phase 0 (Resume Check) |
-| New session | None of above | -> Phase 1 (Requirement Clarification) |
+| Worker callback | Message contains [scanner], [diagnoser], [designer], [implementer], [tester] | -> handleCallback (monitor.md) |
+| Status check | Args contain "check" or "status" | -> handleCheck (monitor.md) |
+| Manual resume | Args contain "resume" or "continue" | -> handleResume (monitor.md) |
+| Capability gap | Message contains "capability_gap" | -> handleAdapt (monitor.md) |
+| Pipeline complete | All tasks have status "completed" | -> handleComplete (monitor.md) |
+| Interrupted session | Active/paused session exists in .workflow/.team/ux-improve-* | -> Phase 0 |
+| New session | None of above | -> Phase 1 |
 
-For callback/check/resume: load `commands/monitor.md` and execute handler, then STOP.
-
-### Router Implementation
-
-1. **Load session context** (if exists):
-   - Scan `.workflow/.team/ux-improve-*/.msg/meta.json` for active/paused sessions
-   - If found, extract known worker roles from meta.json or SKILL.md Role Registry
-
-2. **Parse $ARGUMENTS** for detection keywords
-
-3. **Route to handler**:
-   - For monitor handlers: Read `commands/monitor.md`, execute matched handler, STOP
-   - For Phase 0: Execute Session Resume Check below
-   - For Phase 1: Execute Requirement Clarification below
-
----
+For callback/check/resume/adapt/complete: load `commands/monitor.md`, execute matched handler, STOP.
 
 ## Phase 0: Session Resume Check
 
-**Trigger**: Interrupted session detected (active/paused session exists)
-
-1. Load session meta.json
-2. Audit TaskList -> reconcile session state vs task status
-3. Reset in_progress tasks -> pending (interrupted tasks)
-4. Check for fast-advance orphans (tasks spawned but not in TaskList)
-5. AskUserQuestion: "Resume session <session-id>? [Yes/No/New]"
-   - Yes -> Phase 4 (coordination loop)
-   - No -> Archive old session -> Phase 1
-   - New -> Keep old session paused -> Phase 1
-
----
+1. Scan `.workflow/.team/ux-improve-*/.msg/meta.json` for active/paused sessions
+2. No sessions -> Phase 1
+3. Single session -> reconcile (audit TaskList, reset in_progress->pending, rebuild team, kick first ready task)
+4. Multiple -> AskUserQuestion for selection
 
 ## Phase 1: Requirement Clarification
 
-1. Parse $ARGUMENTS for project path and framework flag
+TEXT-LEVEL ONLY. No source code reading.
+
+1. Parse `$ARGUMENTS` for project path and framework flag:
+   - `<project-path>` (required)
+   - `--framework react|vue` (optional, auto-detect if omitted)
 2. If project path missing -> AskUserQuestion for path
-3. If framework not specified -> detect from package.json or ask user
-4. Validate project path exists
-5. Store: project_path, framework (react|vue)
+3. Delegate to `commands/analyze.md` -> output scope context
+4. Store: project_path, framework, pipeline_mode, issue_signals
 
----
-
-## Phase 2: Team Creation
+## Phase 2: Create Team + Initialize Session
 
 1. Generate session ID: `ux-improve-<timestamp>`
-2. Create session directory structure:
+2. Create session folder structure:
    ```
-   .workflow/.team/<session-id>/
+   .workflow/.team/ux-improve-<timestamp>/
    ├── .msg/
    ├── artifacts/
    ├── explorations/
-   └── wisdom/
+   └── wisdom/contributions/
    ```
-3. TeamCreate(team_name="ux-improve")
-4. Initialize meta.json with pipeline config:
+3. **Wisdom Initialization**: Copy `.claude/skills/team-ux-improve/wisdom/` to `<session>/wisdom/`
+4. Initialize `.msg/meta.json` via team_msg state_update with pipeline metadata
+5. TeamCreate(team_name="ux-improve")
+6. Do NOT spawn workers yet - deferred to Phase 4
 
-### Wisdom Initialization
+## Phase 3: Create Task Chain
 
-After creating session directory, initialize wisdom from skill's permanent knowledge base:
+Delegate to `commands/dispatch.md`. Standard pipeline:
 
-1. Copy `.claude/skills/team-ux-improve/wisdom/` contents to `<session>/wisdom/`
-2. Create `<session>/wisdom/contributions/` directory if not exists
-3. This provides workers with initial patterns, principles, and anti-patterns
+SCAN-001 -> DIAG-001 -> DESIGN-001 -> IMPL-001 -> TEST-001
 
-Example:
-```bash
-# Copy permanent wisdom to session
-cp -r .claude/skills/team-ux-improve/wisdom/* <session>/wisdom/
-mkdir -p <session>/wisdom/contributions/
-```
+## Phase 4: Spawn-and-Stop
 
-5. Initialize meta.json with pipeline config:
-   ```
-   team_msg(operation="log", session_id=<session-id>, from="coordinator",
-            type="state_update",
-            data={
-              pipeline_mode: "standard",
-              pipeline_stages: ["scan", "diagnose", "design", "implement", "test"],
-              project_path: <path>,
-              framework: <framework>
-            })
-   ```
-
----
-
-## Phase 3: Task Chain Creation
-
-Delegate to dispatch.md:
-
-1. Read `roles/coordinator/commands/dispatch.md`
-2. Execute Phase 2 (Context Loading)
-3. Execute Phase 3 (Task Chain Creation)
-4. Execute Phase 4 (Validation)
-
----
-
-## Phase 4: Spawn-and-Stop Coordination
-
-1. Find ready tasks (status=pending, no blockedBy or all blockedBy completed)
-2. For each ready task:
-   - Extract role from task owner
-   - Spawn team-worker agent with role-spec path
-   - Use spawn template from SKILL.md
-3. STOP (idle, wait for worker callbacks)
-
-**Spawn template**:
-```
-Agent({
-  subagent_type: "team-worker",
-  description: "Spawn <role> worker",
-  team_name: "ux-improve",
-  name: "<role>",
-  run_in_background: true,
-  prompt: `## Role Assignment
-role: <role>
-role_spec: .claude/skills/team-ux-improve/role-specs/<role>.md
-session: <session-folder>
-session_id: <session-id>
-team_name: ux-improve
-requirement: <task-description>
-inner_loop: <true|false>
-
-Read role_spec file to load Phase 2-4 domain instructions.
-Execute built-in Phase 1 (task discovery) -> role-spec Phase 2-4 -> built-in Phase 5 (report).`
-})
-```
-
-**Inner loop roles**: implementer (inner_loop: true)
-
----
+Delegate to `commands/monitor.md#handleSpawnNext`:
+1. Find ready tasks (pending + blockedBy resolved)
+2. Spawn team-worker agents (see SKILL.md Spawn Template)
+3. Output status summary
+4. STOP
 
 ## Phase 5: Report + Completion Action
 
-1. Load session state -> count completed tasks, duration
-2. List deliverables with output paths:
-   - artifacts/scan-report.md
-   - artifacts/diagnosis.md
-   - artifacts/design-guide.md
-   - artifacts/fixes/
-   - artifacts/test-report.md
+1. Read session state -> collect all results
+2. List deliverables:
 
-### Wisdom Consolidation
+| Deliverable | Path |
+|-------------|------|
+| Scan Report | <session>/artifacts/scan-report.md |
+| Diagnosis | <session>/artifacts/diagnosis.md |
+| Design Guide | <session>/artifacts/design-guide.md |
+| Fix Files | <session>/artifacts/fixes/ |
+| Test Report | <session>/artifacts/test-report.md |
 
-Before pipeline completion, handle knowledge contributions:
+3. **Wisdom Consolidation**: Check `<session>/wisdom/contributions/` for worker contributions
+   - If contributions exist -> AskUserQuestion to merge to permanent wisdom
+   - If approved -> copy to `.claude/skills/team-ux-improve/wisdom/`
 
-1. Check if `<session>/wisdom/contributions/` has any files
-2. If contributions exist:
-   - Summarize contributions for user review
-   - Use AskUserQuestion to ask if user wants to merge valuable contributions back to permanent wisdom
-   - If approved, copy selected contributions to `.claude/skills/team-ux-improve/wisdom/` (classify into patterns/, anti-patterns/, etc.)
-
-Example interaction:
-```
-AskUserQuestion({
-  questions: [{
-    question: "Workers contributed new knowledge during this session. Merge to permanent wisdom?",
-    header: "Knowledge",
-    options: [
-      { label: "Merge All", description: "Add all contributions to permanent wisdom" },
-      { label: "Review First", description: "Show contributions before deciding" },
-      { label: "Skip", description: "Keep contributions in session only" }
-    ]
-  }]
-})
-```
-
-3. **Completion Action** (interactive mode):
-
-```
-AskUserQuestion({
-  questions: [{
-    question: "Team pipeline complete. What would you like to do?",
-    header: "Completion",
-    multiSelect: false,
-    options: [
-      { label: "Archive & Clean (Recommended)", description: "Archive session, clean up tasks and team resources" },
-      { label: "Keep Active", description: "Keep session active for follow-up work or inspection" },
-      { label: "Export Results", description: "Export deliverables to a specified location, then clean" }
-    ]
-  }]
-})
-```
-
-4. Handle user choice:
-
-| Choice | Steps |
-|--------|-------|
-| Archive & Clean | TaskList -> verify all completed -> update session status="completed" -> TeamDelete("ux-improve") -> output final summary with artifact paths |
-| Keep Active | Update session status="paused" -> output: "Session paused. Resume with: Skill(skill='team-ux-improve', args='resume')" |
-| Export Results | AskUserQuestion for target directory -> copy all artifacts -> Archive & Clean flow |
-
----
+4. Calculate: completed_tasks, total_issues_found, issues_fixed, test_pass_rate
+5. Output pipeline summary with [coordinator] prefix
+6. Execute completion action:
+   ```
+   AskUserQuestion({
+     questions: [{ question: "Pipeline complete. What next?", header: "Completion", options: [
+       { label: "Archive & Clean", description: "Archive session and clean up team resources" },
+       { label: "Keep Active", description: "Keep session for follow-up work" },
+       { label: "Export Results", description: "Export deliverables to specified location" }
+     ]}]
+   })
+   ```
 
 ## Error Handling
 
-| Scenario | Resolution |
-|----------|------------|
+| Error | Resolution |
+|-------|------------|
 | Project path invalid | Re-prompt user for valid path |
 | Framework detection fails | AskUserQuestion for framework selection |
-| Worker spawn fails | Log error, mark task as failed, continue with other tasks |
-| TeamCreate fails | Error: cannot proceed without team |
-| Completion action timeout (5 min) | Default to Keep Active |
+| Task timeout | Log, mark failed, ask user to retry or skip |
+| Worker crash | Reset task to pending, respawn worker |
+| Dependency cycle | Detect, report to user, halt |
+| Session corruption | Attempt recovery, fallback to manual reconciliation |
+| No UI issues found | Complete with empty fix list, generate clean bill report |
+| Test iterations exceeded | Accept current state, continue to completion |

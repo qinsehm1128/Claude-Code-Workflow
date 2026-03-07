@@ -18,6 +18,7 @@ import {
   deleteExecutionAsync,
   batchDeleteExecutionsAsync,
   executeCliTool,
+  generateExecutionId,
   getNativeSessionContent,
   getFormattedNativeConversation,
   getEnrichedConversation,
@@ -940,7 +941,7 @@ export async function handleCliRoutes(ctx: RouteContext): Promise<boolean> {
         }
       }
 
-      const executionId = `${Date.now()}-${tool}`;
+      const executionId = generateExecutionId(tool);
 
       // Store active execution for state recovery
       // Check map size limit before creating new execution

@@ -1,71 +1,122 @@
-# Command: Monitor
+# Monitor Pipeline
 
-Handle all coordinator monitoring events: worker callbacks, status checks, pipeline advancement, and completion. Supports component, system, and full-system pipeline modes with sync point and Generator-Critic loop management.
+Event-driven pipeline coordination. Beat model: coordinator wake -> process -> spawn -> STOP.
 
-## Phase 2: Context Loading
+## Constants
 
-| Input | Source | Required |
-|-------|--------|----------|
-| Session state | <session>/session.json | Yes |
-| Task list | TaskList() | Yes |
-| Trigger event | From Entry Router detection | Yes |
-| Pipeline definition | From SKILL.md | Yes |
+- SPAWN_MODE: background
+- ONE_STEP_PER_INVOCATION: true
+- FAST_ADVANCE_AWARE: true
+- WORKER_AGENT: team-worker
+- MAX_GC_ROUNDS: 2
 
-1. Load session.json for current state, `pipeline`, `gc_state`, `sync_points`
-2. Run TaskList() to get current task statuses
-3. Identify trigger event type from Entry Router
+## Handler Router
 
-## Phase 3: Event Handlers
+| Source | Handler |
+|--------|---------|
+| Message contains [researcher], [designer], [reviewer], [implementer] | handleCallback |
+| "capability_gap" | handleAdapt |
+| "check" or "status" | handleCheck |
+| "resume" or "continue" | handleResume |
+| All tasks completed | handleComplete |
+| Default | handleSpawnNext |
 
-### handleCallback
+## handleCallback
 
-Triggered when a worker sends completion message.
+Worker completed. Process and advance.
 
 1. Parse message to identify role and task ID:
 
-| Message Pattern | Role Detection |
-|----------------|---------------|
-| `[researcher]` or task ID `RESEARCH-*` | researcher |
-| `[designer]` or task ID `DESIGN-*` | designer |
-| `[reviewer]` or task ID `AUDIT-*` | reviewer |
-| `[implementer]` or task ID `BUILD-*` | implementer |
+| Message Pattern | Role |
+|----------------|------|
+| `[researcher]` or `RESEARCH-*` | researcher |
+| `[designer]` or `DESIGN-*` | designer |
+| `[reviewer]` or `AUDIT-*` | reviewer |
+| `[implementer]` or `BUILD-*` | implementer |
 
-2. Mark task as completed:
-
-```
-TaskUpdate({ taskId: "<task-id>", status: "completed" })
-```
-
+2. Mark task completed: `TaskUpdate({ taskId: "<task-id>", status: "completed" })`
 3. Record completion in session state
 
-4. Check if checkpoint feedback is configured for this stage:
+4. Check checkpoint for completed task:
 
 | Completed Task | Checkpoint | Action |
 |---------------|------------|--------|
 | RESEARCH-001 | - | Notify user: research complete |
 | DESIGN-001 (tokens) | - | Proceed to AUDIT-001 |
-| AUDIT-001 | Sync Point 1 | Check audit signal -> GC loop or unblock parallel (see below) |
-| DESIGN-002 (components) | - | Proceed to AUDIT-002 |
-| AUDIT-002 | Sync Point 2 | Check audit signal -> GC loop or unblock BUILD-002 |
+| AUDIT-* | QUALITY-001: Sync Point | Check audit signal -> GC loop or unblock parallel |
 | BUILD-001 (tokens) | - | Check if BUILD-002 ready |
 | BUILD-002 (components) | - | Check if AUDIT-003 exists (full-system) or handleComplete |
-| AUDIT-003 | Final | Notify user: final audit complete |
 
 5. **Sync Point handling** (AUDIT task completed):
-   - Read audit signal from message: `audit_passed`, `audit_result`, or `fix_required`
-   - Route to GC loop control (see below)
+   Read audit signal from message: `audit_passed`, `audit_result`, or `fix_required`
 
-6. Proceed to handleSpawnNext
+   | Signal | Condition | Action |
+   |--------|-----------|--------|
+   | `audit_passed` | Score >= 8, critical === 0 | GC converged -> record sync_point -> unblock downstream |
+   | `audit_result` | Score 6-7, no critical | gc_rounds < max -> create DESIGN-fix task |
+   | `fix_required` | Score < 6 or critical > 0 | gc_rounds < max -> create DESIGN-fix task (CRITICAL) |
+   | Any | gc_rounds >= max | Escalate to user |
 
-### handleSpawnNext
+   **GC Fix Task Creation**:
+   ```
+   TaskCreate({ subject: "DESIGN-fix-<round>",
+     description: "PURPOSE: Address audit feedback | Success: All critical/high issues resolved
+   TASK:
+     - Parse audit feedback for specific issues
+     - Apply targeted fixes
+   CONTEXT:
+     - Session: <session-folder>
+     - Upstream artifacts: audit/audit-<NNN>.md" })
+   TaskUpdate({ taskId: "DESIGN-fix-<round>", owner: "designer" })
+   ```
+   Then create new AUDIT task blocked by fix. Increment gc_state.round.
 
-Find and spawn the next ready tasks.
+   **GC Escalation Options** (when max rounds exceeded):
+   1. Accept current design - skip review, continue implementation
+   2. Try one more round
+   3. Terminate
 
-1. Scan task list for tasks where:
-   - Status is "pending"
-   - All blockedBy tasks have status "completed"
+6. -> handleSpawnNext
 
-2. For each ready task, spawn team-worker:
+## handleCheck
+
+Read-only status report, then STOP.
+
+```
+Pipeline Status (<pipeline-mode>):
+  [DONE]  RESEARCH-001 (researcher)  -> research/*.json
+  [DONE]  DESIGN-001   (designer)    -> design-tokens.json
+  [RUN]   AUDIT-001    (reviewer)    -> auditing tokens...
+  [WAIT]  BUILD-001    (implementer) -> blocked by AUDIT-001
+  [WAIT]  DESIGN-002   (designer)    -> blocked by AUDIT-001
+
+GC Rounds: 0/2
+Sync Points: 0/<expected>
+Session: <session-id>
+Commands: 'resume' to advance | 'check' to refresh
+```
+
+Output status -- do NOT advance pipeline.
+
+## handleResume
+
+1. Audit task list for inconsistencies:
+   - Tasks stuck in "in_progress" -> reset to "pending"
+   - Tasks with completed blockers but still "pending" -> include in spawn list
+2. -> handleSpawnNext
+
+## handleSpawnNext
+
+Find ready tasks, spawn workers, STOP.
+
+1. Collect: completedSubjects, inProgressSubjects, readySubjects (pending + all blockedBy completed)
+2. No ready + work in progress -> report waiting, STOP
+3. No ready + nothing in progress -> handleComplete
+4. Has ready -> for each:
+   a. Check inner loop role with active worker -> skip (worker picks up)
+   b. TaskUpdate -> in_progress
+   c. team_msg log -> task_unblocked
+   d. Spawn team-worker:
 
 ```
 Agent({
@@ -76,7 +127,7 @@ Agent({
   run_in_background: true,
   prompt: `## Role Assignment
 role: <role>
-role_spec: .claude/skills/team-uidesign/role-specs/<role>.md
+role_spec: .claude/skills/team-uidesign/roles/<role>/role.md
 session: <session-folder>
 session_id: <session-id>
 team_name: uidesign
@@ -84,119 +135,50 @@ requirement: <task-description>
 inner_loop: false
 
 Read role_spec file to load Phase 2-4 domain instructions.
-Execute built-in Phase 1 -> role-spec Phase 2-4 -> built-in Phase 5.`
+Execute built-in Phase 1 (task discovery) -> role Phase 2-4 -> built-in Phase 5 (report).`
 })
 ```
 
-3. **Parallel spawn rules by mode**:
+**Parallel spawn rules by mode**:
 
 | Mode | Scenario | Spawn Behavior |
 |------|----------|---------------|
-| Component | Sequential | One task at a time |
-| System | After Sync Point 1 | Spawn DESIGN-002 + BUILD-001 in parallel |
-| System | After Sync Point 2 | Spawn BUILD-002 |
-| Full-system | After Sync Point 1 | Spawn DESIGN-002 + BUILD-001 in parallel |
-| Full-system | After BUILD-002 | Spawn AUDIT-003 |
+| component | Sequential | One task at a time |
+| system | After Sync Point 1 | Spawn DESIGN-002 + BUILD-001 in parallel |
+| system | After Sync Point 2 | Spawn BUILD-002 |
+| full-system | After Sync Point 1 | Spawn DESIGN-002 + BUILD-001 in parallel |
+| full-system | After BUILD-002 | Spawn AUDIT-003 |
 
-4. STOP after spawning -- wait for next callback
+5. Add to active_workers, update session, output summary, STOP
 
-### Generator-Critic Loop Control
+## handleComplete
 
-When AUDIT task completes, check signal:
-
-| Signal | Condition | Action |
-|--------|-----------|--------|
-| `audit_passed` | Score >= 8, critical === 0 | GC converged -> record sync_point -> unblock downstream tasks |
-| `audit_result` | Score 6-7, critical === 0 | GC round < max -> create DESIGN-fix task |
-| `fix_required` | Score < 6 or critical > 0 | GC round < max -> create DESIGN-fix task (CRITICAL) |
-| Any | GC round >= max | Escalate to user |
-
-**GC Fix Task Creation**:
-```
-TaskCreate({
-  subject: "DESIGN-fix-<round>",
-  description: "PURPOSE: Address audit feedback from AUDIT-<NNN> | Success: All critical/high issues resolved
-TASK:
-  - Parse audit feedback for specific issues
-  - Re-read affected design artifacts
-  - Apply fixes: token adjustments, missing states, accessibility gaps
-  - Re-write affected files
-CONTEXT:
-  - Session: <session-folder>
-  - Upstream artifacts: audit/audit-<NNN>.md
-  - Shared memory: <session>/wisdom/.msg/meta.json
-EXPECTED: Updated design artifacts | All flagged issues addressed
-CONSTRAINTS: Targeted fixes only"
-})
-TaskUpdate({ taskId: "DESIGN-fix-<round>", owner: "designer" })
-```
-
-After fix completes, create new AUDIT task blocked by the fix task. Increment gc_state.round.
-
-**GC Escalation Options**:
-1. Accept current design - Skip remaining review, continue implementation
-2. Try one more round - Extra GC loop opportunity
-3. Terminate - Stop and handle manually
-
-### Dual-Track Sync Point Management
-
-**When AUDIT at sync point passes (audit_passed)**:
-1. Record sync point in session.sync_points
-2. Unblock parallel tasks on both tracks
-3. team_msg log(sync_checkpoint)
-
-**Dual-track failure fallback**:
-- Convert remaining parallel tasks to sequential
-- Remove parallel dependencies, add sequential blockedBy
-- team_msg log(error): "Dual-track sync failed, falling back to sequential"
-
-### handleCheck
-
-Output current pipeline status.
-
-```
-Pipeline Status (<pipeline-mode>):
-  [DONE]  RESEARCH-001 (researcher)    -> research/*.json
-  [DONE]  DESIGN-001   (designer)      -> design-tokens.json
-  [RUN]   AUDIT-001    (reviewer)      -> auditing tokens...
-  [WAIT]  BUILD-001    (implementer)   -> blocked by AUDIT-001
-  [WAIT]  DESIGN-002   (designer)      -> blocked by AUDIT-001
-
-GC Rounds: 0/2
-Sync Points: 0/<expected>
-Session: <session-id>
-```
-
-Output status -- do NOT advance pipeline.
-
-### handleResume
-
-Resume pipeline after user pause or interruption.
-
-1. Audit task list for inconsistencies:
-   - Tasks stuck in "in_progress" -> reset to "pending"
-   - Tasks with completed blockers but still "pending" -> include in spawn list
-2. Proceed to handleSpawnNext
-
-### handleComplete
-
-Triggered when all pipeline tasks are completed.
+Pipeline done. Generate report and completion action.
 
 **Completion check by mode**:
 
 | Mode | Completion Condition |
 |------|---------------------|
-| Component | All 4 tasks (+ any fix/retry tasks) have status "completed" |
-| System | All 7 tasks (+ any fix/retry tasks) have status "completed" |
-| Full-system | All 8 tasks (+ any fix/retry tasks) have status "completed" |
+| component | All 4 tasks (+ fix tasks) completed |
+| system | All 7 tasks (+ fix tasks) completed |
+| full-system | All 8 tasks (+ fix tasks) completed |
 
-If any tasks not completed, return to handleSpawnNext.
-If all completed, transition to coordinator Phase 5.
+1. If any tasks not completed -> handleSpawnNext
+2. If all completed -> transition to coordinator Phase 5
 
-## Phase 4: State Persistence
+## handleAdapt
 
-After every handler execution:
+Capability gap reported mid-pipeline.
 
-1. Update session.json with current state (active tasks, gc_state, sync_points, last event)
-2. Verify task list consistency
-3. STOP and wait for next event
+1. Parse gap description
+2. Check if existing role covers it -> redirect
+3. Role count < 5 -> generate dynamic role spec
+4. Create new task, spawn worker
+5. Role count >= 5 -> merge or pause
+
+## Fast-Advance Reconciliation
+
+On every coordinator wake:
+1. Read team_msg entries with type="fast_advance"
+2. Sync active_workers with spawned successors
+3. No duplicate spawns

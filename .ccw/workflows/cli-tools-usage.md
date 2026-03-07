@@ -216,7 +216,7 @@ rg "export.*Component" --files-with-matches --type ts
 CONTEXT: @components/Auth.tsx @types/auth.d.ts | Memory: Previous type refactoring
 
 # Step 3: Execute CLI
-ccw cli -p "..." --tool <tool-id> --mode analysis --cd src
+ccw cli -p "..." --tool <tool-id> --mode analysis --cd "src"
 ```
 
 ### --rule Configuration
@@ -313,13 +313,19 @@ ccw cli -p "..." --tool gemini --mode analysis --rule analysis-review-architectu
   - Description: Model override
   - Default: Tool's primaryModel from config
 
-- **`--cd <path>`**
-  - Description: Working directory
+- **`--cd "<path>"`**
+  - Description: Working directory (quote if path contains spaces)
   - Default: current
 
-- **`--includeDirs <dirs>`**
-  - Description: Additional directories (comma-separated)
+- **`--includeDirs "<dirs>"`**
+  - Description: Additional directories (comma-separated, quote if paths contain spaces)
   - Default: none
+
+- **`--id <id>`**
+  - Description: Execution ID (recommended, auto-generated if omitted)
+  - Default: Auto-generated in format `{prefix}-{HHmmss}-{rand4}` (e.g., `gem-143022-x7k2`)
+  - Prefix mapping: gemini→gem, qwen→qwn, codex→cdx, claude→cld, opencode→opc
+  - Note: ID is always output to stderr as `[CCW_EXEC_ID=<id>]` for programmatic capture
 
 - **`--resume [id]`**
   - Description: Resume previous session
@@ -347,10 +353,10 @@ When using `--cd`:
 
 ```bash
 # Single directory
-ccw cli -p "CONTEXT: @**/* @../shared/**/*" --tool <tool-id> --mode analysis --cd src/auth --includeDirs ../shared
+ccw cli -p "CONTEXT: @**/* @../shared/**/*" --tool <tool-id> --mode analysis --cd "src/auth" --includeDirs "../shared"
 
 # Multiple directories
-ccw cli -p "..." --tool <tool-id> --mode analysis --cd src/auth --includeDirs ../shared,../types,../utils
+ccw cli -p "..." --tool <tool-id> --mode analysis --cd "src/auth" --includeDirs "../shared,../types,../utils"
 ```
 
 **Rule**: If CONTEXT contains `@../dir/**/*`, MUST include `--includeDirs ../dir`
@@ -385,6 +391,65 @@ ASSISTANT RESPONSE: [Previous output]
 [Your new prompt]
 ```
 
+### Subcommands
+
+#### `show` — List All Executions
+
+```bash
+ccw cli show                     # Active + recent completed executions
+ccw cli show --all               # Include full history
+```
+
+Displays a unified table of running and recent executions with: ID, Tool, Mode, Status, Duration, Prompt Preview.
+
+#### `watch <id>` — Stream Execution Output
+
+```bash
+ccw cli watch <id>               # Stream until completion (output to stderr)
+ccw cli watch <id> --timeout 120 # Auto-exit after 120 seconds
+```
+
+Behavior:
+- Output written to **stderr** (does not pollute stdout)
+- Exit code: 0 = success, 1 = error, 2 = timeout
+- Callers can `ccw cli watch <id> 2>/dev/null` to silently wait
+
+#### `output <id>` — Get Execution Output
+
+```bash
+ccw cli output <id>              # Final result only (default)
+ccw cli output <id> --verbose    # Full metadata + raw output
+ccw cli output <id> --raw        # Raw stdout (for piping)
+```
+
+Default returns `finalOutput > parsedOutput > stdout` — agent's final response text only.
+`--verbose` shows full metadata (ID, turn, status, project) plus raw stdout/stderr.
+
+#### ID Workflow Example
+
+```bash
+# Execute with auto-generated ID
+ccw cli -p "analyze code" --tool gemini --mode analysis
+# stderr outputs: [CCW_EXEC_ID=gem-143022-x7k2]
+
+# Execute with custom ID
+ccw cli -p "implement feature" --tool gemini --mode write --id my-task-1
+# stderr outputs: [CCW_EXEC_ID=my-task-1]
+
+# Check status
+ccw cli show
+
+# Watch running execution
+ccw cli watch gem-143022-x7k2
+
+# Get final result
+ccw cli output gem-143022-x7k2
+
+# Capture ID programmatically
+EXEC_ID=$(ccw cli -p "test" --tool gemini --mode analysis 2>&1 | grep -oP 'CCW_EXEC_ID=\K[^\]]+')
+ccw cli output $EXEC_ID
+```
+
 ### Command Examples
 
 #### Task-Type Specific Templates
@@ -397,7 +462,7 @@ MODE: analysis
 CONTEXT: @src/auth/**/* @src/middleware/auth.ts | Memory: Using bcrypt for passwords, JWT for sessions
 EXPECTED: Security report with: severity matrix, file:line references, CVE mappings where applicable, remediation code snippets prioritized by risk
 CONSTRAINTS: Focus on authentication | Ignore test files
-" --tool gemini --mode analysis --rule analysis-assess-security-risks --cd src/auth
+" --tool gemini --mode analysis --rule analysis-assess-security-risks --cd "src/auth"
 ```
 
 **Implementation Task** (New Feature):
@@ -419,7 +484,7 @@ MODE: analysis
 CONTEXT: @src/websocket/**/* @src/services/connection-manager.ts | Memory: Using ws library, ~5000 concurrent connections in production
 EXPECTED: Root cause analysis with: memory profile, leak source (file:line), fix recommendation with code, verification steps
 CONSTRAINTS: Focus on resource cleanup
-" --tool gemini --mode analysis --rule analysis-diagnose-bug-root-cause --cd src
+" --tool gemini --mode analysis --rule analysis-diagnose-bug-root-cause --cd "src"
 ```
 
 **Refactoring Task**:

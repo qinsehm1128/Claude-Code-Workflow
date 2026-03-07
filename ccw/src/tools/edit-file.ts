@@ -573,8 +573,44 @@ interface CompactEditResult {
   dryRun?: boolean;
 }
 
+/**
+ * Detect parameter mode mismatch and provide helpful error message
+ * This helps users understand when they're using wrong parameters for the selected mode
+ */
+function detectModeMismatch(params: Record<string, unknown>): string | null {
+  const hasLineParams = ['operation', 'line', 'end_line'].some(p => params[p] !== undefined);
+  const hasUpdateParams = ['oldText', 'newText', 'edits', 'replaceAll'].some(p => params[p] !== undefined);
+  const currentMode = params.mode as string | undefined;
+
+  // User passed line-mode params but mode is not "line"
+  if (hasLineParams && currentMode !== 'line') {
+    if (currentMode === 'update' || currentMode === undefined) {
+      const modeHint = currentMode === undefined ? '(default)' : '';
+      return `Parameter mismatch: detected line-mode parameters (operation/line/end_line) ` +
+             `but mode="${currentMode || 'update'}"${modeHint}. ` +
+             `Add \`mode: "line"\` to use operation/line parameters, ` +
+             `or use oldText/newText/edits for update mode.`;
+    }
+  }
+
+  // User passed update-mode params but mode is "line"
+  if (hasUpdateParams && currentMode === 'line') {
+    return `Parameter mismatch: detected update-mode parameters (oldText/newText/edits/replaceAll) ` +
+           `but mode="line". ` +
+           `Remove \`mode: "line"\` or use operation/line parameters instead.`;
+  }
+
+  return null;
+}
+
 // Handler function
 export async function handler(params: Record<string, unknown>): Promise<ToolResult<CompactEditResult>> {
+  // Check for mode mismatch before validation
+  const mismatchError = detectModeMismatch(params);
+  if (mismatchError) {
+    return { success: false, error: mismatchError };
+  }
+
   // Apply default mode before discriminatedUnion check (Zod doesn't apply defaults on discriminator)
   const normalizedParams = params.mode === undefined ? { ...params, mode: 'update' } : params;
   const parsed = ParamsSchema.safeParse(normalizedParams);

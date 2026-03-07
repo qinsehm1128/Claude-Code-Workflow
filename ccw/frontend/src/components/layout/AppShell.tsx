@@ -19,6 +19,7 @@ import { useNotificationStore, selectCurrentQuestion, selectCurrentPopupCard } f
 import { useWorkflowStore } from '@/stores/workflowStore';
 import { useAppStore, selectIsImmersiveMode } from '@/stores/appStore';
 import { useWebSocketNotifications, useWebSocket } from '@/hooks';
+import { useHasHydrated } from '@/hooks/useHasHydrated';
 
 export interface AppShellProps {
   /** Callback for refresh action */
@@ -40,8 +41,13 @@ export function AppShell({
   // Workspace initialization from URL query parameter
   const switchWorkspace = useWorkflowStore((state) => state.switchWorkspace);
   const projectPath = useWorkflowStore((state) => state.projectPath);
-  const hasHydrated = useWorkflowStore((state) => state._hasHydrated);
+  const hasHydrated = useHasHydrated();
   const location = useLocation();
+
+  // Manually trigger hydration on mount (needed because of skipHydration: true in store config)
+  useEffect(() => {
+    useWorkflowStore.persist.rehydrate();
+  }, []);
 
   // Immersive mode (fullscreen) - hide chrome
   const isImmersiveMode = useAppStore(selectIsImmersiveMode);

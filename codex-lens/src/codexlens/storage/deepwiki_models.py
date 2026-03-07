@@ -7,7 +7,7 @@ for the DeepWiki documentation generation system.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -30,6 +30,10 @@ class DeepWikiSymbol(BaseModel):
     )
     created_at: Optional[datetime] = Field(default=None, description="Record creation timestamp")
     updated_at: Optional[datetime] = Field(default=None, description="Record update timestamp")
+    staleness_score: float = Field(default=0.0, ge=0.0, le=1.0, description="Staleness score (0.0=fresh, 1.0=stale)")
+    last_checked_commit: Optional[str] = Field(default=None, description="Git commit hash at last freshness check")
+    last_checked_at: Optional[float] = Field(default=None, description="Timestamp of last freshness check")
+    staleness_factors: Optional[dict[str, Any]] = Field(default=None, description="JSON factors contributing to staleness score")
 
     @field_validator("line_range")
     @classmethod
@@ -101,6 +105,10 @@ class DeepWikiFile(BaseModel):
     )
     symbols_count: int = Field(default=0, ge=0, description="Number of symbols indexed from this file")
     docs_generated: bool = Field(default=False, description="Whether documentation has been generated")
+    staleness_score: float = Field(default=0.0, ge=0.0, le=1.0, description="Staleness score (0.0=fresh, 1.0=stale)")
+    last_checked_commit: Optional[str] = Field(default=None, description="Git commit hash at last freshness check")
+    last_checked_at: Optional[float] = Field(default=None, description="Timestamp of last freshness check")
+    staleness_factors: Optional[dict[str, Any]] = Field(default=None, description="JSON factors contributing to staleness score")
 
     @field_validator("path", "content_hash")
     @classmethod

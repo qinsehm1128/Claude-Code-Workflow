@@ -1,6 +1,24 @@
 # Command: Monitor
 
-Handle all coordinator monitoring events: worker callbacks, status checks, pipeline advancement, GC loops, and completion.
+Event-driven pipeline coordination. Beat model: coordinator wake -> process -> spawn -> STOP.
+
+## Constants
+
+- SPAWN_MODE: background
+- ONE_STEP_PER_INVOCATION: true
+- FAST_ADVANCE_AWARE: true
+- WORKER_AGENT: team-worker
+- MAX_GC_ROUNDS: 2
+
+## Handler Router
+
+| Source | Handler |
+|--------|---------|
+| Message contains [analyst], [architect], [developer], [qa] | handleCallback |
+| "check" or "status" | handleCheck |
+| "resume" or "continue" | handleResume |
+| All tasks completed | handleComplete |
+| Default | handleSpawnNext |
 
 ## Phase 2: Context Loading
 
@@ -111,7 +129,7 @@ Agent({
   run_in_background: true,
   prompt: `## Role Assignment
 role: <role>
-role_spec: .claude/skills/team-frontend/role-specs/<role>.md
+role_spec: .claude/skills/team-frontend/roles/<role>/role.md
 session: <session-folder>
 session_id: <session-id>
 team_name: frontend

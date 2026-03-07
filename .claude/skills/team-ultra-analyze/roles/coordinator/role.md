@@ -36,16 +36,6 @@ When coordinator needs to execute a command (dispatch, monitor):
 3. **Commands are inline execution guides** -- NOT separate agents or subprocesses
 4. **Execute synchronously** -- complete the command workflow before proceeding
 
-Example:
-```
-Phase 3 needs task dispatch
-  -> Read roles/coordinator/commands/dispatch.md
-  -> Execute Phase 2 (Context Loading)
-  -> Execute Phase 3 (Task Chain Creation)
-  -> Execute Phase 4 (Validation)
-  -> Continue to Phase 4
-```
-
 ---
 
 ## Entry Router
@@ -54,12 +44,12 @@ When coordinator is invoked, detect invocation type:
 
 | Detection | Condition | Handler |
 |-----------|-----------|---------|
-| Worker callback | Message contains role tag [explorer], [analyst], [discussant], [synthesizer] | -> handleCallback |
-| Status check | Arguments contain "check" or "status" | -> handleCheck |
-| Manual resume | Arguments contain "resume" or "continue" | -> handleResume |
-| Pipeline complete | All tasks have status "completed" | -> handleComplete |
-| Interrupted session | Active/paused session exists | -> Phase 0 (Session Resume Check) |
-| New session | None of above | -> Phase 1 (Topic Understanding) |
+| Worker callback | Message contains role tag [explorer], [analyst], [discussant], [synthesizer] | -> handleCallback (monitor.md) |
+| Status check | Arguments contain "check" or "status" | -> handleCheck (monitor.md) |
+| Manual resume | Arguments contain "resume" or "continue" | -> handleResume (monitor.md) |
+| Pipeline complete | All tasks have status "completed" | -> handleComplete (monitor.md) |
+| Interrupted session | Active/paused session exists | -> Phase 0 |
+| New session | None of above | -> Phase 1 |
 
 For callback/check/resume/complete: load `commands/monitor.md` and execute matched handler, then STOP.
 
@@ -85,12 +75,7 @@ For callback/check/resume/complete: load `commands/monitor.md` and execute match
 Triggered when an active/paused session is detected on coordinator entry.
 
 1. Load session.json from detected session folder
-2. Audit task list:
-
-```
-TaskList()
-```
-
+2. Audit task list: `TaskList()`
 3. Reconcile session state vs task status:
 
 | Task Status | Session Expects | Action |
@@ -99,42 +84,19 @@ TaskList()
 | completed | Already tracked | Skip |
 | pending + unblocked | Ready to run | Include in spawn list |
 
-4. Rebuild team if not active:
-
-```
-TeamCreate({ team_name: "ultra-analyze" })
-```
-
+4. Rebuild team if not active: `TeamCreate({ team_name: "ultra-analyze" })`
 5. Spawn workers for ready tasks -> Phase 4 coordination loop
 
 ---
 
 ## Phase 1: Topic Understanding & Requirement Clarification
 
+TEXT-LEVEL ONLY. No source code reading.
+
 1. Parse user task description from $ARGUMENTS
 2. Extract explicit settings: `--mode`, scope, focus areas
-
-3. **Pipeline mode selection**:
-
-| Condition | Mode | Depth |
-|-----------|------|-------|
-| `--mode=quick` or topic contains "quick/overview/fast" | Quick | 1 |
-| `--mode=deep` or topic contains "deep/thorough/detailed/comprehensive" | Deep | N (from perspectives) |
-| Default | Standard | N (from perspectives) |
-
-4. **Dimension detection** (from topic keywords):
-
-| Dimension | Keywords |
-|-----------|----------|
-| architecture | architecture, design, structure |
-| implementation | implement, code |
-| performance | performance, optimize |
-| security | security, auth |
-| concept | concept, theory |
-| comparison | compare, vs |
-| decision | decision, choice |
-
-5. **Interactive clarification** (non-auto mode): AskUserQuestion for focus, perspectives, depth.
+3. Delegate to `commands/analyze.md` for signal detection and pipeline mode selection
+4. **Interactive clarification** (non-auto mode): AskUserQuestion for focus, perspectives, depth.
 
 ---
 
@@ -156,9 +118,8 @@ TeamCreate({ team_name: "ultra-analyze" })
 ```
 
 3. Write session.json with mode, requirement, timestamp
-4. Initialize .msg/meta.json with pipeline metadata:
+4. Initialize .msg/meta.json with pipeline metadata via team_msg:
 ```typescript
-// Use team_msg to write pipeline metadata to .msg/meta.json
 mcp__ccw-tools__team_msg({
   operation: "log",
   session_id: "<session-id>",
@@ -173,7 +134,6 @@ mcp__ccw-tools__team_msg({
   }
 })
 ```
-
 5. Call `TeamCreate({ team_name: "ultra-analyze" })`
 
 ---
@@ -181,7 +141,6 @@ mcp__ccw-tools__team_msg({
 ## Phase 3: Create Task Chain
 
 Execute `commands/dispatch.md` inline (Command Execution Protocol):
-
 1. Read `roles/coordinator/commands/dispatch.md`
 2. Follow dispatch Phase 2 -> Phase 3 -> Phase 4
 3. Result: all pipeline tasks created with correct blockedBy dependencies
@@ -192,38 +151,16 @@ Execute `commands/dispatch.md` inline (Command Execution Protocol):
 
 ### Initial Spawn
 
-Find first unblocked tasks and spawn their workers:
-
-```
-Agent({
-  subagent_type: "team-worker",
-  description: "Spawn explorer worker",
-  team_name: "ultra-analyze",
-  name: "explorer",
-  run_in_background: true,
-  prompt: `## Role Assignment
-role: explorer
-role_spec: .claude/skills/team-ultra-analyze/role-specs/explorer.md
-session: <session-folder>
-session_id: <session-id>
-team_name: ultra-analyze
-requirement: <topic-description>
-inner_loop: false
-
-Read role_spec file to load Phase 2-4 domain instructions.
-Execute built-in Phase 1 -> role-spec Phase 2-4 -> built-in Phase 5.`
-})
-```
+Find first unblocked tasks and spawn their workers. Use SKILL.md Worker Spawn Template with:
+- `role_spec: .claude/skills/team-ultra-analyze/roles/<role>/role.md`
+- `team_name: ultra-analyze`
+- `inner_loop: false`
 
 **STOP** after spawning. Wait for worker callback.
 
 ### Coordination (via monitor.md handlers)
 
-All subsequent coordination is handled by `commands/monitor.md` handlers triggered by worker callbacks:
-
-- handleCallback -> mark task done -> check pipeline -> handleSpawnNext
-- handleSpawnNext -> find ready tasks -> spawn team-worker agents -> STOP
-- handleComplete -> all done -> Phase 5
+All subsequent coordination is handled by `commands/monitor.md` handlers triggered by worker callbacks.
 
 ---
 
@@ -247,7 +184,7 @@ All subsequent coordination is handled by `commands/monitor.md` handlers trigger
 ```
 AskUserQuestion({
   questions: [{
-    question: "Team pipeline complete. What would you like to do?",
+    question: "Ultra-Analyze pipeline complete. What would you like to do?",
     header: "Completion",
     multiSelect: false,
     options: [
@@ -259,13 +196,7 @@ AskUserQuestion({
 })
 ```
 
-6. Handle user choice:
-
-| Choice | Steps |
-|--------|-------|
-| Archive & Clean | TaskList -> verify all completed -> update session status="completed" -> TeamDelete() -> output final summary |
-| Keep Active | Update session status="paused" -> output resume instructions |
-| Export Results | AskUserQuestion for target directory -> copy artifacts -> Archive & Clean |
+6. Handle user choice per SKILL.md Completion Action section.
 
 ---
 

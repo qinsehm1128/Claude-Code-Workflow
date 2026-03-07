@@ -4,7 +4,6 @@
   "team_display_name": "Architecture Optimization",
   "skill_name": "team-arch-opt",
   "skill_path": ".claude/skills/team-arch-opt/",
-  "worker_agent": "team-worker",
   "pipeline_type": "Linear with Review-Fix Cycle (Parallel-Capable)",
   "completion_action": "interactive",
   "has_inline_discuss": true,

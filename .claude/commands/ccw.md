@@ -760,8 +760,8 @@ todos = [
 |---------|---------|
 | `workflow:unified-execute-with-file` | Universal execution engine - consumes plan output from collaborative-plan, roadmap, brainstorm |
 | `workflow:clean` | Intelligent code cleanup - mainline detection, stale artifact removal |
-| `workflow:init` | Initialize `.workflow/project-tech.json` with project analysis |
-| `workflow:init-guidelines` | Interactive wizard to fill `specs/*.md` |
+| `workflow:spec:setup` | Initialize `.workflow/project-tech.json` with project analysis and specs scaffold |
+| `workflow:spec:add` | Interactive wizard to add individual specs with scope selection |
 | `workflow:status` | Generate on-demand views for project overview and workflow tasks |
 
 ---
@@ -817,7 +817,7 @@ todos = [
 # Utility commands (invoked directly, not auto-routed)
 # /workflow:unified-execute-with-file          # 通用执行引擎（消费 plan 输出）
 # /workflow:clean                              # 智能代码清理
-# /workflow:init                               # 初始化项目状态
-# /workflow:init-guidelines                    # 交互式填充项目规范
+# /workflow:spec:setup                         # 初始化项目状态
+# /workflow:spec:add                           # 交互式填充项目规范
 # /workflow:status                             # 项目概览和工作流状态
 ```

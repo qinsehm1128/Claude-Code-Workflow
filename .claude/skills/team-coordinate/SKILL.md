@@ -150,40 +150,6 @@ AskUserQuestion({
 
 ---
 
-## Cadence Control
-
-**Beat model**: Event-driven, each beat = coordinator wake -> process -> spawn -> STOP.
-
-```
-Beat Cycle (single beat)
-======================================================================
-  Event                   Coordinator              Workers
-----------------------------------------------------------------------
-  callback/resume --> +- handleCallback -+
-                      |  mark completed   |
-                      |  check pipeline   |
-                      +- handleSpawnNext -+
-                      |  find ready tasks |
-                      |  spawn workers ---+--> [team-worker A] Phase 1-5
-                      |  (parallel OK)  --+--> [team-worker B] Phase 1-5
-                      +- STOP (idle) -----+         |
-                                                     |
-  callback <-----------------------------------------+
-  (next beat)              SendMessage + TaskUpdate(completed)
-======================================================================
-
-  Fast-Advance (skips coordinator for simple linear successors)
-======================================================================
-  [Worker A] Phase 5 complete
-    +- 1 ready task? simple successor? --> spawn team-worker B directly
-    +- complex case? --> SendMessage to coordinator
-======================================================================
-```
-
-**Pipelines are dynamic**: Unlike static pipeline definitions, team-coordinate pipelines are generated per-task from the dependency graph.
-
----
-
 ## Session Directory
 
 ```

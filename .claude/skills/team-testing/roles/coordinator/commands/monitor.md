@@ -1,27 +1,40 @@
-# Command: Monitor
+# Monitor Pipeline
 
-Handle all coordinator monitoring events: worker callbacks, status checks, pipeline advancement, Generator-Critic loop control, and completion.
+Event-driven pipeline coordination. Beat model: coordinator wake -> process -> spawn -> STOP.
 
-## Phase 2: Context Loading
+## Constants
 
-| Input | Source | Required |
-|-------|--------|----------|
-| Session state | <session>/session.json | Yes |
-| Task list | TaskList() | Yes |
-| Trigger event | From Entry Router detection | Yes |
-| Pipeline definition | From SKILL.md | Yes |
+- SPAWN_MODE: background
+- ONE_STEP_PER_INVOCATION: true
+- FAST_ADVANCE_AWARE: true
+- WORKER_AGENT: team-worker
+- MAX_GC_ROUNDS: 3
 
-1. Load session.json for current state, pipeline mode, gc_rounds, coverage_targets
-2. Run TaskList() to get current task statuses
-3. Identify trigger event type from Entry Router
+## Handler Router
 
-## Phase 3: Event Handlers
+| Source | Handler |
+|--------|---------|
+| Message contains [strategist], [generator], [executor], [analyst] | handleCallback |
+| "capability_gap" | handleAdapt |
+| "check" or "status" | handleCheck |
+| "resume" or "continue" | handleResume |
+| All tasks completed | handleComplete |
+| Default | handleSpawnNext |
 
-### handleCallback
+## Role-Worker Map
 
-Triggered when a worker sends completion message.
+| Prefix | Role | Role Spec | inner_loop |
+|--------|------|-----------|------------|
+| STRATEGY-* | strategist | `.claude/skills/team-testing/roles/strategist/role.md` | false |
+| TESTGEN-* | generator | `.claude/skills/team-testing/roles/generator/role.md` | true |
+| TESTRUN-* | executor | `.claude/skills/team-testing/roles/executor/role.md` | true |
+| TESTANA-* | analyst | `.claude/skills/team-testing/roles/analyst/role.md` | false |
 
-1. Parse message to identify role, task ID:
+## handleCallback
+
+Worker completed. Process and advance.
+
+1. Parse message to identify role and task ID:
 
 | Message Pattern | Role Detection |
 |----------------|---------------|
@@ -30,45 +43,19 @@ Triggered when a worker sends completion message.
 | `[executor]` or task ID `TESTRUN-*` | executor |
 | `[analyst]` or task ID `TESTANA-*` | analyst |
 
-2. Mark task as completed:
+2. Check if progress update (inner loop) or final completion
+3. Progress -> update session state, STOP
+4. Completion -> mark task done via TaskUpdate(status="completed"), remove from active_workers
+5. Check for checkpoints:
+   - TESTRUN-* completes -> read meta.json for executor.pass_rate and executor.coverage:
+     - (pass_rate >= 0.95 AND coverage >= target) OR gc_rounds[layer] >= MAX_GC_ROUNDS -> proceed to handleSpawnNext
+     - (pass_rate < 0.95 OR coverage < target) AND gc_rounds[layer] < MAX_GC_ROUNDS -> create GC fix tasks, increment gc_rounds[layer]
 
-```
-TaskUpdate({ taskId: "<task-id>", status: "completed" })
-```
-
-3. Record completion in session state
-
-4. **Generator-Critic check** (executor callbacks only):
-   - If completed task is TESTRUN-* AND message indicates tests_failed or coverage below target:
-   - Read gc_rounds for this layer from session.json
-   - Execute **GC Loop Decision** (see below)
-
-5. Checkpoints:
-
-| Completed Task | Checkpoint | Action |
-|---------------|------------|--------|
-| STRATEGY-001 | CP-1 | Notify user: test strategy ready for review |
-| Last TESTRUN-* | CP-2 | Check coverage, decide GC loop or next layer |
-| TESTANA-001 | CP-3 | Pipeline complete |
-
-6. Proceed to handleSpawnNext
-
-### GC Loop Decision
-
-When executor reports test results:
-
-| Condition | Action |
-|-----------|--------|
-| passRate >= 0.95 AND coverage >= target | Log success, proceed to next stage |
-| (passRate < 0.95 OR coverage < target) AND gcRound < maxRounds | Create TESTGEN-fix task, increment gc_round |
-| gcRound >= maxRounds | Accept current coverage with warning, proceed |
-
-**TESTGEN-fix task creation**:
-
+**GC Fix Task Creation** (when coverage below target):
 ```
 TaskCreate({
-  subject: "TESTGEN-<layer>-fix-<round>",
-  description: "PURPOSE: Revise tests to fix failures and improve coverage
+  subject: "TESTGEN-<layer>-fix-<round>: Revise <layer> tests (GC #<round>)",
+  description: "PURPOSE: Revise tests to fix failures and improve coverage | Success: pass_rate >= 0.95 AND coverage >= target
 TASK:
   - Read previous test results and failure details
   - Revise tests to address failures
@@ -78,109 +65,161 @@ CONTEXT:
   - Layer: <layer>
   - Previous results: <session>/results/run-<N>.json
 EXPECTED: Revised test files in <session>/tests/<layer>/
+CONSTRAINTS: Only modify test files
 ---
-InnerLoop: true"
+InnerLoop: true
+RoleSpec: .claude/skills/team-testing/roles/generator/role.md"
 })
-TaskUpdate({ taskId: "TESTGEN-<layer>-fix-<round>", owner: "generator" })
+TaskCreate({
+  subject: "TESTRUN-<layer>-fix-<round>: Re-execute <layer> (GC #<round>)",
+  description: "PURPOSE: Re-execute tests after revision | Success: pass_rate >= 0.95
+CONTEXT:
+  - Session: <session-folder>
+  - Layer: <layer>
+  - Input: tests/<layer>
+EXPECTED: <session>/results/run-<N>-gc.json
+---
+InnerLoop: true
+RoleSpec: .claude/skills/team-testing/roles/executor/role.md",
+  blockedBy: ["TESTGEN-<layer>-fix-<round>"]
+})
+```
+Update session.gc_rounds[layer]++
+
+6. -> handleSpawnNext
+
+## handleCheck
+
+Read-only status report, then STOP.
+
+Output:
+```
+[coordinator] Testing Pipeline Status
+[coordinator] Mode: <pipeline_mode>
+[coordinator] Progress: <done>/<total> (<pct>%)
+[coordinator] GC Rounds: L1: <n>/3, L2: <n>/3
+
+[coordinator] Pipeline Graph:
+  STRATEGY-001: <done|run|wait> test-strategy.md
+  TESTGEN-001:  <done|run|wait> generating L1...
+  TESTRUN-001:  <done|run|wait> blocked by TESTGEN-001
+  TESTGEN-002:  <done|run|wait> blocked by TESTRUN-001
+  TESTRUN-002:  <done|run|wait> blocked by TESTGEN-002
+  TESTANA-001:  <done|run|wait> blocked by TESTRUN-*
+
+[coordinator] Active Workers: <list with elapsed time>
+[coordinator] Ready: <pending tasks with resolved deps>
+[coordinator] Commands: 'resume' to advance | 'check' to refresh
 ```
 
-Create TESTRUN-fix blocked on TESTGEN-fix.
+Then STOP.
 
-### handleSpawnNext
+## handleResume
 
-Find and spawn the next ready tasks.
+1. No active workers -> handleSpawnNext
+2. Has active -> check each status
+   - completed -> mark done via TaskUpdate
+   - in_progress -> still running
+3. Some completed -> handleSpawnNext
+4. All running -> report status, STOP
 
-1. Scan task list for tasks where:
-   - Status is "pending"
-   - All blockedBy tasks have status "completed"
+## handleSpawnNext
 
-2. For each ready task, determine role from task subject prefix:
+Find ready tasks, spawn workers, STOP.
 
-| Prefix | Role | Inner Loop |
-|--------|------|------------|
-| STRATEGY-* | strategist | false |
-| TESTGEN-* | generator | true |
-| TESTRUN-* | executor | true |
-| TESTANA-* | analyst | false |
+1. Collect from TaskList():
+   - completedSubjects: status = completed
+   - inProgressSubjects: status = in_progress
+   - readySubjects: status = pending AND all blockedBy in completedSubjects
 
-3. Spawn team-worker:
+2. No ready + work in progress -> report waiting, STOP
+3. No ready + nothing in progress -> handleComplete
+4. Has ready -> for each ready task:
+   a. Determine role from prefix (use Role-Worker Map)
+   b. Check if inner loop role (generator/executor) with active worker -> skip (worker picks up next task)
+   c. TaskUpdate -> in_progress
+   d. team_msg log -> task_unblocked
+   e. Spawn team-worker:
 
 ```
 Agent({
   subagent_type: "team-worker",
-  description: "Spawn <role> worker for <task-id>",
+  description: "Spawn <role> worker for <subject>",
   team_name: "testing",
   name: "<role>",
   run_in_background: true,
   prompt: `## Role Assignment
 role: <role>
-role_spec: .claude/skills/team-testing/role-specs/<role>.md
+role_spec: .claude/skills/team-testing/roles/<role>/role.md
 session: <session-folder>
 session_id: <session-id>
 team_name: testing
 requirement: <task-description>
 inner_loop: <true|false>
 
+## Current Task
+- Task ID: <task-id>
+- Task: <subject>
+
 Read role_spec file to load Phase 2-4 domain instructions.
-Execute built-in Phase 1 -> role-spec Phase 2-4 -> built-in Phase 5.`
+Execute built-in Phase 1 (task discovery) -> role Phase 2-4 -> built-in Phase 5 (report).`
 })
 ```
 
-4. **Parallel spawn** (comprehensive pipeline):
+   f. Add to active_workers
 
-| Scenario | Spawn Behavior |
-|----------|---------------|
-| TESTGEN-001 + TESTGEN-002 both unblocked | Spawn both in parallel |
-| TESTRUN-001 + TESTRUN-002 both unblocked | Spawn both in parallel |
+5. **Parallel spawn** (comprehensive pipeline):
+   - TESTGEN-001 + TESTGEN-002 both unblocked -> spawn both in parallel (name: "generator-1", "generator-2")
+   - TESTRUN-001 + TESTRUN-002 both unblocked -> spawn both in parallel (name: "executor-1", "executor-2")
 
-5. STOP after spawning -- wait for next callback
+6. Update session.json, output summary, STOP
 
-### handleCheck
+## handleComplete
 
-Output current pipeline status.
+Pipeline done. Generate report and completion action.
 
-```
-Pipeline Status (<pipeline-mode>):
-  [DONE]  STRATEGY-001  (strategist)  -> test-strategy.md
-  [RUN]   TESTGEN-001   (generator)   -> generating L1...
-  [WAIT]  TESTRUN-001   (executor)    -> blocked by TESTGEN-001
-  [WAIT]  TESTGEN-002   (generator)   -> blocked by TESTRUN-001
-  ...
+1. Verify all tasks (including any GC fix tasks) have status "completed" or "deleted"
+2. If any tasks incomplete -> return to handleSpawnNext
+3. If all complete:
+   - Read final state from meta.json (analyst.quality_score, executor.coverage, gc_rounds)
+   - Generate summary (deliverables, task count, GC rounds, coverage metrics)
+4. Read session.completion_action:
+   - interactive -> AskUserQuestion (Archive/Keep/Deepen Coverage)
+   - auto_archive -> Archive & Clean (status=completed, TeamDelete)
+   - auto_keep -> Keep Active (status=paused)
 
-GC Rounds: L1: 0/3, L2: 0/3
-Session: <session-id>
-```
+## handleAdapt
 
-Output status -- do NOT advance pipeline.
+Capability gap reported mid-pipeline.
 
-### handleResume
+1. Parse gap description
+2. Check if existing role covers it -> redirect
+3. Role count < 5 -> generate dynamic role-spec in <session>/role-specs/
+4. Create new task, spawn worker
+5. Role count >= 5 -> merge or pause
 
-Resume pipeline after user pause or interruption.
+## Fast-Advance Reconciliation
 
-1. Audit task list for inconsistencies:
-   - Tasks stuck in "in_progress" -> reset to "pending"
-   - Tasks with completed blockers but still "pending" -> include in spawn list
-2. Proceed to handleSpawnNext
-
-### handleComplete
-
-Triggered when all pipeline tasks are completed and no GC cycles remain.
-
-**Completion check**:
-
-| Pipeline | Completion Condition |
-|----------|---------------------|
-| targeted | STRATEGY-001 + TESTGEN-001 + TESTRUN-001 (+ any fix tasks) completed |
-| standard | All 6 tasks (+ any fix tasks) completed |
-| comprehensive | All 8 tasks (+ any fix tasks) completed |
-
-1. If any tasks not completed, return to handleSpawnNext
-2. If all completed, transition to coordinator Phase 5
+On every coordinator wake:
+1. Read team_msg entries with type="fast_advance"
+2. Sync active_workers with spawned successors
+3. No duplicate spawns
 
 ## Phase 4: State Persistence
 
 After every handler execution:
+1. Reconcile active_workers with actual TaskList states
+2. Remove entries for completed/deleted tasks
+3. Write updated session.json
+4. STOP (wait for next callback)
 
-1. Update session.json with current state (active tasks, gc_rounds per layer, last event)
-2. Verify task list consistency
-3. STOP and wait for next event
+## Error Handling
+
+| Scenario | Resolution |
+|----------|------------|
+| Session file not found | Error, suggest re-initialization |
+| Worker callback from unknown role | Log info, scan for other completions |
+| GC loop exceeded (3 rounds) | Accept current coverage with warning, proceed |
+| Pipeline stall | Check blockedBy chains, report to user |
+| Coverage tool unavailable | Degrade to pass rate judgment |
+| Worker crash | Reset task to pending, respawn |
