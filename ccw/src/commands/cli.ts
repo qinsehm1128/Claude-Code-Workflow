@@ -1192,7 +1192,7 @@ async function execAction(positionalPrompt: string | undefined, options: CliExec
         }
         console.log(chalk.dim(`  Continue: ccw cli -p "..." --resume ${result.execution.id}`));
         if (!effectiveStream) {
-          console.log(chalk.dim(`  Output: ccw cli output ${result.execution.id}`));
+          console.log(chalk.dim(`  Output (optional): ccw cli output ${result.execution.id}`));
         }
         if (toFile) {
           const { resolve } = await import('path');

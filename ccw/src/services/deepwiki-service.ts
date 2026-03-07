@@ -410,16 +410,28 @@ export class DeepWikiService {
     }
 
     try {
-      const files = db.prepare('SELECT COUNT(*) as count FROM deepwiki_files').get() as { count: number };
-      const symbols = db.prepare('SELECT COUNT(*) as count FROM deepwiki_symbols').get() as { count: number };
-      const docs = db.prepare('SELECT COUNT(*) as count FROM deepwiki_docs').get() as { count: number };
-      const filesNeedingDocs = db.prepare('SELECT COUNT(*) as count FROM deepwiki_files WHERE docs_generated = 0').get() as { count: number };
+      const files = db.prepare(`
+        SELECT COUNT(DISTINCT source_file) as count
+        FROM deepwiki_symbols
+      `).get() as { count: number } | undefined;
+
+      const symbols = db.prepare(`
+        SELECT COUNT(*) as count
+        FROM deepwiki_symbols
+      `).get() as { count: number } | undefined;
+
+      const docs = db.prepare(`
+        SELECT COUNT(*) as count
+        FROM deepwiki_docs
+      `).get() as { count: number } | undefined;
+
+      const filesNeedingDocs = db.prepare('SELECT COUNT(*) as count FROM deepwiki_files WHERE docs_generated = 0').get() as { count: number } | undefined;
 
       return {
-        files: files?.count || 0,
-        symbols: symbols?.count || 0,
-        docs: docs?.count || 0,
-        filesNeedingDocs: filesNeedingDocs?.count || 0,
+        files: files?.count ?? 0,
+        symbols: symbols?.count ?? 0,
+        docs: docs?.count ?? 0,
+        filesNeedingDocs: filesNeedingDocs?.count ?? 0,
         dbPath: this.dbPath
       };
     } catch (error) {
