@@ -343,6 +343,16 @@ export function InjectionControlTab({ className }: InjectionControlTabProps) {
     setHasChanges(false);
   };
 
+  const maxLengthError =
+    formData.maxLength < 1000 || formData.maxLength > 50000
+      ? formatMessage({ id: 'specs.injection.maxLengthError', defaultMessage: 'Must be between 1000 and 50000' })
+      : null;
+
+  const warnThresholdError =
+    formData.warnThreshold < 0 || formData.warnThreshold >= formData.maxLength
+      ? formatMessage({ id: 'specs.injection.warnThresholdError', defaultMessage: 'Must be less than max length' })
+      : null;
+
   // Toggle dimension expansion
   const toggleDimension = (dim: string) => {
     setExpandedDimensions(prev => ({ ...prev, [dim]: !prev[dim] }));

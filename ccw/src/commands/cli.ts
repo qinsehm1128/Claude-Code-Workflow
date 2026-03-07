@@ -642,7 +642,8 @@ async function execAction(positionalPrompt: string | undefined, options: CliExec
     console.log(chalk.yellow('  Debug mode enabled\n'));
   }
 
-  // Priority: 1. --file, 2. stdin (piped), 3. --prompt/-p option, 4. positional argument
+  // Priority: 1. --file, 2. --prompt/-p option, 3. positional argument, 4. stdin (piped)
+  // IMPORTANT: In host CLIs, stdin may be non-TTY and kept open. Reading fd 0 first can block.
   // Note: On Windows, quoted arguments like -p "say hello" may be split into
   // -p "say" and positional "hello". We merge them back together.
   let finalPrompt: string | undefined;
@@ -661,29 +662,26 @@ async function execAction(positionalPrompt: string | undefined, options: CliExec
       console.error(chalk.red('Error: File is empty'));
       process.exit(1);
     }
-  } else if (!process.stdin.isTTY) {
-    // Read from stdin (piped input) - enables: echo "prompt" | ccw cli --tool gemini
-    // This bypasses Windows shell multi-line argument limitations
-    const { readFileSync } = await import('fs');
-    try {
-      finalPrompt = readFileSync(0, 'utf8').trim(); // fd 0 = stdin
-      if (debug) {
-        console.log(chalk.gray(`  Read ${finalPrompt.length} chars from stdin`));
-      }
-    } catch {
-      // stdin not available or empty, fall through to other methods
-    }
-  }
-
-  // If no stdin input, try --prompt/-p option or positional argument
-  if (!finalPrompt) {
+  } else {
     if (optionPrompt) {
       // Use --prompt/-p option (preferred for multi-line)
       // Merge with positional argument if Windows split the quoted string
       finalPrompt = positionalPrompt ? `${optionPrompt} ${positionalPrompt}` : optionPrompt;
-    } else {
+    } else if (positionalPrompt) {
       // Fall back to positional argument
       finalPrompt = positionalPrompt;
+    } else if (!process.stdin.isTTY) {
+      // Read from stdin only when no explicit prompt input is provided
+      // (enables: echo "prompt" | ccw cli --tool gemini)
+      const { readFileSync } = await import('fs');
+      try {
+        finalPrompt = readFileSync(0, 'utf8').trim(); // fd 0 = stdin
+        if (debug) {
+          console.log(chalk.gray(`  Read ${finalPrompt.length} chars from stdin`));
+        }
+      } catch {
+        // stdin not available or empty, keep finalPrompt undefined
+      }
     }
   }
 
@@ -904,14 +902,29 @@ async function execAction(positionalPrompt: string | undefined, options: CliExec
   const nativeMode = noNative ? ' (prompt-concat)' : '';
   const idInfo = id ? ` [${id}]` : '';
 
+  const autoStream = !stream
+    && !raw
+    && !finalOnly
+    && !process.stdout.isTTY
+    && Boolean(process.env.CLAUDECODE);
+  const effectiveStream = Boolean(stream || autoStream);
+  const shouldPassthroughCodexJsonl = effectiveStream
+    && tool === 'codex'
+    && !raw
+    && !finalOnly
+    && !process.stdout.isTTY
+    && Boolean(process.env.CLAUDECODE);
+
   // Programmatic output mode:
   // - `--raw`: stdout/stderr passthrough semantics (minimal noise)
   // - `--final`: agent-message only semantics (minimal noise)
-  // - non-TTY stdout (e.g. called from another process): default to final-only unless `--stream` is used
-  const programmaticOutput = Boolean(raw || finalOnly) || (!process.stdout.isTTY && !stream);
+  // - non-TTY stdout (e.g. called from another process): default to final-only unless streaming is enabled
+  const programmaticOutput = shouldPassthroughCodexJsonl
+    || Boolean(raw || finalOnly)
+    || (!process.stdout.isTTY && !effectiveStream);
   const showUi = !programmaticOutput;
   const useRawOutput = Boolean(raw);
-  const useFinalOnlyOutput = Boolean(finalOnly) || (!useRawOutput && !process.stdout.isTTY && !stream);
+  const useFinalOnlyOutput = Boolean(finalOnly) || (!useRawOutput && !process.stdout.isTTY && !effectiveStream);
 
   // Show merge details
   if (isMerge && showUi) {
@@ -931,7 +944,7 @@ async function execAction(positionalPrompt: string | undefined, options: CliExec
     console.log();
   }
 
-  const spinner = (showUi && !stream) ? createSpinner(`  ${spinnerBaseText}`).start() : null;
+  const spinner = (showUi && !effectiveStream) ? createSpinner(`  ${spinnerBaseText}`).start() : null;
   const elapsedInterval = spinner
     ? setInterval(() => {
       const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
@@ -996,6 +1009,22 @@ async function execAction(positionalPrompt: string | undefined, options: CliExec
   // Buffer to accumulate output when both --stream and --to-file are specified
   let streamBuffer = '';
 
+  const shouldSkipCodexPassthroughLine = (rawLine: string): boolean => {
+    try {
+      const parsed = JSON.parse(rawLine) as {
+        type?: string;
+        item?: { type?: string };
+        item_type?: string;
+      };
+      if (!parsed || typeof parsed !== 'object') return false;
+      const eventType = parsed.type || '';
+      const itemType = parsed.item?.type || parsed.item_type || '';
+      return eventType.startsWith('item.') && itemType === 'command_execution';
+    } catch {
+      return false;
+    }
+  };
+
   // Streaming output handler - broadcasts to dashboard AND writes to stdout
   const onOutput = (unit: CliOutputUnit) => {
     // Always broadcast to dashboard for real-time viewing
@@ -1010,8 +1039,17 @@ async function execAction(positionalPrompt: string | undefined, options: CliExec
       unit                   // New structured format
     });
 
-    // Write to terminal only when --stream flag is passed
-    if (stream) {
+    // Write to terminal when streaming is enabled (explicit --stream or auto-stream)
+    if (effectiveStream) {
+      if (shouldPassthroughCodexJsonl && unit.rawLine) {
+        if (shouldSkipCodexPassthroughLine(unit.rawLine)) {
+          return;
+        }
+        const line = `${unit.rawLine}\n`;
+        process.stdout.write(line);
+        if (toFile) streamBuffer += line;
+        return;
+      }
       switch (unit.type) {
         case 'stdout':
         case 'code':
@@ -1060,7 +1098,7 @@ async function execAction(positionalPrompt: string | undefined, options: CliExec
       resume,
       id: executionId, // unified execution ID (matches broadcast events)
       noNative,
-      stream: !!stream, // stream=true → streaming enabled (no cache), stream=false → cache output (default)
+      stream: effectiveStream, // stream=true → streaming enabled (no cache), stream=false → cache output (default)
       outputFormat, // Enable JSONL parsing for tools that support it
       // Codex review options
       uncommitted,
@@ -1086,7 +1124,7 @@ async function execAction(positionalPrompt: string | undefined, options: CliExec
 
     // If not streaming (default), print output now
     // Prefer parsedOutput (from stream parser) over raw stdout for better formatting
-    if (!stream) {
+    if (!effectiveStream) {
       const output = useRawOutput
         ? result.stdout
         : (useFinalOnlyOutput ? (result.finalOutput || result.parsedOutput || result.stdout) : (result.parsedOutput || result.stdout));
@@ -1123,7 +1161,7 @@ async function execAction(positionalPrompt: string | undefined, options: CliExec
 
     if (result.success) {
       // Save streaming output to file if needed
-      if (stream && toFile && streamBuffer) {
+      if (effectiveStream && toFile && streamBuffer) {
         try {
           const { writeFileSync, mkdirSync } = await import('fs');
           const { dirname, resolve } = await import('path');
@@ -1156,7 +1194,7 @@ async function execAction(positionalPrompt: string | undefined, options: CliExec
           console.log(chalk.gray(`  Total: ${result.conversation.turn_count} turns, ${(result.conversation.total_duration_ms / 1000).toFixed(1)}s`));
         }
         console.log(chalk.dim(`  Continue: ccw cli -p "..." --resume ${result.execution.id}`));
-        if (!stream) {
+        if (!effectiveStream) {
           console.log(chalk.dim(`  Output (optional): ccw cli output ${result.execution.id}`));
         }
         if (toFile) {

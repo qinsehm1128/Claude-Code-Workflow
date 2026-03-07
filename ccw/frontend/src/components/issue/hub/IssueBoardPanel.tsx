@@ -189,8 +189,7 @@ export function IssueBoardPanel() {
 
   const { issues, isLoading, error } = useIssues();
   const { updateIssue } = useIssueMutations();
-  // ...
-}
+
   const [order, setOrder] = useState<BoardOrder>({});
   const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
   const [drawerInitialTab, setDrawerInitialTab] = useState<'overview' | 'terminal'>('overview');
@@ -330,17 +329,17 @@ export function IssueBoardPanel() {
               } catch (e) {
                 const errorMsg = `Auto-start failed: ${e instanceof Error ? e.message : String(e)}`;
                 setOptimisticError(errorMsg);
-                addToast('error', errorMsg);
+                addToast({ type: 'error', title: 'Auto-start failed', message: errorMsg });
               }
-              }
-              }
-              } catch (e) {
-              setOptimisticError(e instanceof Error ? e.message : String(e));
-              }
-              }
-              },
-              [autoStart, issues, idsByStatus, projectPath, updateIssue, addToast]
-              );
+            }
+          }
+        } catch (e) {
+          setOptimisticError(e instanceof Error ? e.message : String(e));
+        }
+      }
+    },
+    [autoStart, issues, idsByStatus, projectPath, updateIssue, addToast]
+  );
 
   if (error) {
     return (

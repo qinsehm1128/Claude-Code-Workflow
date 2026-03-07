@@ -250,6 +250,42 @@ export class DeepWikiService {
       return [];
     }
   }
+
+  /**
+   * Get DeepWiki storage statistics
+   */
+  public getStats(): { files: number; symbols: number; docs: number } {
+    const db = this.getConnection();
+    if (!db) {
+      return { files: 0, symbols: 0, docs: 0 };
+    }
+
+    try {
+      const filesRow = db.prepare(`
+        SELECT COUNT(DISTINCT source_file) as count
+        FROM deepwiki_symbols
+      `).get() as { count: number } | undefined;
+
+      const symbolsRow = db.prepare(`
+        SELECT COUNT(*) as count
+        FROM deepwiki_symbols
+      `).get() as { count: number } | undefined;
+
+      const docsRow = db.prepare(`
+        SELECT COUNT(*) as count
+        FROM deepwiki_docs
+      `).get() as { count: number } | undefined;
+
+      return {
+        files: filesRow?.count ?? 0,
+        symbols: symbolsRow?.count ?? 0,
+        docs: docsRow?.count ?? 0,
+      };
+    } catch (error) {
+      console.error('[DeepWiki] Error getting stats:', error);
+      return { files: 0, symbols: 0, docs: 0 };
+    }
+  }
 }
 
 // Singleton instance

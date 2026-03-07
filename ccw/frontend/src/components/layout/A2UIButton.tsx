@@ -21,7 +21,7 @@ export function A2UIButton({ className, compact = false }: A2UIButtonProps) {
   const { formatMessage } = useIntl();
   const { preferences } = useDialogStyleContext();
   const a2uiSurfaces = useNotificationStore((state) => state.a2uiSurfaces);
-  const isA2UIAvailable = Object.keys(a2uiSurfaces).length > 0;
+  const isA2UIAvailable = a2uiSurfaces.size > 0;
 
   // Don't render if hidden in preferences
   if (!preferences.showA2UIButtonInToolbar) {
@@ -34,7 +34,7 @@ export function A2UIButton({ className, compact = false }: A2UIButtonProps) {
     if (isA2UIAvailable) {
       console.log('[A2UIButton] Quick action triggered');
       // Example: find the first popup surface and handle it
-      const firstPopupId = Object.keys(a2uiSurfaces).find(id => a2uiSurfaces[id].displayMode === 'popup');
+      const firstPopupId = Array.from(a2uiSurfaces.keys()).find(id => a2uiSurfaces.get(id)?.displayMode === 'popup');
       if(firstPopupId) {
         // In a real implementation, you might open a dialog here
         // using the surface data.

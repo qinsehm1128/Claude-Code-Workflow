@@ -6,29 +6,13 @@ allowed-tools: Skill, Agent, AskUserQuestion, TodoWrite, Read, Write, Edit, Bash
 
 # Workflow-Lite-Plan
 
-Complete planning pipeline: task analysis, multi-angle exploration, clarification, adaptive planning, confirmation, and execution handoff.
+Planning pipeline: explore → clarify → plan → confirm → handoff to lite-execute.
 
 ---
 
-## Overview
-
-Intelligent lightweight planning command with dynamic workflow adaptation based on task complexity. Focuses on planning phases (exploration, clarification, planning, confirmation) and delegates execution to workflow-lite-execute skill.
-
-**Core capabilities:**
-- Intelligent task analysis with automatic exploration detection
-- Dynamic code exploration (cli-explore-agent) when codebase understanding needed
- - Interactive clarification after exploration to gather missing information
- - Adaptive planning: Low complexity → Direct Claude; Medium/High → cli-lite-planning-agent
- - Two-step confirmation: plan display → multi-dimensional input collection
- - Execution handoff with complete context to workflow-lite-execute
-
 ## Context Isolation
 
-> **⚠️ CRITICAL**: If this phase was invoked from analyze-with-file (via "执行任务"),
-> the analyze-with-file session is **COMPLETE** and all its phase instructions
-> are FINISHED and MUST NOT be referenced.
-> Only follow the LP-Phase 1-5 defined in THIS document (01-lite-plan.md).
-> Phase numbers in this document are INDEPENDENT of any prior workflow.
+> **CRITICAL**: If invoked from analyze-with-file (via "执行任务"), the analyze-with-file session is **COMPLETE** and all its phase instructions are FINISHED and MUST NOT be referenced. Only follow LP-Phase 1-5 defined in THIS document. Phase numbers are INDEPENDENT of any prior workflow.
 
 ## Input
 
@@ -36,14 +20,12 @@ Intelligent lightweight planning command with dynamic workflow adaptation based 
 <task-description>         Task description or path to .md file (required)
 ```
 
-### Flags
-
 | Flag | Description |
 |------|-------------|
-| `-y`, `--yes` | Auto mode: Skip clarification, auto-confirm plan, auto-select execution, skip review |
+| `-y`, `--yes` | Auto mode: Skip clarification, auto-confirm plan, auto-select execution, skip review (entire plan+execute workflow) |
 | `--force-explore` | Force code exploration even when task has prior analysis |
 
-Workflow preferences (`autoYes`, `forceExplore`) are collected by SKILL.md via AskUserQuestion and passed as `workflowPreferences` context variable.
+**Note**: Workflow preferences (`autoYes`, `forceExplore`) must be initialized at skill start. If not provided by caller, skill will prompt user for workflow mode selection.
 
 ## Output Artifacts
 
@@ -57,88 +39,68 @@ Workflow preferences (`autoYes`, `forceExplore`) are collected by SKILL.md via A
 
 **Output Directory**: `.workflow/.lite-plan/{task-slug}-{YYYY-MM-DD}/`
 
-**Agent Usage**:
-- Low complexity → Direct Claude planning (no agent)
-- Medium/High complexity → `cli-lite-planning-agent` generates `plan.json`
+**Agent Usage**: Low → Direct Claude planning (no agent) | Medium/High → `cli-lite-planning-agent`
 
 **Schema Reference**: `~/.ccw/workflows/cli-templates/schemas/plan-overview-base-schema.json`
 
 ## Auto Mode Defaults
 
-When `workflowPreferences.autoYes === true`:
-- **Clarification Questions**: Skipped (no clarification phase)
-- **Plan Confirmation**: Auto-selected "Allow"
-- **Execution Method**: Auto-selected "Auto"
-- **Code Review**: Auto-selected "Skip"
+When `workflowPreferences.autoYes === true` (entire plan+execute workflow):
+- **Clarification**: Skipped | **Plan Confirmation**: Allow & Execute | **Execution**: Auto | **Review**: Skip
 
-## Execution Process
+Auto mode authorizes the complete plan-and-execute workflow with a single confirmation. No further prompts.
 
-```
-LP-Phase 1: Task Analysis & Exploration
-   ├─ Parse input (description or .md file)
-   ├─ intelligent complexity assessment (Low/Medium/High)
-   ├─ Exploration decision (auto-detect or workflowPreferences.forceExplore)
-   ├─ Context protection: If file reading ≥50k chars → force cli-explore-agent
-   └─ Decision:
-      ├─ needsExploration=true → Launch parallel cli-explore-agents (1-4 based on complexity)
-      └─ needsExploration=false → Skip to LP-Phase 2/3
+## Phase Summary
 
-LP-Phase 2: Clarification (optional, multi-round)
-   ├─ Aggregate clarification_needs from all exploration angles
-   ├─ Deduplicate similar questions
-   └─ Decision:
-      ├─ Has clarifications → AskUserQuestion (max 4 questions per round, multiple rounds allowed)
-      └─ No clarifications → Skip to LP-Phase 3
-
-LP-Phase 3: Planning (NO CODE EXECUTION - planning only)
-   └─ Decision (based on LP-Phase 1 complexity):
-      ├─ Low → Load schema: cat ~/.ccw/workflows/cli-templates/schemas/plan-overview-base-schema.json → Direct Claude planning (following schema) → plan.json
-      └─ Medium/High → cli-lite-planning-agent → plan.json (agent internally executes quality check)
-
-LP-Phase 4: Confirmation & Selection
-   ├─ Display plan summary (tasks, complexity, estimated time)
-   └─ AskUserQuestion:
-      ├─ Confirm: Allow / Modify / Cancel
-      ├─ Execution: Agent / Codex / Auto
-      └─ Review: Gemini / Agent / Skip
-
-LP-Phase 5: Execute
-   ├─ Build executionContext (plan + explorations + clarifications + selections)
-   └─ Direct handoff: Skill("lite-execute") → Execute with executionContext (Mode 1)
-```
+| Phase | Core Action | Output |
+|-------|-------------|--------|
+| LP-0 | Initialize workflowPreferences | autoYes, forceExplore |
+| LP-1 | Complexity assessment → parallel cli-explore-agents (1-4) | exploration-*.json + manifest |
+| LP-2 | Aggregate + dedup clarification_needs → multi-round AskUserQuestion | clarificationContext (in-memory) |
+| LP-3 | Low: Direct Claude planning / Medium+High: cli-lite-planning-agent | plan.json + .task/TASK-*.json |
+| LP-4 | Display plan → AskUserQuestion (Confirm + Execution + Review) | userSelection |
+| LP-5 | Build executionContext → Skill("lite-execute") | handoff (Mode 1) |
 
 ## Implementation
 
+### LP-Phase 0: Workflow Preferences Initialization
+
+```javascript
+if (typeof workflowPreferences === 'undefined' || workflowPreferences === null) {
+  workflowPreferences = {
+    autoYes: false,      // false: show LP-Phase 2/4 prompts | true (-y): skip all prompts
+    forceExplore: false
+  }
+}
+```
+
 ### LP-Phase 1: Intelligent Multi-Angle Exploration
 
-**Session Setup** (MANDATORY - follow exactly):
+**Session Setup** (MANDATORY):
 ```javascript
-// Helper: Get UTC+8 (China Standard Time) ISO string
 const getUtc8ISOString = () => new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString()
-
 const taskSlug = task_description.toLowerCase().replace(/[^a-z0-9]+/g, '-').substring(0, 40)
-const dateStr = getUtc8ISOString().substring(0, 10)  // Format: 2025-11-29
-
-const sessionId = `${taskSlug}-${dateStr}`  // e.g., "implement-jwt-refresh-2025-11-29"
+const dateStr = getUtc8ISOString().substring(0, 10)
+const sessionId = `${taskSlug}-${dateStr}`
 const sessionFolder = `.workflow/.lite-plan/${sessionId}`
-
 bash(`mkdir -p ${sessionFolder} && test -d ${sessionFolder} && echo "SUCCESS: ${sessionFolder}" || echo "FAILED: ${sessionFolder}"`)
 ```
 
-**TodoWrite (LP-Phase 1 start)**:
+**TodoWrite Template** (initial state — subsequent phases update status progressively):
 ```javascript
+// Pattern: set phases[0..N-1].status="completed", phases[N].status="in_progress"
+// Only full block shown here; subsequent updates follow same structure with status changes
 TodoWrite({ todos: [
-  { content: "LP-Phase 1: Exploration", status: "in_progress", activeForm: "Exploring codebase" },
-  { content: "LP-Phase 2: Clarification", status: "pending", activeForm: "Collecting clarifications" },
-  { content: "LP-Phase 3: Planning", status: "pending", activeForm: "Generating plan" },
-  { content: "LP-Phase 4: Confirmation", status: "pending", activeForm: "Awaiting confirmation" },
-  { content: "LP-Phase 5: Execution", status: "pending", activeForm: "Executing tasks" }
+  { content: `LP-Phase 1: Exploration [${complexity}] ${selectedAngles.length} angles`, status: "in_progress", activeForm: `Exploring: ${selectedAngles.join(', ')}` },
+  { content: "LP-Phase 2: Clarification", status: "pending" },
+  { content: `LP-Phase 3: Planning [${planningStrategy}]`, status: "pending" },
+  { content: "LP-Phase 4: Confirmation", status: "pending" },
+  { content: "LP-Phase 5: Execution", status: "pending" }
 ]})
 ```
 
 **Exploration Decision Logic**:
 ```javascript
-// Check if task description already contains prior analysis context (from analyze-with-file)
 const hasPriorAnalysis = /##\s*Prior Analysis/i.test(task_description)
 
 needsExploration = workflowPreferences.forceExplore ? true
@@ -149,33 +111,21 @@ needsExploration = workflowPreferences.forceExplore ? true
      task.modifies_existing_code)
 
 if (!needsExploration) {
-  // Skip exploration — analysis context already in task description (or not needed)
-  // manifest is absent; LP-Phase 3 loads it with safe fallback
+  // manifest absent; LP-Phase 3 loads with safe fallback
   proceed_to_next_phase()
 }
 ```
 
-**⚠️ Context Protection**: File reading ≥50k chars → force `needsExploration=true` (delegate to cli-explore-agent)
+**Context Protection**: File reading >=50k chars → force `needsExploration=true` (delegate to cli-explore-agent)
 
-**Complexity Assessment** (Intelligent Analysis):
+**Complexity Assessment**:
 ```javascript
-// analyzes task complexity based on:
-// - Scope: How many systems/modules are affected?
-// - Depth: Surface change vs architectural impact?
-// - Risk: Potential for breaking existing functionality?
-// - Dependencies: How interconnected is the change?
-
 const complexity = analyzeTaskComplexity(task_description)
-// Returns: 'Low' | 'Medium' | 'High'
-// Low: ONLY truly trivial — single file, single function, zero cross-module impact, no new patterns
-//   Examples: fix typo, rename variable, add log line, adjust constant value
-// Medium: Multiple files OR any integration point OR new pattern introduction OR moderate risk
-//   Examples: add endpoint, implement feature, refactor module, fix bug spanning files
-// High: Cross-module, architectural, or systemic change
-//   Examples: new subsystem, migration, security overhaul, API redesign
-// ⚠️ Default bias: When uncertain between Low and Medium, choose Medium
+// 'Low': single file, single function, zero cross-module impact (fix typo, rename var, adjust constant)
+// 'Medium': multiple files OR integration point OR new pattern (add endpoint, implement feature, refactor)
+// 'High': cross-module, architectural, systemic (new subsystem, migration, security overhaul)
+// Default bias: uncertain between Low/Medium → choose Medium
 
-// Angle assignment based on task type (orchestrator decides, not agent)
 const ANGLE_PRESETS = {
   architecture: ['architecture', 'dependencies', 'modularity', 'integration-points'],
   security: ['security', 'auth-patterns', 'dataflow', 'validation'],
@@ -186,59 +136,39 @@ const ANGLE_PRESETS = {
 
 function selectAngles(taskDescription, count) {
   const text = taskDescription.toLowerCase()
-  let preset = 'feature' // default
-
+  let preset = 'feature'
   if (/refactor|architect|restructure|modular/.test(text)) preset = 'architecture'
   else if (/security|auth|permission|access/.test(text)) preset = 'security'
   else if (/performance|slow|optimi|cache/.test(text)) preset = 'performance'
   else if (/fix|bug|error|issue|broken/.test(text)) preset = 'bugfix'
-
   return ANGLE_PRESETS[preset].slice(0, count)
 }
 
 const selectedAngles = selectAngles(task_description, complexity === 'High' ? 4 : (complexity === 'Medium' ? 3 : 1))
 
-// Planning strategy determination
-// Agent trigger: anything beyond trivial single-file change
-// - hasPriorAnalysis → always agent (analysis validated non-trivial task)
-// - multi-angle exploration → agent (complexity warranted multiple angles)
-// - Medium/High complexity → agent
-// Direct Claude planning ONLY for truly trivial Low + no analysis + single angle
+// Direct Claude planning ONLY for: Low + no prior analysis + single angle
 const planningStrategy = (
   complexity === 'Low' && !hasPriorAnalysis && selectedAngles.length <= 1
-) ? 'Direct Claude Planning'
-  : 'cli-lite-planning-agent'
+) ? 'Direct Claude Planning' : 'cli-lite-planning-agent'
 
-console.log(`
-## Exploration Plan
-
-Task Complexity: ${complexity}
-Selected Angles: ${selectedAngles.join(', ')}
-Planning Strategy: ${planningStrategy}
-
-Launching ${selectedAngles.length} parallel explorations...
-`)
+console.log(`Exploration Plan: ${complexity} | ${selectedAngles.join(', ')} | ${planningStrategy}`)
 ```
 
-**Launch Parallel Explorations** - Orchestrator assigns angle to each agent:
+**Launch Parallel Explorations**:
 
-**⚠️ CRITICAL - NO BACKGROUND EXECUTION**:
-- **MUST NOT use `run_in_background: true`** - exploration results are REQUIRED before planning
-
+**CRITICAL**: MUST NOT use `run_in_background: true` — exploration results are REQUIRED before planning.
 
 ```javascript
-// Launch agents with pre-assigned angles
 const explorationTasks = selectedAngles.map((angle, index) =>
   Task(
     subagent_type="cli-explore-agent",
-    run_in_background=false,  // ⚠️ MANDATORY: Must wait for results
+    run_in_background=false,
     description=`Explore: ${angle}`,
     prompt=`
 ## Task Objective
-Execute **${angle}** exploration for task planning context. Analyze codebase from this specific angle to discover relevant structure, patterns, and constraints.
+Execute **${angle}** exploration for task planning context.
 
 ## Output Location
-
 **Session Folder**: ${sessionFolder}
 **Output File**: ${sessionFolder}/exploration-${angle}.json
 
@@ -246,9 +176,6 @@ Execute **${angle}** exploration for task planning context. Analyze codebase fro
 - **Exploration Angle**: ${angle}
 - **Task Description**: ${task_description}
 - **Exploration Index**: ${index + 1} of ${selectedAngles.length}
-
-## Agent Initialization
-cli-explore-agent autonomously handles: project structure discovery, schema loading, project context loading (project-tech.json, specs/*.md), and keyword search. These steps execute automatically.
 
 ## Exploration Strategy (${angle} focus)
 
@@ -267,11 +194,7 @@ cli-explore-agent autonomously handles: project structure discovery, schema load
 - Identify ${angle}-specific clarification needs
 
 ## Expected Output
-
-**Schema Reference**: explore-json-schema.json (auto-loaded by agent during initialization)
-
-**Required Fields** (all ${angle} focused):
-- Follow explore-json-schema.json exactly (auto-loaded by agent)
+**Schema**: explore-json-schema.json (auto-loaded by agent)
 - All fields scoped to ${angle} perspective
 - Ensure rationale is specific and >10 chars (not generic)
 - Include file:line locations in integration_points
@@ -279,16 +202,12 @@ cli-explore-agent autonomously handles: project structure discovery, schema load
 
 ## Success Criteria
 - [ ] get_modules_by_depth.sh executed
-- [ ] At least 3 relevant files identified with specific rationale + role
-- [ ] Every file has rationale >10 chars (not generic like "Related to ${angle}")
-- [ ] Every file has role classification (modify_target/dependency/etc.)
+- [ ] At least 3 relevant files with specific rationale (>10 chars) + role classification
 - [ ] Patterns are actionable (code examples, not generic advice)
 - [ ] Integration points include file:line locations
 - [ ] Constraints are project-specific to ${angle}
-- [ ] JSON output follows schema exactly
-- [ ] clarification_needs includes options + recommended
-- [ ] Files with relevance >= 0.7 have key_code array describing key symbols
-- [ ] Files with relevance >= 0.7 have topic_relation explaining connection to ${angle}
+- [ ] JSON follows schema; clarification_needs includes options + recommended
+- [ ] Files with relevance >= 0.7 have key_code array + topic_relation
 
 ## Execution
 **Write**: \`${sessionFolder}/exploration-${angle}.json\`
@@ -296,30 +215,25 @@ cli-explore-agent autonomously handles: project structure discovery, schema load
 `
   )
 )
-
 // Execute all exploration tasks in parallel
 ```
 
-**Auto-discover Generated Exploration Files**:
+**Auto-discover & Build Manifest**:
 ```javascript
-// After explorations complete, auto-discover all exploration-*.json files
 const explorationFiles = bash(`find ${sessionFolder} -name "exploration-*.json" -type f`)
-  .split('\n')
-  .filter(f => f.trim())
+  .split('\n').filter(f => f.trim())
 
-// Read metadata to build manifest
 const explorationManifest = {
   session_id: sessionId,
   task_description: task_description,
   timestamp: getUtc8ISOString(),
   complexity: complexity,
-  exploration_count: explorationCount,
+  exploration_count: explorationFiles.length,
   explorations: explorationFiles.map(file => {
     const data = JSON.parse(Read(file))
-    const filename = path.basename(file)
     return {
       angle: data._metadata.exploration_angle,
-      file: filename,
+      file: path.basename(file),
       path: file,
       index: data._metadata.exploration_index
     }
@@ -327,34 +241,12 @@ const explorationManifest = {
 }
 
 Write(`${sessionFolder}/explorations-manifest.json`, JSON.stringify(explorationManifest, null, 2))
-
-console.log(`
-## Exploration Complete
-
-Generated exploration files in ${sessionFolder}:
-${explorationManifest.explorations.map(e => `- exploration-${e.angle}.json (angle: ${e.angle})`).join('\n')}
-
-Manifest: explorations-manifest.json
-Angles explored: ${explorationManifest.explorations.map(e => e.angle).join(', ')}
-`)
+console.log(`Exploration complete: ${explorationManifest.explorations.map(e => e.angle).join(', ')}`)
 ```
 
-**TodoWrite (LP-Phase 1 complete)**:
-```javascript
-TodoWrite({ todos: [
-  { content: "LP-Phase 1: Exploration", status: "completed", activeForm: "Exploring codebase" },
-  { content: "LP-Phase 2: Clarification", status: "in_progress", activeForm: "Collecting clarifications" },
-  { content: "LP-Phase 3: Planning", status: "pending", activeForm: "Generating plan" },
-  { content: "LP-Phase 4: Confirmation", status: "pending", activeForm: "Awaiting confirmation" },
-  { content: "LP-Phase 5: Execution", status: "pending", activeForm: "Executing tasks" }
-]})
-```
+// TodoWrite: Phase 1 → completed, Phase 2 → in_progress
 
-**Output**:
-- `${sessionFolder}/exploration-{angle1}.json`
-- `${sessionFolder}/exploration-{angle2}.json`
-- ... (1-4 files based on complexity)
-- `${sessionFolder}/explorations-manifest.json`
+**Output**: `exploration-{angle}.json` (1-4 files) + `explorations-manifest.json`
 
 ---
 
@@ -362,11 +254,9 @@ TodoWrite({ todos: [
 
 **Skip if**: No exploration or `clarification_needs` is empty across all explorations
 
-**⚠️ CRITICAL**: AskUserQuestion tool limits max 4 questions per call. **MUST execute multiple rounds** to exhaust all clarification needs - do NOT stop at round 1.
+**CRITICAL**: AskUserQuestion limits max 4 questions per call. **MUST execute multiple rounds** to exhaust all clarification needs.
 
-**Aggregate clarification needs from all exploration angles**:
 ```javascript
-// Load manifest and all exploration files (may not exist if exploration was skipped)
 const manifest = file_exists(`${sessionFolder}/explorations-manifest.json`)
   ? JSON.parse(Read(`${sessionFolder}/explorations-manifest.json`))
   : { exploration_count: 0, explorations: [] }
@@ -375,41 +265,28 @@ const explorations = manifest.explorations.map(exp => ({
   data: JSON.parse(Read(exp.path))
 }))
 
-// Aggregate clarification needs from all explorations
+// Aggregate from all explorations
 const allClarifications = []
 explorations.forEach(exp => {
   if (exp.data.clarification_needs?.length > 0) {
     exp.data.clarification_needs.forEach(need => {
-      allClarifications.push({
-        ...need,
-        source_angle: exp.angle
-      })
+      allClarifications.push({ ...need, source_angle: exp.angle })
     })
   }
 })
 
-// Intelligent deduplication: analyze allClarifications by intent
-// - Identify questions with similar intent across different angles
-// - Merge similar questions: combine options, consolidate context
-// - Produce dedupedClarifications with unique intents only
+// Intelligent dedup: merge similar intent across angles, combine options
 const dedupedClarifications = intelligentMerge(allClarifications)
 
-const autoYes = workflowPreferences.autoYes
-
-if (autoYes) {
-  // Auto mode: Skip clarification phase
+if (workflowPreferences.autoYes) {
   console.log(`[Auto] Skipping ${dedupedClarifications.length} clarification questions`)
-  console.log(`Proceeding to planning with exploration results...`)
-  // Continue to LP-Phase 3
 } else if (dedupedClarifications.length > 0) {
-  // Interactive mode: Multi-round clarification
   const BATCH_SIZE = 4
   const totalRounds = Math.ceil(dedupedClarifications.length / BATCH_SIZE)
 
   for (let i = 0; i < dedupedClarifications.length; i += BATCH_SIZE) {
     const batch = dedupedClarifications.slice(i, i + BATCH_SIZE)
     const currentRound = Math.floor(i / BATCH_SIZE) + 1
-
     console.log(`### Clarification Round ${currentRound}/${totalRounds}`)
 
     AskUserQuestion({
@@ -423,7 +300,6 @@ if (autoYes) {
         }))
       }))
     })
-
     // Store batch responses in clarificationContext before next round
   }
 }
@@ -435,90 +311,56 @@ if (autoYes) {
 
 ### LP-Phase 3: Planning
 
-**Planning Strategy Selection** (based on LP-Phase 1 complexity):
+**IMPORTANT**: LP-Phase 3 is **planning only** — NO code execution. All execution happens in LP-Phase 5 via lite-execute.
 
-**IMPORTANT**: LP-Phase 3 is **planning only** - NO code execution. All execution happens in LP-Phase 5 via lite-execute.
-
-**Executor Assignment** (Claude 智能分配，plan 生成后执行):
-
+**Executor Assignment** (after plan generation):
 ```javascript
-// 分配规则（优先级从高到低）：
-// 1. 用户明确指定："用 gemini 分析..." → gemini, "codex 实现..." → codex
-// 2. 默认 → agent
-
-const executorAssignments = {}  // { taskId: { executor: 'gemini'|'codex'|'agent', reason: string } }
-
-// Load tasks from .task/ directory for executor assignment
+// Priority: 1. User explicit ("用 gemini 分析..." → gemini) | 2. Default → agent
+const executorAssignments = {}  // { taskId: { executor: 'gemini'|'codex'|'agent', reason } }
 const taskFiles = Glob(`${sessionFolder}/.task/TASK-*.json`)
 taskFiles.forEach(taskPath => {
   const task = JSON.parse(Read(taskPath))
-  // Claude 根据上述规则语义分析，为每个 task 分配 executor
   executorAssignments[task.id] = { executor: '...', reason: '...' }
 })
 ```
 
-**Low Complexity** - Direct planning by Claude:
+**Low Complexity** — Direct planning by Claude:
 ```javascript
-// Step 1: Read schema
 const schema = Bash(`cat ~/.ccw/workflows/cli-templates/schemas/plan-overview-base-schema.json`)
 
-// Step 2: Read exploration files if available
 const manifest = file_exists(`${sessionFolder}/explorations-manifest.json`)
   ? JSON.parse(Read(`${sessionFolder}/explorations-manifest.json`))
   : { explorations: [] }
 manifest.explorations.forEach(exp => {
-  const explorationData = Read(exp.path)
-  console.log(`\n### Exploration: ${exp.angle}\n${explorationData}`)
+  console.log(`\n### Exploration: ${exp.angle}\n${Read(exp.path)}`)
 })
 
-// Step 3: Generate task objects (Claude directly, no agent)
-// ⚠️ Tasks MUST incorporate insights from exploration files read in Step 2
-// Task fields use NEW names: convergence.criteria (not acceptance), files[].change (not modification_points), test (not verification)
+// Generate tasks — MUST incorporate exploration insights
+// Field names: convergence.criteria (not acceptance), files[].change (not modification_points), test (not verification)
 const tasks = [
   {
-    id: "TASK-001",
-    title: "...",
-    description: "...",
-    depends_on: [],
+    id: "TASK-001", title: "...", description: "...", depends_on: [],
     convergence: { criteria: ["..."] },
     files: [{ path: "...", change: "..." }],
-    implementation: ["..."],
-    test: "..."
-  },
-  // ... more tasks
+    implementation: ["..."], test: "..."
+  }
 ]
 
-// Step 4: Write task files to .task/ directory
 const taskDir = `${sessionFolder}/.task`
 Bash(`mkdir -p "${taskDir}"`)
-tasks.forEach(task => {
-  Write(`${taskDir}/${task.id}.json`, JSON.stringify(task, null, 2))
-})
+tasks.forEach(task => Write(`${taskDir}/${task.id}.json`, JSON.stringify(task, null, 2)))
 
-// Step 5: Generate plan overview (NO embedded tasks[])
 const plan = {
-  summary: "...",
-  approach: "...",
-  task_ids: tasks.map(t => t.id),
-  task_count: tasks.length,
-  complexity: "Low",
-  estimated_time: "...",
-  recommended_execution: "Agent",
-  _metadata: {
-    timestamp: getUtc8ISOString(),
-    source: "direct-planning",
-    planning_mode: "direct",
-    plan_type: "feature"
-  }
+  summary: "...", approach: "...",
+  task_ids: tasks.map(t => t.id), task_count: tasks.length,
+  complexity: "Low", estimated_time: "...", recommended_execution: "Agent",
+  _metadata: { timestamp: getUtc8ISOString(), source: "direct-planning", planning_mode: "direct", plan_type: "feature" }
 }
-
-// Step 6: Write plan overview to session folder
 Write(`${sessionFolder}/plan.json`, JSON.stringify(plan, null, 2))
-
-// Step 7: MUST continue to LP-Phase 4 (Confirmation) - DO NOT execute code here
+// MUST continue to LP-Phase 4 — DO NOT execute code here
 ```
 
-**Medium/High Complexity** - Invoke cli-lite-planning-agent:
+**Medium/High Complexity** — Invoke cli-lite-planning-agent:
 
 ```javascript
 Task(
@@ -529,20 +371,17 @@ Task(
 Generate implementation plan and write plan.json.
 
 ## Output Location
-
 **Session Folder**: ${sessionFolder}
 **Output Files**:
 - ${sessionFolder}/planning-context.md (evidence + understanding)
-- ${sessionFolder}/plan.json (plan overview -- NO embedded tasks[])
+- ${sessionFolder}/plan.json (plan overview — NO embedded tasks[])
 - ${sessionFolder}/.task/TASK-*.json (independent task files, one per task)
 
-## Output Schema Reference
-Execute: cat ~/.ccw/workflows/cli-templates/schemas/plan-overview-base-schema.json (get schema reference before generating plan)
+## Schema Reference
+Execute: cat ~/.ccw/workflows/cli-templates/schemas/plan-overview-base-schema.json
 
-## Project Context (MANDATORY - Load via ccw spec)
+## Project Context (MANDATORY)
 Execute: ccw spec load --category planning
-This loads technology stack, architecture, key components, and user-defined constraints/conventions.
-
 **CRITICAL**: All generated tasks MUST comply with constraints in specs/*.md
 
 ## Task Description
@@ -553,14 +392,11 @@ ${task_description}
 ${manifest.explorations.length > 0
   ? manifest.explorations.map(exp => `### Exploration: ${exp.angle} (${exp.file})
 Path: ${exp.path}
-
 Read this file for detailed ${exp.angle} analysis.`).join('\n\n') + `
 
-Total explorations: ${manifest.exploration_count}
-Angles covered: ${manifest.explorations.map(e => e.angle).join(', ')}
-
+Total: ${manifest.exploration_count} | Angles: ${manifest.explorations.map(e => e.angle).join(', ')}
 Manifest: ${sessionFolder}/explorations-manifest.json`
-  : `No exploration files. Task Description above contains "## Prior Analysis" with analysis summary, key files, and findings — use it as primary planning context.`}
+  : `No exploration files. Task Description contains "## Prior Analysis" — use as primary planning context.`}
 
 ## User Clarifications
 ${JSON.stringify(clarificationContext) || "None"}
@@ -569,112 +405,68 @@ ${JSON.stringify(clarificationContext) || "None"}
 ${complexity}
 
 ## Requirements
-Generate plan.json and .task/*.json following the schema obtained above. Key constraints:
 - _metadata.exploration_angles: ${JSON.stringify(manifest.explorations.map(e => e.angle))}
-
-**Output Format**: Two-layer structure:
-- plan.json: Overview with task_ids[] referencing .task/ files (NO tasks[] array)
-- .task/TASK-*.json: Independent task files following task-schema.json
-
-Follow plan-overview-base-schema.json (loaded via cat command above) for plan.json structure.
-Follow task-schema.json for .task/TASK-*.json structure.
-Note: Use files[].change (not modification_points), convergence.criteria (not acceptance).
+- Two-layer output: plan.json (task_ids[], NO tasks[]) + .task/TASK-*.json
+- Follow plan-overview-base-schema.json for plan.json, task-schema.json for .task/*.json
+- Field names: files[].change (not modification_points), convergence.criteria (not acceptance)
 
 ## Task Grouping Rules
 1. **Group by feature**: All changes for one feature = one task (even if 3-5 files)
-2. **Group by context**: Tasks with similar context or related functional changes can be grouped together
-3. **Minimize agent count**: Simple, unrelated tasks can also be grouped to reduce agent execution overhead
+2. **Group by context**: Related functional changes can be grouped together
+3. **Minimize agent count**: Group simple unrelated tasks to reduce overhead
 4. **Avoid file-per-task**: Do NOT create separate tasks for each file
-5. **Substantial tasks**: Each task should represent 15-60 minutes of work
-6. **True dependencies only**: Only use depends_on when Task B cannot start without Task A's output
-7. **Prefer parallel**: Most tasks should be independent (no depends_on)
+5. **Substantial tasks**: Each task = 15-60 minutes of work
+6. **True dependencies only**: depends_on only when Task B needs Task A's output
+7. **Prefer parallel**: Most tasks should be independent
 
 ## Execution
-1. Read schema file (cat command above)
-2. Execute CLI planning using Gemini (Qwen fallback)
-3. Read ALL exploration files for comprehensive context
-4. Synthesize findings and generate tasks + plan overview
-5. **Write**: \`${sessionFolder}/planning-context.md\` (evidence paths + understanding)
-6. **Create**: \`${sessionFolder}/.task/\` directory (mkdir -p)
-7. **Write**: \`${sessionFolder}/.task/TASK-001.json\`, \`TASK-002.json\`, etc. (one per task)
-8. **Write**: \`${sessionFolder}/plan.json\` (overview with task_ids[], NO tasks[])
-9. Return brief completion summary
+1. Read schema → 2. ccw spec load → 3. Read ALL exploration files → 4. Synthesize + generate
+5. Write: planning-context.md, .task/TASK-*.json, plan.json (task_ids[], NO tasks[])
+6. Return brief completion summary
 `
 )
 ```
 
 **Output**: `${sessionFolder}/plan.json`
 
-**TodoWrite (LP-Phase 3 complete)**:
-```javascript
-TodoWrite({ todos: [
-  { content: "LP-Phase 1: Exploration", status: "completed", activeForm: "Exploring codebase" },
-  { content: "LP-Phase 2: Clarification", status: "completed", activeForm: "Collecting clarifications" },
-  { content: "LP-Phase 3: Planning", status: "completed", activeForm: "Generating plan" },
-  { content: "LP-Phase 4: Confirmation", status: "in_progress", activeForm: "Awaiting confirmation" },
-  { content: "LP-Phase 5: Execution", status: "pending", activeForm: "Executing tasks" }
-]})
-```
+// TodoWrite: Phase 3 → completed, Phase 4 → in_progress
 
 ---
 
 ### LP-Phase 4: Task Confirmation & Execution Selection
 
-**Step 4.1: Display Plan**
+**Display Plan**:
 ```javascript
 const plan = JSON.parse(Read(`${sessionFolder}/plan.json`))
-
-// Load tasks from .task/ directory
-const tasks = (plan.task_ids || []).map(id => {
-  const taskPath = `${sessionFolder}/.task/${id}.json`
-  return JSON.parse(Read(taskPath))
-})
-const taskList = tasks
+const tasks = (plan.task_ids || []).map(id => JSON.parse(Read(`${sessionFolder}/.task/${id}.json`)))
 
 console.log(`
 ## Implementation Plan
-
 **Summary**: ${plan.summary}
 **Approach**: ${plan.approach}
-
-**Tasks** (${taskList.length}):
-${taskList.map((t, i) => `${i+1}. ${t.title} (${t.scope || t.files?.[0]?.path || ''})`).join('\n')}
-
-**Complexity**: ${plan.complexity}
-**Estimated Time**: ${plan.estimated_time}
-**Recommended**: ${plan.recommended_execution}
+**Tasks** (${tasks.length}):
+${tasks.map((t, i) => `${i+1}. ${t.title} (${t.scope || t.files?.[0]?.path || ''})`).join('\n')}
+**Complexity**: ${plan.complexity} | **Time**: ${plan.estimated_time} | **Recommended**: ${plan.recommended_execution}
 `)
 ```
 
-**Step 4.2: Collect Confirmation**
+**Collect Confirmation**:
 ```javascript
-const autoYes = workflowPreferences.autoYes
-
 let userSelection
 
-if (autoYes) {
-  // Auto mode: Use defaults
-  console.log(`[Auto] Auto-confirming plan:`)
-  console.log(`  - Confirmation: Allow`)
-  console.log(`  - Execution: Auto`)
-  console.log(`  - Review: Skip`)
-
-  userSelection = {
-    confirmation: "Allow",
-    execution_method: "Auto",
-    code_review_tool: "Skip"
-  }
+if (workflowPreferences.autoYes) {
+  console.log(`[Auto] Allow & Execute | Auto | Skip`)
+  userSelection = { confirmation: "Allow", execution_method: "Auto", code_review_tool: "Skip" }
 } else {
-  // Interactive mode: Ask user
-  // Note: Execution "Other" option allows specifying CLI tools from ~/.claude/cli-tools.json
+  // "Other" in Execution allows specifying CLI tools from ~/.claude/cli-tools.json
   userSelection = AskUserQuestion({
     questions: [
       {
-        question: `Confirm plan? (${taskList.length} tasks, ${plan.complexity})`,
+        question: `Confirm plan and authorize execution? (${tasks.length} tasks, ${plan.complexity})`,
         header: "Confirm",
         multiSelect: false,
         options: [
-          { label: "Allow", description: "Proceed as-is" },
+          { label: "Allow & Execute", description: "Approve plan and begin execution immediately (no further prompts)" },
           { label: "Modify", description: "Adjust before execution" },
           { label: "Cancel", description: "Abort workflow" }
         ]
@@ -705,67 +497,42 @@ if (autoYes) {
 }
 ```
 
-**TodoWrite (LP-Phase 4 confirmed)**:
-```javascript
-const executionLabel = userSelection.execution_method
-
-TodoWrite({ todos: [
-  { content: "LP-Phase 1: Exploration", status: "completed", activeForm: "Exploring codebase" },
-  { content: "LP-Phase 2: Clarification", status: "completed", activeForm: "Collecting clarifications" },
-  { content: "LP-Phase 3: Planning", status: "completed", activeForm: "Generating plan" },
-  { content: `LP-Phase 4: Confirmed [${executionLabel}]`, status: "completed", activeForm: "Confirmed" },
-  { content: `LP-Phase 5: Execution [${executionLabel}]`, status: "in_progress", activeForm: `Executing [${executionLabel}]` }
-]})
-```
+// TodoWrite: Phase 4 → completed `[${userSelection.execution_method} + ${userSelection.code_review_tool}]`, Phase 5 → in_progress
 
 ---
 
 ### LP-Phase 5: Handoff to Execution
 
-**CRITICAL**: lite-plan NEVER executes code directly. ALL execution MUST go through lite-execute.
+**CRITICAL**: lite-plan NEVER executes code directly. ALL execution goes through lite-execute.
 
-**Step 5.1: Build executionContext**
-
+**Build executionContext**:
 ```javascript
-// Load manifest and all exploration files (may not exist if exploration was skipped)
 const manifest = file_exists(`${sessionFolder}/explorations-manifest.json`)
   ? JSON.parse(Read(`${sessionFolder}/explorations-manifest.json`))
   : { exploration_count: 0, explorations: [] }
 const explorations = {}
-
 manifest.explorations.forEach(exp => {
-  if (file_exists(exp.path)) {
-    explorations[exp.angle] = JSON.parse(Read(exp.path))
-  }
+  if (file_exists(exp.path)) explorations[exp.angle] = JSON.parse(Read(exp.path))
 })
 
 const plan = JSON.parse(Read(`${sessionFolder}/plan.json`))
 
 executionContext = {
-  planObject: plan,  // plan overview (no tasks[])
-  taskFiles: (plan.task_ids || []).map(id => ({
-    id,
-    path: `${sessionFolder}/.task/${id}.json`
-  })),
+  planObject: plan,
+  taskFiles: (plan.task_ids || []).map(id => ({ id, path: `${sessionFolder}/.task/${id}.json` })),
   explorationsContext: explorations,
   explorationAngles: manifest.explorations.map(e => e.angle),
   explorationManifest: manifest,
   clarificationContext: clarificationContext || null,
-  executionMethod: userSelection.execution_method,  // 全局默认，可被 executorAssignments 覆盖
+  executionMethod: userSelection.execution_method,
   codeReviewTool: userSelection.code_review_tool,
   originalUserInput: task_description,
-
-  // 任务级 executor 分配（优先于全局 executionMethod）
-  executorAssignments: executorAssignments,  // { taskId: { executor, reason } }
-
+  executorAssignments: executorAssignments,  // { taskId: { executor, reason } } — overrides executionMethod
   session: {
     id: sessionId,
     folder: sessionFolder,
     artifacts: {
-      explorations: manifest.explorations.map(exp => ({
-        angle: exp.angle,
-        path: exp.path
-      })),
+      explorations: manifest.explorations.map(exp => ({ angle: exp.angle, path: exp.path })),
       explorations_manifest: `${sessionFolder}/explorations-manifest.json`,
       plan: `${sessionFolder}/plan.json`,
       task_dir: `${sessionFolder}/.task`
@@ -774,56 +541,39 @@ executionContext = {
 }
 ```
 
-**Step 5.2: Handoff with Tracking**
-
+**Handoff**:
 ```javascript
-// Update TodoWrite to show handoff to lite-execute
+if (!workflowPreferences.autoYes) {
+  console.log(`Handing off to execution engine. No further prompts.`)
+}
+
+// TodoWrite: Phase 5 → completed, add LE-Phase 1 → in_progress
 const taskCount = (plan.task_ids || []).length
 TodoWrite({ todos: [
-  { content: "LP-Phase 1: Exploration", status: "completed", activeForm: "Exploring codebase" },
-  { content: "LP-Phase 2: Clarification", status: "completed", activeForm: "Collecting clarifications" },
-  { content: "LP-Phase 3: Planning", status: "completed", activeForm: "Generating plan" },
-  { content: `LP-Phase 4: Confirmed [${executionLabel}]`, status: "completed", activeForm: "Confirmed" },
-  { content: `LP-Phase 5: Handoff → lite-execute`, status: "completed", activeForm: "Handoff to execution" },
+  { content: "LP-Phase 1: Exploration", status: "completed" },
+  { content: "LP-Phase 2: Clarification", status: "completed" },
+  { content: "LP-Phase 3: Planning", status: "completed" },
+  { content: `LP-Phase 4: Confirmed [${userSelection.execution_method}]`, status: "completed" },
+  { content: `LP-Phase 5: Handoff → lite-execute`, status: "completed" },
   { content: `LE-Phase 1: Task Loading [${taskCount} tasks]`, status: "in_progress", activeForm: "Loading tasks" }
 ]})
 
-// Invoke lite-execute skill with executionContext
 Skill("lite-execute")
-// executionContext is passed as global variable (Mode 1: In-Memory Plan)
-// lite-execute will continue TodoWrite tracking with LE-Phase prefix
+// executionContext passed as global variable (Mode 1: In-Memory Plan)
 ```
 
 ## Session Folder Structure
 
 ```
 .workflow/.lite-plan/{task-slug}-{YYYY-MM-DD}/
-├── exploration-{angle1}.json      # Exploration angle 1
-├── exploration-{angle2}.json      # Exploration angle 2
-├── exploration-{angle3}.json      # Exploration angle 3 (if applicable)
-├── exploration-{angle4}.json      # Exploration angle 4 (if applicable)
-├── explorations-manifest.json     # Exploration index
-├── planning-context.md            # Evidence paths + understanding
-├── plan.json                      # Plan overview (task_ids[])
-└── .task/                         # Task files directory
-    ├── TASK-001.json
-    ├── TASK-002.json
-    └── ...
-```
-
-**Example**:
-```
-.workflow/.lite-plan/implement-jwt-refresh-2025-11-25-14-30-25/
-├── exploration-architecture.json
-├── exploration-auth-patterns.json
-├── exploration-security.json
-├── explorations-manifest.json
-├── planning-context.md
-├── plan.json
+├── exploration-{angle}.json (1-4)   # Per-angle exploration
+├── explorations-manifest.json        # Exploration index
+├── planning-context.md               # Evidence paths + understanding
+├── plan.json                         # Plan overview (task_ids[])
 └── .task/
     ├── TASK-001.json
     ├── TASK-002.json
-    └── TASK-003.json
+    └── ...
 ```
 
 ## Error Handling
@@ -835,7 +585,3 @@ Skill("lite-execute")
 | Clarification timeout | Use exploration findings as-is |
 | Confirmation timeout | Save context, display resume instructions |
 | Modify loop > 3 times | Suggest breaking task or using /workflow-plan |
-
-## Next Phase
-
-After LP-Phase 5 handoff, execution continues in the workflow-lite-execute skill.

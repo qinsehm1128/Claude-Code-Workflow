@@ -4,7 +4,7 @@
 // Renders JSON data as structured cards for better readability
 
 import { useState } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Database } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -157,7 +157,7 @@ function ObjectView({ data, depth = 0 }: { data: Record<string, unknown>; depth?
       ))}
     </div>
   );
-
+}
 
 function CardItem({ label, value, depth = 0 }: CardItemProps) {
   const formattedLabel = formatLabel(label);

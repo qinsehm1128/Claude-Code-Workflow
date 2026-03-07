@@ -324,7 +324,7 @@ export function IssueHubPage() {
     setIsGithubSyncing(true);
     try {
       const result = await pullIssuesFromGitHub({ state: 'open', limit: 100 });
-      success(formatMessage({ id: 'issues.notifications.githubSyncSuccess' }, { count: result.length }));
+      success(formatMessage({ id: 'issues.notifications.githubSyncSuccess' }, { count: result.total }));
       await refetchIssues();
     } catch (error) {
       showError(formatMessage({ id: 'issues.notifications.githubSyncFailed' }), error instanceof Error ? error.message : String(error));

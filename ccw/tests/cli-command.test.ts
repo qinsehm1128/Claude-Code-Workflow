@@ -11,6 +11,7 @@ import { after, afterEach, before, describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import inquirer from 'inquirer';
@@ -184,6 +185,179 @@ describe('cli command module', async () => {
       logs.some((l) => l.includes('Tip: Use --file option to avoid shell escaping issues with multi-line prompts')),
       false,
     );
+    assert.deepEqual(exitCodes, [0]);
+  });
+
+  it('prefers --prompt over stdin when stdin is non-TTY (avoid blocking)', async () => {
+    stubHttpRequest();
+    mock.method(console, 'log', () => {});
+    mock.method(console, 'error', () => {});
+
+    const prevStdinIsTty = process.stdin.isTTY;
+    Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+
+    const realReadFileSync = fs.readFileSync;
+    let stdinReadCount = 0;
+    mock.method(fs, 'readFileSync', ((pathLike: fs.PathOrFileDescriptor, ...args: unknown[]) => {
+      if (pathLike === 0) {
+        stdinReadCount += 1;
+        return '';
+      }
+      return (realReadFileSync as unknown as (...all: unknown[]) => unknown)(pathLike, ...args);
+    }) as unknown as typeof fs.readFileSync);
+
+    const calls: any[] = [];
+    mock.method(cliExecutorModule.cliExecutorTool, 'execute', async (params: any) => {
+      calls.push(params);
+      return {
+        success: true,
+        stdout: 'ok',
+        stderr: '',
+        execution: { id: 'EXEC-NONTTY', duration_ms: 1, status: 'success' },
+        conversation: { turn_count: 1, total_duration_ms: 1 },
+      };
+    });
+
+    const exitCodes: Array<number | undefined> = [];
+    mock.method(process as any, 'exit', (code?: number) => {
+      exitCodes.push(code);
+    });
+
+    try {
+      await cliModule.cliCommand('exec', [], { prompt: 'Hello', tool: 'codex' });
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    } finally {
+      Object.defineProperty(process.stdin, 'isTTY', { value: prevStdinIsTty, configurable: true });
+    }
+
+    assert.equal(stdinReadCount, 0);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].prompt, 'Hello');
+    assert.deepEqual(exitCodes, [0]);
+  });
+
+  it('auto-enables stream in Claude Code task environment when stdout is non-TTY', async () => {
+    stubHttpRequest();
+    mock.method(console, 'log', () => {});
+    mock.method(console, 'error', () => {});
+
+    const prevStdoutIsTty = process.stdout.isTTY;
+    Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+
+    const prevClaudeCode = process.env.CLAUDECODE;
+    process.env.CLAUDECODE = '1';
+
+    const calls: any[] = [];
+    mock.method(cliExecutorModule.cliExecutorTool, 'execute', async (params: any) => {
+      calls.push(params);
+      return {
+        success: true,
+        stdout: 'ok',
+        stderr: '',
+        execution: { id: 'EXEC-AUTO-STREAM', duration_ms: 1, status: 'success' },
+        conversation: { turn_count: 1, total_duration_ms: 1 },
+      };
+    });
+
+    const exitCodes: Array<number | undefined> = [];
+    mock.method(process as any, 'exit', (code?: number) => {
+      exitCodes.push(code);
+    });
+
+    try {
+      await cliModule.cliCommand('exec', [], { prompt: 'Hello', tool: 'codex' });
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    } finally {
+      if (prevClaudeCode === undefined) {
+        delete process.env.CLAUDECODE;
+      } else {
+        process.env.CLAUDECODE = prevClaudeCode;
+      }
+      Object.defineProperty(process.stdout, 'isTTY', { value: prevStdoutIsTty, configurable: true });
+    }
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].stream, true);
+    assert.deepEqual(exitCodes, [0]);
+  });
+
+  it('passes through codex JSONL events in Claude Code task streaming mode', async () => {
+    stubHttpRequest();
+
+    const logs: string[] = [];
+    mock.method(console, 'log', (...args: any[]) => {
+      logs.push(args.map(String).join(' '));
+    });
+    mock.method(console, 'error', () => {});
+
+    const writes: string[] = [];
+    mock.method(process.stdout as any, 'write', (chunk: any) => {
+      writes.push(String(chunk));
+      return true;
+    });
+
+    const prevStdoutIsTty = process.stdout.isTTY;
+    Object.defineProperty(process.stdout, 'isTTY', { value: false, configurable: true });
+
+    const prevClaudeCode = process.env.CLAUDECODE;
+    process.env.CLAUDECODE = '1';
+
+    mock.method(cliExecutorModule.cliExecutorTool, 'execute', async (_params: any, onOutput?: (unit: any) => void) => {
+      onOutput?.({
+        type: 'metadata',
+        content: { tool: 'codex', threadId: 'THREAD-1' },
+        timestamp: new Date().toISOString(),
+        rawLine: '{"type":"thread.started","thread_id":"THREAD-1"}',
+      });
+      onOutput?.({
+        type: 'progress',
+        content: { message: 'Turn started', tool: 'codex' },
+        timestamp: new Date().toISOString(),
+        rawLine: '{"type":"turn.started"}',
+      });
+      onOutput?.({
+        type: 'progress',
+        content: { message: 'Executing: Get-ChildItem', tool: 'codex' },
+        timestamp: new Date().toISOString(),
+        rawLine: '{"type":"item.started","item":{"id":"item_cmd_1","type":"command_execution","status":"in_progress"}}',
+      });
+      onOutput?.({
+        type: 'code',
+        content: { command: 'Get-ChildItem', output: '...', status: 'completed' },
+        timestamp: new Date().toISOString(),
+        rawLine: '{"type":"item.completed","item":{"id":"item_cmd_1","type":"command_execution","status":"completed","exit_code":0}}',
+      });
+      return {
+        success: true,
+        stdout: '',
+        stderr: '',
+        execution: { id: 'EXEC-PASSTHROUGH', duration_ms: 1, status: 'success' },
+        conversation: { turn_count: 1, total_duration_ms: 1 },
+      };
+    });
+
+    const exitCodes: Array<number | undefined> = [];
+    mock.method(process as any, 'exit', (code?: number) => {
+      exitCodes.push(code);
+    });
+
+    try {
+      await cliModule.cliCommand('exec', [], { prompt: 'Hello', tool: 'codex' });
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    } finally {
+      if (prevClaudeCode === undefined) {
+        delete process.env.CLAUDECODE;
+      } else {
+        process.env.CLAUDECODE = prevClaudeCode;
+      }
+      Object.defineProperty(process.stdout, 'isTTY', { value: prevStdoutIsTty, configurable: true });
+    }
+
+    const joined = writes.join('');
+    assert.ok(joined.includes('{"type":"thread.started","thread_id":"THREAD-1"}\n'));
+    assert.ok(joined.includes('{"type":"turn.started"}\n'));
+    assert.equal(joined.includes('"type":"command_execution"'), false);
+    assert.equal(logs.some((l) => l.includes('Executing codex')), false);
     assert.deepEqual(exitCodes, [0]);
   });
 

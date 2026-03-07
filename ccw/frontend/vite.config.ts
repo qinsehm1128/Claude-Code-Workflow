@@ -14,7 +14,8 @@ const basePath = process.env.VITE_BASE_URL || '/'
 
 // Backend target for Vite proxy (used when directly opening the Vite dev server port).
 // In `ccw view`, this is set to the dashboard server port so /api and /ws route correctly.
-const backendHost = process.env.VITE_BACKEND_HOST || 'localhost'
+// Use 127.0.0.1 instead of localhost to ensure IPv4 connection (avoid IPv6 resolution issues)
+const backendHost = process.env.VITE_BACKEND_HOST || '127.0.0.1'
 const backendPort = Number(process.env.VITE_BACKEND_PORT || '3456')
 const backendHttpTarget = `http://${backendHost}:${backendPort}`
 const backendWsTarget = `ws://${backendHost}:${backendPort}`

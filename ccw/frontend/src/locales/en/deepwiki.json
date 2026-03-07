@@ -1,0 +1,47 @@
+{
+  "title": "DeepWiki",
+  "description": "Code documentation with deep-linking to source symbols",
+  "tabs": {
+    "documents": "Documents",
+    "index": "Symbol Index",
+    "stats": "Statistics"
+  },
+  "files": {
+    "title": "Documented Files",
+    "search": "Search files...",
+    "noResults": "No files match your search",
+    "empty": "No documented files yet"
+  },
+  "viewer": {
+    "toc": "Symbols",
+    "empty": {
+      "title": "Select a File",
+      "message": "Choose a file from the list to view its documentation"
+    },
+    "error": {
+      "title": "Error Loading Document"
+    },
+    "copyLink": "Copy deep link to {name}",
+    "linkCopied": "Link copied"
+  },
+  "index": {
+    "search": "Search symbols...",
+    "noResults": "No symbols found",
+    "placeholder": "Enter a search query to find symbols"
+  },
+  "stats": {
+    "available": "Database Connected",
+    "unavailable": "Database Not Available",
+    "files": "Files",
+    "symbols": "Symbols",
+    "docs": "Documents",
+    "needingDocs": "Need Docs",
+    "howTo": {
+      "title": "Documentation Index",
+      "description": "DeepWiki automatically indexes symbols and documentation from code. Currently in read-only mode."
+    }
+  },
+  "actions": {
+    "refresh": "Refresh"
+  }
+}

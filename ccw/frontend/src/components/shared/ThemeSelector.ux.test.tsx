@@ -8,6 +8,8 @@ import { IntlProvider } from 'react-intl';
 import { ThemeSelector } from './ThemeSelector';
 import * as useThemeHook from '@/hooks/useTheme';
 import * as useNotificationsHook from '@/hooks/useNotifications';
+import type { UseNotificationsReturn } from '@/hooks/useNotifications';
+import type { GradientLevel, ThemeSlot } from '@/types/store';
 
 // Mock BackgroundImagePicker
 vi.mock('./BackgroundImagePicker', () => ({
@@ -49,11 +51,63 @@ function renderWithIntl(component: React.ReactElement) {
   );
 }
 
+const mockThemeSlots: ThemeSlot[] = [
+  {
+    id: 'default',
+    name: 'Default',
+    isDefault: true,
+    colorScheme: 'blue',
+    customHue: null,
+    isCustomTheme: false,
+    gradientLevel: 'standard' as GradientLevel,
+    enableHoverGlow: true,
+    enableBackgroundAnimation: false,
+    styleTier: 'standard',
+  },
+  {
+    id: 'custom-1',
+    name: 'Custom Theme',
+    isDefault: false,
+    colorScheme: 'blue',
+    customHue: null,
+    isCustomTheme: false,
+    gradientLevel: 'standard' as GradientLevel,
+    enableHoverGlow: true,
+    enableBackgroundAnimation: false,
+    styleTier: 'standard',
+  },
+];
+
+function makeNotificationsMock(overrides: Partial<UseNotificationsReturn> = {}): UseNotificationsReturn {
+  return {
+    toasts: [],
+    wsStatus: 'disconnected',
+    wsLastMessage: null,
+    isWsConnected: false,
+    isPanelVisible: false,
+    persistentNotifications: [],
+    addToast: vi.fn(() => 'toast-id'),
+    info: vi.fn(() => 'toast-id'),
+    success: vi.fn(() => 'toast-id'),
+    warning: vi.fn(() => 'toast-id'),
+    error: vi.fn(() => 'toast-id'),
+    removeToast: vi.fn(),
+    clearAllToasts: vi.fn(),
+    setWsStatus: vi.fn(),
+    setWsLastMessage: vi.fn(),
+    togglePanel: vi.fn(),
+    setPanelVisible: vi.fn(),
+    addPersistentNotification: vi.fn(),
+    removePersistentNotification: vi.fn(),
+    clearPersistentNotifications: vi.fn(),
+    ...overrides,
+  };
+}
+
 describe('ThemeSelector - Delete Confirmation UX Pattern', () => {
   let mockDeleteSlot: ReturnType<typeof vi.fn>;
   let mockAddToast: ReturnType<typeof vi.fn>;
   let mockUndoDeleteSlot: ReturnType<typeof vi.fn>;
-  let mockUseTheme: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     // Create fresh mocks for each test
@@ -62,12 +116,12 @@ describe('ThemeSelector - Delete Confirmation UX Pattern', () => {
     mockUndoDeleteSlot = vi.fn();
 
     // Mock useTheme hook
-    mockUseTheme = vi.spyOn(useThemeHook, 'useTheme').mockReturnValue({
+    vi.spyOn(useThemeHook, 'useTheme').mockReturnValue({
       colorScheme: 'blue',
       resolvedTheme: 'light',
       customHue: null,
       isCustomTheme: false,
-      gradientLevel: 1,
+      gradientLevel: 'standard' as GradientLevel,
       enableHoverGlow: true,
       enableBackgroundAnimation: false,
       motionPreference: 'system',
@@ -80,10 +134,7 @@ describe('ThemeSelector - Delete Confirmation UX Pattern', () => {
       setMotionPreference: vi.fn(),
       styleTier: 'standard',
       setStyleTier: vi.fn(),
-      themeSlots: [
-        { id: 'default', name: 'Default', isDefault: true, config: {} },
-        { id: 'custom-1', name: 'Custom Theme', isDefault: false, config: {} },
-      ],
+      themeSlots: mockThemeSlots,
       activeSlotId: 'default',
       canAddSlot: true,
       setActiveSlot: vi.fn(),
@@ -94,13 +145,12 @@ describe('ThemeSelector - Delete Confirmation UX Pattern', () => {
       exportThemeCode: vi.fn(() => '{"theme":"code"}'),
       importThemeCode: vi.fn(),
       setBackgroundConfig: vi.fn(),
-    });
+    } as any);
 
     // Mock useNotifications hook
-    vi.spyOn(useNotificationsHook, 'useNotifications').mockReturnValue({
-      addToast: mockAddToast,
-      removeToast: vi.fn(),
-    });
+    vi.spyOn(useNotificationsHook, 'useNotifications').mockReturnValue(
+      makeNotificationsMock({ addToast: mockAddToast })
+    );
   });
 
   afterEach(() => {
@@ -271,7 +321,7 @@ describe('ThemeSelector - Slot State Management', () => {
       resolvedTheme: 'light',
       customHue: null,
       isCustomTheme: false,
-      gradientLevel: 1,
+      gradientLevel: 'standard' as GradientLevel,
       enableHoverGlow: true,
       enableBackgroundAnimation: false,
       motionPreference: 'system',
@@ -284,10 +334,7 @@ describe('ThemeSelector - Slot State Management', () => {
       setMotionPreference: vi.fn(),
       styleTier: 'standard',
       setStyleTier: vi.fn(),
-      themeSlots: [
-        { id: 'default', name: 'Default', isDefault: true, config: {} },
-        { id: 'custom-1', name: 'Custom Theme', isDefault: false, config: {} },
-      ],
+      themeSlots: mockThemeSlots,
       activeSlotId: 'default',
       canAddSlot: true,
       setActiveSlot: mockSetActiveSlot,
@@ -298,12 +345,11 @@ describe('ThemeSelector - Slot State Management', () => {
       exportThemeCode: vi.fn(() => '{"theme":"code"}'),
       importThemeCode: vi.fn(),
       setBackgroundConfig: vi.fn(),
-    });
+    } as any);
 
-    vi.spyOn(useNotificationsHook, 'useNotifications').mockReturnValue({
-      addToast: vi.fn(() => 'toast-id'),
-      removeToast: vi.fn(),
-    });
+    vi.spyOn(useNotificationsHook, 'useNotifications').mockReturnValue(
+      makeNotificationsMock()
+    );
   });
 
   afterEach(() => {

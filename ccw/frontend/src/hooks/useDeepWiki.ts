@@ -61,8 +61,11 @@ export const deepWikiKeys = {
   search: (query: string) => [...deepWikiKeys.all, 'search', query] as const,
 };
 
-// Default stale time: 2 minutes
-const STALE_TIME = 2 * 60 * 1000;
+// Default stale time: 5 minutes (increased to reduce API calls)
+const STALE_TIME = 5 * 60 * 1000;
+
+// Default garbage collection time: 10 minutes
+const GC_TIME = 10 * 60 * 1000;
 
 /**
  * Fetch list of documented files
@@ -137,8 +140,12 @@ export function useDeepWikiFiles(options: UseDeepWikiFilesOptions = {}): UseDeep
     queryKey: deepWikiKeys.files(projectPath ?? ''),
     queryFn: fetchDeepWikiFiles,
     staleTime,
+    gcTime: GC_TIME,
     enabled: enabled && !!projectPath,
     retry: 2,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
   });
 
   return {
@@ -177,8 +184,12 @@ export function useDeepWikiDoc(filePath: string | null, options: UseDeepWikiDocO
     queryKey: deepWikiKeys.doc(filePath ?? ''),
     queryFn: () => fetchDeepWikiDoc(filePath!),
     staleTime,
+    gcTime: GC_TIME,
     enabled: enabled && !!filePath,
     retry: 2,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
   });
 
   return {
@@ -218,8 +229,12 @@ export function useDeepWikiStats(options: UseDeepWikiStatsOptions = {}): UseDeep
     queryKey: deepWikiKeys.stats(projectPath ?? ''),
     queryFn: fetchDeepWikiStats,
     staleTime,
+    gcTime: GC_TIME,
     enabled: enabled && !!projectPath,
     retry: 2,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
   });
 
   return {
@@ -257,8 +272,12 @@ export function useDeepWikiSearch(query: string, options: UseDeepWikiSearchOptio
     queryKey: deepWikiKeys.search(query),
     queryFn: () => searchDeepWikiSymbols(query, limit),
     staleTime,
+    gcTime: GC_TIME,
     enabled: enabled && query.length > 0,
     retry: 2,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
   });
 
   return {

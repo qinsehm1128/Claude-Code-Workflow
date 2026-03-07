@@ -1,0 +1,47 @@
+{
+  "title": "DeepWiki",
+  "description": "代码文档深度链接系统",
+  "tabs": {
+    "documents": "文档",
+    "index": "符号索引",
+    "stats": "统计"
+  },
+  "files": {
+    "title": "已索引文件",
+    "search": "搜索文件...",
+    "noResults": "没有匹配的文件",
+    "empty": "暂无已索引文件"
+  },
+  "viewer": {
+    "toc": "符号",
+    "empty": {
+      "title": "选择文件",
+      "message": "从列表中选择文件以查看文档"
+    },
+    "error": {
+      "title": "加载文档失败"
+    },
+    "copyLink": "复制深度链接到 {name}",
+    "linkCopied": "链接已复制"
+  },
+  "index": {
+    "search": "搜索符号...",
+    "noResults": "未找到符号",
+    "placeholder": "输入搜索词查找符号"
+  },
+  "stats": {
+    "available": "数据库已连接",
+    "unavailable": "数据库不可用",
+    "files": "文件",
+    "symbols": "符号",
+    "docs": "文档",
+    "needingDocs": "待生成",
+    "howTo": {
+      "title": "文档索引",
+      "description": "DeepWiki 自动索引代码中的符号和文档。当前为只读模式。"
+    }
+  },
+  "actions": {
+    "refresh": "刷新"
+  }
+}

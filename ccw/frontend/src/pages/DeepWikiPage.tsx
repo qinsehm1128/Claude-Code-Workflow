@@ -315,14 +315,11 @@ export function DeepWikiPage() {
               {/* Help text */}
               <Card className="p-4">
                 <h3 className="text-sm font-medium text-foreground mb-2">
-                  {formatMessage({ id: 'deepwiki.stats.howTo.title', defaultMessage: 'How to Generate Documentation' })}
+                  {formatMessage({ id: 'deepwiki.stats.howTo.title', defaultMessage: 'Documentation Index' })}
                 </h3>
-                <p className="text-sm text-muted-foreground mb-3">
-                  {formatMessage({ id: 'deepwiki.stats.howTo.description', defaultMessage: 'Run the DeepWiki generator from the command line:' })}
+                <p className="text-sm text-muted-foreground">
+                  {formatMessage({ id: 'deepwiki.stats.howTo.description', defaultMessage: 'DeepWiki automatically indexes symbols and documentation from code. Currently in read-only mode.' })}
                 </p>
-                <code className="block p-3 bg-muted rounded-md text-sm font-mono">
-                  codexlens deepwiki generate --path ./src
-                </code>
               </Card>
             </>
           )}

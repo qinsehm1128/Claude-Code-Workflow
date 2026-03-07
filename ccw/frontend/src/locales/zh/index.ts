@@ -43,6 +43,7 @@ import terminalDashboard from './terminal-dashboard.json';
 import skillHub from './skill-hub.json';
 import nativeSession from './native-session.json';
 import specs from './specs.json';
+import deepwiki from './deepwiki.json';
 
 /**
  * Flattens nested JSON object to dot-separated keys
@@ -109,4 +110,5 @@ export default {
   ...flattenMessages(skillHub, 'skillHub'),
   ...flattenMessages(nativeSession, 'nativeSession'),
   ...flattenMessages(specs, 'specs'),
+  ...flattenMessages(deepwiki, 'deepwiki'),
 } as Record<string, string>;

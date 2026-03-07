@@ -771,7 +771,7 @@ export async function startServer(options: ServerOptions = {}): Promise<http.Ser
         }
 
         // Otherwise, proxy to Vite dev server
-        const reactUrl = `http://localhost:${reactPort}${pathname}${url.search}`;
+        const reactUrl = `http://127.0.0.1:${reactPort}${pathname}${url.search}`;
 
         try {
           // Convert headers to plain object for fetch
@@ -783,7 +783,7 @@ export async function startServer(options: ServerOptions = {}): Promise<http.Ser
               proxyHeaders[key] = value.join(', ');
             }
           }
-          proxyHeaders['host'] = `localhost:${reactPort}`;
+          proxyHeaders['host'] = `127.0.0.1:${reactPort}`;
 
           const reactResponse = await fetch(reactUrl, {
             method: req.method,

@@ -283,7 +283,7 @@ function SinglePagePopup({ surface, onClose }: A2UIPopupCardProps) {
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred.';
         setActionError(errorMessage);
-        addToast('error', 'Action Failed', errorMessage);
+        addToast({ type: 'error', title: 'Action Failed', message: errorMessage });
       }
     },
     [sendA2UIAction, surface.surfaceId, onClose, addToast]

@@ -14,7 +14,7 @@ yarn-error.log*
 
 # Package files
 *.tgz
-
+docs-astro
 # OS files
 .DS_Store
 Thumbs.db

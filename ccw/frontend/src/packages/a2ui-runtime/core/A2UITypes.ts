@@ -97,6 +97,11 @@ export const TextFieldComponentSchema = z.object({
     onChange: ActionSchema,
     placeholder: z.string().optional(),
     type: z.enum(['text', 'email', 'password', 'number', 'url']).optional(),
+    required: z.boolean().optional(),
+    minLength: z.number().optional(),
+    maxLength: z.number().optional(),
+    pattern: z.string().optional(),
+    validator: z.string().optional(),
   }),
 });
 

@@ -2,7 +2,7 @@
 // HookCard UX Tests - Delete Confirmation
 // ========================================
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { IntlProvider } from 'react-intl';
 import { HookCard } from './HookCard';

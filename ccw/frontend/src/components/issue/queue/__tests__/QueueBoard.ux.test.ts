@@ -10,7 +10,7 @@ describe('UX Pattern: Immutable Array Operations (QueueBoard)', () => {
     it('should use filter() for removing items from source (immutable)', () => {
       // This test verifies the QueueBoard.tsx pattern at lines 50-82
       const sourceItems = [{ id: '1', content: 'Task 1' }, { id: '2', content: 'Task 2' }, { id: '3', content: 'Task 3' }];
-      const destItems = [{ id: '4', content: 'Task 4' }];
+      void [{ id: '4', content: 'Task 4' }]; // destItems unused in this test
 
       // Immutable removal using filter (not splice)
       const removeIndex = 1;
@@ -147,18 +147,18 @@ describe('UX Pattern: Immutable Array Operations (QueueBoard)', () => {
     });
 
     it('should demonstrate ES2023 toSpliced alternative', () => {
-      // Pattern: items.toSpliced(index, 1) for removal
+      // Pattern: immutable splice using spread (compatible with ES2021 target)
       const items = [{ id: '1' }, { id: '2' }, { id: '3' }];
       const indexToRemove = 1;
 
-      const newItems = items.toSpliced(indexToRemove, 1);
+      const newItems = [...items.slice(0, indexToRemove), ...items.slice(indexToRemove + 1)];
 
       expect(newItems).toEqual([{ id: '1' }, { id: '3' }]);
       expect(items).toHaveLength(3); // Original unchanged
 
-      // toSpliced for insertion
+      // immutable insertion using spread
       const newItem = { id: 'new' };
-      const insertedItems = items.toSpliced(1, 0, newItem);
+      const insertedItems = [...items.slice(0, 1), newItem, ...items.slice(1)];
 
       expect(insertedItems).toEqual([{ id: '1' }, { id: 'new' }, { id: '2' }, { id: '3' }]);
     });

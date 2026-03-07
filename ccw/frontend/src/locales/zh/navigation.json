@@ -102,7 +102,8 @@
   "toolbar": {
     "a2ui": {
       "button": "A2UI",
-      "quickAction": "A2UI 快速操作"
+      "quickAction": "A2UI 快速操作",
+      "unavailable": "无可用 A2UI 操作"
     }
   }
 }

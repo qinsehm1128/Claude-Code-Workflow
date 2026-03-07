@@ -32,6 +32,7 @@ export interface CliOutputUnit<T = any> {
   type: CliOutputUnitType;
   content: T;
   timestamp: string;  // ISO 8601 format
+  rawLine?: string;   // Original JSONL line (for pass-through streaming when needed)
 }
 
 // ========== Parser Interface ==========
@@ -234,6 +235,7 @@ export class JsonLinesParser implements IOutputParser {
       // Map JSON structure to IR type
       const unit = this.mapJsonToIR(parsed, streamType);
       if (unit) {
+        unit.rawLine = trimmed;
         units.push(unit);
       }
     }
@@ -250,6 +252,7 @@ export class JsonLinesParser implements IOutputParser {
         const parsed = JSON.parse(this.buffer.trim());
         const unit = this.mapJsonToIR(parsed, 'stdout');
         if (unit) {
+          unit.rawLine = this.buffer.trim();
           units.push(unit);
         }
       } catch {

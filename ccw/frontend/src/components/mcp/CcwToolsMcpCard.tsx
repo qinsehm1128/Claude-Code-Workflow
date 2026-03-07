@@ -11,7 +11,7 @@ import {
   Settings,
   Check,
   FolderTree,
-  Shield,
+  FolderOpen,
   Database,
   FileText,
   Files,
@@ -24,7 +24,11 @@ import {
   Globe,
   Folder,
   AlertTriangle,
+  Save,
+  Download,
+  Trash2,
 } from 'lucide-react';
+import { FloatingFileBrowser } from '@/components/terminal-dashboard/FloatingFileBrowser';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -124,7 +128,6 @@ export function CcwToolsMcpCard({
   target = 'claude',
   installedScopes = [],
   onUninstallScope,
-  onInstallToScope,
 }: CcwToolsMcpCardProps) {
   const { formatMessage } = useIntl();
   const queryClient = useQueryClient();
@@ -135,8 +138,11 @@ export function CcwToolsMcpCard({
   const [projectRootInput, setProjectRootInput] = useState(projectRoot || '');
   const [allowedDirsInput, setAllowedDirsInput] = useState(allowedDirs || '');
   const [enableSandboxInput, setEnableSandboxInput] = useState(enableSandbox || false);
+  void setEnableSandboxInput; // reserved for future sandbox toggle UI
   const [isExpanded, setIsExpanded] = useState(false);
   const [installScope, setInstallScope] = useState<'global' | 'project'>('global');
+  const [isPathPickerOpen, setIsPathPickerOpen] = useState(false);
+  const [pathPickerTarget, setPathPickerTarget] = useState<'projectRoot' | 'allowedDirs' | null>(null);
 
   const isCodex = target === 'codex';
 
@@ -212,8 +218,6 @@ export function CcwToolsMcpCard({
 
   const handleConfigSave = () => {
     updateConfigMutation.mutate({
-      // Preserve current tool selection; otherwise updateCcwConfig* falls back to defaults
-      // and can unintentionally overwrite user-chosen enabled tools.
       enabledTools,
       projectRoot: projectRootInput || undefined,
       allowedDirs: allowedDirsInput || undefined,
@@ -396,76 +400,136 @@ export function CcwToolsMcpCard({
             </div>
           </div>
 
-import { FloatingFileBrowser } from '@/components/terminal-dashboard/FloatingFileBrowser';
-//...
-export function CcwToolsMcpCard({
-//...
-  const [isPathPickerOpen, setIsPathPickerOpen] = useState(false);
-  const [pathPickerTarget, setPathPickerTarget] = useState<'projectRoot' | 'allowedDirs' | null>(null);
+          {/* Project Root */}
+          <div className="space-y-1">
+            <label className="text-sm text-foreground flex items-center gap-1">
+              <FolderTree className="w-4 h-4" />
+              {formatMessage({ id: 'mcp.ccw.paths.projectRoot' })}
+            </label>
+            <div className="flex items-center gap-2">
+              <Input
+                value={projectRootInput}
+                onChange={(e) => setProjectRootInput(e.target.value)}
+                placeholder={formatMessage({ id: 'mcp.ccw.paths.projectRootPlaceholder' })}
+                disabled={!isInstalled}
+                className="font-mono text-sm"
+              />
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => {
+                  setPathPickerTarget('projectRoot');
+                  setIsPathPickerOpen(true);
+                }}
+                disabled={!isInstalled}
+                title="Browse for project root"
+              >
+                <FolderOpen className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
 
-//...
+          {/* Allowed Dirs */}
+          <div className="space-y-1">
+            <label className="text-sm text-foreground flex items-center gap-1">
+              <HardDrive className="w-4 h-4" />
+              {formatMessage({ id: 'mcp.ccw.paths.allowedDirs' })}
+            </label>
+            <div className="flex items-center gap-2">
+              <Input
+                value={allowedDirsInput}
+                onChange={(e) => setAllowedDirsInput(e.target.value)}
+                placeholder={formatMessage({ id: 'mcp.ccw.paths.allowedDirsPlaceholder' })}
+                disabled={!isInstalled}
+                className="font-mono text-sm"
+              />
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => {
+                  setPathPickerTarget('allowedDirs');
+                  setIsPathPickerOpen(true);
+                }}
+                disabled={!isInstalled}
+                title="Browse for allowed directories"
+              >
+                <FolderOpen className="w-4 h-4" />
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {formatMessage({ id: 'mcp.ccw.paths.allowedDirsHint' })}
+            </p>
+          </div>
 
-            {/* Project Root */}
-            <div className="space-y-1">
-              <label className="text-sm text-foreground flex items-center gap-1">
-                <FolderTree className="w-4 h-4" />
-                {formatMessage({ id: 'mcp.ccw.paths.projectRoot' })}
-              </label>
+          {/* Save Config Button */}
+          {isInstalled && (
+            <div className="flex justify-end">
+              <Button
+                variant="default"
+                size="sm"
+                onClick={handleConfigSave}
+                disabled={isPending}
+              >
+                <Save className="w-4 h-4 mr-1" />
+                {formatMessage({ id: 'mcp.ccw.actions.saveConfig' })}
+              </Button>
+            </div>
+          )}
+
+          {/* Install / Uninstall Section */}
+          <div className="border-t border-border pt-4 space-y-2">
+            {!isInstalled ? (
               <div className="flex items-center gap-2">
-                <Input
-                  value={projectRootInput}
-                  onChange={(e) => setProjectRootInput(e.target.value)}
-                  placeholder={formatMessage({ id: 'mcp.ccw.paths.projectRootPlaceholder' })}
-                  disabled={!isInstalled}
-                  className="font-mono text-sm"
-                />
+                {!isCodex && (
+                  <select
+                    value={installScope}
+                    onChange={(e) => setInstallScope(e.target.value as 'global' | 'project')}
+                    className="text-sm border border-border rounded px-2 py-1 bg-background text-foreground"
+                  >
+                    <option value="global">{formatMessage({ id: 'mcp.ccw.scope.global' })}</option>
+                    <option value="project">{formatMessage({ id: 'mcp.ccw.scope.project' })}</option>
+                  </select>
+                )}
                 <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => {
-                    setPathPickerTarget('projectRoot');
-                    setIsPathPickerOpen(true);
-                  }}
-                  disabled={!isInstalled}
-                  title="Browse for project root"
+                  variant="default"
+                  size="sm"
+                  onClick={handleInstallClick}
+                  disabled={isPending}
                 >
-                  <FolderOpen className="w-4 h-4" />
+                  <Download className="w-4 h-4 mr-1" />
+                  {formatMessage({ id: 'mcp.ccw.actions.install' })}
                 </Button>
               </div>
-            </div>
-
-            {/* Allowed Dirs */}
-            <div className="space-y-1">
-              <label className="text-sm text-foreground flex items-center gap-1">
-                <HardDrive className="w-4 h-4" />
-                {formatMessage({ id: 'mcp.ccw.paths.allowedDirs' })}
-              </label>
-              <div className="flex items-center gap-2">
-                <Input
-                  value={allowedDirsInput}
-                  onChange={(e) => setAllowedDirsInput(e.target.value)}
-                  placeholder={formatMessage({ id: 'mcp.ccw.paths.allowedDirsPlaceholder' })}
-                  disabled={!isInstalled}
-                  className="font-mono text-sm"
-                />
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => {
-                    setPathPickerTarget('allowedDirs');
-                    setIsPathPickerOpen(true);
-                  }}
-                  disabled={!isInstalled}
-                  title="Browse for allowed directories"
-                >
-                  <FolderOpen className="w-4 h-4" />
-                </Button>
+            ) : (
+              <div className="flex items-center gap-2 flex-wrap">
+                {installedScopes.length > 0 && onUninstallScope ? (
+                  installedScopes.map((s) => (
+                    <Button
+                      key={s}
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onUninstallScope(s)}
+                      disabled={isPending}
+                      className="text-destructive border-destructive/50 hover:bg-destructive/10"
+                    >
+                      <Trash2 className="w-4 h-4 mr-1" />
+                      {formatMessage({ id: 'mcp.ccw.actions.uninstallScope' }, { scope: s })}
+                    </Button>
+                  ))
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleUninstallClick}
+                    disabled={isPending}
+                    className="text-destructive border-destructive/50 hover:bg-destructive/10"
+                  >
+                    <Trash2 className="w-4 h-4 mr-1" />
+                    {formatMessage({ id: 'mcp.ccw.actions.uninstall' })}
+                  </Button>
+                )}
               </div>
-              <p className="text-xs text-muted-foreground">
-                {formatMessage({ id: 'mcp.ccw.paths.allowedDirsHint' })}
-              </p>
-            </div>
-//...
+            )}
           </div>
         </div>
       )}
@@ -473,7 +537,8 @@ export function CcwToolsMcpCard({
       <FloatingFileBrowser
         isOpen={isPathPickerOpen}
         onClose={() => setIsPathPickerOpen(false)}
-        onSelectPath={(path) => {
+        rootPath={currentProjectPath || '/'}
+        onInsertPath={(path) => {
           if (pathPickerTarget === 'projectRoot') {
             setProjectRootInput(path);
           } else if (pathPickerTarget === 'allowedDirs') {
@@ -481,8 +546,6 @@ export function CcwToolsMcpCard({
           }
           setIsPathPickerOpen(false);
         }}
-        basePath={currentProjectPath}
-        showFiles={false}
       />
     </Card>
   );

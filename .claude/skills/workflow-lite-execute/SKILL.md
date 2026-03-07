@@ -6,83 +6,78 @@ allowed-tools: Skill, Agent, AskUserQuestion, TodoWrite, Read, Write, Edit, Bash
 
 # Workflow-Lite-Execute
 
-Complete execution engine: multi-mode input, task grouping, batch execution, code review, and development index update.
+Execution engine for workflow-lite-plan handoff and standalone task execution.
 
 ---
 
-## Overview
-
-Flexible task execution command supporting three input modes: in-memory plan (from lite-plan), direct prompt description, or file content. Handles execution orchestration, progress tracking, and optional code review.
-
-**Core capabilities:**
-- Multi-mode input (in-memory plan, prompt description, or file path)
-- Execution orchestration (Agent or Codex) with full context
-- Live progress tracking via TodoWrite at execution call level
-- Optional code review with selected tool (Gemini, Agent, or custom)
-- Context continuity across multiple executions
-- Intelligent format detection (Enhanced Task JSON vs plain text)
-
 ## Usage
 
-### Input
 ```
 <input>                    Task description string, or path to file (required)
 ```
 
-### Flags
 | Flag | Description |
 |------|-------------|
 | `--in-memory` | Mode 1: Use executionContext from workflow-lite-plan handoff (via Skill({ skill: "workflow-lite-execute", args: "--in-memory" }) |
-
-Mode 1 (In-Memory) is triggered by `--in-memory` flag or when `executionContext` global variable is available.
 
 ## Input Modes
 
 ### Mode 1: In-Memory Plan
 
-**Trigger**: Called by workflow-lite-plan direct handoff after Phase 4 approval (executionContext available)
+**Trigger**: `--in-memory` flag or `executionContext` global variable available
 
 **Input Source**: `executionContext` global variable set by workflow-lite-plan
 
-**Content**: Complete execution context (see Data Structures section)
+**Behavior**: Skip execution method/code review selection (already chosen in LP-Phase 4), directly proceed with full context (exploration, clarifications, plan artifacts all available)
 
-**Behavior**:
-- Skip execution method selection (already set by lite-plan)
-- Directly proceed to execution with full context
-- All planning artifacts available (exploration, clarifications, plan)
+> **Note**: LP-Phase 4 is the single confirmation gate. Mode 1 invocation means user already approved — no further prompts.
 
 ### Mode 2: Prompt Description
 
-**Trigger**: User calls with task description string
+**Trigger**: User calls with task description string (e.g., "Add unit tests for auth module")
 
-**Input**: Simple task description (e.g., "Add unit tests for auth module")
+**Behavior**: Store prompt as `originalUserInput` → create simple execution plan → run `selectExecutionOptions()` → proceed
 
-**Behavior**:
-- Store prompt as `originalUserInput`
-- Create simple execution plan from prompt
-- AskUserQuestion: Select execution method (Agent/Codex/Auto)
-- AskUserQuestion: Select code review tool (Skip/Gemini/Agent/Other)
-- Proceed to execution with `originalUserInput` included
+### Mode 3: File Content
 
-**User Interaction**:
+**Trigger**: User calls with file path (ends with .md/.json/.txt)
+
 ```javascript
-const autoYes = workflowPreferences.autoYes
-
-let userSelection
-
-if (autoYes) {
-  // Auto mode: Use defaults
-  console.log(`[Auto] Auto-confirming execution:`)
-  console.log(`  - Execution method: Auto`)
-  console.log(`  - Code review: Skip`)
-
-  userSelection = {
-    execution_method: "Auto",
-    code_review_tool: "Skip"
+fileContent = Read(filePath)
+try {
+  jsonData = JSON.parse(fileContent)
+  // plan.json detection: two-layer format with task_ids[]
+  if (jsonData.summary && jsonData.approach && jsonData.task_ids) {
+    planObject = jsonData
+    originalUserInput = jsonData.summary
+    isPlanJson = true
+    const planDir = filePath.replace(/[/\\][^/\\]+$/, '')
+    planObject._loadedTasks = loadTaskFiles(planDir, jsonData.task_ids)
+  } else {
+    originalUserInput = fileContent
+    isPlanJson = false
   }
-} else {
-  // Interactive mode: Ask user
-  userSelection = AskUserQuestion({
+} catch {
+  originalUserInput = fileContent
+  isPlanJson = false
+}
+```
+
+- `isPlanJson === true`: Use `planObject` directly → run `selectExecutionOptions()`
+- `isPlanJson === false`: Treat as prompt (same as Mode 2)
+
+### User Selection (Mode 2/3 shared)
+
+```javascript
+function selectExecutionOptions() {
+  // autoYes: set by -y flag (standalone only; Mode 1 never reaches here)
+  const autoYes = workflowPreferences?.autoYes ?? false
+
+  if (autoYes) {
+    return { execution_method: "Auto", code_review_tool: "Skip" }
+  }
+
+  return AskUserQuestion({
     questions: [
       {
         question: "Select execution method:",
@@ -110,120 +105,17 @@ if (autoYes) {
 }
 ```
 
-### Mode 3: File Content
+## Execution Steps
 
-**Trigger**: User calls with file path
-
-**Input**: Path to file containing task description or plan.json
-
-**Step 1: Read and Detect Format**
+### Step 1: Initialize & Echo Strategy
 
 ```javascript
-fileContent = Read(filePath)
-
-// Attempt JSON parsing
-try {
-  jsonData = JSON.parse(fileContent)
-
-  // Check if plan.json from workflow-lite-plan session (two-layer format: task_ids[])
-  if (jsonData.summary && jsonData.approach && jsonData.task_ids) {
-    planObject = jsonData
-    originalUserInput = jsonData.summary
-    isPlanJson = true
-
-    // Load tasks from .task/*.json files
-    const planDir = filePath.replace(/[/\\][^/\\]+$/, '')  // parent directory
-    planObject._loadedTasks = loadTaskFiles(planDir, jsonData.task_ids)
-  } else {
-    // Valid JSON but not plan.json - treat as plain text
-    originalUserInput = fileContent
-    isPlanJson = false
-  }
-} catch {
-  // Not valid JSON - treat as plain text prompt
-  originalUserInput = fileContent
-  isPlanJson = false
-}
-```
-
-**Step 2: Create Execution Plan**
-
-If `isPlanJson === true`:
-- Use `planObject` directly
-- User selects execution method and code review
-
-If `isPlanJson === false`:
-- Treat file content as prompt (same behavior as Mode 2)
-- Create simple execution plan from content
-
-**Step 3: User Interaction**
-
-- AskUserQuestion: Select execution method (Agent/Codex/Auto)
-- AskUserQuestion: Select code review tool
-- Proceed to execution with full context
-
-## Helper Functions
-
-```javascript
-// Load task files from .task/ directory (two-layer format)
-function loadTaskFiles(planDir, taskIds) {
-  return taskIds.map(id => {
-    const taskPath = `${planDir}/.task/${id}.json`
-    return JSON.parse(Read(taskPath))
-  })
-}
-
-// Get tasks array from loaded .task/*.json files
-function getTasks(planObject) {
-  return planObject._loadedTasks || []
-}
-```
-
-## Execution Process
-
-```
-Input Parsing:
-   └─ Decision (mode detection):
-      ├─ executionContext exists → Mode 1: Load executionContext → Skip user selection
-      ├─ Ends with .md/.json/.txt → Mode 3: Read file → Detect format
-      │   ├─ Valid plan.json → Use planObject → User selects method + review
-      │   └─ Not plan.json → Treat as prompt → User selects method + review
-      └─ Other → Mode 2: Prompt description → User selects method + review
-
-Execution:
-   ├─ Step 1: Initialize result tracking (previousExecutionResults = [])
-   ├─ Step 2: Task grouping & batch creation
-   │   ├─ Extract explicit depends_on (no file/keyword inference)
-   │   ├─ Group: independent tasks → per-executor parallel batches (one CLI per batch)
-   │   ├─ Group: dependent tasks → sequential phases (respect dependencies)
-   │   └─ Create TodoWrite list for batches
-   ├─ Step 3: Launch execution
-   │   ├─ Phase 1: Independent tasks (⚡ per-executor batches, multi-CLI concurrent)
-   │   └─ Phase 2+: Dependent tasks by dependency order
-   ├─ Step 4: Track progress (TodoWrite updates per batch)
-   └─ Step 5: Code review (if codeReviewTool ≠ "Skip")
-
-Output:
-   └─ Execution complete with results in previousExecutionResults[]
-```
-
-## Detailed Execution Steps
-
-### Step 1: Initialize Execution Tracking
-
-**Operations**:
-- Initialize result tracking for multi-execution scenarios
-- Set up `previousExecutionResults` array for context continuity
-- **In-Memory Mode**: Echo execution strategy from workflow-lite-plan for transparency
-
-```javascript
-// Initialize result tracking
 previousExecutionResults = []
 
-// In-Memory Mode: Echo execution strategy (transparency before execution)
+// Mode 1: echo strategy for transparency
 if (executionContext) {
   console.log(`
-📋 Execution Strategy (from lite-plan):
+  Execution Strategy (from lite-plan):
    Method: ${executionContext.executionMethod}
    Review: ${executionContext.codeReviewTool}
    Tasks: ${getTasks(executionContext.planObject).length}
@@ -231,19 +123,24 @@ if (executionContext) {
 ${executionContext.executorAssignments ? `   Assignments: ${JSON.stringify(executionContext.executorAssignments)}` : ''}
   `)
 }
+
+// Helper: load .task/*.json files (two-layer format)
+function loadTaskFiles(planDir, taskIds) {
+  return taskIds.map(id => JSON.parse(Read(`${planDir}/.task/${id}.json`)))
+}
+function getTasks(planObject) {
+  return planObject._loadedTasks || []
+}
 ```
 
 ### Step 2: Task Grouping & Batch Creation
 
-**Dependency Analysis & Grouping Algorithm**:
 ```javascript
-// Use explicit depends_on from plan.json (no inference from file/keywords)
+// Dependency extraction: explicit depends_on only (no file/keyword inference)
 function extractDependencies(tasks) {
   const taskIdToIndex = {}
   tasks.forEach((t, i) => { taskIdToIndex[t.id] = i })
-
   return tasks.map((task, i) => {
-    // Only use explicit depends_on from plan.json
     const deps = (task.depends_on || [])
       .map(depId => taskIdToIndex[depId])
       .filter(idx => idx !== undefined && idx < i)
@@ -251,184 +148,170 @@ function extractDependencies(tasks) {
   })
 }
 
-// Executor Resolution (used by task grouping below)
-// 获取任务的 executor（优先使用 executorAssignments，fallback 到全局 executionMethod）
+// Executor resolution: executorAssignments[taskId] > executionMethod > Auto fallback
 function getTaskExecutor(task) {
   const assignments = executionContext?.executorAssignments || {}
-  if (assignments[task.id]) {
-    return assignments[task.id].executor  // 'gemini' | 'codex' | 'agent'
-  }
-  // Fallback: 全局 executionMethod 映射
+  if (assignments[task.id]) return assignments[task.id].executor  // 'gemini' | 'codex' | 'agent'
   const method = executionContext?.executionMethod || 'Auto'
   if (method === 'Agent') return 'agent'
   if (method === 'Codex') return 'codex'
-  // Auto: 根据复杂度
-  return planObject.complexity === 'Low' ? 'agent' : 'codex'
+  return planObject.complexity === 'Low' ? 'agent' : 'codex'  // Auto fallback
 }
 
-// 按 executor 分组任务（核心分组组件）
 function groupTasksByExecutor(tasks) {
   const groups = { gemini: [], codex: [], agent: [] }
-  tasks.forEach(task => {
-    const executor = getTaskExecutor(task)
-    groups[executor].push(task)
-  })
+  tasks.forEach(task => { groups[getTaskExecutor(task)].push(task) })
   return groups
 }
 
-// Group into batches: per-executor parallel batches (one CLI per batch)
+// Batch creation: independent → per-executor parallel, dependent → sequential phases
 function createExecutionCalls(tasks, executionMethod) {
   const tasksWithDeps = extractDependencies(tasks)
   const processed = new Set()
   const calls = []
 
-  // Phase 1: Independent tasks → per-executor batches (multi-CLI concurrent)
+  // Phase 1: Independent tasks → per-executor parallel batches
   const independentTasks = tasksWithDeps.filter(t => t.dependencies.length === 0)
   if (independentTasks.length > 0) {
     const executorGroups = groupTasksByExecutor(independentTasks)
     let parallelIndex = 1
-
     for (const [executor, tasks] of Object.entries(executorGroups)) {
       if (tasks.length === 0) continue
       tasks.forEach(t => processed.add(t.taskIndex))
       calls.push({
-        method: executionMethod,
-        executor: executor,          // 明确指定 executor
-        executionType: "parallel",
+        method: executionMethod, executor, executionType: "parallel",
         groupId: `P${parallelIndex++}`,
-        taskSummary: tasks.map(t => t.title).join(' | '),
-        tasks: tasks
+        taskSummary: tasks.map(t => t.title).join(' | '), tasks
       })
     }
   }
 
-  // Phase 2: Dependent tasks → sequential/parallel batches (respect dependencies)
+  // Phase 2+: Dependent tasks → respect dependency order
   let sequentialIndex = 1
   let remaining = tasksWithDeps.filter(t => !processed.has(t.taskIndex))
-
   while (remaining.length > 0) {
-    // Find tasks whose dependencies are all satisfied
-    const ready = remaining.filter(t =>
-      t.dependencies.every(d => processed.has(d))
-    )
-
-    if (ready.length === 0) {
-      console.warn('Circular dependency detected, forcing remaining tasks')
-      ready.push(...remaining)
-    }
+    let ready = remaining.filter(t => t.dependencies.every(d => processed.has(d)))
+    if (ready.length === 0) { console.warn('Circular dependency detected, forcing remaining'); ready = [...remaining] }
 
     if (ready.length > 1) {
-      // Multiple ready tasks → per-executor batches (parallel within this phase)
       const executorGroups = groupTasksByExecutor(ready)
       for (const [executor, tasks] of Object.entries(executorGroups)) {
         if (tasks.length === 0) continue
         tasks.forEach(t => processed.add(t.taskIndex))
         calls.push({
-          method: executionMethod,
-          executor: executor,
-          executionType: "parallel",
+          method: executionMethod, executor, executionType: "parallel",
           groupId: `P${calls.length + 1}`,
-          taskSummary: tasks.map(t => t.title).join(' | '),
-          tasks: tasks
+          taskSummary: tasks.map(t => t.title).join(' | '), tasks
         })
       }
     } else {
-      // Single ready task → sequential batch
       ready.forEach(t => processed.add(t.taskIndex))
       calls.push({
-        method: executionMethod,
-        executor: getTaskExecutor(ready[0]),
-        executionType: "sequential",
-        groupId: `S${sequentialIndex++}`,
-        taskSummary: ready[0].title,
-        tasks: ready
+        method: executionMethod, executor: getTaskExecutor(ready[0]),
+        executionType: "sequential", groupId: `S${sequentialIndex++}`,
+        taskSummary: ready[0].title, tasks: ready
       })
     }
-
     remaining = remaining.filter(t => !processed.has(t.taskIndex))
   }
-
   return calls
 }
 
 executionCalls = createExecutionCalls(getTasks(planObject), executionMethod).map(c => ({ ...c, id: `[${c.groupId}]` }))
 
 TodoWrite({
-  todos: executionCalls.map(c => ({
-    content: `${c.executionType === "parallel" ? "⚡" : "→"} ${c.id} [${c.executor}] (${c.tasks.length} tasks)`,
+  todos: executionCalls.map((c, i) => ({
+    content: `${c.executionType === "parallel" ? "⚡" : `→ [${i+1}/${executionCalls.filter(x=>x.executionType==="sequential").length}]`} ${c.id} [${c.executor}] ${c.tasks.map(t=>t.id).join(', ')}`,
     status: "pending",
-    activeForm: `Executing ${c.id} [${c.executor}]`
+    activeForm: `Waiting: ${c.tasks.length} task(s) via ${c.executor}`
   }))
 })
 ```
 
-### Step 3: Launch Execution
+### Step 3: Launch Execution & Track Progress
 
-> **⚠️ CHECKPOINT**: Before proceeding, verify Phase 2 execution protocol (Step 3-5) is in active memory. If only a summary remains, re-read `phases/02-lite-execute.md` now.
+> **CHECKPOINT**: Verify Phase 2 execution protocol (Step 3-5) is in active memory. If only a summary remains, re-read `phases/02-lite-execute.md` now.
 
-**Executor Resolution**: `getTaskExecutor()` and `groupTasksByExecutor()` defined in Step 2 (Task Grouping).
-
-**Batch Execution Routing** (根据 batch.executor 字段路由):
+**Batch Routing** (by `batch.executor` field):
 ```javascript
-// executeBatch 根据 batch 自身的 executor 字段决定调用哪个 CLI
 function executeBatch(batch) {
   const executor = batch.executor || getTaskExecutor(batch.tasks[0])
   const sessionId = executionContext?.session?.id || 'standalone'
   const fixedId = `${sessionId}-${batch.groupId}`
 
   if (executor === 'agent') {
-    // Agent execution (synchronous)
-    return Agent({
-      subagent_type: "code-developer",
-      run_in_background: false,
-      description: batch.taskSummary,
-      prompt: buildExecutionPrompt(batch)
-    })
-  } else if (executor === 'codex') {
-    // Codex CLI (background)
-    return Bash(`ccw cli -p "${buildExecutionPrompt(batch)}" --tool codex --mode write --id ${fixedId}`, { run_in_background: true })
-  } else if (executor === 'gemini') {
-    // Gemini CLI (background)
-    return Bash(`ccw cli -p "${buildExecutionPrompt(batch)}" --tool gemini --mode write --id ${fixedId}`, { run_in_background: true })
+    return Agent({ subagent_type: "code-developer", run_in_background: false,
+      description: batch.taskSummary, prompt: buildExecutionPrompt(batch) })
+  } else {
+    // CLI execution (codex/gemini): background with fixed ID
+    const tool = executor  // 'codex' | 'gemini'
+    const mode = executor === 'gemini' ? 'analysis' : 'write'
+    const previousCliId = batch.resumeFromCliId || null
+    const cmd = previousCliId
+      ? `ccw cli -p "${buildExecutionPrompt(batch)}" --tool ${tool} --mode ${mode} --id ${fixedId} --resume ${previousCliId}`
+      : `ccw cli -p "${buildExecutionPrompt(batch)}" --tool ${tool} --mode ${mode} --id ${fixedId}`
+    return Bash(cmd, { run_in_background: true })
+    // STOP - wait for task hook callback
   }
 }
 ```
 
-**并行执行原则**:
-- 每个 batch 对应一个独立的 CLI 实例或 Agent 调用
-- 并行 = 多个 Bash(run_in_background=true) 或多个 Task() 同时发出
-- 绝不将多个独立任务合并到同一个 CLI prompt 中
-- Agent 任务不可后台执行（run_in_background=false），但多个 Agent 任务可通过单条消息中的多个 Task() 调用并发
+**Parallel execution rules**:
+- Each batch = one independent CLI instance or Agent call
+- Parallel = multiple Bash(run_in_background=true) or multiple Agent() in single message
+- Never merge independent tasks into one CLI prompt
+- Agent: run_in_background=false, but multiple Agent() calls can be concurrent in single message
 
 **Execution Flow**: Parallel batches concurrently → Sequential batches in order
 ```javascript
 const parallel = executionCalls.filter(c => c.executionType === "parallel")
 const sequential = executionCalls.filter(c => c.executionType === "sequential")
 
-// Phase 1: Launch all parallel batches (single message with multiple tool calls)
+// Phase 1: All parallel batches (single message, multiple tool calls)
 if (parallel.length > 0) {
-  TodoWrite({ todos: executionCalls.map(c => ({ status: c.executionType === "parallel" ? "in_progress" : "pending" })) })
+  TodoWrite({ todos: executionCalls.map(c => ({
+    status: c.executionType === "parallel" ? "in_progress" : "pending",
+    activeForm: c.executionType === "parallel" ? `Running [${c.executor}]: ${c.tasks.map(t=>t.id).join(', ')}` : `Blocked by parallel phase`
+  })) })
   parallelResults = await Promise.all(parallel.map(c => executeBatch(c)))
   previousExecutionResults.push(...parallelResults)
-  TodoWrite({ todos: executionCalls.map(c => ({ status: parallel.includes(c) ? "completed" : "pending" })) })
+  TodoWrite({ todos: executionCalls.map(c => ({
+    status: parallel.includes(c) ? "completed" : "pending",
+    activeForm: parallel.includes(c) ? `Done [${c.executor}]` : `Ready`
+  })) })
 }
 
-// Phase 2: Execute sequential batches one by one
+// Phase 2: Sequential batches one by one
 for (const call of sequential) {
-  TodoWrite({ todos: executionCalls.map(c => ({ status: c === call ? "in_progress" : "..." })) })
+  TodoWrite({ todos: executionCalls.map(c => ({
+    status: c === call ? "in_progress" : (c.status === "completed" ? "completed" : "pending"),
+    activeForm: c === call ? `Running [${c.executor}]: ${c.tasks.map(t=>t.id).join(', ')}` : undefined
+  })) })
   result = await executeBatch(call)
   previousExecutionResults.push(result)
-  TodoWrite({ todos: executionCalls.map(c => ({ status: "completed" or "pending" })) })
+  TodoWrite({ todos: executionCalls.map(c => ({
+    status: sequential.indexOf(c) <= sequential.indexOf(call) ? "completed" : "pending"
+  })) })
 }
 ```
 
+**Resume on Failure**:
+```javascript
+if (bash_result.status === 'failed' || bash_result.status === 'timeout') {
+  // fixedId = `${sessionId}-${groupId}` (predictable, no auto-generated timestamps)
+  console.log(`Execution incomplete. Resume: ccw cli -p "Continue" --resume ${fixedId} --tool codex --mode write --id ${fixedId}-retry`)
+  batch.resumeFromCliId = fixedId
+}
+```
+
+Progress tracked at batch level. Icons: ⚡ parallel (concurrent), → sequential (one-by-one).
+
 ### Unified Task Prompt Builder
 
-**Task Formatting Principle**: Each task is a self-contained checklist. The executor only needs to know what THIS task requires. Same template for Agent and CLI.
+Each task is a self-contained checklist. Same template for Agent and CLI.
 
 ```javascript
 function buildExecutionPrompt(batch) {
-  // Task template (6 parts: Files → Why → How → Reference → Risks → Done)
   const formatTask = (t) => `
 ## ${t.title}
 
@@ -437,355 +320,174 @@ function buildExecutionPrompt(batch) {
 ### Files
 ${(t.files || []).map(f => `- **${f.path}** → \`${f.target || ''}\`: ${f.change || (f.changes || []).join(', ') || ''}`).join('\n')}
 
-${t.rationale ? `
-### Why this approach (Medium/High)
+${t.rationale ? `### Why this approach (Medium/High)
 ${t.rationale.chosen_approach}
-${t.rationale.decision_factors?.length > 0 ? `\nKey factors: ${t.rationale.decision_factors.join(', ')}` : ''}
-${t.rationale.tradeoffs ? `\nTradeoffs: ${t.rationale.tradeoffs}` : ''}
-` : ''}
+${t.rationale.decision_factors?.length > 0 ? `Key factors: ${t.rationale.decision_factors.join(', ')}` : ''}
+${t.rationale.tradeoffs ? `Tradeoffs: ${t.rationale.tradeoffs}` : ''}` : ''}
 
 ### How to do it
 ${t.description}
-
 ${t.implementation.map(step => `- ${step}`).join('\n')}
 
-${t.code_skeleton ? `
-### Code skeleton (High)
+${t.code_skeleton ? `### Code skeleton (High)
 ${t.code_skeleton.interfaces?.length > 0 ? `**Interfaces**: ${t.code_skeleton.interfaces.map(i => `\`${i.name}\` - ${i.purpose}`).join(', ')}` : ''}
-${t.code_skeleton.key_functions?.length > 0 ? `\n**Functions**: ${t.code_skeleton.key_functions.map(f => `\`${f.signature}\` - ${f.purpose}`).join(', ')}` : ''}
-${t.code_skeleton.classes?.length > 0 ? `\n**Classes**: ${t.code_skeleton.classes.map(c => `\`${c.name}\` - ${c.purpose}`).join(', ')}` : ''}
-` : ''}
+${t.code_skeleton.key_functions?.length > 0 ? `**Functions**: ${t.code_skeleton.key_functions.map(f => `\`${f.signature}\` - ${f.purpose}`).join(', ')}` : ''}
+${t.code_skeleton.classes?.length > 0 ? `**Classes**: ${t.code_skeleton.classes.map(c => `\`${c.name}\` - ${c.purpose}`).join(', ')}` : ''}` : ''}
 
 ### Reference
 - Pattern: ${t.reference?.pattern || 'N/A'}
 - Files: ${t.reference?.files?.join(', ') || 'N/A'}
 ${t.reference?.examples ? `- Notes: ${t.reference.examples}` : ''}
 
-${t.risks?.length > 0 ? `
-### Risk mitigations (High)
-${t.risks.map(r => `- ${r.description} → **${r.mitigation}**`).join('\n')}
-` : ''}
+${t.risks?.length > 0 ? `### Risk mitigations (High)
+${t.risks.map(r => `- ${r.description} → **${r.mitigation}**`).join('\n')}` : ''}
 
 ### Done when
 ${(t.convergence?.criteria || []).map(c => `- [ ] ${c}`).join('\n')}
-${(t.test?.success_metrics || []).length > 0 ? `\n**Success metrics**: ${t.test.success_metrics.join(', ')}` : ''}`
+${(t.test?.success_metrics || []).length > 0 ? `**Success metrics**: ${t.test.success_metrics.join(', ')}` : ''}`
 
-  // Build prompt
   const sections = []
-
   if (originalUserInput) sections.push(`## Goal\n${originalUserInput}`)
-
   sections.push(`## Tasks\n${batch.tasks.map(formatTask).join('\n\n---\n')}`)
 
-  // Context (reference only)
   const context = []
-  if (previousExecutionResults.length > 0) {
+  if (previousExecutionResults.length > 0)
     context.push(`### Previous Work\n${previousExecutionResults.map(r => `- ${r.tasksSummary}: ${r.status}`).join('\n')}`)
-  }
-  if (clarificationContext) {
+  if (clarificationContext)
     context.push(`### Clarifications\n${Object.entries(clarificationContext).map(([q, a]) => `- ${q}: ${a}`).join('\n')}`)
-  }
-  if (executionContext?.planObject?.data_flow?.diagram) {
+  if (executionContext?.planObject?.data_flow?.diagram)
     context.push(`### Data Flow\n${executionContext.planObject.data_flow.diagram}`)
-  }
-  if (executionContext?.session?.artifacts?.plan) {
+  if (executionContext?.session?.artifacts?.plan)
     context.push(`### Artifacts\nPlan: ${executionContext.session.artifacts.plan}`)
-  }
-  // Project guidelines (user-defined constraints from /workflow:session:solidify)
-  // Loaded via: ccw spec load --category planning
   context.push(`### Project Guidelines\n(Loaded via ccw spec load --category planning)`)
   if (context.length > 0) sections.push(`## Context\n${context.join('\n\n')}`)
 
   sections.push(`Complete each task according to its "Done when" checklist.`)
-
   return sections.join('\n\n')
 }
 ```
 
-**Option A: Agent Execution**
+### Step 4: Code Review (Optional)
 
-When to use:
-- `getTaskExecutor(task) === "agent"`
-- 或 `executionMethod = "Agent"` (全局 fallback)
-- 或 `executionMethod = "Auto" AND complexity = "Low"` (全局 fallback)
+> **CHECKPOINT**: Verify Phase 2 review protocol is in active memory. If only a summary remains, re-read `phases/02-lite-execute.md` now.
 
-```javascript
-Task(
-  subagent_type="code-developer",
-  run_in_background=false,
-  description=batch.taskSummary,
-  prompt=buildExecutionPrompt(batch)
-)
-```
+**Skip Condition**: Only run if `codeReviewTool !== "Skip"`
 
-**Result Collection**: After completion, collect result following `executionResult` structure (see Data Structures section)
-
-**Option B: CLI Execution (Codex)**
-
-When to use:
-- `getTaskExecutor(task) === "codex"`
-- 或 `executionMethod = "Codex"` (全局 fallback)
-- 或 `executionMethod = "Auto" AND complexity = "Medium/High"` (全局 fallback)
-
-```bash
-ccw cli -p "${buildExecutionPrompt(batch)}" --tool codex --mode write
-```
-
-**Execution with fixed IDs** (predictable ID pattern):
-```javascript
-// Launch CLI in background, wait for task hook callback
-// Generate fixed execution ID: ${sessionId}-${groupId}
-const sessionId = executionContext?.session?.id || 'standalone'
-const fixedExecutionId = `${sessionId}-${batch.groupId}`  // e.g., "implement-auth-2025-12-13-P1"
-
-// Check if resuming from previous failed execution
-const previousCliId = batch.resumeFromCliId || null
-
-// Build command with fixed ID (and optional resume for continuation)
-const cli_command = previousCliId
-  ? `ccw cli -p "${buildExecutionPrompt(batch)}" --tool codex --mode write --id ${fixedExecutionId} --resume ${previousCliId}`
-  : `ccw cli -p "${buildExecutionPrompt(batch)}" --tool codex --mode write --id ${fixedExecutionId}`
-
-// Execute in background, stop output and wait for task hook callback
-Bash(
-  command=cli_command,
-  run_in_background=true
-)
-// STOP HERE - CLI executes in background, task hook will notify on completion
-```
-
-**Resume on Failure** (with fixed ID):
-```javascript
-// If execution failed or timed out, offer resume option
-if (bash_result.status === 'failed' || bash_result.status === 'timeout') {
-  console.log(`
-⚠️ Execution incomplete. Resume available:
-   Fixed ID: ${fixedExecutionId}
-   Lookup: ccw cli detail ${fixedExecutionId}
-   Resume: ccw cli -p "Continue tasks" --resume ${fixedExecutionId} --tool codex --mode write --id ${fixedExecutionId}-retry
-`)
-
-  // Store for potential retry in same session
-  batch.resumeFromCliId = fixedExecutionId
-}
-```
-
-**Result Collection**: After completion, analyze output and collect result following `executionResult` structure (include `cliExecutionId` for resume capability)
-
-**Option C: CLI Execution (Gemini)**
-
-When to use: `getTaskExecutor(task) === "gemini"` (分析类任务)
-
-```bash
-# 使用统一的 buildExecutionPrompt，切换 tool 和 mode
-ccw cli -p "${buildExecutionPrompt(batch)}" --tool gemini --mode analysis --id ${sessionId}-${batch.groupId}
-```
-
-### Step 4: Progress Tracking
-
-Progress tracked at batch level (not individual task level). Icons: ⚡ (parallel, concurrent), → (sequential, one-by-one)
-
-### Step 5: Code Review (Optional)
-
-> **⚠️ CHECKPOINT**: Before proceeding, verify Phase 2 review protocol is in active memory. If only a summary remains, re-read `phases/02-lite-execute.md` now.
-
-**Skip Condition**: Only run if `codeReviewTool ≠ "Skip"`
-
-**Review Focus**: Verify implementation against plan convergence criteria and test requirements
-- Read plan.json + .task/*.json for task convergence criteria and test checklist
-- Check each convergence criterion is fulfilled
-- Verify success metrics from test field (Medium/High complexity)
-- Run unit/integration tests specified in test field
-- Validate code quality and identify issues
-- Ensure alignment with planned approach and risk mitigations
-
-**Operations**:
-- Agent Review: Current agent performs direct review
-- Gemini Review: Execute gemini CLI with review prompt
-- Codex Review: Two options - (A) with prompt for complex reviews, (B) `--uncommitted` flag only for quick reviews
-- Custom tool: Execute specified CLI tool (qwen, etc.)
-
-**Unified Review Template** (All tools use same standard):
-
-**Review Criteria**:
+**Review Criteria** (all tools use same standard):
 - **Convergence Criteria**: Verify each criterion from task convergence.criteria
 - **Test Checklist** (Medium/High): Check unit, integration, success_metrics from task test
 - **Code Quality**: Analyze quality, identify issues, suggest improvements
 - **Plan Alignment**: Validate implementation matches planned approach and risk mitigations
 
-**Shared Prompt Template** (used by all CLI tools):
+**Shared Prompt Template**:
 ```
 PURPOSE: Code review for implemented changes against plan convergence criteria and test requirements
 TASK: • Verify plan convergence criteria fulfillment • Check test requirements (unit, integration, success_metrics) • Analyze code quality • Identify issues • Suggest improvements • Validate plan adherence and risk mitigations
 MODE: analysis
 CONTEXT: @**/* @{plan.json} @{.task/*.json} [@{exploration.json}] | Memory: Review lite-execute changes against plan requirements including test checklist
-EXPECTED: Quality assessment with:
-  - Convergence criteria verification (all tasks from .task/*.json)
-  - Test checklist validation (Medium/High: unit, integration, success_metrics)
-  - Issue identification
-  - Recommendations
-  Explicitly check each convergence criterion and test item from .task/*.json files.
+EXPECTED: Quality assessment with: convergence criteria verification, test checklist validation, issue identification, recommendations. Explicitly check each convergence criterion and test item from .task/*.json.
 CONSTRAINTS: Focus on plan convergence criteria, test requirements, and plan adherence | analysis=READ-ONLY
 ```
 
-**Tool-Specific Execution** (Apply shared prompt template above):
+**Tool-Specific Execution** (apply shared prompt template above):
 
-```bash
-# Method 1: Agent Review (current agent)
-# - Read plan.json: ${executionContext.session.artifacts.plan}
-# - Apply unified review criteria (see Shared Prompt Template)
-# - Report findings directly
+| Tool | Command | Notes |
+|------|---------|-------|
+| Agent Review | Current agent reads plan.json + applies review criteria directly | No CLI call |
+| Gemini Review | `ccw cli -p "[template]" --tool gemini --mode analysis` | Recommended |
+| Qwen Review | `ccw cli -p "[template]" --tool qwen --mode analysis` | Alternative |
+| Codex Review (A) | `ccw cli -p "[template]" --tool codex --mode review` | With prompt, for complex reviews |
+| Codex Review (B) | `ccw cli --tool codex --mode review --uncommitted` | No prompt, quick review |
 
-# Method 2: Gemini Review (recommended)
-ccw cli -p "[Shared Prompt Template with artifacts]" --tool gemini --mode analysis
-# CONTEXT includes: @**/* @${plan.json} [@${exploration.json}]
+> Codex: `-p` prompt and target flags (`--uncommitted`/`--base`/`--commit`) are **mutually exclusive**.
 
-# Method 3: Qwen Review (alternative)
-ccw cli -p "[Shared Prompt Template with artifacts]" --tool qwen --mode analysis
-# Same prompt as Gemini, different execution engine
-
-# Method 4: Codex Review (git-aware) - Two mutually exclusive options:
-
-# Option A: With custom prompt (reviews uncommitted by default)
-ccw cli -p "[Shared Prompt Template with artifacts]" --tool codex --mode review
-# Use for complex reviews with specific focus areas
-
-# Option B: Target flag only (no prompt allowed)
-ccw cli --tool codex --mode review --uncommitted
-# Quick review of uncommitted changes without custom instructions
-
-# ⚠️ IMPORTANT: -p prompt and target flags (--uncommitted/--base/--commit) are MUTUALLY EXCLUSIVE
-```
-
-**Multi-Round Review with Fixed IDs**:
+**Multi-Round Review**:
 ```javascript
-// Generate fixed review ID
 const reviewId = `${sessionId}-review`
-
-// First review pass with fixed ID
-const reviewResult = Bash(`ccw cli -p "[Review prompt]" --tool gemini --mode analysis --id ${reviewId}`)
-
-// If issues found, continue review dialog with fixed ID chain
+const reviewResult = Bash(`ccw cli -p "[template]" --tool gemini --mode analysis --id ${reviewId}`)
 if (hasUnresolvedIssues(reviewResult)) {
-  // Resume with follow-up questions
-  Bash(`ccw cli -p "Clarify the security concerns you mentioned" --resume ${reviewId} --tool gemini --mode analysis --id ${reviewId}-followup`)
+  Bash(`ccw cli -p "Clarify concerns" --resume ${reviewId} --tool gemini --mode analysis --id ${reviewId}-followup`)
 }
 ```
 
-**Implementation Note**: Replace `[Shared Prompt Template with artifacts]` placeholder with actual template content, substituting:
-- `@{plan.json}` → `@${executionContext.session.artifacts.plan}`
-- `[@{exploration.json}]` → exploration files from artifacts (if exists)
+**Artifact Substitution**: Replace `@{plan.json}` → `@${executionContext.session.artifacts.plan}`, `[@{exploration.json}]` → exploration files from artifacts (if exists).
 
-### Step 6: Auto-Sync Project State
+### Step 5: Auto-Sync Project State
 
 **Trigger**: After all executions complete (regardless of code review)
 
-**Operation**: Execute `/workflow:session:sync -y "{summary}"` to update both `specs/*.md` and `project-tech.json` in one shot.
+**Operation**: `/workflow:session:sync -y "{summary}"`
 
-Summary 取值优先级：`originalUserInput` → `planObject.summary` → git log 自动推断。
+Summary priority: `originalUserInput` → `planObject.summary` → git log auto-infer.
 
-## Best Practices
+### Step 6: Post-Completion Expansion
 
-**Input Modes**: In-memory (workflow-lite-plan), prompt (standalone), file (JSON/text)
-**Task Grouping**: Based on explicit depends_on only; independent tasks split by executor, each batch runs as separate CLI instance
-**Execution**: Independent task batches launch concurrently via single Claude message with multiple tool calls (one tool call per batch)
+Ask user whether to expand into issues (test/enhance/refactor/doc). Selected items call `/issue:new "{summary} - {dimension}"`.
 
 ## Error Handling
 
-| Error | Cause | Resolution |
-|-------|-------|------------|
-| Missing executionContext | In-memory mode without context | Error: "No execution context found. Only available when called by lite-plan." |
-| File not found | File path doesn't exist | Error: "File not found: {path}. Check file path." |
-| Empty file | File exists but no content | Error: "File is empty: {path}. Provide task description." |
-| Invalid Enhanced Task JSON | JSON missing required fields | Warning: "Missing required fields. Treating as plain text." |
-| Malformed JSON | JSON parsing fails | Treat as plain text (expected for non-JSON files) |
-| Execution failure | Agent/Codex crashes | Display error, use fixed ID `${sessionId}-${groupId}` for resume: `ccw cli -p "Continue" --resume <fixed-id> --id <fixed-id>-retry` |
-| Execution timeout | CLI exceeded timeout | Use fixed ID for resume with extended timeout |
-| Codex unavailable | Codex not installed | Show installation instructions, offer Agent execution |
-| Fixed ID not found | Custom ID lookup failed | Check `ccw cli history`, verify date directories |
+| Error | Resolution |
+|-------|------------|
+| Missing executionContext | "No execution context found. Only available when called by lite-plan." |
+| File not found | "File not found: {path}. Check file path." |
+| Empty file | "File is empty: {path}. Provide task description." |
+| Invalid plan JSON | Warning: "Missing required fields. Treating as plain text." |
+| Malformed JSON | Treat as plain text (expected for non-JSON files) |
+| Execution failure | Use fixed ID `${sessionId}-${groupId}` for resume |
+| Execution timeout | Use fixed ID for resume with extended timeout |
+| Codex unavailable | Show installation instructions, offer Agent execution |
+| Fixed ID not found | Check `ccw cli history`, verify date directories |
 
 ## Data Structures
 
 ### executionContext (Input - Mode 1)
-
-Passed from lite-plan via global variable:
 
 ```javascript
 {
   planObject: {
     summary: string,
     approach: string,
-    task_ids: string[],                          // Task IDs referencing .task/*.json files
-    task_count: number,                          // Number of tasks
-    _loadedTasks: [...],                         // Populated at runtime from .task/*.json files
+    task_ids: string[],
+    task_count: number,
+    _loadedTasks: [...],        // populated at runtime from .task/*.json
     estimated_time: string,
     recommended_execution: string,
     complexity: string
   },
-  // Task file paths (populated for two-layer format)
   taskFiles: [{id: string, path: string}] | null,
-  explorationsContext: {...} | null,       // Multi-angle explorations
-  explorationAngles: string[],             // List of exploration angles
-  explorationManifest: {...} | null,       // Exploration manifest
+  explorationsContext: {...} | null,
+  explorationAngles: string[],
+  explorationManifest: {...} | null,
   clarificationContext: {...} | null,
-  executionMethod: "Agent" | "Codex" | "Auto",  // 全局默认
+  executionMethod: "Agent" | "Codex" | "Auto",
   codeReviewTool: "Skip" | "Gemini Review" | "Agent Review" | string,
   originalUserInput: string,
-
-  // 任务级 executor 分配（优先于 executionMethod）
-  executorAssignments: {
+  executorAssignments: {            // per-task override, priority over executionMethod
     [taskId]: { executor: "gemini" | "codex" | "agent", reason: string }
   },
-
-  // Session artifacts location (saved by lite-plan)
   session: {
-    id: string,                        // Session identifier: {taskSlug}-{shortTimestamp}
-    folder: string,                    // Session folder path: .workflow/.lite-plan/{session-id}
+    id: string,                     // {taskSlug}-{shortTimestamp}
+    folder: string,                 // .workflow/.lite-plan/{session-id}
     artifacts: {
-      explorations: [{angle, path}],   // exploration-{angle}.json paths
-      explorations_manifest: string,   // explorations-manifest.json path
-      plan: string                     // plan.json path (always present)
+      explorations: [{angle, path}],
+      explorations_manifest: string,
+      plan: string                  // always present
     }
   }
 }
 ```
 
-**Artifact Usage**:
-- Artifact files contain detailed planning context
-- Pass artifact paths to CLI tools and agents for enhanced context
-- See execution options below for usage examples
-
 ### executionResult (Output)
-
-Collected after each execution call completes:
 
 ```javascript
 {
-  executionId: string,                 // e.g., "[Agent-1]", "[Codex-1]"
+  executionId: string,              // e.g., "[Agent-1]", "[Codex-1]"
   status: "completed" | "partial" | "failed",
-  tasksSummary: string,                // Brief description of tasks handled
-  completionSummary: string,           // What was completed
-  keyOutputs: string,                  // Files created/modified, key changes
-  notes: string,                       // Important context for next execution
-  fixedCliId: string | null            // Fixed CLI execution ID (e.g., "implement-auth-2025-12-13-P1")
+  tasksSummary: string,
+  completionSummary: string,
+  keyOutputs: string,
+  notes: string,
+  fixedCliId: string | null         // for resume: ccw cli detail ${fixedCliId}
 }
-```
-
-Appended to `previousExecutionResults` array for context continuity in multi-execution scenarios.
-
-## Post-Completion Expansion
-
-**Auto-sync**: 执行 `/workflow:session:sync -y "{summary}"` 更新 specs/*.md + project-tech（Step 6 已触发，此处不重复）。
-
-完成后询问用户是否扩展为issue(test/enhance/refactor/doc)，选中项调用 `/issue:new "{summary} - {dimension}"`
-
-**Fixed ID Pattern**: `${sessionId}-${groupId}` enables predictable lookup without auto-generated timestamps.
-
-**Resume Usage**: If `status` is "partial" or "failed", use `fixedCliId` to resume:
-```bash
-# Lookup previous execution
-ccw cli detail ${fixedCliId}
-
-# Resume with new fixed ID for retry
-ccw cli -p "Continue from where we left off" --resume ${fixedCliId} --tool codex --mode write --id ${fixedCliId}-retry
+// Appended to previousExecutionResults[] for context continuity
 ```
