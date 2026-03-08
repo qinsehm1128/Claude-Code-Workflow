@@ -85,6 +85,8 @@ export interface SessionManagerActions {
   setActiveTerminal: (sessionId: string | null) => void;
   /** Update metadata for a specific terminal */
   updateTerminalMeta: (sessionId: string, meta: Partial<TerminalMeta>) => void;
+  /** Reset workspace-scoped dashboard session state */
+  resetState: () => void;
   /** Set the terminal grid layout */
   setGroupLayout: (layout: SessionLayout) => void;
   /** Spawn the monitor Web Worker (idempotent) */
@@ -135,6 +137,8 @@ export interface IssueQueueIntegrationActions {
   setSelectedIssue: (issueId: string | null) => void;
   /** Build a full association chain from any entity ID (issue, queue item, or session) */
   buildAssociationChain: (entityId: string, entityType: 'issue' | 'queue' | 'session') => void;
+  /** Reset workspace-scoped issue/queue linkage state */
+  resetState: () => void;
   /** Internal: update queue item status bridging to queueExecutionStore */
   _updateQueueItemStatus: (queueItemId: string, status: string, sessionId?: string) => void;
 }

@@ -37,6 +37,16 @@ RoleSpec: .claude/skills/team-lifecycle-v4/roles/<role>/role.md
 - true: Role has 2+ serial same-prefix tasks (writer: DRAFT-001->004)
 - false: Role has 1 task, or tasks are parallel
 
+## CHECKPOINT Task Rules
+
+CHECKPOINT tasks are dispatched like regular tasks but handled differently at spawn time:
+
+- Created via TaskCreate with proper blockedBy (upstream tasks that must complete first)
+- Owner: supervisor
+- **NOT spawned as team-worker** — coordinator wakes the resident supervisor via SendMessage
+- If `supervision: false` in team-session.json, skip creating CHECKPOINT tasks entirely
+- RoleSpec in description: `.claude/skills/team-lifecycle-v4/roles/supervisor/role.md`
+
 ## Dependency Validation
 
 - No orphan tasks (all tasks have valid owner)

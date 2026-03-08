@@ -57,6 +57,8 @@ interface QueueSchedulerActions {
   stopQueue: () => Promise<void>;
   /** Reset the queue scheduler via POST /api/queue/scheduler/reset */
   resetQueue: () => Promise<void>;
+  /** Clear workspace-scoped scheduler state and invalidate stale loads */
+  resetState: () => void;
   /** Update scheduler config via POST /api/queue/scheduler/config */
   updateConfig: (config: Partial<QueueSchedulerConfig>) => Promise<void>;
 }
@@ -74,6 +76,8 @@ const initialState: QueueSchedulerStoreState = {
   lastActivityAt: null,
   error: null,
 };
+
+let loadInitialStateRequestVersion = 0;
 
 // ========== Store ==========
 
@@ -173,6 +177,8 @@ export const useQueueSchedulerStore = create<QueueSchedulerStore>()(
       },
 
       loadInitialState: async () => {
+        const requestVersion = ++loadInitialStateRequestVersion;
+
         try {
           const response = await fetch('/api/queue/scheduler/state', {
             credentials: 'same-origin',
@@ -181,6 +187,11 @@ export const useQueueSchedulerStore = create<QueueSchedulerStore>()(
             throw new Error(`Failed to load scheduler state: ${response.statusText}`);
           }
           const data: QueueSchedulerState = await response.json();
+
+          if (requestVersion !== loadInitialStateRequestVersion) {
+            return;
+          }
+
           set(
             {
               status: data.status,
@@ -195,6 +206,10 @@ export const useQueueSchedulerStore = create<QueueSchedulerStore>()(
             'loadInitialState'
           );
         } catch (error) {
+          if (requestVersion !== loadInitialStateRequestVersion) {
+            return;
+          }
+
           // Silently ignore network errors (backend not connected)
           // Only log non-network errors
           const message = error instanceof Error ? error.message : 'Unknown error';
@@ -285,6 +300,11 @@ export const useQueueSchedulerStore = create<QueueSchedulerStore>()(
           console.error('[QueueScheduler] resetQueue error:', message);
           set({ error: message }, false, 'resetQueue/error');
         }
+      },
+
+      resetState: () => {
+        loadInitialStateRequestVersion += 1;
+        set({ ...initialState }, false, 'resetState');
       },
 
       updateConfig: async (config: Partial<QueueSchedulerConfig>) => {

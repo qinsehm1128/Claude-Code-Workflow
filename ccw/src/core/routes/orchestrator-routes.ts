@@ -1232,6 +1232,7 @@ export async function handleOrchestratorRoutes(ctx: RouteContext): Promise<boole
             flowId: execution.flowId,
             status: execution.status,
             timestamp,
+            projectPath: workflowDir,
           },
         });
       } catch {
@@ -1247,6 +1248,7 @@ export async function handleOrchestratorRoutes(ctx: RouteContext): Promise<boole
           payload: {
             sessionKey,
             timestamp,
+            projectPath: workflowDir,
           },
         });
       } catch {
@@ -1460,7 +1462,8 @@ export async function handleOrchestratorRoutes(ctx: RouteContext): Promise<boole
             sessionKey: sessionKey,
             stepName: flow.name,
             totalSteps: flow.nodes.length,
-            timestamp: now
+            timestamp: now,
+            projectPath: workflowDir,
           }
         });
 
@@ -1471,7 +1474,8 @@ export async function handleOrchestratorRoutes(ctx: RouteContext): Promise<boole
             sessionKey: sessionKey,
             reason: `Executing workflow: ${flow.name}`,
             executionId: execId,
-            timestamp: now
+            timestamp: now,
+            projectPath: workflowDir,
           }
         });
 
@@ -1731,6 +1735,7 @@ export async function handleOrchestratorRoutes(ctx: RouteContext): Promise<boole
           flowId: execution.flowId,
           reason: 'User requested stop',
           timestamp: now,
+          projectPath: workflowDir,
         },
       });
 

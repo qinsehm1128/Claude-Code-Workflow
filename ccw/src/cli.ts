@@ -226,7 +226,7 @@ export function run(argv: string[]): void {
     .option('--output-type <type>', 'Output type: stdout, stderr, both', 'both')
     .option('--turn <n>', 'Turn number for cache (default: latest)')
     .option('--raw', 'Raw output only (no formatting)')
-    .option('--final', 'Output final result only (agent_message content, now default)')
+    .option('--final', 'Output strict final result only (no parsed/stdout fallback)')
     .option('--verbose', 'Show full metadata + raw output')
     .option('--timeout <seconds>', 'Timeout for watch command')
     .option('--all', 'Show all executions in show command')

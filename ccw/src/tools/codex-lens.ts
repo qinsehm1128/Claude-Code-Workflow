@@ -185,6 +185,7 @@ interface ExecuteResult {
   output?: string;
   error?: string;
   message?: string;
+  warning?: string;
   results?: unknown;
   files?: unknown;
   symbols?: unknown;
@@ -1228,6 +1229,149 @@ function parseProgressLine(line: string): ProgressInfo | null {
   return null;
 }
 
+function shouldRetryWithoutEnrich(args: string[], error?: string): boolean {
+  return args.includes('--enrich') && Boolean(error && /No such option:\s+--enrich/i.test(error));
+}
+
+function shouldRetryWithoutLanguageFilters(args: string[], error?: string): boolean {
+  return args.includes('--language') && Boolean(error && /Got unexpected extra arguments?\b/i.test(error));
+}
+
+function stripFlag(args: string[], flag: string): string[] {
+  return args.filter((arg) => arg !== flag);
+}
+
+function stripOptionWithValues(args: string[], option: string): string[] {
+  const nextArgs: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === option) {
+      index += 1;
+      continue;
+    }
+    nextArgs.push(args[index]);
+  }
+  return nextArgs;
+}
+
+function shouldRetryWithAstGrepPreference(args: string[], error?: string): boolean {
+  return !args.includes('--use-astgrep')
+    && !args.includes('--no-use-astgrep')
+    && Boolean(error && /Options --use-astgrep and --no-use-astgrep are mutually exclusive/i.test(error));
+}
+
+function shouldRetryWithStaticGraphPreference(args: string[], error?: string): boolean {
+  return !args.includes('--static-graph')
+    && !args.includes('--no-static-graph')
+    && Boolean(error && /Options --static-graph and --no-static-graph are mutually exclusive/i.test(error));
+}
+
+function shouldRetryWithCentralizedPreference(args: string[], error?: string): boolean {
+  return !args.includes('--centralized')
+    && !args.includes('--distributed')
+    && Boolean(error && /Options --centralized and --distributed are mutually exclusive/i.test(error));
+}
+
+function stripAnsiCodes(value: string): string {
+  return value
+    .replace(/\x1b\[[0-9;]*m/g, '')
+    .replace(/\x1b\][0-9;]*\x07/g, '')
+    .replace(/\x1b\][^\x07]*\x07/g, '');
+}
+
+function tryExtractJsonPayload(raw: string): unknown | null {
+  const cleanOutput = stripAnsiCodes(raw).trim();
+  const jsonStart = cleanOutput.search(/[\[{]/);
+  if (jsonStart === -1) {
+    return null;
+  }
+
+  const startChar = cleanOutput[jsonStart];
+  const endChar = startChar === '{' ? '}' : ']';
+  let depth = 0;
+  let inString = false;
+  let escapeNext = false;
+  let jsonEnd = -1;
+
+  for (let index = jsonStart; index < cleanOutput.length; index += 1) {
+    const char = cleanOutput[index];
+
+    if (escapeNext) {
+      escapeNext = false;
+      continue;
+    }
+
+    if (char === '\\' && inString) {
+      escapeNext = true;
+      continue;
+    }
+
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (!inString) {
+      if (char === startChar) {
+        depth += 1;
+      } else if (char === endChar) {
+        depth -= 1;
+        if (depth === 0) {
+          jsonEnd = index + 1;
+          break;
+        }
+      }
+    }
+  }
+
+  if (jsonEnd === -1) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(cleanOutput.slice(jsonStart, jsonEnd));
+  } catch {
+    return null;
+  }
+}
+
+function extractStructuredError(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return null;
+  }
+
+  const record = payload as Record<string, unknown>;
+  if (typeof record.error === 'string' && record.error.trim()) {
+    return record.error.trim();
+  }
+  if (typeof record.message === 'string' && record.message.trim()) {
+    return record.message.trim();
+  }
+
+  return null;
+}
+
+function extractCodexLensFailure(stdout: string, stderr: string, code: number | null): string {
+  const structuredStdout = extractStructuredError(tryExtractJsonPayload(stdout));
+  if (structuredStdout) {
+    return structuredStdout;
+  }
+
+  const structuredStderr = extractStructuredError(tryExtractJsonPayload(stderr));
+  if (structuredStderr) {
+    return structuredStderr;
+  }
+
+  const cleanStdout = stripAnsiCodes(stdout).trim();
+  const cleanStderr = stripAnsiCodes(stderr)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !/^DEBUG\b/i.test(line))
+    .join('\n')
+    .trim();
+
+  return cleanStderr || cleanStdout || stripAnsiCodes(stderr).trim() || `Process exited with code ${code ?? 'unknown'}`;
+}
+
 /**
  * Execute CodexLens CLI command with real-time progress updates
  * @param args - CLI arguments
@@ -1235,6 +1379,69 @@ function parseProgressLine(line: string): ProgressInfo | null {
  * @returns Execution result
  */
 async function executeCodexLens(args: string[], options: ExecuteOptions = {}): Promise<ExecuteResult> {
+  let attemptArgs = [...args];
+  let result = await executeCodexLensOnce(attemptArgs, options);
+  const compatibilityWarnings: string[] = [];
+
+  const compatibilityRetries = [
+    {
+      shouldRetry: shouldRetryWithoutEnrich,
+      transform: (currentArgs: string[]) => stripFlag(currentArgs, '--enrich'),
+      warning: 'CodexLens CLI does not support --enrich; retried without it.',
+    },
+    {
+      shouldRetry: shouldRetryWithoutLanguageFilters,
+      transform: (currentArgs: string[]) => stripOptionWithValues(currentArgs, '--language'),
+      warning: 'CodexLens CLI rejected --language filters; retried without language scoping.',
+    },
+    {
+      shouldRetry: shouldRetryWithAstGrepPreference,
+      transform: (currentArgs: string[]) => [...currentArgs, '--use-astgrep'],
+      warning: 'CodexLens CLI hit a Typer ast-grep option conflict; retried with explicit --use-astgrep.',
+    },
+    {
+      shouldRetry: shouldRetryWithStaticGraphPreference,
+      transform: (currentArgs: string[]) => [...currentArgs, '--static-graph'],
+      warning: 'CodexLens CLI hit a Typer static-graph option conflict; retried with explicit --static-graph.',
+    },
+    {
+      shouldRetry: shouldRetryWithCentralizedPreference,
+      transform: (currentArgs: string[]) => [...currentArgs, '--centralized'],
+      warning: 'CodexLens CLI hit a Typer centralized/distributed option conflict; retried with explicit --centralized.',
+    },
+  ];
+
+  for (const retry of compatibilityRetries) {
+    if (result.success || !retry.shouldRetry(attemptArgs, result.error)) {
+      continue;
+    }
+
+    compatibilityWarnings.push(retry.warning);
+    attemptArgs = retry.transform(attemptArgs);
+    const retryResult = await executeCodexLensOnce(attemptArgs, options);
+    result = retryResult.success
+      ? retryResult
+      : {
+          ...retryResult,
+          error: retryResult.error
+            ? `${retryResult.error} (after compatibility retry; initial error: ${result.error})`
+            : result.error,
+        };
+  }
+
+  if (compatibilityWarnings.length === 0) {
+    return result;
+  }
+
+  const warning = compatibilityWarnings.join(' ');
+  return {
+    ...result,
+    warning,
+    message: result.message ? `${result.message} ${warning}` : warning,
+  };
+}
+
+async function executeCodexLensOnce(args: string[], options: ExecuteOptions = {}): Promise<ExecuteResult> {
   const { timeout = 300000, cwd = process.cwd(), onProgress } = options; // Default 5 min
 
   // Ensure ready
@@ -1362,7 +1569,11 @@ async function executeCodexLens(args: string[], options: ExecuteOptions = {}): P
       if (code === 0) {
         safeResolve({ success: true, output: stdout.trim() });
       } else {
-        safeResolve({ success: false, error: stderr.trim() || `Process exited with code ${code}` });
+        safeResolve({
+          success: false,
+          error: extractCodexLensFailure(stdout, stderr, code),
+          output: stdout.trim() || undefined,
+        });
       }
     });
   });
@@ -1379,7 +1590,7 @@ async function initIndex(params: Params): Promise<ExecuteResult> {
   // Use 'index init' subcommand (new CLI structure)
   const args = ['index', 'init', path];
   if (languages && languages.length > 0) {
-    args.push('--language', languages.join(','));
+    args.push(...languages.flatMap((language) => ['--language', language]));
   }
 
   return executeCodexLens(args, { cwd: path });

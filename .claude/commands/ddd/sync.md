@@ -39,6 +39,23 @@ After completing a development task, synchronize the document index with actual 
 
 ## Phase 1: Change Detection
 
+### 0.1 Schema Version Check (TASK-006)
+
+Before processing changes, verify doc-index schema compatibility:
+
+```javascript
+const docIndex = JSON.parse(Read('.workflow/.doc-index/doc-index.json'));
+const schemaVersion = docIndex.schema_version || '0.0'; // Default for legacy
+
+if (schemaVersion !== '1.0') {
+  console.warn(`Schema version mismatch: found ${schemaVersion}, expected 1.0`);
+  console.warn('Consider running schema migration or regenerating doc-index with /ddd:scan');
+  // Continue with degraded functionality - may encounter missing fields
+}
+```
+
+**Graceful degradation**: If version mismatch detected → log warning → continue with caution (some features may not work as expected).
+
 ### 1.0 Data Source Selection
 
 ```
@@ -230,102 +247,19 @@ For each affected feature:
 
 Set `doc-index.json.last_updated` to current time.
 
-## Phase 4: Refresh Documents (Layer-Based Regeneration, TASK-004)
+## Phase 4: Refresh Documents & Action Log
 
-**Strategy**: Regenerate affected documents following Layer 3 → Layer 2 → Layer 1 order.
+### 4.1 Delegate Document Refresh to /ddd:doc-refresh
 
-### 4.1 Identify Affected Layers
+From Phase 2 impact tracing, collect affected component and feature IDs, then delegate:
 
-From Phase 2 impact tracing:
-- **Layer 3 affected**: Components with modified codeLocations
-- **Layer 2 affected**: Features linked to affected components
-- **Layer 1 affected**: Index docs if Layer 2 changed
-
-### 4.2 Layer 3: Update Component Docs
-
-For each affected component's `tech-registry/{slug}.md`:
-
-```bash
-ccw cli -p "PURPOSE: Update component documentation for {component.name} after code changes
-TASK:
-• Update code locations and line ranges
-• Update symbol list (add new exports, remove deleted)
-• Add change entry to history table
-• Refresh usage examples if API changed
-MODE: write
-CONTEXT: @{component.codeLocations[].path}
-EXPECTED: Updated markdown with current API state
-CONSTRAINTS: Preserve existing structure | Only update changed sections
-" --tool gemini --mode write --cd .workflow/.doc-index/tech-registry/
+```
+Invoke /ddd:doc-refresh [-y] --components {affected_component_ids} --features {affected_feature_ids}
 ```
 
-Update layer metadata:
-```markdown
----
-layer: 3
-component_id: tech-auth-service
-generated_at: ISO8601
-last_updated: ISO8601
----
-```
+This handles Layer 3 → 2 → 1 selective document refresh. See `/ddd:doc-refresh` for full details.
 
-### 4.3 Layer 2: Update Feature Docs
-
-For each affected feature's `feature-maps/{slug}.md`:
-
-```bash
-ccw cli -p "PURPOSE: Update feature documentation for {feature.name} after component changes
-TASK:
-• Update component list if new components added
-• Update status if requirements now fully implemented
-• Add change entry to history table
-• Refresh integration guide if component APIs changed
-MODE: write
-CONTEXT: @.workflow/.doc-index/tech-registry/{affected-components}.md
-EXPECTED: Updated markdown reflecting current feature state
-CONSTRAINTS: Reference updated Layer 3 docs | Preserve business language
-" --tool gemini --mode write --cd .workflow/.doc-index/feature-maps/
-```
-
-Update layer metadata:
-```markdown
----
-layer: 2
-feature_id: feat-auth
-depends_on_layer3: [tech-auth-service, tech-user-model]
-generated_at: ISO8601
-last_updated: ISO8601
----
-```
-
-### 4.4 Layer 1: Update Index Docs (if needed)
-
-If Layer 2 changed significantly (new features, status changes):
-
-```bash
-ccw cli -p "PURPOSE: Update project overview docs after feature changes
-TASK:
-• Update README.md feature list
-• Update ARCHITECTURE.md if new components added
-• Update _index.md files with new entries
-MODE: write
-CONTEXT: @.workflow/.doc-index/feature-maps/*.md @.workflow/.doc-index/doc-index.json
-EXPECTED: Updated overview docs with current project state
-CONSTRAINTS: High-level only | Link to Layer 2 for details
-" --tool gemini --mode write --cd .workflow/.doc-index/
-```
-
-Update layer metadata:
-```markdown
----
-layer: 1
-depends_on_layer2: [feat-auth, feat-orders]
-generated_at: ISO8601
-last_updated: ISO8601
----
-```
-
-### 4.5 Update Action Log
+### 4.2 Generate Action Log Entry
 
 Create `.workflow/.doc-index/action-logs/{task-id}.md`:
 
@@ -356,18 +290,9 @@ timestamp: ISO8601
 |------|------|-------|--------|
 | {symbol/file/component} | {type} | {score} | {fresh/warning/stale} |
 
-- Stale counts: {N} symbols, {N} files, {N} components
-- Auto-regeneration candidates: {list of items with auto_regenerate and score >= stale}
-
 ## Notes
 {any user-provided notes}
 ```
-
-### 4.4 Update Index Documents
-
-- Refresh `feature-maps/_index.md` table
-- Refresh `tech-registry/_index.md` table
-- Append to `action-logs/_index.md` table
 
 ## Phase 5: Confirmation (unless -y)
 
@@ -390,6 +315,7 @@ Present update summary to user:
 ## Integration Points
 
 - **Input from**: `execution-manifest.json` (preferred, from ddd:execute) OR Git history (fallback), `doc-index.json`, `/ddd:plan` output
+- **Delegates to**: `/ddd:doc-refresh` (Phase 4.1, selective document refresh)
 - **Output to**: Updated `doc-index.json`, feature-maps/, tech-registry/, action-logs/
 - **Triggers**: After completing any development task
 - **Data source priority**: `--from-manifest` > `--commit` > `--task-id` > git diff HEAD~1

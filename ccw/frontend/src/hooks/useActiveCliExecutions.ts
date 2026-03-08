@@ -4,7 +4,9 @@
 // Hook for syncing active CLI executions from server
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCliStreamStore } from '@/stores/cliStreamStore';
+import { fetchExecutionDetail, type ConversationRecord } from '@/lib/api';
+import { useCliStreamStore, type CliExecutionState } from '@/stores/cliStreamStore';
+import { useWorkflowStore, selectProjectPath } from '@/stores/workflowStore';
 
 /**
  * Response type from /api/cli/active endpoint
@@ -84,6 +86,104 @@ function parseHistoricalOutput(rawOutput: string, startTime: number) {
   return historicalLines;
 }
 
+function normalizeTimestampMs(value: unknown): number | undefined {
+  if (value instanceof Date) {
+    const time = value.getTime();
+    return Number.isFinite(time) ? time : undefined;
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value > 0 && value < 1_000_000_000_000 ? value * 1000 : value;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+
+    const numericValue = Number(trimmed);
+    if (Number.isFinite(numericValue)) {
+      return numericValue > 0 && numericValue < 1_000_000_000_000 ? numericValue * 1000 : numericValue;
+    }
+
+    const parsed = Date.parse(trimmed);
+    return Number.isNaN(parsed) ? undefined : parsed;
+  }
+
+  return undefined;
+}
+
+function isSavedExecutionNewerThanActive(activeStartTime: unknown, savedTimestamp: unknown): boolean {
+  const activeStartTimeMs = normalizeTimestampMs(activeStartTime);
+  if (activeStartTimeMs === undefined) {
+    return false;
+  }
+
+  const savedTimestampMs = normalizeTimestampMs(savedTimestamp);
+  if (savedTimestampMs === undefined) {
+    return false;
+  }
+
+  return savedTimestampMs >= activeStartTimeMs;
+}
+
+async function filterSupersededRunningExecutions(
+  executions: ActiveCliExecution[],
+  currentExecutions: Record<string, CliExecutionState>,
+  projectPath?: string
+): Promise<{ filteredExecutions: ActiveCliExecution[]; removedIds: string[] }> {
+  const candidates = executions.filter((execution) => {
+    if (execution.status !== 'running') {
+      return false;
+    }
+
+    const existing = currentExecutions[execution.id];
+    return !existing || existing.recovered;
+  });
+
+  if (candidates.length === 0) {
+    return { filteredExecutions: executions, removedIds: [] };
+  }
+
+  const removedIds = new Set<string>();
+
+  await Promise.all(candidates.map(async (execution) => {
+    try {
+      const detail = await fetchExecutionDetail(execution.id, projectPath) as ConversationRecord & { _active?: boolean };
+      if (detail._active) {
+        return;
+      }
+
+      if (isSavedExecutionNewerThanActive(
+        execution.startTime,
+        detail.updated_at || detail.created_at
+      )) {
+        removedIds.add(execution.id);
+      }
+    } catch {
+      // Ignore detail lookup failures and keep server active state.
+    }
+  }));
+
+  if (removedIds.size === 0) {
+    return { filteredExecutions: executions, removedIds: [] };
+  }
+
+  return {
+    filteredExecutions: executions.filter((execution) => !removedIds.has(execution.id)),
+    removedIds: Array.from(removedIds),
+  };
+}
+
+function pickPreferredExecutionId(executions: Record<string, CliExecutionState>): string | null {
+  const sortedEntries = Object.entries(executions).sort(([, executionA], [, executionB]) => {
+    if (executionA.status === 'running' && executionB.status !== 'running') return -1;
+    if (executionA.status !== 'running' && executionB.status === 'running') return 1;
+    return executionB.startTime - executionA.startTime;
+  });
+
+  return sortedEntries[0]?.[0] ?? null;
+}
+
 /**
  * Query key for active CLI executions
  */
@@ -104,42 +204,52 @@ export function useActiveCliExecutions(
   enabled: boolean,
   refetchInterval: number = 5000
 ) {
+  const projectPath = useWorkflowStore(selectProjectPath);
+
   return useQuery({
-    queryKey: ACTIVE_CLI_EXECUTIONS_QUERY_KEY,
+    queryKey: [...ACTIVE_CLI_EXECUTIONS_QUERY_KEY, projectPath || 'default'],
     queryFn: async () => {
-      // Access store state at execution time to avoid stale closures
       const store = useCliStreamStore.getState();
       const currentExecutions = store.executions;
+      const params = new URLSearchParams();
+      if (projectPath) {
+        params.set('path', projectPath);
+      }
 
-      const response = await fetch('/api/cli/active');
+      const activeUrl = params.size > 0
+        ? `/api/cli/active?${params.toString()}`
+        : '/api/cli/active';
+      const response = await fetch(activeUrl);
       if (!response.ok) {
         throw new Error(`Failed to fetch active executions: ${response.statusText}`);
       }
       const data: ActiveCliExecutionsResponse = await response.json();
+      const { filteredExecutions, removedIds } = await filterSupersededRunningExecutions(
+        data.executions,
+        currentExecutions,
+        projectPath || undefined
+      );
 
-      // Get server execution IDs
-      const serverIds = new Set(data.executions.map(e => e.id));
+      removedIds.forEach((executionId) => {
+        store.removeExecution(executionId);
+      });
 
-      // Clean up userClosedExecutions - remove those no longer on server
+      const serverIds = new Set(filteredExecutions.map(e => e.id));
+
       store.cleanupUserClosedExecutions(serverIds);
 
-      // Remove executions that are no longer on server and were closed by user
       for (const [id, exec] of Object.entries(currentExecutions)) {
         if (store.isExecutionClosedByUser(id)) {
-          // User closed this execution, remove from local state
           store.removeExecution(id);
-        } else if (exec.status !== 'running' && !serverIds.has(id) && exec.recovered) {
-          // Not running, not on server, and was recovered (not user-created)
+        } else if (exec.recovered && !serverIds.has(id)) {
           store.removeExecution(id);
         }
       }
 
-      // Process executions and sync to store
       let hasNewExecution = false;
       const now = Date.now();
 
-      for (const exec of data.executions) {
-        // Skip if user closed this execution
+      for (const exec of filteredExecutions) {
         if (store.isExecutionClosedByUser(exec.id)) {
           continue;
         }
@@ -151,13 +261,10 @@ export function useActiveCliExecutions(
           hasNewExecution = true;
         }
 
-        // Merge existing output with historical output
         const existingOutput = existing?.output || [];
         const existingContentSet = new Set(existingOutput.map(o => o.content));
         const missingLines = historicalOutput.filter(h => !existingContentSet.has(h.content));
 
-        // Prepend missing historical lines before existing output
-        // Skip system start message when prepending
         const systemMsgIndex = existingOutput.findIndex(o => o.type === 'system');
         const insertIndex = systemMsgIndex >= 0 ? systemMsgIndex + 1 : 0;
 
@@ -166,12 +273,10 @@ export function useActiveCliExecutions(
           mergedOutput.splice(insertIndex, 0, ...missingLines);
         }
 
-        // Trim if too long
         if (mergedOutput.length > MAX_OUTPUT_LINES) {
           mergedOutput.splice(0, mergedOutput.length - MAX_OUTPUT_LINES);
         }
 
-        // Add system message for new executions
         let finalOutput = mergedOutput;
         if (!existing) {
           finalOutput = [
@@ -195,19 +300,27 @@ export function useActiveCliExecutions(
         });
       }
 
-      // Set current execution to first running execution if none selected
       if (hasNewExecution) {
-        const runningExec = data.executions.find(e => e.status === 'running' && !store.isExecutionClosedByUser(e.id));
+        const runningExec = filteredExecutions.find(e => e.status === 'running' && !store.isExecutionClosedByUser(e.id));
         if (runningExec && !currentExecutions[runningExec.id]) {
           store.setCurrentExecution(runningExec.id);
         }
       }
 
-      return data.executions;
+      const nextState = useCliStreamStore.getState();
+      const currentExecutionId = nextState.currentExecutionId;
+      if (!currentExecutionId || !nextState.executions[currentExecutionId]) {
+        const preferredExecutionId = pickPreferredExecutionId(nextState.executions);
+        if (preferredExecutionId !== currentExecutionId) {
+          store.setCurrentExecution(preferredExecutionId);
+        }
+      }
+
+      return filteredExecutions;
     },
     enabled,
     refetchInterval,
-    staleTime: 2000, // Consider data fresh for 2 seconds
+    staleTime: 2000,
   });
 }
 

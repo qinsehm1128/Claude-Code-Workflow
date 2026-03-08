@@ -38,6 +38,8 @@ export interface TerminalPanelActions {
   addTerminal: (sessionKey: string) => void;
   /** Remove a terminal from the order list and adjust active if needed */
   removeTerminal: (sessionKey: string) => void;
+  /** Reset workspace-scoped terminal panel UI state */
+  resetState: () => void;
 }
 
 export type TerminalPanelStore = TerminalPanelState & TerminalPanelActions;
@@ -152,6 +154,10 @@ export const useTerminalPanelStore = create<TerminalPanelStore>()(
           false,
           'removeTerminal'
         );
+      },
+
+      resetState: () => {
+        set({ ...initialState }, false, 'resetState');
       },
     }),
     { name: 'TerminalPanelStore' }

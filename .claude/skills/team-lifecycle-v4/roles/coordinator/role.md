@@ -49,7 +49,13 @@ For callback/check/resume/adapt/complete: load commands/monitor.md, execute hand
 
 1. Scan .workflow/.team/TLV4-*/team-session.json for active/paused sessions
 2. No sessions -> Phase 1
-3. Single session -> reconcile (audit TaskList, reset in_progress->pending, rebuild team, kick first ready task)
+3. Single session -> reconcile:
+   a. Audit TaskList, reset in_progress->pending
+   b. Rebuild team workers
+   c. If pipeline has CHECKPOINT tasks AND `supervision !== false`:
+      - Respawn supervisor with `recovery: true` (see SKILL.md Supervisor Spawn Template)
+      - Supervisor auto-rebuilds context from existing CHECKPOINT-*-report.md files
+   d. Kick first ready task
 4. Multiple -> AskUserQuestion for selection
 
 ## Phase 1: Requirement Clarification
@@ -79,6 +85,10 @@ TEXT-LEVEL ONLY. No source code reading.
    })
    ```
 8. Write team-session.json
+9. Spawn resident supervisor (if pipeline has CHECKPOINT tasks AND `supervision !== false`):
+   - Use SKILL.md Supervisor Spawn Template (subagent_type: "team-supervisor")
+   - Wait for "[supervisor] Ready" callback before proceeding to Phase 3
+   - Record supervisor in active_workers with `resident: true` flag
 
 ## Phase 3: Create Task Chain
 
@@ -112,5 +122,6 @@ Delegate to commands/monitor.md#handleSpawnNext:
 | Task too vague | AskUserQuestion for clarification |
 | Session corruption | Attempt recovery, fallback to manual |
 | Worker crash | Reset task to pending, respawn |
+| Supervisor crash | Respawn with `recovery: true` in prompt, supervisor rebuilds context from existing reports |
 | Dependency cycle | Detect in analysis, halt |
 | Role limit exceeded | Merge overlapping roles |

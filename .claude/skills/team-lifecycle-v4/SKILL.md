@@ -22,11 +22,14 @@ Skill(skill="team-lifecycle-v4", args="task description")
   Coordinator                  Worker
   roles/coordinator/role.md    roles/<name>/role.md
      |
-     +-- analyze → dispatch → spawn workers → STOP
-                                    |
-                    +-------+-------+-------+
-                    v       v       v       v
-                 [team-worker agents, each loads roles/<role>/role.md]
+     +-- analyze → dispatch → spawn → STOP
+                                 |
+                    +--------+---+--------+
+                    v        v            v
+             [team-worker]  ...    [team-supervisor]
+              per-task               resident agent
+              lifecycle              message-driven
+                                     (woken via SendMessage)
 ```
 
 ## Role Registry
@@ -40,6 +43,7 @@ Skill(skill="team-lifecycle-v4", args="task description")
 | executor | [roles/executor/role.md](roles/executor/role.md) | IMPL-* | true |
 | tester | [roles/tester/role.md](roles/tester/role.md) | TEST-* | false |
 | reviewer | [roles/reviewer/role.md](roles/reviewer/role.md) | REVIEW-*, QUALITY-*, IMPROVE-* | false |
+| supervisor | [roles/supervisor/role.md](roles/supervisor/role.md) | CHECKPOINT-* | false |
 
 ## Role Router
 
@@ -76,6 +80,57 @@ inner_loop: <true|false>
 
 Read role_spec file to load Phase 2-4 domain instructions.
 Execute built-in Phase 1 (task discovery) -> role Phase 2-4 -> built-in Phase 5 (report).`
+})
+```
+
+## Supervisor Spawn Template
+
+Supervisor is a **resident agent** (independent from team-worker). Spawned once during session init, woken via SendMessage for each CHECKPOINT task.
+
+### Spawn (Phase 2 — once per session)
+
+```
+Agent({
+  subagent_type: "team-supervisor",
+  description: "Spawn resident supervisor",
+  team_name: <team-name>,
+  name: "supervisor",
+  run_in_background: true,
+  prompt: `## Role Assignment
+role: supervisor
+role_spec: .claude/skills/team-lifecycle-v4/roles/supervisor/role.md
+session: <session-folder>
+session_id: <session-id>
+team_name: <team-name>
+requirement: <task-description>
+
+Read role_spec file to load checkpoint definitions.
+Init: load baseline context, report ready, go idle.
+Wake cycle: coordinator sends checkpoint requests via SendMessage.`
+})
+```
+
+### Wake (handleSpawnNext — per CHECKPOINT task)
+
+```
+SendMessage({
+  type: "message",
+  recipient: "supervisor",
+  content: `## Checkpoint Request
+task_id: <CHECKPOINT-NNN>
+scope: [<upstream-task-ids>]
+pipeline_progress: <done>/<total> tasks completed`,
+  summary: "Checkpoint request: <CHECKPOINT-NNN>"
+})
+```
+
+### Shutdown (handleComplete)
+
+```
+SendMessage({
+  type: "shutdown_request",
+  recipient: "supervisor",
+  content: "Pipeline complete, shutting down supervisor"
 })
 ```
 
@@ -137,4 +192,6 @@ AskUserQuestion({
 | Role not found | Error with role registry |
 | CLI tool fails | Worker fallback to direct implementation |
 | Fast-advance conflict | Coordinator reconciles on next callback |
+| Supervisor crash | Respawn with `recovery: true`, auto-rebuilds from existing reports |
+| Supervisor not ready for CHECKPOINT | Spawn/respawn supervisor, wait for ready, then wake |
 | Completion action fails | Default to Keep Active |

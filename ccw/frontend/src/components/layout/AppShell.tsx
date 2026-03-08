@@ -19,7 +19,6 @@ import { useNotificationStore, selectCurrentQuestion, selectCurrentPopupCard } f
 import { useWorkflowStore } from '@/stores/workflowStore';
 import { useAppStore, selectIsImmersiveMode } from '@/stores/appStore';
 import { useWebSocketNotifications, useWebSocket } from '@/hooks';
-import { useHasHydrated } from '@/hooks/useHasHydrated';
 
 export interface AppShellProps {
   /** Callback for refresh action */
@@ -41,25 +40,33 @@ export function AppShell({
   // Workspace initialization from URL query parameter
   const switchWorkspace = useWorkflowStore((state) => state.switchWorkspace);
   const projectPath = useWorkflowStore((state) => state.projectPath);
-  const hasHydrated = useHasHydrated();
   const location = useLocation();
 
   // Manually trigger hydration on mount (needed because of skipHydration: true in store config)
+  // Note: rehydrate() may throw TDZ errors due to circular dependencies in bundled code.
+  // This is non-fatal because loadPersistedPath() already provides projectPath synchronously.
+  const [isStoreReady, setStoreReady] = useState(false);
   useEffect(() => {
-    useWorkflowStore.persist.rehydrate();
+    try {
+      useWorkflowStore.persist.rehydrate();
+    } catch (error) {
+      console.warn('[AppShell] Store rehydration failed (non-fatal, using initial state):', error);
+    }
+    setStoreReady(true);
   }, []);
 
   // Immersive mode (fullscreen) - hide chrome
   const isImmersiveMode = useAppStore(selectIsImmersiveMode);
 
   // Workspace initialization logic (URL > localStorage)
-  // Wait for zustand persist hydration to complete before initializing
+  // Uses isStoreReady instead of hasHydrated to avoid blocking when rehydration fails.
+  // loadPersistedPath() already provides projectPath synchronously at module init,
+  // so we don't need to wait for Zustand persist rehydration to complete.
   const [isWorkspaceInitialized, setWorkspaceInitialized] = useState(false);
 
   useEffect(() => {
-    // Wait for hydration to complete before initializing workspace
-    // This ensures projectPath is properly restored from localStorage
-    if (!hasHydrated) {
+    // Wait for rehydration attempt to complete (success or failure)
+    if (!isStoreReady) {
       return;
     }
 
@@ -70,7 +77,7 @@ export function AppShell({
 
     const searchParams = new URLSearchParams(location.search);
     const urlPath = searchParams.get('path');
-    const persistedPath = projectPath; // Path from rehydrated store
+    const persistedPath = projectPath; // Path from loadPersistedPath() or rehydrated store
 
     // Priority 1: URL parameter.
     if (urlPath) {
@@ -79,7 +86,7 @@ export function AppShell({
         console.error('[AppShell] Failed to initialize from URL:', error);
       });
     }
-    // Priority 2: Rehydrated path from localStorage.
+    // Priority 2: Persisted path from store (loaded synchronously via loadPersistedPath).
     else if (persistedPath) {
       console.log('[AppShell] Initializing workspace from persisted state:', persistedPath);
       // The path is already in the store, but we need to trigger the data fetch.
@@ -90,7 +97,7 @@ export function AppShell({
 
     // Mark as initialized regardless of whether a path was found.
     setWorkspaceInitialized(true);
-  }, [hasHydrated, isWorkspaceInitialized, projectPath, location.search, switchWorkspace]);
+  }, [isStoreReady, isWorkspaceInitialized, projectPath, location.search, switchWorkspace]);
 
   // Sidebar collapse state – default to collapsed (hidden)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {

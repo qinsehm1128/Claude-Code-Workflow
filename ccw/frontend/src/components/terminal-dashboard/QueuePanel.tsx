@@ -53,6 +53,7 @@ import {
   selectActivePlanCount,
   type OrchestrationRunState,
 } from '@/stores/orchestratorStore';
+import { useWorkflowStore, selectProjectPath } from '@/stores/workflowStore';
 import type { StepStatus, OrchestrationStatus } from '@/types/orchestrator';
 import type { QueueItem as ApiQueueItem } from '@/lib/api';
 import type { QueueItem as SchedulerQueueItem, QueueItemStatus as SchedulerQueueItemStatus } from '@/types/queue-frontend-types';
@@ -506,6 +507,7 @@ function OrchestratorTabContent() {
 export function QueuePanel({ embedded = false }: { embedded?: boolean }) {
   const { formatMessage } = useIntl();
   const [activeTab, setActiveTab] = useState<QueueTab>('queue');
+  const projectPath = useWorkflowStore(selectProjectPath);
   const orchestratorCount = useOrchestratorStore(selectActivePlanCount);
 
   // Scheduler store data for active count
@@ -535,6 +537,10 @@ export function QueuePanel({ embedded = false }: { embedded?: boolean }) {
     }
     return count;
   }, [useSchedulerData, schedulerItems, queueQuery.data]);
+
+  useEffect(() => {
+    setActiveTab('queue');
+  }, [projectPath]);
 
   return (
     <div className="flex flex-col h-full">

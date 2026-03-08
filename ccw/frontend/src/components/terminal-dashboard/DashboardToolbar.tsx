@@ -5,7 +5,7 @@
 // Provides toggle buttons for floating panels (Issues/Queue/Inspector)
 // and layout preset controls. Sessions sidebar is always visible.
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useIntl } from 'react-intl';
 import {
   AlertCircle,
@@ -123,6 +123,11 @@ export function DashboardToolbar({ activePanel, onTogglePanel, isFileSidebarOpen
   const updateTerminalMeta = useSessionManagerStore((s) => s.updateTerminalMeta);
   const [isCreating, setIsCreating] = useState(false);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
+
+  useEffect(() => {
+    setIsCreating(false);
+    setIsConfigOpen(false);
+  }, [projectPath]);
 
   // Helper to get or create a focused pane
   const getOrCreateFocusedPane = useCallback(() => {

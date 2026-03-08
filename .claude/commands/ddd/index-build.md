@@ -118,73 +118,10 @@ Each EPIC-NNN → one feat-{slug}
   - tags: from domain keywords
 ```
 
-### 3.2 Generate Feature Map Documents
+### 3.2 Document Generation (delegated)
 
-For each feature → `feature-maps/{slug}.md`:
-
-```markdown
----
-id: feat-{slug}
-name: Feature Name
-epic_id: EPIC-NNN
-status: implemented
-requirements: [REQ-001, REQ-002]
-components: [tech-auth-service, tech-user-model]
-tags: [auth, security]
-last_updated: ISO8601
----
-
-# Feature Name
-
-## Overview
-{Description from epic}
-
-## Requirements
-- **REQ-001**: {title} (Must) — {component mapping status}
-- **REQ-002**: {title} (Should) — {component mapping status}
-
-## Technical Components
-- **AuthService** (`src/services/auth.ts`): {role}
-
-## Architecture Decisions
-- **ADR-001**: {title}
-
-## Change History
-| Date | Task | Description |
-|------|------|-------------|
-| {date} | Initial | Indexed from spec SPEC-{session} |
-```
-
-### 3.3 Generate Tech Registry Documents
-
-For each component → `tech-registry/{slug}.md`:
-
-```markdown
----
-id: tech-{slug}
-name: ComponentName
-type: service
-features: [feat-auth]
-code_locations:
-  - path: src/services/auth.ts
-    symbols: [AuthService, AuthService.login]
-last_updated: ISO8601
----
-
-# ComponentName
-
-## Responsibility
-{From Gemini analysis}
-
-## Code Locations
-- `src/services/auth.ts`: Main implementation
-
-## Related Requirements
-- **REQ-001**: {title}
-
-## Architecture Decisions
-- **ADR-001**: {title}
-```
+Feature-map and tech-registry document generation is handled by `/ddd:doc-generate` in Phase 5.
+Phase 3 only builds the data structures (feature → requirement → component mappings) that doc-generate consumes.
 
 ## Phase 4: Assemble doc-index.json
 
@@ -223,14 +160,22 @@ If a code-first index exists (from prior `/ddd:scan`):
 - Update `build_path` to `"spec-first"`
 - Preserve existing `tech-*` components (update links only)
 
-## Phase 5: Generate Index Documents & Validation
+## Phase 5: Generate Documents
 
-### 5.1 Index Documents
-- `feature-maps/_index.md` — feature overview table
-- `tech-registry/_index.md` — component registry table
-- `action-logs/_index.md` — empty, populated by `/ddd:sync`
+Delegate all document generation to `/ddd:doc-generate`:
 
-### 5.2 Coverage Report
+```
+Invoke /ddd:doc-generate [-y]
+```
+
+This generates the complete document tree (Layer 3 → 2 → 1):
+- `tech-registry/{slug}.md` — component docs from Phase 2 mapping (Layer 3)
+- `feature-maps/{slug}.md` — feature docs from Phase 3 mapping (Layer 2)
+- `_index.md`, `README.md`, `ARCHITECTURE.md`, `SCHEMA.md` — index/overview docs (Layer 1)
+
+See `/ddd:doc-generate` for full details on generation strategy and flags.
+
+## Phase 6: Coverage Report
 
 ```
 Index Build Report (spec-first)
@@ -262,5 +207,6 @@ Gaps:
 ## Integration Points
 
 - **Input from**: `spec-generator` outputs, codebase, existing `/ddd:scan` index
+- **Delegates to**: `/ddd:doc-generate` (Phase 5, full document generation)
 - **Output to**: `ddd:plan`, `ddd:sync`, `ddd:update`
 - **Upgrades**: Can merge with prior code-first (`/ddd:scan`) index

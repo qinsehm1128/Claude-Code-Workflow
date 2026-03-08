@@ -397,8 +397,9 @@ export class CliSessionManager {
         payload: {
           sessionKey,
           data,
-          timestamp: nowIso()
-        } satisfies CliSessionOutputEvent
+          timestamp: nowIso(),
+          projectPath: this.projectRoot,
+        } satisfies CliSessionOutputEvent & { projectPath: string }
       });
     });
 
@@ -410,7 +411,8 @@ export class CliSessionManager {
           sessionKey,
           exitCode,
           signal,
-          timestamp: nowIso()
+          timestamp: nowIso(),
+          projectPath: this.projectRoot,
         }
       });
     });
@@ -426,7 +428,11 @@ export class CliSessionManager {
 
     broadcastToClients({
       type: 'CLI_SESSION_CREATED',
-      payload: { session: this.getSession(sessionKey), timestamp: nowIso() }
+      payload: {
+        session: this.getSession(sessionKey),
+        timestamp: nowIso(),
+        projectPath: this.projectRoot,
+      }
     });
 
     return this.getSession(sessionKey)!;
@@ -464,7 +470,14 @@ export class CliSessionManager {
       session.pty.kill();
     } finally {
       this.sessions.delete(sessionKey);
-      broadcastToClients({ type: 'CLI_SESSION_CLOSED', payload: { sessionKey, timestamp: nowIso() } });
+      broadcastToClients({
+        type: 'CLI_SESSION_CLOSED',
+        payload: {
+          sessionKey,
+          timestamp: nowIso(),
+          projectPath: this.projectRoot,
+        }
+      });
     }
   }
 
@@ -486,7 +499,11 @@ export class CliSessionManager {
       session.updatedAt = nowIso();
       broadcastToClients({
         type: 'CLI_SESSION_PAUSED',
-        payload: { sessionKey, timestamp: nowIso() }
+        payload: {
+          sessionKey,
+          timestamp: nowIso(),
+          projectPath: this.projectRoot,
+        }
       });
     } catch (err) {
       throw new Error(`Failed to pause session ${sessionKey}: ${(err as Error).message}`);
@@ -512,7 +529,11 @@ export class CliSessionManager {
       session.lastActivityAt = Date.now();
       broadcastToClients({
         type: 'CLI_SESSION_RESUMED',
-        payload: { sessionKey, timestamp: nowIso() }
+        payload: {
+          sessionKey,
+          timestamp: nowIso(),
+          projectPath: this.projectRoot,
+        }
       });
     } catch (err) {
       throw new Error(`Failed to resume session ${sessionKey}: ${(err as Error).message}`);

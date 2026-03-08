@@ -64,6 +64,22 @@ Sent via `team_msg(type="state_update")` on task completion.
 - `files_modified`: Only for implementation tasks
 - `verification`: One of `self-validated`, `peer-reviewed`, `tested`
 
+**Supervisor-specific extensions** (CHECKPOINT tasks only):
+
+```json
+{
+  "supervision_verdict": "pass | warn | block",
+  "supervision_score": 0.85,
+  "risks_logged": 0,
+  "blocks_detected": 0
+}
+```
+
+- `supervision_verdict`: Required for CHECKPOINT tasks. Determines pipeline progression.
+- `supervision_score`: Float 0.0-1.0. Aggregate of individual check scores.
+- `risks_logged`: Count of risks written to wisdom/issues.md.
+- `blocks_detected`: Count of blocking issues found. >0 implies verdict=block.
+
 ## 5. Exploration Cache Protocol
 
 Prevents redundant research across tasks and discussion rounds.

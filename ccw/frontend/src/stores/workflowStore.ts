@@ -4,6 +4,7 @@
 // Manages workflow sessions, tasks, and related data
 
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import type {
   WorkflowStore,
   WorkflowState,
@@ -111,8 +112,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
             },
             sessionDataStore,
           },
-          false,
-          'setSessions'
+          false
         );
       },
 
@@ -130,8 +130,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
               [key]: session,
             },
           }),
-          false,
-          'addSession'
+          false
         );
       },
 
@@ -139,7 +138,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
         const key = sessionKey(sessionId);
 
         set(
-          (state) => {
+          (state: WorkflowState) => {
             const session = state.sessionDataStore[key];
             if (!session) return state;
 
@@ -162,8 +161,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
               },
             };
           },
-          false,
-          'updateSession'
+          false
         );
       },
 
@@ -171,7 +169,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
         const key = sessionKey(sessionId);
 
         set(
-          (state) => {
+          (state: WorkflowState) => {
             const { [key]: removed, ...remainingStore } = state.sessionDataStore;
 
             return {
@@ -186,8 +184,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
               },
             };
           },
-          false,
-          'removeSession'
+          false
         );
       },
 
@@ -195,7 +192,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
         const key = sessionKey(sessionId);
 
         set(
-          (state) => {
+          (state: WorkflowState) => {
             const session = state.sessionDataStore[key];
             if (!session || session.location === 'archived') return state;
 
@@ -219,8 +216,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
               },
             };
           },
-          false,
-          'archiveSession'
+          false
         );
       },
 
@@ -230,7 +226,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
         const key = sessionKey(sessionId);
 
         set(
-          (state) => {
+          (state: WorkflowState) => {
             const session = state.sessionDataStore[key];
             if (!session) return state;
 
@@ -251,8 +247,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
               },
             };
           },
-          false,
-          'addTask'
+          false
         );
       },
 
@@ -260,7 +255,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
         const key = sessionKey(sessionId);
 
         set(
-          (state) => {
+          (state: WorkflowState) => {
             const session = state.sessionDataStore[key];
             if (!session?.tasks) return state;
 
@@ -283,8 +278,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
               },
             };
           },
-          false,
-          'updateTask'
+          false
         );
       },
 
@@ -292,7 +286,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
         const key = sessionKey(sessionId);
 
         set(
-          (state) => {
+          (state: WorkflowState) => {
             const session = state.sessionDataStore[key];
             if (!session?.tasks) return state;
 
@@ -309,8 +303,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
               },
             };
           },
-          false,
-          'removeTask'
+          false
         );
       },
 
@@ -324,8 +317,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
               [key]: session,
             },
           }),
-          false,
-          'setLiteTaskSession'
+          false
         );
       },
 
@@ -335,8 +327,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
             const { [key]: removed, ...remaining } = state.liteTaskDataStore;
             return { liteTaskDataStore: remaining };
           },
-          false,
-          'removeLiteTaskSession'
+          false
         );
       },
 
@@ -350,8 +341,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
               [key]: data,
             },
           }),
-          false,
-          'setTaskJson'
+          false
         );
       },
 
@@ -361,38 +351,36 @@ export const useWorkflowStore = create<WorkflowStore>()(
             const { [key]: removed, ...remaining } = state.taskJsonStore;
             return { taskJsonStore: remaining };
           },
-          false,
-          'removeTaskJson'
+          false
         );
       },
 
       // ========== Active Session ==========
 
       setActiveSessionId: (sessionId: string | null) => {
-        set({ activeSessionId: sessionId }, false, 'setActiveSessionId');
+        set({ activeSessionId: sessionId }, false);
       },
 
       // ========== Project Path ==========
 
       setProjectPath: (path: string) => {
-        set({ projectPath: path }, false, 'setProjectPath');
+        set({ projectPath: path }, false);
       },
 
       addRecentPath: (path: string) => {
         set(
-          (state) => {
+          (state: WorkflowState) => {
             // Remove if exists, add to front
             const filtered = state.recentPaths.filter((p) => p !== path);
             const updated = [path, ...filtered].slice(0, 10); // Keep max 10
             return { recentPaths: updated };
           },
-          false,
-          'addRecentPath'
+          false
         );
       },
 
       setServerPlatform: (platform: 'win32' | 'darwin' | 'linux') => {
-        set({ serverPlatform: platform }, false, 'setServerPlatform');
+        set({ serverPlatform: platform }, false);
       },
 
       // ========== Workspace Actions ==========
@@ -417,8 +405,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
             },
             sessionDataStore,
           },
-          false,
-          'switchWorkspace'
+          false
         );
 
         // Persist projectPath to localStorage manually
@@ -433,16 +420,16 @@ export const useWorkflowStore = create<WorkflowStore>()(
 
       removeRecentPath: async (path: string) => {
         const updatedPaths = await apiRemoveRecentPath(path);
-        set({ recentPaths: updatedPaths }, false, 'removeRecentPath');
+        set({ recentPaths: updatedPaths }, false);
       },
 
       refreshRecentPaths: async () => {
         const paths = await fetchRecentPaths();
-        set({ recentPaths: paths }, false, 'refreshRecentPaths');
+        set({ recentPaths: paths }, false);
       },
 
       registerQueryInvalidator: (callback: () => void) => {
-        set({ _invalidateQueriesCallback: callback }, false, 'registerQueryInvalidator');
+        set({ _invalidateQueriesCallback: callback }, false);
       },
 
       // ========== Filters and Sorting ==========
@@ -452,8 +439,7 @@ export const useWorkflowStore = create<WorkflowStore>()(
           (state) => ({
             filters: { ...state.filters, ...filters },
           }),
-          false,
-          'setFilters'
+          false
         );
       },
 
@@ -462,13 +448,12 @@ export const useWorkflowStore = create<WorkflowStore>()(
           (state) => ({
             sorting: { ...state.sorting, ...sorting },
           }),
-          false,
-          'setSorting'
+          false
         );
       },
 
       resetFilters: () => {
-        set({ filters: defaultFilters, sorting: defaultSorting }, false, 'resetFilters');
+        set({ filters: defaultFilters, sorting: defaultSorting }, false);
       },
 
       // ========== Computed Selectors ==========

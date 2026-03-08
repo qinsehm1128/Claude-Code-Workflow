@@ -9,7 +9,7 @@ import { join, dirname, resolve } from 'path';
 import { parseSessionFile, formatConversation, extractConversationPairs, type ParsedSession, type ParsedTurn } from './session-content-parser.js';
 import { getDiscoverer, getNativeSessions } from './native-session-discovery.js';
 import { StoragePaths, ensureStorageDir, getProjectId, getCCWHome } from '../config/storage-paths.js';
-import type { CliOutputUnit } from './cli-output-converter.js';
+import { createOutputParser, flattenOutputUnits, type CliOutputUnit } from './cli-output-converter.js';
 
 // Debug logging for history save investigation (Iteration 4)
 const DEBUG_SESSION_ID = 'DBG-parallel-ccw-cli-test-2026-03-07';
@@ -31,6 +31,27 @@ function writeDebugLog(event: string, data: Record<string, any>): void {
     appendFileSync(DEBUG_LOG_PATH, logEntry, 'utf8');
   } catch (err) {
     // Silently ignore logging errors
+  }
+}
+
+function reconstructFinalOutputFromStdout(rawStdout: string, canTrustStdout: boolean): string | undefined {
+  if (!canTrustStdout || !rawStdout.trim()) {
+    return undefined;
+  }
+
+  try {
+    const parser = createOutputParser('json-lines');
+    const units = parser.parse(Buffer.from(rawStdout, 'utf8'), 'stdout');
+    units.push(...parser.flush());
+
+    const reconstructed = flattenOutputUnits(units, {
+      includeTypes: ['agent_message'],
+      stripCommandJsonBlocks: true
+    });
+
+    return reconstructed || undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -764,8 +785,14 @@ export class CliHistoryStore {
     }
 
     // Add final output if available (agent_message only for --final flag)
-    if (turn.final_output) {
-      const finalContent = turn.final_output;
+    // For older records that lack final_output, attempt reconstruction from raw JSONL stdout.
+    const canTrustStdoutForFinal = !!(turn.cached || !turn.truncated);
+    const reconstructedFinalOutput = turn.final_output
+      ? undefined
+      : reconstructFinalOutputFromStdout(turn.cached ? (turn.stdout_full || '') : (turn.stdout || ''), canTrustStdoutForFinal);
+    const finalContent = turn.final_output ?? reconstructedFinalOutput;
+
+    if (finalContent !== undefined) {
       const totalBytes = finalContent.length;
       const content = finalContent.substring(offset, offset + limit);
       result.finalOutput = {

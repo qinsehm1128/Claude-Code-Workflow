@@ -24,6 +24,8 @@ import {
   getEnrichedConversation,
   getHistoryWithNativeInfo
 } from '../../tools/cli-executor.js';
+import { getHistoryStore } from '../../tools/cli-history-store.js';
+import { StoragePaths } from '../../config/storage-paths.js';
 import { listAllNativeSessions } from '../../tools/native-session-discovery.js';
 import { SmartContentFormatter } from '../../tools/cli-output-converter.js';
 import { generateSmartContext, formatSmartContext } from '../../tools/smart-context.js';
@@ -51,6 +53,7 @@ import {
   getCodeIndexMcp
 } from '../../tools/claude-cli-tools.js';
 import type { RouteContext } from './types.js';
+import { existsSync } from 'fs';
 import { resolve, normalize } from 'path';
 import { homedir } from 'os';
 
@@ -171,6 +174,84 @@ export function getActiveExecutions(): ActiveExecutionDto[] {
   }));
 }
 
+function normalizeTimestampMs(value: unknown): number | undefined {
+  if (value instanceof Date) {
+    const time = value.getTime();
+    return Number.isFinite(time) ? time : undefined;
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value > 0 && value < 1_000_000_000_000 ? value * 1000 : value;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+
+    const numericValue = Number(trimmed);
+    if (Number.isFinite(numericValue)) {
+      return numericValue > 0 && numericValue < 1_000_000_000_000 ? numericValue * 1000 : numericValue;
+    }
+
+    const parsed = Date.parse(trimmed);
+    return Number.isNaN(parsed) ? undefined : parsed;
+  }
+
+  return undefined;
+}
+
+function isSavedExecutionNewerThanActive(activeStartTimeMs: number | undefined, savedTimestamp: unknown): boolean {
+  if (activeStartTimeMs === undefined) {
+    return false;
+  }
+
+  const savedTimestampMs = normalizeTimestampMs(savedTimestamp);
+  if (savedTimestampMs === undefined) {
+    return false;
+  }
+
+  return savedTimestampMs >= activeStartTimeMs;
+}
+
+function getSavedConversationWithNativeInfo(projectPath: string, executionId: string) {
+  const historyDbPath = StoragePaths.project(projectPath).historyDb;
+  if (!existsSync(historyDbPath)) {
+    return null;
+  }
+
+  try {
+    return getHistoryStore(projectPath).getConversationWithNativeInfo(executionId);
+  } catch {
+    return null;
+  }
+}
+
+function cleanupSupersededActiveExecutions(projectPath: string): void {
+  const supersededIds: string[] = [];
+
+  for (const [executionId, activeExec] of activeExecutions.entries()) {
+    const savedConversation = getSavedConversationWithNativeInfo(projectPath, executionId);
+    if (!savedConversation) {
+      continue;
+    }
+
+    if (isSavedExecutionNewerThanActive(
+      normalizeTimestampMs(activeExec.startTime),
+      savedConversation.updated_at || savedConversation.created_at
+    )) {
+      supersededIds.push(executionId);
+    }
+  }
+
+  supersededIds.forEach(executionId => {
+    activeExecutions.delete(executionId);
+  });
+
+  if (supersededIds.length > 0) {
+    console.log(`[ActiveExec] Removed ${supersededIds.length} superseded execution(s): ${supersededIds.join(', ')}`);
+  }
+}
+
 /**
  * Update active execution state from hook events
  * Called by hooks-routes when CLI events are received from terminal execution
@@ -240,6 +321,10 @@ export async function handleCliRoutes(ctx: RouteContext): Promise<boolean> {
 
   // API: Get Active CLI Executions (for state recovery)
   if (pathname === '/api/cli/active' && req.method === 'GET') {
+    const projectPath = url.searchParams.get('path') || initialPath;
+    cleanupStaleExecutions();
+    cleanupSupersededActiveExecutions(projectPath);
+
     const executions = getActiveExecutions().map(exec => ({
       ...exec,
       isComplete: exec.status !== 'running'
@@ -537,6 +622,8 @@ export async function handleCliRoutes(ctx: RouteContext): Promise<boolean> {
   // API: CLI Execution Detail (GET) or Delete (DELETE)
   if (pathname === '/api/cli/execution') {
     const projectPath = url.searchParams.get('path') || initialPath;
+    cleanupStaleExecutions();
+    cleanupSupersededActiveExecutions(projectPath);
     const executionId = url.searchParams.get('id');
 
     if (!executionId) {
@@ -564,10 +651,17 @@ export async function handleCliRoutes(ctx: RouteContext): Promise<boolean> {
       return true;
     }
 
+    const conversation = getSavedConversationWithNativeInfo(projectPath, executionId) || getConversationDetailWithNativeInfo(projectPath, executionId);
+
     // Handle GET request - return conversation with native session info
     // First check in-memory active executions (for running/recently completed)
     const activeExec = activeExecutions.get(executionId);
-    if (activeExec) {
+    const shouldPreferSavedConversation = !!activeExec && !!conversation && isSavedExecutionNewerThanActive(
+      normalizeTimestampMs(activeExec.startTime),
+      conversation.updated_at || conversation.created_at
+    );
+
+    if (activeExec && !shouldPreferSavedConversation) {
       // Return active execution data as conversation record format
       // Note: Convert output array buffer back to string for API compatibility
       const activeConversation = {
@@ -594,8 +688,6 @@ export async function handleCliRoutes(ctx: RouteContext): Promise<boolean> {
       return true;
     }
 
-    // Fall back to database query for saved conversations
-    const conversation = getConversationDetailWithNativeInfo(projectPath, executionId);
     if (!conversation) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Conversation not found' }));

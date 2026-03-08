@@ -25,6 +25,7 @@ import { Badge } from '@/components/ui/Badge';
 import { LogBlockList } from '@/components/shared/LogBlock';
 import { useCliStreamStore, type CliOutputLine } from '@/stores/cliStreamStore';
 import { useActiveCliExecutions } from '@/hooks/useActiveCliExecutions';
+import { useWorkflowStore, selectProjectPath } from '@/stores/workflowStore';
 import { useCliStreamWebSocket } from '@/hooks/useCliStreamWebSocket';
 
 // New components for Tab + JSON Cards
@@ -186,6 +187,7 @@ export function CliStreamMonitor({ isOpen, onClose }: CliStreamMonitorProps) {
   const setCurrentExecution = useCliStreamStore((state) => state.setCurrentExecution);
   const removeExecution = useCliStreamStore((state) => state.removeExecution);
   const markExecutionClosedByUser = useCliStreamStore((state) => state.markExecutionClosedByUser);
+  const projectPath = useWorkflowStore(selectProjectPath);
 
   // Active execution sync
   const { isLoading: isSyncing, refetch } = useActiveCliExecutions(isOpen);
@@ -213,6 +215,13 @@ export function CliStreamMonitor({ isOpen, onClose }: CliStreamMonitorProps) {
       });
     }
   }, [executions, currentExecutionId, autoScroll, isUserScrolling]);
+
+  useEffect(() => {
+    setSearchQuery('');
+    setAutoScroll(true);
+    setIsUserScrolling(false);
+    setViewMode('list');
+  }, [projectPath]);
 
   // Handle scroll to detect user scrolling (with debounce for performance)
   const handleScrollRef = useRef<NodeJS.Timeout | null>(null);

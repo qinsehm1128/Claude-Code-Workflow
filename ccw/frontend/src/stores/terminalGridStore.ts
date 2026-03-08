@@ -45,6 +45,8 @@ export interface TerminalGridActions {
   assignSession: (paneId: PaneId, sessionId: string | null, cliTool?: string | null) => void;
   setFocused: (paneId: PaneId) => void;
   resetLayout: (preset: 'single' | 'split-h' | 'split-v' | 'grid-2x2') => void;
+  /** Clear workspace-scoped pane bindings while preserving layout */
+  resetWorkspaceState: () => void;
   /** Create a new CLI session and assign it to a new pane (auto-split from specified pane) */
   createSessionAndAssign: (
     paneId: PaneId,
@@ -299,6 +301,42 @@ export const useTerminalGridStore = create<TerminalGridStore>()(
             },
             false,
             'terminalGrid/resetLayout'
+          );
+        },
+
+        resetWorkspaceState: () => {
+          const state = get();
+          const paneIds = Object.keys(state.panes) as PaneId[];
+          if (paneIds.length === 0) {
+            set({ ...initialState }, false, 'terminalGrid/resetWorkspaceState');
+            return;
+          }
+
+          const nextPanes = paneIds.reduce<Record<PaneId, TerminalPaneState>>((acc, paneId) => {
+            const pane = state.panes[paneId];
+            acc[paneId] = {
+              ...pane,
+              sessionId: null,
+              cliTool: null,
+              displayMode: 'terminal',
+              filePath: null,
+            };
+            return acc;
+          }, {} as Record<PaneId, TerminalPaneState>);
+
+          const nextFocusedPaneId = state.focusedPaneId && nextPanes[state.focusedPaneId]
+            ? state.focusedPaneId
+            : paneIds[0] ?? null;
+
+          set(
+            {
+              layout: state.layout,
+              panes: nextPanes,
+              focusedPaneId: nextFocusedPaneId,
+              nextPaneIdCounter: state.nextPaneIdCounter,
+            },
+            false,
+            'terminalGrid/resetWorkspaceState'
           );
         },
 

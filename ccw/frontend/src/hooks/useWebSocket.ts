@@ -11,11 +11,13 @@ import { useCliSessionStore } from '@/stores/cliSessionStore';
 import {
   handleSessionLockedMessage,
   handleSessionUnlockedMessage,
+  useSessionManagerStore,
 } from '@/stores/sessionManagerStore';
 import {
   useExecutionMonitorStore,
   type ExecutionWSMessage,
 } from '@/stores/executionMonitorStore';
+import { useWorkflowStore, selectProjectPath } from '@/stores/workflowStore';
 import {
   OrchestratorMessageSchema,
   type OrchestratorWebSocketMessage,
@@ -28,6 +30,15 @@ import type { ToolCallKind, ToolCallExecution } from '../types/toolCall';
 const RECONNECT_DELAY_BASE = 1000; // 1 second
 const RECONNECT_DELAY_MAX = 30000; // 30 seconds
 const RECONNECT_DELAY_MULTIPLIER = 1.5;
+const WORKSPACE_SCOPED_CLI_MESSAGE_TYPES = new Set([
+  'CLI_SESSION_CREATED',
+  'CLI_SESSION_OUTPUT',
+  'CLI_SESSION_CLOSED',
+  'CLI_SESSION_PAUSED',
+  'CLI_SESSION_RESUMED',
+  'CLI_SESSION_LOCKED',
+  'CLI_SESSION_UNLOCKED',
+]);
 
 // Access store state/actions via getState() - avoids calling hooks in callbacks/effects
 // This is the zustand-recommended pattern for non-rendering store access
@@ -69,6 +80,85 @@ function getStoreState() {
     appendCliSessionOutput: cliSessions.appendOutput,
     updateCliSessionPausedState: cliSessions.updateSessionPausedState,
   };
+}
+
+function normalizeWorkspacePath(path: string | null | undefined): string | null {
+  if (typeof path !== 'string') return null;
+
+  const normalized = path.trim().replace(/\\/g, '/').replace(/\/+$/, '');
+  if (!normalized) return null;
+
+  return /^[a-z]:/i.test(normalized) ? normalized.toLowerCase() : normalized;
+}
+
+function getCurrentWorkspacePath(): string | null {
+  return normalizeWorkspacePath(selectProjectPath(useWorkflowStore.getState()));
+}
+
+function isProjectPathInCurrentWorkspace(projectPath: string | null | undefined): boolean {
+  const currentWorkspacePath = getCurrentWorkspacePath();
+  if (!currentWorkspacePath) return true;
+
+  return normalizeWorkspacePath(projectPath) === currentWorkspacePath;
+}
+
+function isPathInCurrentWorkspace(candidatePath: string | null | undefined): boolean {
+  const currentWorkspacePath = getCurrentWorkspacePath();
+  if (!currentWorkspacePath) return true;
+
+  const normalizedCandidatePath = normalizeWorkspacePath(candidatePath);
+  if (!normalizedCandidatePath) return false;
+
+  return (
+    normalizedCandidatePath === currentWorkspacePath ||
+    normalizedCandidatePath.startsWith(`${currentWorkspacePath}/`)
+  );
+}
+
+function isKnownCliSession(sessionKey: string | null | undefined): boolean {
+  if (typeof sessionKey !== 'string' || !sessionKey) return false;
+
+  if (sessionKey in useCliSessionStore.getState().sessions) {
+    return true;
+  }
+
+  return sessionKey in useSessionManagerStore.getState().terminalMetas;
+}
+
+function shouldHandleCliSessionMessage(data: { type?: string; payload?: Record<string, unknown> }): boolean {
+  const currentWorkspacePath = getCurrentWorkspacePath();
+  if (!currentWorkspacePath) return true;
+
+  const payload = data.payload ?? {};
+  if (typeof payload.projectPath === 'string') {
+    return isProjectPathInCurrentWorkspace(payload.projectPath);
+  }
+
+  if (data.type === 'CLI_SESSION_CREATED') {
+    const session = payload.session as { workingDir?: string } | undefined;
+    return isPathInCurrentWorkspace(session?.workingDir);
+  }
+
+  return isKnownCliSession(typeof payload.sessionKey === 'string' ? payload.sessionKey : null);
+}
+
+function shouldHandleExecutionWsMessage(message: ExecutionWSMessage): boolean {
+  const currentWorkspacePath = getCurrentWorkspacePath();
+  if (!currentWorkspacePath) return true;
+
+  if (typeof message.payload.projectPath === 'string') {
+    return isProjectPathInCurrentWorkspace(message.payload.projectPath);
+  }
+
+  if (message.payload.executionId in useExecutionMonitorStore.getState().activeExecutions) {
+    return true;
+  }
+
+  if (message.type === 'EXECUTION_STARTED') {
+    return isKnownCliSession(message.payload.sessionKey ?? null);
+  }
+
+  return false;
 }
 
 export interface UseWebSocketOptions {
@@ -162,6 +252,13 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
 
         // Handle CLI messages
         if (data.type?.startsWith('CLI_')) {
+          if (
+            WORKSPACE_SCOPED_CLI_MESSAGE_TYPES.has(data.type) &&
+            !shouldHandleCliSessionMessage(data as { type?: string; payload?: Record<string, unknown> })
+          ) {
+            return;
+          }
+
           switch (data.type) {
             // ========== PTY CLI Sessions ==========
             case 'CLI_SESSION_CREATED': {
@@ -293,8 +390,13 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
 
         // Handle EXECUTION messages (from orchestrator execution-in-session)
         if (data.type?.startsWith('EXECUTION_')) {
+          const executionMessage = data as ExecutionWSMessage;
+          if (!shouldHandleExecutionWsMessage(executionMessage)) {
+            return;
+          }
+
           const handleExecutionMessage = useExecutionMonitorStore.getState().handleExecutionMessage;
-          handleExecutionMessage(data as ExecutionWSMessage);
+          handleExecutionMessage(executionMessage);
           return;
         }
 

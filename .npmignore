@@ -17,6 +17,7 @@
 
 # Workflow runtime data
 .workflow/
+.ccw/
 
 # Test files
 test/
@@ -81,3 +82,6 @@ codex-lens/.coverage
 codex-lens/*.db
 codex-lens/_*.txt
 codex-lens/.workflow/
+
+# Claude skills (development only)
+.claude/skills/team-designer/

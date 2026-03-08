@@ -9,7 +9,7 @@
 // Floating panels: Issues, Queue, Inspector, Execution Monitor (overlay, mutually exclusive)
 // Fullscreen mode: Uses global isImmersiveMode to hide app chrome (Header + Sidebar)
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useIntl } from 'react-intl';
 import { Allotment } from 'allotment';
 import 'allotment/dist/style.css';
@@ -54,9 +54,13 @@ export function TerminalDashboardPage() {
     setActivePanel(null);
   }, []);
 
+  useEffect(() => {
+    setActivePanel(null);
+  }, [projectPath]);
+
   return (
     <div className={`flex flex-col overflow-hidden ${isImmersiveMode ? 'h-screen' : 'h-[calc(100vh-56px)]'}`}>
-      <AssociationHighlightProvider>
+      <AssociationHighlightProvider scopeKey={projectPath ?? 'default'}>
         {/* Global toolbar */}
         <DashboardToolbar
           activePanel={activePanel}

@@ -39,6 +39,8 @@ Full planning pipeline for document-driven development. Unlike simple context lo
 ├── explorations-manifest.json      # Exploration index
 ├── plan.json                       # Plan overview (Phase 4)
 ├── planning-context.md             # Legacy context package (Phase 0+1 combined)
+├── .process/
+│   └── doc-context-package.json    # Bundled doc_context (Phase 1.8)
 └── .task/
     ├── TASK-001.json
     └── TASK-002.json
@@ -77,6 +79,23 @@ Assess task complexity based on:
 ---
 
 ## Phase 1: Doc-Index Query
+
+### 1.0 Schema Version Check (TASK-006)
+
+Before querying doc-index, verify schema compatibility:
+
+```javascript
+const docIndex = JSON.parse(Read('.workflow/.doc-index/doc-index.json'));
+const schemaVersion = docIndex.schema_version || '0.0'; // Default for legacy
+
+if (schemaVersion !== '1.0') {
+  console.warn(`Schema version mismatch: found ${schemaVersion}, expected 1.0`);
+  console.warn('Consider running schema migration or regenerating doc-index with /ddd:scan');
+  // Continue with degraded functionality - may encounter missing fields
+}
+```
+
+**Graceful degradation**: If version mismatch detected → log warning → continue with caution (some features may not work as expected).
 
 ### 1.1 Feature Search
 
@@ -406,9 +425,9 @@ Add links{} navigation block to each TASK-*.json for improved discoverability:
 {
   "links": {
     "plan": "../plan.json",
-    "doc_index": "../../.doc-index/doc-index.json",
+    "doc_index": "../../../doc-index.json",
     "feature_maps": [
-      "../../.doc-index/feature-maps/auth.md"
+      "../../../feature-maps/auth.md"
     ],
     "related_tasks": [
       "TASK-002.json",

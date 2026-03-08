@@ -765,6 +765,37 @@ export class UvManager {
   }
 }
 
+export function getPreferredCodexLensPythonSpec(): string {
+  const override = process.env.CCW_PYTHON?.trim();
+  if (override) {
+    return override;
+  }
+
+  if (!IS_WINDOWS) {
+    return '>=3.10,<3.13';
+  }
+
+  // Prefer 3.11/3.10 on Windows because current CodexLens semantic GPU extras
+  // depend on onnxruntime 1.15.x wheels, which are not consistently available for cp312.
+  const preferredVersions = ['3.11', '3.10', '3.12'];
+  for (const version of preferredVersions) {
+    try {
+      const output = execSync(`py -${version} --version`, {
+        encoding: 'utf-8',
+        timeout: EXEC_TIMEOUTS.PYTHON_VERSION,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      if (output.includes(`Python ${version}`)) {
+        return version;
+      }
+    } catch {
+      // Try next installed version
+    }
+  }
+
+  return '>=3.10,<3.13';
+}
+
 /**
  * Create a UvManager with default settings for CodexLens
  * @param dataDir - Base data directory (defaults to ~/.codexlens)
@@ -772,9 +803,10 @@ export class UvManager {
  */
 export function createCodexLensUvManager(dataDir?: string): UvManager {
   const baseDir = dataDir ?? getCodexLensDataDir();
+  void baseDir;
   return new UvManager({
     venvPath: getCodexLensVenvDir(),
-    pythonVersion: '>=3.10,<3.13', // onnxruntime compatibility
+    pythonVersion: getPreferredCodexLensPythonSpec(),
   });
 }
 

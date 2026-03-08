@@ -1031,6 +1031,10 @@ class DeepWikiStore:
         Returns:
             Staleness score between 0.0 and 1.0.
         """
+        # Deleted symbols are maximally stale
+        if is_deleted:
+            return 1.0
+
         w_t, w_c, w_s = weights
 
         # T: Time decay factor
@@ -1045,10 +1049,7 @@ class DeepWikiStore:
         C = 1 / (1 + math.exp(-churn_raw + 3))  # sigmoid centered at 3
 
         # M: Symbol modification factor
-        if is_deleted:
-            M = 1.0
-        else:
-            M = min(1.0, max(0.0, proportion_changed))
+        M = min(1.0, max(0.0, proportion_changed))
 
         return min(1.0, w_t * T + w_c * C + w_s * M)
 

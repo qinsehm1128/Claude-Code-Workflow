@@ -68,6 +68,8 @@ export interface QueueExecutionActions {
   removeExecution: (id: string) => void;
   /** Remove all completed and failed executions */
   clearCompleted: () => void;
+  /** Reset workspace-scoped queue execution state */
+  resetState: () => void;
 }
 
 export type QueueExecutionStore = QueueExecutionState & QueueExecutionActions;
@@ -149,6 +151,10 @@ export const useQueueExecutionStore = create<QueueExecutionStore>()(
           false,
           'clearCompleted'
         );
+      },
+
+      resetState: () => {
+        set({ ...initialState }, false, 'resetState');
       },
     }),
     { name: 'QueueExecutionStore' }

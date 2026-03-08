@@ -15,7 +15,9 @@ import {
   useContext,
   useState,
   useCallback,
+  useEffect,
   useMemo,
+  useRef,
   type ReactNode,
 } from 'react';
 import type { AssociationChain } from '@/types/terminal-dashboard';
@@ -37,8 +39,22 @@ const AssociationHighlightContext = createContext<AssociationHighlightContextTyp
 
 // ========== Provider ==========
 
-export function AssociationHighlightProvider({ children }: { children: ReactNode }) {
+export function AssociationHighlightProvider({
+  children,
+  scopeKey,
+}: {
+  children: ReactNode;
+  scopeKey?: string | null;
+}) {
   const [chain, setChainState] = useState<AssociationChain | null>(null);
+  const lastScopeKeyRef = useRef(scopeKey);
+
+  useEffect(() => {
+    if (lastScopeKeyRef.current !== scopeKey) {
+      lastScopeKeyRef.current = scopeKey;
+      setChainState(null);
+    }
+  }, [scopeKey]);
 
   const setChain = useCallback((nextChain: AssociationChain | null) => {
     setChainState(nextChain);

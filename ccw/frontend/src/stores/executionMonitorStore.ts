@@ -52,7 +52,8 @@ export interface ExecutionWSMessage {
   payload: {
     executionId: string;
     flowId: string;
-    sessionKey: string;
+    sessionKey?: string;
+    projectPath?: string;
     stepId?: string;
     stepName?: string;
     totalSteps?: number;
@@ -81,6 +82,7 @@ interface ExecutionMonitorActions {
   setPanelOpen: (open: boolean) => void;
   clearExecution: (executionId: string) => void;
   clearAllExecutions: () => void;
+  resetState: () => void;
 }
 
 type ExecutionMonitorStore = ExecutionMonitorState & ExecutionMonitorActions;
@@ -116,7 +118,7 @@ export const useExecutionMonitorStore = create<ExecutionMonitorStore>()(
                     executionId,
                     flowId,
                     flowName: stepName || 'Workflow',
-                    sessionKey,
+                    sessionKey: sessionKey ?? '',
                     status: 'running',
                     totalSteps: totalSteps || 0,
                     completedSteps: 0,
@@ -317,6 +319,10 @@ export const useExecutionMonitorStore = create<ExecutionMonitorStore>()(
 
       clearAllExecutions: () => {
         set({ activeExecutions: {}, currentExecutionId: null }, false, 'clearAllExecutions');
+      },
+
+      resetState: () => {
+        set({ ...initialState }, false, 'resetState');
       },
     }),
     { name: 'ExecutionMonitorStore' }

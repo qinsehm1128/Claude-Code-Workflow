@@ -258,6 +258,20 @@ export function IssuePanel() {
     };
   }, []);
 
+  useEffect(() => {
+    if (sentTimerRef.current) clearTimeout(sentTimerRef.current);
+    if (queuedTimerRef.current) clearTimeout(queuedTimerRef.current);
+    setSelectedIds(new Set());
+    setIsSending(false);
+    setJustSent(false);
+    setExecutionMethod('skill-team-issue');
+    setIsSendConfigOpen(false);
+    setCustomPrompt('');
+    setIsAddingToQueue(false);
+    setJustQueued(false);
+    setQueueMode('write');
+  }, [projectPath]);
+
   // Sort: open/in_progress first, then by priority (critical > high > medium > low)
   const sortedIssues = useMemo(() => {
     const priorityOrder: Record<string, number> = {

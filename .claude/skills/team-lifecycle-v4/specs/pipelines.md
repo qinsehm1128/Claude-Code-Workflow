@@ -12,10 +12,10 @@
 
 ## 2. Spec-Only Pipeline
 
-**6 tasks, 3 discussion rounds**
+**6 tasks + 2 optional checkpoints, 3 discussion rounds**
 
 ```
-RESEARCH-001(+D1) -> DRAFT-001 -> DRAFT-002(+D2) -> DRAFT-003 -> DRAFT-004 -> QUALITY-001(+D3)
+RESEARCH-001(+D1) -> DRAFT-001 -> DRAFT-002(+D2) -> [CHECKPOINT-001] -> DRAFT-003 -> DRAFT-004 -> [CHECKPOINT-002] -> QUALITY-001(+D3)
 ```
 
 | Task | Role | Description | Discuss |
@@ -23,38 +23,47 @@ RESEARCH-001(+D1) -> DRAFT-001 -> DRAFT-002(+D2) -> DRAFT-003 -> DRAFT-004 -> QU
 | RESEARCH-001 | analyst | Research domain, competitors, constraints | D1: scope alignment |
 | DRAFT-001 | writer | Product brief, self-validate | - |
 | DRAFT-002 | writer | Requirements PRD | D2: requirements review |
+| CHECKPOINT-001 | supervisor | Brief↔PRD consistency, terminology alignment | - |
 | DRAFT-003 | writer | Architecture design, self-validate | - |
 | DRAFT-004 | writer | Epics & stories, self-validate | - |
+| CHECKPOINT-002 | supervisor | Full spec consistency (4 docs), quality trend | - |
 | QUALITY-001 | reviewer | Quality gate scoring | D3: readiness decision |
 
 **Checkpoint**: After QUALITY-001 -- pause for user approval before any implementation.
 
+**Supervision opt-out**: Set `supervision: false` in team-session.json to skip CHECKPOINT tasks.
+
 ## 3. Impl-Only Pipeline
 
-**4 tasks, 0 discussion rounds**
+**4 tasks + 1 optional checkpoint, 0 discussion rounds**
 
 ```
-PLAN-001 -> IMPL-001 -> TEST-001 + REVIEW-001
+PLAN-001 -> [CHECKPOINT-003] -> IMPL-001 -> TEST-001 + REVIEW-001
 ```
 
 | Task | Role | Description |
 |------|------|-------------|
 | PLAN-001 | planner | Break down into implementation steps, assess complexity |
+| CHECKPOINT-003 | supervisor | Plan↔input alignment, complexity sanity check |
 | IMPL-001 | implementer | Execute implementation plan |
 | TEST-001 | tester | Validate against acceptance criteria |
 | REVIEW-001 | reviewer | Code review |
 
 TEST-001 and REVIEW-001 run in parallel after IMPL-001 completes.
 
+**Supervision opt-out**: Set `supervision: false` in team-session.json to skip CHECKPOINT tasks.
+
 ## 4. Full-Lifecycle Pipeline
 
-**10 tasks = spec-only (6) + impl (4)**
+**10 tasks + 3 optional checkpoints = spec-only (6+2) + impl (4+1)**
 
 ```
-[Spec pipeline] -> PLAN-001(blockedBy: QUALITY-001) -> IMPL-001 -> TEST-001 + REVIEW-001
+[Spec pipeline with CHECKPOINT-001/002] -> PLAN-001(blockedBy: QUALITY-001) -> [CHECKPOINT-003] -> IMPL-001 -> TEST-001 + REVIEW-001
 ```
 
 PLAN-001 is blocked until QUALITY-001 passes and user approves the checkpoint.
+
+**Supervision opt-out**: Set `supervision: false` in team-session.json to skip all CHECKPOINT tasks.
 
 ## 5. Frontend Pipelines
 
@@ -86,7 +95,10 @@ PLAN-001 outputs a complexity assessment that determines the impl topology.
 | DRAFT-002 | writer | requirements | DRAFT-001 | D2 | P0 |
 | DRAFT-003 | writer | architecture | DRAFT-002 | - | P0 |
 | DRAFT-004 | writer | epics | DRAFT-003 | - | P0 |
-| QUALITY-001 | reviewer | readiness | DRAFT-004 | D3 | P0 |
+| QUALITY-001 | reviewer | readiness | CHECKPOINT-002 (or DRAFT-004) | D3 | P0 |
+| CHECKPOINT-001 | supervisor | checkpoint | DRAFT-002 | - | P1 |
+| CHECKPOINT-002 | supervisor | checkpoint | DRAFT-004 | - | P1 |
+| CHECKPOINT-003 | supervisor | checkpoint | PLAN-001 | - | P1 |
 | PLAN-001 | planner | planning | QUALITY-001 (or user input) | - | P0 |
 | ARCH-001 | architect | arch-detail | PLAN-001 | - | P1 |
 | ORCH-001 | orchestrator | orchestration | PLAN-001 or ARCH-001 | - | P1 |

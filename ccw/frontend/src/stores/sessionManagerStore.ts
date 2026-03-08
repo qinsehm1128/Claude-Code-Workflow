@@ -182,6 +182,14 @@ export const useSessionManagerStore = create<SessionManagerStore>()(
         );
       },
 
+      resetState: () => {
+        if (_workerRef) {
+          _workerRef.terminate();
+          _workerRef = null;
+        }
+        set({ ...initialState }, false, 'resetState');
+      },
+
       // ========== Layout Management ==========
 
       setGroupLayout: (layout: SessionLayout) => {

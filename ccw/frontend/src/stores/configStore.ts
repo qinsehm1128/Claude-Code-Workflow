@@ -96,6 +96,76 @@ const initialState: ConfigState = {
   },
 };
 
+function getBackendConfigUrl(): string | null {
+  if (typeof window === 'undefined' || !window.location?.origin) {
+    return null;
+  }
+
+  try {
+    return new URL('/api/cli/config', window.location.origin).toString();
+  } catch {
+    return null;
+  }
+}
+
+function extractCliToolsFromBackend(data: unknown): Record<string, CliToolConfig> | null {
+  const backendTools = (data as { config?: { tools?: unknown } } | null | undefined)?.config?.tools;
+  if (!backendTools || typeof backendTools !== 'object') {
+    return null;
+  }
+
+  const validTypes = ['builtin', 'cli-wrapper', 'api-endpoint'] as const;
+  const isValidType = (t: unknown): t is 'builtin' | 'cli-wrapper' | 'api-endpoint' =>
+    typeof t === 'string' && (validTypes as readonly string[]).includes(t);
+
+  const cliTools: Record<string, CliToolConfig> = {};
+  for (const [key, tool] of Object.entries(backendTools)) {
+    const typedTool = tool as Record<string, unknown>;
+    cliTools[key] = {
+      enabled: typeof typedTool.enabled === 'boolean' ? typedTool.enabled : false,
+      primaryModel: typeof typedTool.primaryModel === 'string' ? typedTool.primaryModel : '',
+      secondaryModel: typeof typedTool.secondaryModel === 'string' ? typedTool.secondaryModel : '',
+      tags: Array.isArray(typedTool.tags) ? typedTool.tags.filter((tag): tag is string => typeof tag === 'string') : [],
+      type: isValidType(typedTool.type) ? typedTool.type : 'builtin',
+      envFile: typeof typedTool.envFile === 'string' ? typedTool.envFile : undefined,
+      settingsFile: typeof typedTool.settingsFile === 'string' ? typedTool.settingsFile : undefined,
+      availableModels: Array.isArray(typedTool.availableModels)
+        ? typedTool.availableModels.filter((model): model is string => typeof model === 'string')
+        : undefined,
+    };
+  }
+
+  return Object.keys(cliTools).length > 0 ? cliTools : null;
+}
+
+let backendConfigSyncPromise: Promise<void> | null = null;
+
+export async function syncConfigStoreFromBackend(force = false): Promise<void> {
+  if (!force && backendConfigSyncPromise) {
+    return backendConfigSyncPromise;
+  }
+
+  backendConfigSyncPromise = (async () => {
+    const configUrl = getBackendConfigUrl();
+    if (!configUrl) {
+      return;
+    }
+
+    const response = await fetch(configUrl);
+    const data = await response.json();
+    const cliTools = extractCliToolsFromBackend(data);
+    if (cliTools) {
+      useConfigStore.getState().loadConfig({ cliTools });
+    }
+  })().catch((err) => {
+    console.warn('[ConfigStore] Backend config sync failed, using local state:', err);
+  }).finally(() => {
+    backendConfigSyncPromise = null;
+  });
+
+  return backendConfigSyncPromise;
+}
+
 export const useConfigStore = create<ConfigStore>()(
   devtools(
     persist(
@@ -236,41 +306,6 @@ export const useConfigStore = create<ConfigStore>()(
           userPreferences: state.userPreferences,
           featureFlags: state.featureFlags,
         }),
-        onRehydrateStorage: () => (state) => {
-          if (state) {
-            fetch('/api/cli/config')
-              .then((res) => res.json())
-              .then((data) => {
-                const backendTools = data?.config?.tools;
-                if (backendTools && typeof backendTools === 'object') {
-                  const cliTools: Record<string, CliToolConfig> = {};
-                  for (const [key, tool] of Object.entries(backendTools)) {
-                    const t = tool as any;
-                    cliTools[key] = {
-                      enabled: t.enabled ?? false,
-                      primaryModel: t.primaryModel || '',
-                      secondaryModel: t.secondaryModel || '',
-                      tags: t.tags || [],
-                      type: t.type || 'builtin',
-                      // Load additional fields from backend (fixes cross-browser config sync)
-                      envFile: t.envFile,
-                      settingsFile: t.settingsFile,
-                      availableModels: t.availableModels,
-                    };
-                  }
-                  if (Object.keys(cliTools).length > 0) {
-                    state.loadConfig({ cliTools });
-                  }
-                }
-              })
-              .catch((err) => {
-                console.warn(
-                  '[ConfigStore] Backend config sync failed, using local state:',
-                  err
-                );
-              });
-          }
-        },
       }
     ),
     { name: 'ConfigStore' }

@@ -34,6 +34,7 @@ interface CliSessionState {
   upsertSession: (session: CliSessionMeta) => void;
   removeSession: (sessionKey: string) => void;
   updateSessionPausedState: (sessionKey: string, isPaused: boolean) => void;
+  resetState: () => void;
 
   setBuffer: (sessionKey: string, buffer: string) => void;
   appendOutput: (sessionKey: string, data: string, timestamp?: number) => void;
@@ -48,12 +49,16 @@ function utf8ByteLength(value: string): number {
   return utf8Encoder.encode(value).length;
 }
 
+const initialState = {
+  sessions: {},
+  outputChunks: {},
+  outputBytes: {},
+};
+
 export const useCliSessionStore = create<CliSessionState>()(
   devtools(
     (set, get) => ({
-      sessions: {},
-      outputChunks: {},
-      outputBytes: {},
+      ...initialState,
 
       setSessions: (sessions) =>
         set((state) => {
@@ -102,6 +107,8 @@ export const useCliSessionStore = create<CliSessionState>()(
             },
           };
         }),
+
+      resetState: () => set({ ...initialState }),
 
       setBuffer: (sessionKey, buffer) =>
         set((state) => ({

@@ -93,6 +93,7 @@ interface CliStreamState extends BlockCacheState {
   isExecutionClosedByUser: (executionId: string) => boolean;
   cleanupUserClosedExecutions: (serverIds: Set<string>) => void;
   setCurrentExecution: (executionId: string | null) => void;
+  resetState: () => void;
 
   // Block cache methods
   getBlocks: (executionId: string) => LogBlockData[];
@@ -462,15 +463,18 @@ export const useCliStreamStore = create<CliStreamState>()(
 
       removeExecution: (executionId: string) => {
         set((state) => {
+          const newOutputs = { ...state.outputs };
           const newExecutions = { ...state.executions };
           const newBlocks = { ...state.blocks };
           const newLastUpdate = { ...state.lastUpdate };
           const newDeduplicationWindows = { ...state.deduplicationWindows };
+          delete newOutputs[executionId];
           delete newExecutions[executionId];
           delete newBlocks[executionId];
           delete newLastUpdate[executionId];
           delete newDeduplicationWindows[executionId];
           return {
+            outputs: newOutputs,
             executions: newExecutions,
             blocks: newBlocks,
             lastUpdate: newLastUpdate,
@@ -511,6 +515,18 @@ export const useCliStreamStore = create<CliStreamState>()(
 
       setCurrentExecution: (executionId: string | null) => {
         set({ currentExecutionId: executionId }, false, 'cliStream/setCurrentExecution');
+      },
+
+      resetState: () => {
+        set({
+          outputs: {},
+          executions: {},
+          currentExecutionId: null,
+          userClosedExecutions: new Set<string>(),
+          deduplicationWindows: {},
+          blocks: {},
+          lastUpdate: {},
+        }, false, 'cliStream/resetState');
       },
 
       // Block cache methods

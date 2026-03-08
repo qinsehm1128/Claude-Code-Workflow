@@ -120,16 +120,21 @@ For orphan files in src/:
 
 ## Phase 4: Refresh Documents (if updates were made)
 
-### 4.1 Minimal Doc Updates
+### 4.1 Delegate to /ddd:doc-refresh
 
-Only update documents that need changes:
-- `tech-registry/{slug}.md` — if code locations changed
-- `feature-maps/{slug}.md` — only if component list changed
-- `_index.md` files — only if entries were added/removed
+From Phase 2 impact tracing, collect affected component and feature IDs, then delegate:
+
+```
+Invoke /ddd:doc-refresh [-y] --minimal --components {affected_component_ids} --features {affected_feature_ids}
+```
+
+The `--minimal` flag ensures only metadata/frontmatter is updated (code locations, timestamps), skipping full content regeneration. This keeps the update lightweight.
+
+See `/ddd:doc-refresh` for full details.
 
 ### 4.2 Skip If --check-only
 
-With `--check-only`, only output the impact report without modifying any files.
+With `--check-only`, skip Phase 3 and Phase 4 entirely — only output the impact report.
 
 ## Flags
 
@@ -149,6 +154,7 @@ With `--check-only`, only output the impact report without modifying any files.
 ## Integration Points
 
 - **Input from**: Git working tree, `doc-index.json`
+- **Delegates to**: `/ddd:doc-refresh` (Phase 4.1, incremental document refresh with --minimal)
 - **Output to**: Updated `doc-index.json`, impact report
 - **Triggers**: During development, pre-commit, or periodic refresh
 - **Can chain to**: `/ddd:sync` for full post-task synchronization

@@ -85,6 +85,10 @@ export const useIssueQueueIntegrationStore = create<IssueQueueIntegrationStore>(
         );
       },
 
+      resetState: () => {
+        set({ ...initialState }, false, 'resetState');
+      },
+
       // ========== Queue Status Bridge ==========
 
       _updateQueueItemStatus: (

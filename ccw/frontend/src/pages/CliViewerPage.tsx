@@ -18,6 +18,7 @@ import {
 import { useCliStreamStore } from '@/stores/cliStreamStore';
 import { useActiveCliExecutions } from '@/hooks/useActiveCliExecutions';
 import { useCliStreamWebSocket } from '@/hooks/useCliStreamWebSocket';
+import { getStaleViewerTabs } from './cliViewerPage.utils';
 
 // ========================================
 // Constants
@@ -61,13 +62,13 @@ export function CliViewerPage() {
   const layout = useViewerLayout();
   const panes = useViewerPanes();
   const focusedPaneId = useFocusedPaneId();
-  const { initializeDefaultLayout, addTab } = useViewerStore();
+  const { initializeDefaultLayout, addTab, removeTab } = useViewerStore();
 
   // CLI Stream Store hooks
   const executions = useCliStreamStore((state) => state.executions);
 
   // Active execution sync from server
-  useActiveCliExecutions(true);
+  const { isLoading: isSyncing, isFetching: isRefreshing } = useActiveCliExecutions(true);
 
   // CENTRALIZED WebSocket handler - processes each message only ONCE globally
   useCliStreamWebSocket();
@@ -105,6 +106,18 @@ export function CliViewerPage() {
       storeAddTab(targetPaneId, executionId, `${toolShort} (${exec.mode})`);
     });
   }, [executions, panes]);
+
+  useEffect(() => {
+    if (isSyncing || isRefreshing) return;
+
+    const staleTabs = getStaleViewerTabs(panes, executions);
+    if (staleTabs.length === 0) return;
+
+    staleTabs.forEach(({ paneId, tabId, executionId }) => {
+      addedExecutionsRef.current.delete(executionId);
+      removeTab(paneId, tabId);
+    });
+  }, [executions, isRefreshing, isSyncing, panes, removeTab]);
 
   // Initialize layout if empty
   useEffect(() => {

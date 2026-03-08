@@ -4,7 +4,7 @@
 // Tree view for CLI sessions grouped by tag.
 // Sessions are automatically grouped by their tag (e.g., "gemini-143052").
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useIntl } from 'react-intl';
 import {
   ChevronRight,
@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils';
 import { useSessionManagerStore, selectSessionManagerActiveTerminalId, selectTerminalMetas } from '@/stores';
 import { useCliSessionStore } from '@/stores/cliSessionStore';
 import { useTerminalGridStore, selectTerminalGridPanes } from '@/stores/terminalGridStore';
+import { useWorkflowStore, selectProjectPath } from '@/stores/workflowStore';
 import { Badge } from '@/components/ui/Badge';
 import type { TerminalStatus } from '@/types/terminal-dashboard';
 
@@ -44,6 +45,11 @@ export function SessionGroupTree() {
   const setFocused = useTerminalGridStore((s) => s.setFocused);
 
   const [expandedTags, setExpandedTags] = useState<Set<string>>(new Set());
+  const projectPath = useWorkflowStore(selectProjectPath);
+
+  useEffect(() => {
+    setExpandedTags(new Set());
+  }, [projectPath]);
 
   const toggleTag = useCallback((tag: string) => {
     setExpandedTags((prev) => {

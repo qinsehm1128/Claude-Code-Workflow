@@ -3,7 +3,7 @@
 // ========================================
 // Redesigned CLI streaming monitor with smart parsing and message-based layout
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useIntl } from 'react-intl';
 import {
   Terminal,
@@ -11,6 +11,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useCliStreamStore, type CliOutputLine } from '@/stores/cliStreamStore';
 import { useActiveCliExecutions } from '@/hooks/useActiveCliExecutions';
+import { useWorkflowStore, selectProjectPath } from '@/stores/workflowStore';
 import { useCliStreamWebSocket } from '@/hooks/useCliStreamWebSocket';
 
 // New layout components
@@ -169,6 +170,7 @@ export function CliStreamMonitorNew({ isOpen, onClose }: CliStreamMonitorNewProp
   const executions = useCliStreamStore((state) => state.executions);
   const currentExecutionId = useCliStreamStore((state) => state.currentExecutionId);
   const removeExecution = useCliStreamStore((state) => state.removeExecution);
+  const projectPath = useWorkflowStore(selectProjectPath);
 
   // Active execution sync
   const { isLoading: isSyncing, refetch } = useActiveCliExecutions(isOpen);
@@ -220,6 +222,12 @@ export function CliStreamMonitorNew({ isOpen, onClose }: CliStreamMonitorNewProp
 
     return filtered;
   }, [messages, filter, searchQuery]);
+
+  useEffect(() => {
+    setSearchQuery('');
+    setFilter('all');
+    setViewMode('preview');
+  }, [projectPath]);
 
   // Copy message content
   const handleCopy = useCallback(async (content: string) => {
